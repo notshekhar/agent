@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.8.2] - 2026-07-03
+
+### Added
+
+- **The agent can now ask you questions mid-turn — new `ask` tool, off by default.** Toggle "ask user (questions tool)" in `/settings` (or set `"askUser": true` in `~/.loop/settings.json`) and the model can pause a turn to ask up to 4 multiple-choice questions when it genuinely needs a decision — which approach to take, what scope you meant. Each question is an arrow-key menu with a topic chip, per-option descriptions, and an automatic **Other** entry that opens a free-text editor for a custom reply; multi-select questions toggle with Enter/Space and confirm via a `done` row. Esc skips the question (and any remaining ones) and the turn simply continues — the model is told you declined and proceeds on its own judgment. The tool is never offered in `loop run` / non-interactive mode, and subagents and restricted agents don't get it unless their tool list names `ask`.
+
+### Fixed
+
+- **Esc no longer kills the whole turn while a menu or prompt is open mid-turn.** Previously the busy-turn Esc-to-interrupt handler ran before any open selector saw the key, so extension `api.ui` menus opened during a turn could never be cancelled without aborting everything. Esc now reaches the focused menu (cancel/skip); Esc during plain generation still interrupts as before.
+
 ## [0.8.1] - 2026-07-02
 
 ### Added
