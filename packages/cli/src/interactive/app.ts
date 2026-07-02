@@ -39,6 +39,7 @@ import {
     isHiddenAgent,
     DEFAULT_AGENT_NAME,
     getProjectModel,
+    setAskUserBridge,
     type ThinkingLevel,
     type ProviderId,
     type Session,
@@ -52,6 +53,7 @@ import {
     promptOnce as promptOnceShared,
     toggleSelectOnce,
 } from "./selectors";
+import { createAskUserBridge } from "./ask-user";
 import { createCommandContext } from "./command-handlers";
 import { createInputHandler } from "./input-handler";
 import { isEventTraceEnabled, setEventTraceSink, toggleEventTrace } from "./debug-log";
@@ -333,6 +335,10 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         requestRender: () => tui.requestRender(),
     });
 
+    // Ask tool UI bridge — registering it is also what makes runTurn offer the
+    // tool at all (print mode never registers, so no gate needed there).
+    setAskUserBridge(createAskUserBridge({ host: selectorHost, editorTheme }));
+
     async function ensureSession(): Promise<Session> {
         if (state.session) return state.session;
         state.session = await manager.create({ cwd: state.cwd, provider: state.provider, model: state.modelId });
@@ -428,6 +434,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         showWorking,
         hideWorking,
         showSelector,
+        getSelectorDepth: () => selectorDepth,
         selectOnce,
         searchOnce,
         toggleOnce,

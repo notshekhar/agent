@@ -149,7 +149,11 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
             tui.requestRender();
             return { consume: true };
         }
-        if (isEsc(data) && state.busy) {
+        // Esc aborts the running turn — but not while a selector/prompt owns
+        // the input (e.g. the ask tool's question UI, extension api.ui panels):
+        // there Esc must reach the focused component (skip/cancel), not kill
+        // the whole turn.
+        if (isEsc(data) && state.busy && deps.getSelectorDepth() === 0) {
             state.abort.abort();
             state.abort = new AbortController();
             state.busy = false;

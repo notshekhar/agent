@@ -32,6 +32,7 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
     const BOOLEAN_DEFAULTS: Record<string, boolean> = {
         subagents: true,
         recap: false,
+        askUser: false,
         clock: false,
         reminders: true,
         mcp: true,
@@ -70,6 +71,11 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                         value: "recap",
                         label: `recap: ${boolSetting("recap") ? "on" : "off"}`,
                         description: "short AI-generated recap under responses that changed files",
+                    },
+                    {
+                        value: "askUser",
+                        label: `ask user (questions tool): ${boolSetting("askUser") ? "on" : "off"}`,
+                        description: "let the agent pause mid-turn to ask you multiple-choice questions",
                     },
                     {
                         value: "clock",

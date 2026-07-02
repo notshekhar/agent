@@ -5,7 +5,7 @@ import { getModel, parseModelId } from "../providers";
 import { getCatalog } from "../catalog";
 import { getSetting } from "../settings";
 import { effectiveSdkProvider } from "../auth";
-import { createTools } from "../tools";
+import { createAskTool, createTools, isAskUserAvailable } from "../tools";
 import { buildSystemPrompt } from "./system-prompt";
 import { getAgentPrompt, getAgentTools, isReadOnlyBashAgent, listAgents } from "./agents";
 import { loadWorkspaceContext } from "./context";
@@ -420,6 +420,15 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
             workspaceContext: workspaceContext.text,
             skillsPrompt: skills.promptBlock,
         });
+    }
+    // Ask tool: opt-in `askUser` setting (default off) AND a live interactive
+    // UI bridge (registered by the CLI at startup; absent in print mode, so
+    // the tool is never offered there). Restricted agents opt in by naming
+    // "ask" in their tool list. Added AFTER the task tool so subagents never
+    // inherit it via parentTools.
+    const askEnabled = getSetting("askUser") === true && isAskUserAvailable();
+    if (askEnabled && (!allowedTools?.length || allowedTools.includes("ask"))) {
+        toolsForTurn.ask = createAskTool({ abortSignal });
     }
     // TurnContext carries which agent/model/tools are running. It's handed to
     // every turn-middleware seam (so an extension can scope by ctx.agent — e.g.

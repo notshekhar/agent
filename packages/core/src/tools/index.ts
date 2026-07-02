@@ -54,6 +54,18 @@ export {
 // Resolves the bundled/downloaded `fd` & `rg` binaries — also used by the CLI to
 // power @-mention fuzzy file search in the editor's autocomplete.
 export { ensureTool, getToolPath } from "./utils/tools-manager";
+// ask tool: not part of createTools/TOOL_NAMES — conditionally attached in
+// runTurn (like task), gated on the askUser setting + a live UI bridge.
+export { askInputSchema, createAskTool, formatAskAnswers, type AskToolContext } from "./ask";
+export {
+    getAskUserBridge,
+    isAskUserAvailable,
+    setAskUserBridge,
+    type AskAnswer,
+    type AskOption,
+    type AskQuestion,
+    type AskUserBridge,
+} from "./ask-bridge";
 
 export {
     createBashTool,

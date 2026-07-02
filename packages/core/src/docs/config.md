@@ -18,6 +18,11 @@ All config files are plain JSON — edit them with the normal edit/write tools.
 Unknown keys are preserved, so only touch the keys you mean to change. Always
 read the existing file first (the edit tool requires it) and keep valid JSON.
 
+Boolean toggles live at the top level of `~/.loop/settings.json` and can also
+be flipped via `/settings`. Example: `"askUser": true` enables the `ask` tool,
+which lets the agent pause mid-turn and ask you multiple-choice questions
+(default off; interactive TUI only — never offered in print mode).
+
 ## Hard reload — REQUIRED after any config change
 
 Config is read into memory at startup. After you edit any file above, the change

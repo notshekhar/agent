@@ -19,6 +19,9 @@ export interface LoopSettings {
     subagents?: boolean;
     /** Post-turn recap under responses that wrote/edited files. Default off. */
     recap?: boolean;
+    /** Let the agent pause mid-turn to ask multiple-choice questions (ask
+     * tool). Default OFF; interactive TUI only — never offered in print mode. */
+    askUser?: boolean;
     /** Live date + hh:mm:ss clock in the footer. Default off. */
     clock?: boolean;
     /** Fire /reminder alerts. Default on; set false to mute reminders entirely. */
