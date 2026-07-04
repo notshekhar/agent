@@ -4,6 +4,7 @@ import type { ChatHistory } from "./components/chat-history";
 import type { AppState } from "./state";
 import type { SubagentStream } from "./subagent-stream";
 import { formatError } from "./format-error";
+import { parsePartialToolInput } from "./ui/streaming-input";
 
 type TurnEmitter = ReturnType<typeof asTurnEmitter>;
 
@@ -40,17 +41,34 @@ export function wireTurnEmitter(emitter: TurnEmitter, deps: TurnEmitterDeps): vo
         history.appendAssistantThinking(t, turnProvider, state.modelId);
         tui.requestRender();
     });
+    // Raw JSON input text of still-streaming write calls, keyed by toolCallId —
+    // re-parsed on each delta so the box can show the path + content live.
+    const writeInputBuffers = new Map<string, string>();
+
     // The call has begun streaming its input: show the pending box immediately so
     // a large-input tool (e.g. write's file content) doesn't pop in only once
     // complete. The full `tool-call` below fills in the args on the same box.
     emitter.on("tool-input-start", (part: { toolName?: string; toolCallId?: string }) => {
         if (!part.toolCallId) return;
+        if (part.toolName === "write") writeInputBuffers.set(part.toolCallId, "");
         history.addToolCall(part.toolName ?? "tool", part.toolCallId, {});
         showWorking(`Running ${part.toolName}…`);
         tui.requestRender();
     });
+    // Live write rendering: grow the buffered input and re-extract its string
+    // fields, so the pending box fills with the file content as it streams.
+    emitter.on("tool-input-delta", (part: { toolCallId?: string; delta: string }) => {
+        const id = part.toolCallId ?? "";
+        const buffer = writeInputBuffers.get(id);
+        if (buffer === undefined || !part.delta) return;
+        const grown = buffer + part.delta;
+        writeInputBuffers.set(id, grown);
+        history.updateToolInputStream(id, parsePartialToolInput(grown));
+        tui.requestRender();
+    });
     emitter.on("tool-call", (part: { toolName?: string; input?: unknown; toolCallId?: string }) => {
         const id = part.toolCallId ?? `${part.toolName}-${Date.now()}`;
+        writeInputBuffers.delete(id);
         history.addToolCall(part.toolName ?? "tool", id, (part.input ?? {}) as Record<string, unknown>);
         showWorking(`Running ${part.toolName}…`);
         tui.requestRender();
@@ -70,6 +88,7 @@ export function wireTurnEmitter(emitter: TurnEmitter, deps: TurnEmitterDeps): vo
     // the error and may try something else.
     emitter.on("tool-error", (e: { toolCallId?: string; error: unknown }) => {
         const id = e.toolCallId ?? "";
+        writeInputBuffers.delete(id);
         subagentStream.clear(id);
         history.addToolResult(id, formatError(e.error), true);
         showWorking("Generating");

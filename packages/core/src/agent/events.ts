@@ -16,6 +16,10 @@ export interface TurnEvents {
      * tool box as pending immediately, so a tool with a large input (e.g. write's
      * file content) doesn't appear to pop in late. */
     "tool-input-start": { toolName?: string; toolCallId?: string };
+    /** A raw fragment of the streaming tool-call input (JSON text). Follows
+     * `tool-input-start`; lets the UI render a large input (e.g. write's file
+     * content) live instead of waiting for the complete `tool-call`. */
+    "tool-input-delta": { toolCallId?: string; delta: string };
     "tool-call": { toolName?: string; input?: unknown; toolCallId?: string };
     "tool-result": { toolCallId?: string; output?: unknown };
     /** A tool's execute threw (or timed out). The error rides back to the model
@@ -51,6 +55,7 @@ export const TURN_EVENT_NAMES = [
     "reasoning-delta",
     "reasoning-end",
     "tool-input-start",
+    "tool-input-delta",
     "tool-call",
     "tool-result",
     "tool-error",

@@ -202,6 +202,11 @@ export class ChatHistory extends Container {
         this.toolComponents.get(toolCallId)?.updateStatus(status);
     }
 
+    /** Live input fields of a still-streaming call (write: path + content so far). */
+    updateToolInputStream(toolCallId: string, fields: Record<string, string>): void {
+        this.toolComponents.get(toolCallId)?.updateStreamingInput(fields);
+    }
+
     /** Live partial output (subagent streaming) — keeps the component pending. */
     updateToolProgress(toolCallId: string, text: string): void {
         this.toolComponents.get(toolCallId)?.updateResult({ content: [{ type: "text", text }], isError: false }, true);

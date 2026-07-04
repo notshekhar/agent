@@ -23,6 +23,8 @@ export class ToolExecutionComponent extends Container {
     private result?: ToolResultLike;
     /** Live status shown in the title while partial (subagent: current tool). */
     private statusText = "";
+    /** Live input while the call's args stream (write: file content so far). */
+    private streamingContent = "";
 
     constructor(
         private toolName: string,
@@ -45,7 +47,20 @@ export class ToolExecutionComponent extends Container {
     updateResult(result: ToolResultLike, isPartial = false): void {
         this.result = result;
         this.isPartial = isPartial;
-        if (!isPartial) this.statusText = "";
+        if (!isPartial) {
+            this.statusText = "";
+            this.streamingContent = "";
+        }
+        this.updateDisplay();
+        this.tui.requestRender();
+    }
+
+    /** Live input fields while the call's args stream in (before `tool-call`):
+     * the path fills the title as soon as it's known, the content renders as a
+     * growing tail under it. */
+    updateStreamingInput(fields: Record<string, string>): void {
+        if (fields.path && this.args.path !== fields.path) this.args = { ...this.args, path: fields.path };
+        this.streamingContent = fields.content ?? "";
         this.updateDisplay();
         this.tui.requestRender();
     }
@@ -91,6 +106,14 @@ export class ToolExecutionComponent extends Container {
         if (inputLines) {
             this.box.addChild(new Spacer(1));
             this.box.addChild(new Text(inputLines.join("\n"), 0, 0));
+        }
+
+        // Streaming write: the file content renders live (tail-capped) while
+        // the input is still arriving; the diff replaces it once done.
+        const streaming = this.streamingLines();
+        if (streaming) {
+            this.box.addChild(new Spacer(1));
+            this.box.addChild(new Text(streaming.join("\n"), 0, 0));
         }
 
         const output = this.outputText();
@@ -156,6 +179,23 @@ export class ToolExecutionComponent extends Container {
     private readLineRange(): string {
         const range = readLineRangeText(this.args);
         return range ? theme.fg("warning", range) : "";
+    }
+
+    /** Streamed input content while partial: the last few lines (or all of them
+     * when expanded), syntax-highlighted by the target path. Only the shown tail
+     * is highlighted — the full content may be large and this runs per delta. */
+    private streamingLines(): string[] | null {
+        if (!this.isPartial || this.result || !this.streamingContent) return null;
+        const raw = this.streamingContent.split("\n");
+        const truncated = !this.expanded && raw.length > COLLAPSED_LINES;
+        const shown = truncated ? raw.slice(-COLLAPSED_LINES) : raw;
+        const lang = getLanguageFromPath(String(this.args.path ?? ""));
+        const lines = lang ? highlightCode(shown.join("\n"), lang) : shown.map((l) => theme.fg("toolOutput", l));
+        if (!truncated) return lines;
+        return [
+            theme.fg("dim", `… +${raw.length - COLLAPSED_LINES} earlier lines (${EXPAND_HINT} to expand)`),
+            ...lines,
+        ];
     }
 
     /** sql: the query, highlighted as a SQL block under the title. */

@@ -692,6 +692,12 @@ Write complete prompts: the subagent knows nothing about this conversation — i
                         toolCallId: (part as { toolCallId?: string }).toolCallId,
                     });
                     break;
+                case "tool-input-delta":
+                    emitter.emit("tool-input-delta", {
+                        toolCallId: (part as { toolCallId?: string }).toolCallId,
+                        delta: (part as { inputTextDelta?: string }).inputTextDelta ?? "",
+                    });
+                    break;
                 case "tool-call":
                     if (part.toolName) toolsUsed.push(part.toolName);
                     emitter.emit("tool-call", part);
