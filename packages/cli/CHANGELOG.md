@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.8.4] - 2026-07-04
+
+### Fixed
+
+- **Resumed sessions now show their true historical cost.** Previously the session total was re-priced on every resume against whatever model catalog the current machine had — so resuming on a laptop that didn't know the model (or after switching to a cheaper/free one) could show `$0.00` for a session that really cost money. Every assistant turn and subagent run now records the USD it was actually billed at, with the full split (input / output / cache read / cache write), and resume reads that instead of re-pricing. Old sessions without the stamp keep the previous catalog-based fallback, so nothing breaks — their totals just stay as accurate as before, while everything from this version on is exact forever, on any machine.
+
 ## [0.8.3] - 2026-07-04
 
 ### Added
