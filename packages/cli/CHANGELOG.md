@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.8.3] - 2026-07-04
+
+### Added
+
+- **Amazon Bedrock support — zero login.** If your machine is signed into AWS (aws CLI profiles, SSO, or env keys), the new `bedrock` provider appears automatically in `/provider` and `/model` with the models **your account can actually invoke** in the region — cross-region inference profiles (`us.anthropic.claude-…`) plus on-demand foundation models, fetched live from Bedrock and cached for an hour. Pricing and context windows are inherited from the underlying vendor model, so cost tracking stays real for Claude/Mistral/etc. Region comes from `AWS_REGION` / `AWS_DEFAULT_REGION` / your profile (override with `LOOP_BEDROCK_REGION`); `AWS_BEARER_TOKEN_BEDROCK` API keys work too. `/login bedrock` verifies the setup and tells you what's wrong when it isn't (no credentials, no Bedrock access in the region, no model access granted). Nothing is copied into loop's auth store — inference uses the standard AWS credential chain, so EC2 instance roles also work.
+- **Custom providers can now authenticate however your gateway does.** The `/login` custom wizard asks how the endpoint authenticates: classic **API key** (vendor header), **Bearer token** (always `Authorization: Bearer` — gateways with their own tokens), **environment variable** (read at request time, never stored on disk), **key helper command** (shell command whose stdout is the key — vault/SSO short-lived tokens, cached 5 minutes and re-run on 401, Claude Code `apiKeyHelper` semantics), or **none** (headers-only / mTLS / open endpoints). Model discovery uses the same resolved credential, and legacy flat `apiKey` configs keep working unchanged.
+- **`write` streams into its tool box live.** The file path and content now render as the model streams them — a big file write shows a growing, syntax-highlighted tail instead of a silent pending box that pops in only when the call completes.
+
+### Changed
+
+- **The `ask` tool asks better questions.** Its guidance now spells out when a question is warranted (a decision only you can make) versus what it must resolve itself (facts in the code, conventional defaults), and it always puts its recommended option first, labeled " (Recommended)".
+
 ## [0.8.2] - 2026-07-03
 
 ### Added
