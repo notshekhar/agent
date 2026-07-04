@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.8.5] - 2026-07-04
+
+### Added
+
+- **Subagents can run on their own model — including a different provider.** Give any agent a `model:` line in `~/.loop/agents/<name>.md` (or set it from `/agents` → the agent → `model:`), and every task-tool run of that agent uses it: drive the session on a big model, fan exploration out to a cheap fast one. A new `subagentModel` setting in `/settings` sets the default for all subagents that don't pick their own; unset = inherit the parent's model, exactly as before. Built-ins (`plan`, `data-analyst`, `default`) accept a model via their override file too. Fail-soft by design: if the configured model isn't in the catalog or its provider isn't logged in, the subagent runs on the parent's model and says so at the top of its task box — a stale agent file never bricks delegation. Cost tracking follows the model that actually ran.
+- **Bash approval prompts — an opt-in permission gate, like Claude Code's.** Turn on `bash approval` in `/settings` (default off) and every bash command pauses for you first: **allow once**, **always allow**, or **deny** (Esc denies). "Always allow" remembers a scoped pattern — `git status`, `npm install`, bare `ls` — in a new `bashAllow` list you can manage from `/settings` → bash allowlist. Matching reuses the denylist's command parser, so a compound like `ls && rm -rf /` still prompts even with `ls` approved, and `sudo`/`sh -c`/`$( )` can't smuggle a command past you. The denylist still wins over everything; a deny tells the model you declined this command this time, so it continues without hunting for workarounds. Interactive mode only — `loop run` and RPC behave exactly as before. Subagent bash calls go through the same gate.
+- **Custom providers can sign in with OAuth.** The `/login` custom wizard gains an **OAuth (browser sign-in)** option for gateways fronted by an authorization server: endpoints are discovered from the base URL (RFC 8414 / OIDC well-known), the client registers itself dynamically (RFC 7591) when allowed, and the PKCE browser flow falls back to paste-the-code for headless/remote sessions. Tokens live in the auth store and refresh automatically — including on servers that omit `refresh_token` from refresh responses, which previously forced a re-login every launch. Explicit `issuer`/endpoints/`clientId`/`scopes` remain available as escape hatches for servers without discovery or anonymous registration.
+- **`/alias` — your own shorthand commands.** `/alias s /model claude-sonnet-5` makes `/s` do exactly that; `/alias` lists, `/alias rm <name>` deletes. Aliases persist in settings, expand with any extra arguments appended, can chain into other aliases (cycles are cut off safely), and can never shadow a real command — if a later version claims your alias's name, the built-in wins.
+
 ## [0.8.4] - 2026-07-04
 
 ### Fixed
