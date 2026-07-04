@@ -1,5 +1,7 @@
 import { authStore } from "./storage";
 import { clearHelperCache } from "./custom-auth";
+import { customOAuthLogin } from "./oauth/custom";
+import { clearCustomOAuthCreds, getCustomOAuthCreds, saveCustomOAuthCreds } from "./custom-oauth-store";
 import { login as xaiLogin, refresh as xaiRefresh } from "./xai-oauth";
 import { XaiErrorCode, XaiOAuthError } from "./errors";
 import { getOAuthProvider } from "./oauth/registry";
@@ -212,11 +214,30 @@ export function saveCustomProvider(config: CustomProviderConfig): void {
     if (!getActiveProvider()) setActiveProvider(`custom:${config.name}`);
 }
 
+/**
+ * Browser sign-in for a custom provider configured with `auth.kind: "oauth"`.
+ * Persists the resulting session (access + refresh + endpoint/client) so the
+ * login survives restarts; requests refresh it automatically from then on.
+ */
+export async function loginCustomProviderOAuth(
+    cfg: Pick<CustomProviderConfig, "name" | "baseURL" | "auth">,
+    cb: OAuthLoginCallbacks,
+): Promise<void> {
+    const creds = await customOAuthLogin(cfg, cb);
+    saveCustomOAuthCreds(cfg.name, creds);
+}
+
+/** True when a custom oauth provider has a stored session. */
+export function hasCustomOAuthSession(name: string): boolean {
+    return getCustomOAuthCreds(name) != null;
+}
+
 export function deleteCustomProvider(name: string): void {
     const all = readCustom();
     delete all[name];
     writeCustom(all);
     clearHelperCache(name);
+    clearCustomOAuthCreds(name);
     if (getActiveProvider() === `custom:${name}`) {
         authStore.set("active", null);
     }

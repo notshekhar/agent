@@ -8,6 +8,8 @@
  */
 import { execFile } from "node:child_process";
 import type { CustomProviderAuth, CustomProviderConfig, CustomProviderSdk } from "../types";
+import { customOAuthRefresh } from "./oauth/custom";
+import { getCustomOAuthCreds, saveCustomOAuthCreds } from "./custom-oauth-store";
 
 /** The subset of CustomProviderConfig that credential resolution reads. */
 export type CustomAuthConfig = Pick<CustomProviderConfig, "name" | "sdk" | "apiKey" | "auth" | "headers">;
@@ -29,6 +31,8 @@ export function describeCustomAuth(auth: CustomProviderAuth): string {
             return `env $${auth.var}`;
         case "helper":
             return `helper: ${auth.command}`;
+        case "oauth":
+            return `oauth${auth.oauth?.issuer ? `: ${auth.oauth.issuer}` : " (browser sign-in)"}`;
         case "none":
             return "no credential";
     }
@@ -110,6 +114,16 @@ export async function resolveCustomCredential(
             helperCache.set(cfg.name, { key, at: Date.now() });
             return key;
         }
+        case "oauth": {
+            const creds = getCustomOAuthCreds(cfg.name);
+            if (!creds) {
+                throw new Error(`custom provider "${cfg.name}": not signed in — run /login and re-add the provider`);
+            }
+            if (!opts.force && Date.now() < creds.expires) return creds.access;
+            const fresh = await customOAuthRefresh(creds);
+            saveCustomOAuthCreds(cfg.name, fresh);
+            return fresh.access;
+        }
         case "none":
             return null;
     }
@@ -117,12 +131,14 @@ export async function resolveCustomCredential(
 
 /** Where the resolved credential goes for this auth kind. */
 function credentialHeader(auth: CustomProviderAuth, sdk: CustomProviderSdk, cred: string): [string, string] {
-    return auth.kind === "bearer" ? ["authorization", `Bearer ${cred}`] : authHeaderForSdk(sdk, cred);
+    // OAuth access tokens are bearer tokens by definition, whatever the sdk.
+    if (auth.kind === "bearer" || auth.kind === "oauth") return ["authorization", `Bearer ${cred}`];
+    return authHeaderForSdk(sdk, cred);
 }
 
 /** True when re-resolving after a 401 can yield a different credential. */
 function isDynamicAuth(auth: CustomProviderAuth): boolean {
-    return auth.kind === "helper";
+    return auth.kind === "helper" || auth.kind === "oauth";
 }
 
 /** Bare fetch shape — no Bun `preconnect` property; providers/index.ts wraps

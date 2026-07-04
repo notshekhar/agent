@@ -32,7 +32,8 @@ type MiscHandlers = Pick<
 >;
 
 export function createMiscHandlers(state: AppState, deps: AppDeps): MiscHandlers {
-    const { tui, history, tracker, manager, editor, selectOnce, searchOnce, promptOnce, cleanExit } = deps;
+    const { tui, history, tracker, manager, editor, selectOnce, searchOnce, promptOnce, cleanExit, refreshCommands } =
+        deps;
     const loginDeps = { tui, history, selectOnce, searchOnce, promptOnce };
 
     const fmtTok = (n: number) =>
@@ -79,6 +80,7 @@ export function createMiscHandlers(state: AppState, deps: AppDeps): MiscHandlers
     return {
         emit(event, data) {
             if (event === "help" || event === "error") history.addSystem(String(data ?? ""));
+            if (event === "commands-changed") refreshCommands();
             if (event === "inject-prompt") state.pendingInjection = String(data ?? "");
             if (event === "inject-skill") {
                 const text = String(data ?? "");

@@ -9,6 +9,7 @@ import {
     listAuthorizedProviders,
     listCustomProviders,
     loginApiKey,
+    loginCustomProviderOAuth,
     loginOAuth,
     loginXaiOAuth,
     logout,
@@ -84,7 +85,7 @@ async function pickProvider(deps: LoginDeps): Promise<ProviderId | null> {
  * Auth-method step of the custom wizard: pick how the endpoint authenticates,
  * then the one prompt that method needs. Null = user backed out (Esc).
  */
-async function pickCustomAuth(deps: LoginDeps, name: string): Promise<CustomProviderAuth | null> {
+async function pickCustomAuth(deps: LoginDeps, name: string, baseURL: string): Promise<CustomProviderAuth | null> {
     const { tui, history, promptOnce, selectOnce } = deps;
     const pick = await selectOnce(
         [
@@ -97,6 +98,11 @@ async function pickCustomAuth(deps: LoginDeps, name: string): Promise<CustomProv
                 value: "bearer",
                 label: "Bearer token",
                 description: "Always sent as Authorization: Bearer — gateways/proxies with their own tokens",
+            },
+            {
+                value: "oauth",
+                label: "OAuth / SSO (sign in with browser)",
+                description: "Endpoints discovered from the base URL — one login, tokens refresh automatically",
             },
             {
                 value: "env",
@@ -148,6 +154,30 @@ async function pickCustomAuth(deps: LoginDeps, name: string): Promise<CustomProv
             if (!command) return null;
             return { kind: "helper", command };
         }
+        case "oauth": {
+            history.addSystem(
+                `Issuer URL for endpoint discovery — Enter to discover from ${baseURL} (.well-known metadata).`,
+            );
+            tui.requestRender();
+            const issuer = (await promptOnce("issuer (optional): ")).trim();
+            history.addSystem("Client ID — Enter to auto-register (needs dynamic client registration support).");
+            tui.requestRender();
+            const clientId = (await promptOnce("clientId (optional): ")).trim();
+            let clientSecret = "";
+            if (clientId) clientSecret = (await promptOnce("clientSecret (optional): ")).trim();
+            history.addSystem(
+                'Scopes, space-separated — Enter for none. Tip: "offline_access" is often required for refresh tokens.',
+            );
+            tui.requestRender();
+            const scopes = (await promptOnce("scopes (optional): ")).trim().split(/\s+/).filter(Boolean);
+            const oauth = {
+                ...(issuer ? { issuer } : {}),
+                ...(clientId ? { clientId } : {}),
+                ...(clientSecret ? { clientSecret } : {}),
+                ...(scopes.length ? { scopes } : {}),
+            };
+            return { kind: "oauth", ...(Object.keys(oauth).length ? { oauth } : {}) };
+        }
         default:
             return { kind: "none" };
     }
@@ -193,8 +223,36 @@ async function loginCustom(deps: LoginDeps): Promise<StepResult> {
     const baseURL = (await promptOnce("baseURL: ")).trim();
     if (!baseURL) return "back";
 
-    const auth = await pickCustomAuth(deps, name);
+    const auth = await pickCustomAuth(deps, name, baseURL);
     if (!auth) return "back";
+
+    // OAuth signs in now — model discovery below already needs the token, and
+    // the stored session means this is the last time the browser opens.
+    if (auth.kind === "oauth") {
+        try {
+            await loginCustomProviderOAuth(
+                { name, baseURL, auth },
+                {
+                    onAuth: ({ url, instructions }) => presentAuth(deps, `custom:${name}`, url, instructions),
+                    onPrompt: async ({ message }) => {
+                        history.addSystem(message);
+                        tui.requestRender();
+                        return promptOnce("");
+                    },
+                    onProgress: (msg) => {
+                        history.addSystem(msg);
+                        tui.requestRender();
+                    },
+                },
+            );
+            history.addSystem(chalk.green(`✓ signed in to ${name}.`));
+            tui.requestRender();
+        } catch (err) {
+            history.addError(`OAuth sign-in failed: ${(err as Error).message}`);
+            tui.requestRender();
+            return "back";
+        }
+    }
 
     history.addSystem('Extra headers, optional. Format: "X-Header: value; Other-Header: value". Enter to skip.');
     tui.requestRender();

@@ -47,15 +47,40 @@ export type CustomProviderSdk = "openai" | "anthropic" | "google" | "openai-comp
  * in the vendor header; `bearer` forces `Authorization: Bearer` (gateways);
  * `env` reads the key from the environment at request time (never stored);
  * `helper` runs a shell command whose stdout is the key (vault/SSO short-lived
- * tokens — cached for ttlMs, re-run on 401); `none` is for headers-only/mTLS/
- * open endpoints. Legacy configs without `auth` normalize from the flat apiKey.
+ * tokens — cached for ttlMs, re-run on 401); `oauth` is a browser sign-in
+ * (PKCE) against the gateway's authorization server — tokens live in the auth
+ * store and refresh automatically, so one login survives restarts; `none` is
+ * for headers-only/mTLS/open endpoints. Legacy configs without `auth`
+ * normalize from the flat apiKey.
  */
 export type CustomProviderAuth =
     | { kind: "apikey"; apiKey: string }
     | { kind: "bearer"; token: string }
     | { kind: "env"; var: string }
     | { kind: "helper"; command: string; ttlMs?: number }
+    | { kind: "oauth"; oauth?: CustomOAuthOptions }
     | { kind: "none" };
+
+/**
+ * Config-driven OAuth for a custom provider. Everything is optional: with no
+ * options the endpoints are discovered from the provider baseURL (RFC 8414 /
+ * OIDC well-known) and the client is registered dynamically (RFC 7591). Fields
+ * exist as escape hatches for servers that don't support discovery or
+ * anonymous registration.
+ */
+export interface CustomOAuthOptions {
+    /** Authorization-server issuer to discover against; default: the baseURL. */
+    issuer?: string;
+    /** Explicit endpoints — skips discovery entirely when both are set. */
+    authorizationEndpoint?: string;
+    tokenEndpoint?: string;
+    /** Pre-registered client. Omit to use dynamic client registration. */
+    clientId?: string;
+    clientSecret?: string;
+    /** Scopes to request (include "offline_access" on OIDC servers that gate
+     * refresh tokens behind it — that's what keeps you signed in). */
+    scopes?: string[];
+}
 
 export interface CustomProviderConfig {
     name: string;
