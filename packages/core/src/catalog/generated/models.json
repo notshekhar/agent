@@ -200,26 +200,6 @@
     ],
     "available": true
   },
-  "anthropic/claude-3-5-haiku-20241022": {
-    "id": "anthropic/claude-3-5-haiku-20241022",
-    "provider": "anthropic",
-    "name": "Claude Haiku 3.5",
-    "contextWindow": 200000,
-    "maxOutput": 8192,
-    "cost": {
-      "input": 0.8,
-      "output": 4,
-      "cacheRead": 0.08,
-      "cacheWrite": 1
-    },
-    "reasoning": false,
-    "modalities": [
-      "text",
-      "image",
-      "pdf"
-    ],
-    "available": true
-  },
   "anthropic/claude-opus-4-0": {
     "id": "anthropic/claude-opus-4-0",
     "provider": "anthropic",
@@ -311,6 +291,26 @@
       "output": 25,
       "cacheRead": 0.5,
       "cacheWrite": 6.25
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "available": true
+  },
+  "anthropic/claude-sonnet-5": {
+    "id": "anthropic/claude-sonnet-5",
+    "provider": "anthropic",
+    "name": "Claude Sonnet 5",
+    "contextWindow": 1000000,
+    "maxOutput": 128000,
+    "cost": {
+      "input": 2,
+      "output": 10,
+      "cacheRead": 0.2,
+      "cacheWrite": 2.5
     },
     "reasoning": true,
     "modalities": [
@@ -633,26 +633,6 @@
       "cacheWrite": 3.75
     },
     "reasoning": true,
-    "modalities": [
-      "text",
-      "image",
-      "pdf"
-    ],
-    "available": true
-  },
-  "anthropic/claude-3-5-haiku-latest": {
-    "id": "anthropic/claude-3-5-haiku-latest",
-    "provider": "anthropic",
-    "name": "Claude Haiku 3.5 (latest)",
-    "contextWindow": 200000,
-    "maxOutput": 8192,
-    "cost": {
-      "input": 0.8,
-      "output": 4,
-      "cacheRead": 0.08,
-      "cacheWrite": 1
-    },
-    "reasoning": false,
     "modalities": [
       "text",
       "image",
@@ -2450,10 +2430,10 @@
     "contextWindow": 1000000,
     "maxOutput": 128000,
     "cost": {
-      "input": 3,
-      "output": 15,
-      "cacheRead": 0.3,
-      "cacheWrite": 3.75
+      "input": 2,
+      "output": 10,
+      "cacheRead": 0.2,
+      "cacheWrite": 2.5
     },
     "reasoning": true,
     "modalities": [
@@ -2488,7 +2468,7 @@
     "provider": "openrouter",
     "name": "Kimi K2 0711",
     "contextWindow": 131072,
-    "maxOutput": 32768,
+    "maxOutput": 100352,
     "cost": {
       "input": 0.57,
       "output": 2.3,
@@ -2525,11 +2505,11 @@
     "provider": "openrouter",
     "name": "Kimi K2 Thinking",
     "contextWindow": 262144,
-    "maxOutput": 262144,
+    "maxOutput": 100352,
     "cost": {
       "input": 0.6,
       "output": 2.5,
-      "cacheRead": 0,
+      "cacheRead": 0.15,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -2543,7 +2523,7 @@
     "provider": "openrouter",
     "name": "Kimi K2.5",
     "contextWindow": 256000,
-    "maxOutput": 262144,
+    "maxOutput": 256000,
     "cost": {
       "input": 0.375,
       "output": 2.025,
@@ -2566,7 +2546,7 @@
     "cost": {
       "input": 0.66,
       "output": 3.41,
-      "cacheRead": 0.144,
+      "cacheRead": 0.14,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -2581,7 +2561,7 @@
     "provider": "openrouter",
     "name": "Kimi K2 0905",
     "contextWindow": 262144,
-    "maxOutput": 262144,
+    "maxOutput": 100352,
     "cost": {
       "input": 0.6,
       "output": 2.5,
@@ -2659,8 +2639,8 @@
     "id": "openrouter/google/gemini-3.1-flash-image",
     "provider": "openrouter",
     "name": "Nano Banana 2 (Gemini 3.1 Flash Image)",
-    "contextWindow": 65536,
-    "maxOutput": 65536,
+    "contextWindow": 131072,
+    "maxOutput": 32768,
     "cost": {
       "input": 0.5,
       "output": 3,
@@ -2861,6 +2841,25 @@
     ],
     "available": true
   },
+  "openrouter/google/gemini-3.1-flash-lite-image": {
+    "id": "openrouter/google/gemini-3.1-flash-lite-image",
+    "provider": "openrouter",
+    "name": "Nano Banana 2 Lite (Gemini 3.1 Flash Lite Image)",
+    "contextWindow": 65536,
+    "maxOutput": 66000,
+    "cost": {
+      "input": 0.25,
+      "output": 1.5,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "image",
+      "text"
+    ],
+    "available": true
+  },
   "openrouter/google/gemini-3-pro-image-preview": {
     "id": "openrouter/google/gemini-3-pro-image-preview",
     "provider": "openrouter",
@@ -2885,7 +2884,7 @@
     "provider": "openrouter",
     "name": "Nano Banana",
     "contextWindow": 32768,
-    "maxOutput": 8192,
+    "maxOutput": 32768,
     "cost": {
       "input": 0.3,
       "output": 2.5,
@@ -3291,7 +3290,8 @@
     "reasoning": true,
     "modalities": [
       "text",
-      "image"
+      "image",
+      "pdf"
     ],
     "available": true
   },
@@ -3378,24 +3378,6 @@
     ],
     "available": true
   },
-  "openrouter/microsoft/phi-4-mini-instruct": {
-    "id": "openrouter/microsoft/phi-4-mini-instruct",
-    "provider": "openrouter",
-    "name": "Phi 4 Mini Instruct",
-    "contextWindow": 128000,
-    "maxOutput": 128000,
-    "cost": {
-      "input": 0.08,
-      "output": 0.35,
-      "cacheRead": 0.08,
-      "cacheWrite": 0
-    },
-    "reasoning": false,
-    "modalities": [
-      "text"
-    ],
-    "available": true
-  },
   "openrouter/microsoft/phi-4": {
     "id": "openrouter/microsoft/phi-4",
     "provider": "openrouter",
@@ -3427,6 +3409,24 @@
       "cacheWrite": 0
     },
     "reasoning": false,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "openrouter/poolside/laguna-xs-2.1:free": {
+    "id": "openrouter/poolside/laguna-xs-2.1:free",
+    "provider": "openrouter",
+    "name": "Laguna XS 2.1 (free)",
+    "contextWindow": 262144,
+    "maxOutput": 32768,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
     "modalities": [
       "text"
     ],
@@ -3478,6 +3478,24 @@
       "input": 0.2,
       "output": 0.4,
       "cacheRead": 0.1,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "openrouter/poolside/laguna-xs-2.1": {
+    "id": "openrouter/poolside/laguna-xs-2.1",
+    "provider": "openrouter",
+    "name": "Laguna XS 2.1",
+    "contextWindow": 262144,
+    "maxOutput": 32768,
+    "cost": {
+      "input": 0.06,
+      "output": 0.12,
+      "cacheRead": 0.03,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -3581,12 +3599,12 @@
     "id": "openrouter/z-ai/glm-5.1",
     "provider": "openrouter",
     "name": "GLM-5.1",
-    "contextWindow": 202752,
-    "maxOutput": 65535,
+    "contextWindow": 200000,
+    "maxOutput": 128000,
     "cost": {
-      "input": 0.98,
-      "output": 3.08,
-      "cacheRead": 0.49,
+      "input": 0.966,
+      "output": 3.036,
+      "cacheRead": 0.1794,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -3617,12 +3635,12 @@
     "id": "openrouter/z-ai/glm-5.2",
     "provider": "openrouter",
     "name": "GLM-5.2",
-    "contextWindow": 1048576,
-    "maxOutput": 32768,
+    "contextWindow": 1024000,
+    "maxOutput": 128000,
     "cost": {
-      "input": 0.95,
-      "output": 3,
-      "cacheRead": 0.18,
+      "input": 0.91,
+      "output": 2.86,
+      "cacheRead": 0.169,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -3712,7 +3730,7 @@
     "provider": "openrouter",
     "name": "GLM-5",
     "contextWindow": 202752,
-    "maxOutput": 16384,
+    "maxOutput": 128000,
     "cost": {
       "input": 0.6,
       "output": 1.92,
@@ -4424,12 +4442,12 @@
   "openrouter/openai/gpt-oss-120b": {
     "id": "openrouter/openai/gpt-oss-120b",
     "provider": "openrouter",
-    "name": "gpt-oss-120b",
+    "name": "GPT OSS 120B",
     "contextWindow": 131072,
-    "maxOutput": 32768,
+    "maxOutput": 131072,
     "cost": {
-      "input": 0.039,
-      "output": 0.18,
+      "input": 0.03,
+      "output": 0.15,
       "cacheRead": 0,
       "cacheWrite": 0
     },
@@ -5556,6 +5574,25 @@
     ],
     "available": true
   },
+  "openrouter/sakana/fugu-ultra": {
+    "id": "openrouter/sakana/fugu-ultra",
+    "provider": "openrouter",
+    "name": "Fugu Ultra",
+    "contextWindow": 1000000,
+    "maxOutput": 128000,
+    "cost": {
+      "input": 5,
+      "output": 30,
+      "cacheRead": 0.5,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image"
+    ],
+    "available": true
+  },
   "openrouter/anthracite-org/magnum-v4-72b": {
     "id": "openrouter/anthracite-org/magnum-v4-72b",
     "provider": "openrouter",
@@ -5765,9 +5802,9 @@
     "provider": "openrouter",
     "name": "Nemotron 3 Super 120B A12B",
     "contextWindow": 262144,
-    "maxOutput": 262144,
+    "maxOutput": 16384,
     "cost": {
-      "input": 0.09,
+      "input": 0.08,
       "output": 0.45,
       "cacheRead": 0,
       "cacheWrite": 0
@@ -5800,12 +5837,12 @@
     "id": "openrouter/xiaomi/mimo-v2.5",
     "provider": "openrouter",
     "name": "MiMo-V2.5",
-    "contextWindow": 1048576,
+    "contextWindow": 32000,
     "maxOutput": 131072,
     "cost": {
-      "input": 0.14,
+      "input": 0.105,
       "output": 0.28,
-      "cacheRead": 0.0028,
+      "cacheRead": 0,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -5893,26 +5930,6 @@
     ],
     "available": true
   },
-  "openrouter/anthropic/claude-opus-4.6-fast": {
-    "id": "openrouter/anthropic/claude-opus-4.6-fast",
-    "provider": "openrouter",
-    "name": "Claude Opus 4.6 (Fast)",
-    "contextWindow": 1000000,
-    "maxOutput": 128000,
-    "cost": {
-      "input": 30,
-      "output": 150,
-      "cacheRead": 3,
-      "cacheWrite": 37.5
-    },
-    "reasoning": true,
-    "modalities": [
-      "text",
-      "image",
-      "pdf"
-    ],
-    "available": true
-  },
   "openrouter/anthropic/claude-haiku-4.5": {
     "id": "openrouter/anthropic/claude-haiku-4.5",
     "provider": "openrouter",
@@ -5953,6 +5970,26 @@
     ],
     "available": true
   },
+  "openrouter/anthropic/claude-sonnet-5": {
+    "id": "openrouter/anthropic/claude-sonnet-5",
+    "provider": "openrouter",
+    "name": "Claude Sonnet 5",
+    "contextWindow": 1000000,
+    "maxOutput": 128000,
+    "cost": {
+      "input": 2,
+      "output": 10,
+      "cacheRead": 0.2,
+      "cacheWrite": 2.5
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "available": true
+  },
   "openrouter/anthropic/claude-opus-4.7": {
     "id": "openrouter/anthropic/claude-opus-4.7",
     "provider": "openrouter",
@@ -5984,6 +6021,26 @@
       "output": 25,
       "cacheRead": 0.5,
       "cacheWrite": 6.25
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "available": true
+  },
+  "openrouter/anthropic/claude-fable-5": {
+    "id": "openrouter/anthropic/claude-fable-5",
+    "provider": "openrouter",
+    "name": "Claude Fable 5",
+    "contextWindow": 1000000,
+    "maxOutput": 128000,
+    "cost": {
+      "input": 10,
+      "output": 50,
+      "cacheRead": 1,
+      "cacheWrite": 12.5
     },
     "reasoning": true,
     "modalities": [
@@ -6319,11 +6376,11 @@
     "provider": "openrouter",
     "name": "Step 3.5 Flash",
     "contextWindow": 262144,
-    "maxOutput": 16384,
+    "maxOutput": 65536,
     "cost": {
-      "input": 0.09,
+      "input": 0.1,
       "output": 0.3,
-      "cacheRead": 0.02,
+      "cacheRead": 0,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -6418,7 +6475,7 @@
     "cost": {
       "input": 0.66,
       "output": 3.41,
-      "cacheRead": 0.144,
+      "cacheRead": 0.14,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -6739,24 +6796,6 @@
     ],
     "available": true
   },
-  "openrouter/openrouter/owl-alpha": {
-    "id": "openrouter/openrouter/owl-alpha",
-    "provider": "openrouter",
-    "name": "Owl Alpha",
-    "contextWindow": 1048756,
-    "maxOutput": 262144,
-    "cost": {
-      "input": 0,
-      "output": 0,
-      "cacheRead": 0,
-      "cacheWrite": 0
-    },
-    "reasoning": false,
-    "modalities": [
-      "text"
-    ],
-    "available": true
-  },
   "openrouter/openrouter/pareto-code": {
     "id": "openrouter/openrouter/pareto-code",
     "provider": "openrouter",
@@ -6970,8 +7009,8 @@
     "contextWindow": 131072,
     "maxOutput": 32768,
     "cost": {
-      "input": 0.08,
-      "output": 0.5,
+      "input": 0.117,
+      "output": 0.455,
       "cacheRead": 0,
       "cacheWrite": 0
     },
@@ -7061,12 +7100,12 @@
     "id": "openrouter/qwen/qwen3-8b",
     "provider": "openrouter",
     "name": "Qwen3 8B",
-    "contextWindow": 40960,
+    "contextWindow": 131072,
     "maxOutput": 8192,
     "cost": {
-      "input": 0.05,
-      "output": 0.4,
-      "cacheRead": 0.05,
+      "input": 0.117,
+      "output": 0.455,
+      "cacheRead": 0,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -7189,12 +7228,12 @@
     "id": "openrouter/qwen/qwen3-235b-a22b-thinking-2507",
     "provider": "openrouter",
     "name": "Qwen3 235B A22B Thinking 2507",
-    "contextWindow": 262144,
+    "contextWindow": 131072,
     "maxOutput": 262144,
     "cost": {
-      "input": 0.1,
-      "output": 0.1,
-      "cacheRead": 0.1,
+      "input": 0.1495,
+      "output": 1.495,
+      "cacheRead": 0,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -7339,12 +7378,12 @@
     "id": "openrouter/qwen/qwen3-30b-a3b-thinking-2507",
     "provider": "openrouter",
     "name": "Qwen3 30B A3B Thinking 2507",
-    "contextWindow": 131072,
-    "maxOutput": 131072,
+    "contextWindow": 81920,
+    "maxOutput": 32768,
     "cost": {
-      "input": 0.08,
-      "output": 0.4,
-      "cacheRead": 0.08,
+      "input": 0.13,
+      "output": 1.56,
+      "cacheRead": 0,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -7471,9 +7510,9 @@
     "contextWindow": 262140,
     "maxOutput": 262140,
     "cost": {
-      "input": 0.2885,
-      "output": 3.17,
-      "cacheRead": 0,
+      "input": 0.285,
+      "output": 2.4,
+      "cacheRead": 0.15,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -7489,11 +7528,11 @@
     "provider": "openrouter",
     "name": "Qwen3.5 35B-A3B",
     "contextWindow": 262144,
-    "maxOutput": 262144,
+    "maxOutput": 81920,
     "cost": {
       "input": 0.14,
       "output": 1,
-      "cacheRead": 0,
+      "cacheRead": 0.05,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -7529,7 +7568,7 @@
     "provider": "openrouter",
     "name": "Qwen3.5 397B-A17B",
     "contextWindow": 131072,
-    "maxOutput": 65536,
+    "maxOutput": 64000,
     "cost": {
       "input": 0.385,
       "output": 2.45,
@@ -8046,12 +8085,12 @@
     "id": "openrouter/deepseek/deepseek-v4-flash",
     "provider": "openrouter",
     "name": "DeepSeek V4 Flash",
-    "contextWindow": 1000000,
-    "maxOutput": 65536,
+    "contextWindow": 1048576,
+    "maxOutput": 16384,
     "cost": {
       "input": 0.09,
       "output": 0.18,
-      "cacheRead": 0.02,
+      "cacheRead": 0.018,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -8157,8 +8196,8 @@
     "contextWindow": 163840,
     "maxOutput": 16384,
     "cost": {
-      "input": 0.2,
-      "output": 0.77,
+      "input": 0.24,
+      "output": 0.9,
       "cacheRead": 0.135,
       "cacheWrite": 0
     },
@@ -8195,7 +8234,7 @@
     "cost": {
       "input": 0.2288,
       "output": 0.3432,
-      "cacheRead": 0,
+      "cacheRead": 0.02288,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -8229,9 +8268,9 @@
     "contextWindow": 196608,
     "maxOutput": 196608,
     "cost": {
-      "input": 0.15,
-      "output": 0.9,
-      "cacheRead": 0.05,
+      "input": 0.12,
+      "output": 0.48,
+      "cacheRead": 0,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -8244,11 +8283,11 @@
     "id": "openrouter/minimax/minimax-m2.1",
     "provider": "openrouter",
     "name": "MiniMax-M2.1",
-    "contextWindow": 196608,
-    "maxOutput": 196608,
+    "contextWindow": 204800,
+    "maxOutput": 131072,
     "cost": {
-      "input": 0.29,
-      "output": 0.95,
+      "input": 0.3,
+      "output": 1.2,
       "cacheRead": 0.03,
       "cacheWrite": 0
     },
@@ -8301,12 +8340,12 @@
     "id": "openrouter/minimax/minimax-m2",
     "provider": "openrouter",
     "name": "MiniMax-M2",
-    "contextWindow": 196608,
-    "maxOutput": 196608,
+    "contextWindow": 204800,
+    "maxOutput": 131072,
     "cost": {
       "input": 0.255,
-      "output": 1,
-      "cacheRead": 0.03,
+      "output": 1.02,
+      "cacheRead": 0,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -8340,8 +8379,8 @@
     "contextWindow": 196608,
     "maxOutput": 196608,
     "cost": {
-      "input": 0.24,
-      "output": 0.96,
+      "input": 0.18,
+      "output": 0.72,
       "cacheRead": 0,
       "cacheWrite": 0
     },
@@ -9237,7 +9276,7 @@
     "cost": {
       "input": 0.075,
       "output": 0.3,
-      "cacheRead": 0.037,
+      "cacheRead": 0,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -9369,6 +9408,25 @@
     "reasoning": true,
     "modalities": [
       "text"
+    ],
+    "available": true
+  },
+  "cerebras/gemma-4-31b": {
+    "id": "cerebras/gemma-4-31b",
+    "provider": "cerebras",
+    "name": "Gemma 4 31B IT",
+    "contextWindow": 131072,
+    "maxOutput": 40960,
+    "cost": {
+      "input": 0.99,
+      "output": 1.49,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image"
     ],
     "available": true
   },

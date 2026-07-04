@@ -9,9 +9,25 @@ import {
     resolveOAuthCreds,
 } from "../auth";
 import { COPILOT_HEADERS, getCopilotBaseUrl } from "../auth/oauth/github-copilot";
+import {
+    createCustomAuthFetch,
+    customAuthHeaders,
+    normalizeCustomAuth,
+    type CustomAuthConfig,
+} from "../auth/custom-auth";
 import { accountIdFromIdToken, CODEX_BASE_URL, OPENAI_CHATGPT_HEADERS } from "../auth/oauth/openai-chatgpt";
 import type { CustomProviderConfig, ProviderId } from "../types";
 import { getExtensionHost, type ProviderPlugin } from "../extensions";
+import { bedrockRegion } from "./bedrock";
+
+export {
+    bedrockRegion,
+    bedrockShortModelId,
+    hasAwsCredentialSources,
+    listBedrockModels,
+    resolveAwsCredentials,
+    type BedrockModelSummary,
+} from "./bedrock";
 
 type FetchInput = Parameters<typeof fetch>[0];
 type FetchInit = Parameters<typeof fetch>[1];
@@ -202,13 +218,9 @@ function xaiAuthFetch(): typeof fetch {
     });
 }
 
-function customFetch(extraHeaders?: Record<string, string>): typeof fetch | undefined {
-    if (!extraHeaders || Object.keys(extraHeaders).length === 0) return undefined;
-    return withPreconnect(async (input, init) => {
-        const headers = new Headers(init?.headers);
-        for (const [k, v] of Object.entries(extraHeaders)) headers.set(k, v);
-        return fetch(input, { ...(init as RequestInit), headers });
-    });
+function customFetch(cfg: CustomAuthConfig): typeof fetch | undefined {
+    const authFetch = createCustomAuthFetch(cfg);
+    return authFetch ? withPreconnect(authFetch) : undefined;
 }
 
 function normalizeBaseURL(sdk: CustomProviderConfig["sdk"], baseURL: string): string {
@@ -233,21 +245,26 @@ function normalizeBaseURL(sdk: CustomProviderConfig["sdk"], baseURL: string): st
 // Provider SDKs are dynamic-imported so plain CLI commands (--version, sessions,
 // login) never pay their module-eval cost — only the first model call does.
 async function customModel(cfg: CustomProviderConfig, model: string): Promise<LanguageModel> {
-    const fetchOverride = customFetch(cfg.headers);
+    const fetchOverride = customFetch(cfg);
     const baseURL = normalizeBaseURL(cfg.sdk, cfg.baseURL);
+    // A plain stored key rides on the SDK's own header handling (pre-`auth`
+    // behavior, unchanged). Every other kind resolves per request inside the
+    // fetch wrapper, and the SDK gets an empty key it never really uses.
+    const auth = normalizeCustomAuth(cfg);
+    const apiKey = auth.kind === "apikey" ? auth.apiKey : "";
     switch (cfg.sdk) {
         case "openai":
         case "openai-compatible": {
             const { createOpenAI } = await import("@ai-sdk/openai");
-            return createOpenAI({ apiKey: cfg.apiKey, baseURL, fetch: fetchOverride })(model);
+            return createOpenAI({ apiKey, baseURL, fetch: fetchOverride })(model);
         }
         case "anthropic": {
             const { createAnthropic } = await import("@ai-sdk/anthropic");
-            return createAnthropic({ apiKey: cfg.apiKey, baseURL, fetch: fetchOverride })(model);
+            return createAnthropic({ apiKey, baseURL, fetch: fetchOverride })(model);
         }
         case "google": {
             const { createGoogleGenerativeAI } = await import("@ai-sdk/google");
-            return createGoogleGenerativeAI({ apiKey: cfg.apiKey, baseURL, fetch: fetchOverride })(model);
+            return createGoogleGenerativeAI({ apiKey, baseURL, fetch: fetchOverride })(model);
         }
         default:
             throw new Error(`Unknown custom SDK: ${cfg.sdk}`);
@@ -269,14 +286,19 @@ export interface DiscoveredModel {
  * user for model ids.
  */
 export async function fetchCustomProviderModels(
-    cfg: Pick<CustomProviderConfig, "sdk" | "baseURL" | "apiKey" | "headers">,
+    cfg: Pick<CustomProviderConfig, "name" | "sdk" | "baseURL" | "apiKey" | "auth" | "headers">,
 ): Promise<DiscoveredModel[] | null> {
     const base = normalizeBaseURL(cfg.sdk, cfg.baseURL);
     const headers: Record<string, string> = { ...(cfg.headers ?? {}) };
+    // Resolved credential (any auth kind) — explicit user headers still win,
+    // compared case-insensitively so "Authorization" blocks "authorization".
+    const userSet = new Set(Object.keys(headers).map((k) => k.toLowerCase()));
+    for (const [k, v] of Object.entries(await customAuthHeaders(cfg))) {
+        if (!userSet.has(k)) headers[k] = v;
+    }
     try {
         if (cfg.sdk === "anthropic") {
             headers["anthropic-version"] ??= "2023-06-01";
-            if (cfg.apiKey) headers["x-api-key"] ??= cfg.apiKey;
             const res = await fetch(`${base}/models`, { headers, signal: AbortSignal.timeout(10_000) });
             if (!res.ok) return null;
             const body = (await res.json()) as {
@@ -291,7 +313,10 @@ export async function fetchCustomProviderModels(
             }));
         }
         if (cfg.sdk === "google") {
-            const res = await fetch(`${base}/models?key=${encodeURIComponent(cfg.apiKey)}`, {
+            // Legacy flat keys also ride the query param (some gateways only
+            // read that); other kinds arrive via the x-goog-api-key header.
+            const query = cfg.apiKey ? `?key=${encodeURIComponent(cfg.apiKey)}` : "";
+            const res = await fetch(`${base}/models${query}`, {
                 headers,
                 signal: AbortSignal.timeout(10_000),
             });
@@ -312,8 +337,7 @@ export async function fetchCustomProviderModels(
                 maxOutput: m.outputTokenLimit,
             }));
         }
-        // openai + openai-compatible
-        if (cfg.apiKey) headers.Authorization ??= `Bearer ${cfg.apiKey}`;
+        // openai + openai-compatible — credential already placed above.
         const res = await fetch(`${base}/models`, { headers, signal: AbortSignal.timeout(10_000) });
         if (!res.ok) return null;
         const body = (await res.json()) as { data?: Array<{ id: string }> };
@@ -481,6 +505,22 @@ export async function getModel(fullId: string): Promise<LanguageModel> {
             // Local daemon — no auth. createOllama wants the /api root.
             const { createOllama } = await import("ollama-ai-provider-v2");
             return createOllama({ baseURL: `${ollamaBaseURL()}/api` })(model);
+        }
+        case "bedrock": {
+            // AWS credentials come from the standard chain (env → shared
+            // config → SSO → IMDS) — the same sources the aws CLI uses;
+            // nothing lives in loop's auth store. A Bedrock API key
+            // (AWS_BEARER_TOKEN_BEDROCK) wins when set, so the chain is only
+            // wired up in its absence — matching the SDK's own precedence.
+            const { createAmazonBedrock } = await import("@ai-sdk/amazon-bedrock");
+            if (process.env.AWS_BEARER_TOKEN_BEDROCK) {
+                return createAmazonBedrock({ region: bedrockRegion() })(model);
+            }
+            const { fromNodeProviderChain } = await import("@aws-sdk/credential-providers");
+            return createAmazonBedrock({
+                region: bedrockRegion(),
+                credentialProvider: fromNodeProviderChain(),
+            })(model);
         }
         default:
             throw new Error(`Unknown provider: ${provider}`);

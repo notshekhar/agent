@@ -39,10 +39,13 @@ End every config task by telling the user which one to do.
 
 Built-in providers: `anthropic`, `openai`, `google`, `xai`, `openrouter`,
 `github-copilot`, `deepseek`, `mistral`, `glm`, `zai`, `groq`, `cerebras`,
-`zenmux`, `ollama`.
+`zenmux`, `bedrock`, `ollama`.
 
 Their models are discovered automatically once the provider is authenticated —
-there is no per-model list to maintain. The flow is:
+there is no per-model list to maintain. Two providers need no login at all:
+`ollama` (detected local daemon) and `bedrock` (AWS credentials from the aws
+CLI / env / SSO; the model list comes from the account's Bedrock access —
+region via `AWS_REGION` or `LOOP_BEDROCK_REGION`). The flow is:
 
 1. Authenticate: the user runs `loop login <provider>` (or `/login`). API keys
    and OAuth creds are stored in `~/.loop/auth.json`; do not hand-write secrets

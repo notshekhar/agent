@@ -1,4 +1,5 @@
 import { authStore } from "./storage";
+import { clearHelperCache } from "./custom-auth";
 import { login as xaiLogin, refresh as xaiRefresh } from "./xai-oauth";
 import { XaiErrorCode, XaiOAuthError } from "./errors";
 import { getOAuthProvider } from "./oauth/registry";
@@ -12,6 +13,7 @@ import type {
 } from "../types";
 
 export { XaiOAuthError, XaiErrorCode } from "./errors";
+export { normalizeCustomAuth, describeCustomAuth, resolveCustomCredential, clearHelperCache } from "./custom-auth";
 export {
     authStore,
     settingsStore,
@@ -196,9 +198,16 @@ export function getCustomProvider(name: string): CustomProviderConfig | undefine
     return readCustom()[name];
 }
 
+/** Legacy flat-key mirror: apikey configs keep `apiKey` populated so loop
+ * versions predating `auth` still read them; every other kind blanks it. */
+export function withLegacyKeyMirror(config: CustomProviderConfig): CustomProviderConfig {
+    if (!config.auth) return config;
+    return { ...config, apiKey: config.auth.kind === "apikey" ? config.auth.apiKey : "" };
+}
+
 export function saveCustomProvider(config: CustomProviderConfig): void {
     const all = readCustom();
-    all[config.name] = config;
+    all[config.name] = withLegacyKeyMirror(config);
     writeCustom(all);
     if (!getActiveProvider()) setActiveProvider(`custom:${config.name}`);
 }
@@ -207,6 +216,7 @@ export function deleteCustomProvider(name: string): void {
     const all = readCustom();
     delete all[name];
     writeCustom(all);
+    clearHelperCache(name);
     if (getActiveProvider() === `custom:${name}`) {
         authStore.set("active", null);
     }

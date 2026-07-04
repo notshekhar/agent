@@ -27,6 +27,7 @@
         "clean": "rm -rf dist"
     },
     "dependencies": {
+        "@ai-sdk/amazon-bedrock": "^5.0.11",
         "@ai-sdk/anthropic": "^4.0.4",
         "@ai-sdk/cerebras": "^3.0.0",
         "@ai-sdk/deepseek": "^3.0.0",
@@ -36,9 +37,11 @@
         "@ai-sdk/mistral": "^4.0.0",
         "@ai-sdk/openai": "^4.0.0",
         "@ai-sdk/xai": "^4.0.0",
+        "@aws-sdk/credential-providers": "^3.1079.0",
         "@notshekhar/loop-sandbox": "*",
         "@openrouter/ai-sdk-provider": "6.0.0-alpha.1",
         "ai": "^7.0.0",
+        "aws4fetch": "^1.0.20",
         "configstore": "^8.0.0",
         "diff": "^9.0.0",
         "ollama-ai-provider-v2": "^3.5.1",

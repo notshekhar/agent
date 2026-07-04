@@ -13,6 +13,7 @@ export type BuiltinProviderId =
     | "groq"
     | "cerebras"
     | "zenmux"
+    | "bedrock"
     | "ollama";
 export type ProviderId = BuiltinProviderId | (string & {});
 
@@ -34,17 +35,37 @@ export const BUILTIN_PROVIDER_IDS: BuiltinProviderId[] = [
     "groq",
     "cerebras",
     "zenmux",
+    "bedrock",
     "ollama",
 ];
 export const PROVIDER_IDS = BUILTIN_PROVIDER_IDS;
 
 export type CustomProviderSdk = "openai" | "anthropic" | "google" | "openai-compatible";
 
+/**
+ * How a custom provider authenticates. `apikey` is the classic stored key sent
+ * in the vendor header; `bearer` forces `Authorization: Bearer` (gateways);
+ * `env` reads the key from the environment at request time (never stored);
+ * `helper` runs a shell command whose stdout is the key (vault/SSO short-lived
+ * tokens — cached for ttlMs, re-run on 401); `none` is for headers-only/mTLS/
+ * open endpoints. Legacy configs without `auth` normalize from the flat apiKey.
+ */
+export type CustomProviderAuth =
+    | { kind: "apikey"; apiKey: string }
+    | { kind: "bearer"; token: string }
+    | { kind: "env"; var: string }
+    | { kind: "helper"; command: string; ttlMs?: number }
+    | { kind: "none" };
+
 export interface CustomProviderConfig {
     name: string;
     sdk: CustomProviderSdk;
     baseURL: string;
+    /** Legacy flat key. Kept mirrored (apikey kind → the key, else "") so
+     * pre-auth loop versions reading the same auth.json keep working. */
     apiKey: string;
+    /** How to authenticate; absent on legacy configs (normalized on read). */
+    auth?: CustomProviderAuth;
     headers?: Record<string, string>;
     /** Model IDs the user wants to expose, with optional name + pricing overrides */
     models?: Array<{

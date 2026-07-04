@@ -28,6 +28,8 @@ export function providerLabel(id: string): string {
             return "Cerebras — API key";
         case "zenmux":
             return "ZenMux (gateway, 200+ models) — API key";
+        case "bedrock":
+            return "Amazon Bedrock — AWS credentials, auto-detected (aws CLI / env / SSO)";
         case "ollama":
             return "Ollama — local, no key (must be running)";
         default:

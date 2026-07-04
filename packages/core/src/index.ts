@@ -6,7 +6,13 @@ export {
     listOllamaModels,
     showOllamaModel,
     ollamaBaseURL,
+    bedrockRegion,
+    bedrockShortModelId,
+    hasAwsCredentialSources,
+    listBedrockModels,
+    resolveAwsCredentials,
     fetchCustomProviderModels,
+    type BedrockModelSummary,
     type DiscoveredModel,
 } from "./providers";
 export * from "./catalog";

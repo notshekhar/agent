@@ -1,6 +1,7 @@
 /**
  * Which providers the user can actually use right now: logged-in providers,
- * a detected local ollama daemon, and saved custom gateways. Shared by the
+ * detected zero-login providers (local ollama daemon, AWS credentials for
+ * bedrock), and saved custom gateways. Shared by the
  * /provider picker and the startup "no model selected" guidance so both agree
  * on what "you have a provider" means.
  */
@@ -9,10 +10,12 @@ import { getCatalog, listAuthorizedProviders, listCustomProviders, type Provider
 export async function listUsableProviders(): Promise<ProviderId[]> {
     const providers = [...listAuthorizedProviders()];
 
-    // ollama needs no login — it's usable whenever the daemon is detected.
+    // Zero-login providers need no /login: ollama whenever the daemon is
+    // detected, bedrock whenever AWS credentials put models in the catalog.
+    const ZERO_LOGIN = new Set<ProviderId>(["ollama", "bedrock"]);
     const catalog = await getCatalog();
     for (const model of Object.values(catalog)) {
-        if (model.available && model.provider === "ollama" && !providers.includes(model.provider)) {
+        if (model.available && ZERO_LOGIN.has(model.provider) && !providers.includes(model.provider)) {
             providers.push(model.provider);
         }
     }

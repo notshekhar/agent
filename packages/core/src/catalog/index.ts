@@ -5,7 +5,15 @@ import { GENERATED_MODELS } from "./generated/models";
 import { FALLBACK_MODELS, XAI_FALLBACK_MODELS, fallbackModelsForSdk } from "./fallbacks";
 import { getLoopDir } from "../auth/storage";
 import { getApiKey, getAccessToken, listAuthorizedProviders, listCustomProviders, saveCustomProvider } from "../auth";
-import { listOllamaModels, showOllamaModel, fetchCustomProviderModels } from "../providers";
+import {
+    bedrockShortModelId,
+    fetchCustomProviderModels,
+    hasAwsCredentialSources,
+    listBedrockModels,
+    listOllamaModels,
+    showOllamaModel,
+    type BedrockModelSummary,
+} from "../providers";
 import { getExtensionHost } from "../extensions";
 import type { ModelInfo, ProviderId } from "../types";
 
@@ -160,6 +168,52 @@ async function fetchOllamaCatalog(): Promise<ModelInfo[]> {
             available: true,
         };
     });
+}
+
+// Bedrock is zero-login like ollama, but listing costs credential-chain
+// resolution plus two SigV4 AWS calls, so the result is cached (same 1h TTL,
+// stale-while-revalidate) instead of probed live on every catalog build.
+let bedrockRefreshInFlight: Promise<BedrockModelSummary[] | null> | null = null;
+
+async function refreshBedrockModels(): Promise<BedrockModelSummary[] | null> {
+    if (bedrockRefreshInFlight) return bedrockRefreshInFlight;
+    bedrockRefreshInFlight = (async () => {
+        const models = await listBedrockModels();
+        // Failures cache as [] too: a machine with AWS creds but no Bedrock
+        // access must not re-pay the probe every session — retried after TTL.
+        cacheStore.set("bedrockModels", models ?? []);
+        cacheStore.set("bedrockTs", Date.now());
+        return models;
+    })();
+    try {
+        return await bedrockRefreshInFlight;
+    } finally {
+        bedrockRefreshInFlight = null;
+    }
+}
+
+/** Force re-list Bedrock models (login flow). Null when unreachable/no creds. */
+export async function refreshBedrockCatalog(): Promise<BedrockModelSummary[] | null> {
+    const models = await refreshBedrockModels();
+    mergedCache = null;
+    return models;
+}
+
+async function bedrockModelSummaries(refresh: boolean): Promise<BedrockModelSummary[]> {
+    if (!hasAwsCredentialSources()) return [];
+    const cached = cacheStore.get("bedrockModels") as BedrockModelSummary[] | undefined;
+    // First detection (no cache yet) blocks once; after that it's served from
+    // cache and refreshed in the background when stale, like availability.
+    if (refresh || cached === undefined) return (await refreshBedrockModels()) ?? [];
+    const ts = (cacheStore.get("bedrockTs") as number | undefined) ?? 0;
+    if (Date.now() - ts > TTL_MS) {
+        void refreshBedrockModels()
+            .then(() => {
+                mergedCache = null; // next getCatalog() rebuilds with the fresh list
+            })
+            .catch(() => {});
+    }
+    return cached;
 }
 
 function userOverridesPath(): string {
@@ -423,6 +477,32 @@ export async function getCatalog(opts: { refresh?: boolean } = {}): Promise<Reco
     {
         const tags = await fetchOllamaCatalog();
         for (const m of tags) out[m.id] = m;
+    }
+
+    // Bedrock: also zero-login — appears automatically when the machine has AWS
+    // credentials (aws CLI / env / SSO). Pricing/context/reasoning inherit from
+    // the underlying vendor model in the known catalog (us.anthropic.claude-x-…
+    // -v1:0 → anthropic's claude-x); unmatched models (Nova, Llama, …) fall
+    // back to $0 + a generic context, correctable via ~/.loop/models.json.
+    for (const s of await bedrockModelSummaries(opts.refresh ?? false)) {
+        const id = `bedrock/${s.id}`;
+        const known = inferKnown(bedrockShortModelId(s.id));
+        out[id] = {
+            id,
+            provider: "bedrock" as ProviderId,
+            name: s.name,
+            contextWindow: known?.contextWindow ?? 128_000,
+            maxOutput: known?.maxOutput ?? 8_192,
+            cost: {
+                input: known?.cost.input ?? 0,
+                output: known?.cost.output ?? 0,
+                cacheRead: known?.cost.cacheRead ?? 0,
+                cacheWrite: known?.cost.cacheWrite ?? 0,
+            },
+            reasoning: known?.reasoning ?? false,
+            modalities: known?.modalities ?? ["text"],
+            available: true,
+        };
     }
 
     const overrides = readUserOverrides();

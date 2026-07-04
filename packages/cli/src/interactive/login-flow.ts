@@ -1,6 +1,7 @@
 import { type SelectItem, type TUI } from "@notshekhar/loop-tui";
 import chalk from "chalk";
 import {
+    bedrockRegion,
     bustCatalogCache,
     deleteCustomProvider,
     fetchCustomProviderModels,
@@ -13,10 +14,13 @@ import {
     logout,
     listOllamaModels,
     ollamaBaseURL,
+    refreshBedrockCatalog,
+    resolveAwsCredentials,
     getExtensionHost,
     PROVIDER_IDS,
     saveCustomProvider,
     setActiveProvider,
+    type CustomProviderAuth,
     type CustomProviderConfig,
     type ProviderId,
 } from "@notshekhar/loop-core";
@@ -77,7 +81,80 @@ async function pickProvider(deps: LoginDeps): Promise<ProviderId | null> {
 }
 
 /**
- * Custom provider wizard: name → compat sdk → baseURL → key → headers, then
+ * Auth-method step of the custom wizard: pick how the endpoint authenticates,
+ * then the one prompt that method needs. Null = user backed out (Esc).
+ */
+async function pickCustomAuth(deps: LoginDeps, name: string): Promise<CustomProviderAuth | null> {
+    const { tui, history, promptOnce, selectOnce } = deps;
+    const pick = await selectOnce(
+        [
+            {
+                value: "apikey",
+                label: "API key",
+                description: "Stored key, sent in the vendor header (x-api-key / Bearer / x-goog-api-key)",
+            },
+            {
+                value: "bearer",
+                label: "Bearer token",
+                description: "Always sent as Authorization: Bearer — gateways/proxies with their own tokens",
+            },
+            {
+                value: "env",
+                label: "Environment variable",
+                description: "Key read from an env var at request time — nothing stored on disk",
+            },
+            {
+                value: "helper",
+                label: "Command (key helper)",
+                description: "Shell command whose output is the key — vault/SSO tokens; re-run every 5m and on 401",
+            },
+            {
+                value: "none",
+                label: "None / headers only",
+                description: "No credential — auth via custom headers, mTLS, or an open endpoint",
+            },
+        ],
+        `custom:${name} — how does the endpoint authenticate?`,
+    );
+    if (!pick) return null;
+    switch (pick.value) {
+        case "apikey": {
+            const apiKey = (await promptOnce("apiKey: ")).trim();
+            if (!apiKey) return null;
+            return { kind: "apikey", apiKey };
+        }
+        case "bearer": {
+            const token = (await promptOnce("token: ")).trim();
+            if (!token) return null;
+            return { kind: "bearer", token };
+        }
+        case "env": {
+            history.addSystem("Name of the environment variable holding the key (e.g. MY_GATEWAY_KEY).");
+            tui.requestRender();
+            const varName = (await promptOnce("env var: ")).trim();
+            if (!varName) return null;
+            if (!process.env[varName]) {
+                history.addSystem(chalk.yellow(`note: $${varName} is not set in this shell right now`));
+                tui.requestRender();
+            }
+            return { kind: "env", var: varName };
+        }
+        case "helper": {
+            history.addSystem(
+                "Command whose stdout is the key (runs through your shell, e.g. `op read op://vault/key`).",
+            );
+            tui.requestRender();
+            const command = (await promptOnce("command: ")).trim();
+            if (!command) return null;
+            return { kind: "helper", command };
+        }
+        default:
+            return { kind: "none" };
+    }
+}
+
+/**
+ * Custom provider wizard: name → compat sdk → baseURL → auth method → headers, then
  * model discovery (sdk-appropriate /models call). When the gateway can't list
  * models, falls back to asking the user for model ids — that manual path is
  * always available, discovery is just the happy path.
@@ -116,9 +193,8 @@ async function loginCustom(deps: LoginDeps): Promise<StepResult> {
     const baseURL = (await promptOnce("baseURL: ")).trim();
     if (!baseURL) return "back";
 
-    history.addSystem("API key (Enter to skip if the gateway only uses headers).");
-    tui.requestRender();
-    const apiKey = (await promptOnce("apiKey: ")).trim();
+    const auth = await pickCustomAuth(deps, name);
+    if (!auth) return "back";
 
     history.addSystem('Extra headers, optional. Format: "X-Header: value; Other-Header: value". Enter to skip.');
     tui.requestRender();
@@ -133,7 +209,8 @@ async function loginCustom(deps: LoginDeps): Promise<StepResult> {
         name,
         sdk,
         baseURL,
-        apiKey,
+        apiKey: auth.kind === "apikey" ? auth.apiKey : "",
+        auth,
         ...(Object.keys(headers).length ? { headers } : {}),
     };
 
@@ -307,6 +384,50 @@ async function loginOllama(deps: LoginDeps): Promise<StepResult> {
     return "done";
 }
 
+async function loginBedrock(deps: LoginDeps): Promise<StepResult> {
+    const { tui, history } = deps;
+    history.addSystem("Amazon Bedrock: resolving AWS credentials…");
+    tui.requestRender();
+    const creds = await resolveAwsCredentials();
+    if (!creds) {
+        history.addError(
+            "No AWS credentials found. Sign in with the AWS CLI (`aws configure` or `aws sso login`) or set AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY, then retry.",
+        );
+        tui.requestRender();
+        return "done";
+    }
+    const region = bedrockRegion();
+    history.addSystem(`AWS credentials found — listing Bedrock models in ${region}…`);
+    tui.requestRender();
+    const models = await refreshBedrockCatalog();
+    if (models === null) {
+        history.addError(
+            `Couldn't list Bedrock models in ${region}. Check the account has Bedrock access in this region (set AWS_REGION or LOOP_BEDROCK_REGION to switch).`,
+        );
+        tui.requestRender();
+        return "done";
+    }
+    if (models.length === 0) {
+        history.addSystem(
+            chalk.yellow(
+                `Bedrock answered but no invokable models in ${region}. Request model access in the AWS console (Bedrock → Model access), then retry.`,
+            ),
+        );
+        tui.requestRender();
+        return "done";
+    }
+    // Credentials stay in the AWS chain — store a placeholder so bedrock
+    // counts as authorized, same as ollama.
+    loginApiKey("bedrock", "aws");
+    setActiveProvider("bedrock");
+    bustCatalogCache();
+    history.addSystem(
+        chalk.green(`✓ Bedrock connected — ${models.length} model${models.length === 1 ? "" : "s"} in ${region}.`),
+    );
+    tui.requestRender();
+    return "done";
+}
+
 async function apiKeyLogin(
     deps: LoginDeps,
     p: ProviderId,
@@ -337,6 +458,8 @@ async function loginForProvider(deps: LoginDeps, p: ProviderId): Promise<StepRes
             return loginCopilot(deps);
         case "ollama":
             return loginOllama(deps);
+        case "bedrock":
+            return loginBedrock(deps);
         default:
             return apiKeyLogin(deps, p, deps.promptOnce);
     }
