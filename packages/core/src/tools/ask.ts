@@ -7,15 +7,26 @@ export interface AskToolContext {
 }
 
 const askOptionSchema = z.object({
-    label: z.string().min(1).max(60).describe("Short display label for this option (a few words, shown in the menu)"),
-    description: z.string().max(200).describe("One-line explanation of what choosing this option means"),
+    label: z
+        .string()
+        .min(1)
+        .max(60)
+        .describe(
+            'Short display label for this option (1-5 words, shown in the menu). Append " (Recommended)" to the one option you recommend.',
+        ),
+    description: z
+        .string()
+        .max(200)
+        .describe("One-line explanation of what choosing this option means — its trade-offs or consequences"),
 });
 
 const askQuestionSchema = z.object({
     question: z
         .string()
         .min(1)
-        .describe("The complete question to ask the user. Be specific and include any context needed to answer."),
+        .describe(
+            "The complete question to ask the user, ending with a question mark. Be specific and include any context needed to answer it on its own.",
+        ),
     header: z
         .string()
         .min(1)
@@ -26,7 +37,7 @@ const askQuestionSchema = z.object({
         .min(2)
         .max(4)
         .describe(
-            "2-4 mutually distinct answer choices. A free-text 'Other' choice is added automatically — never include your own catch-all option.",
+            "2-4 distinct, mutually exclusive answer choices, with the recommended one first. A free-text 'Other' choice is added automatically — never include your own catch-all option.",
         ),
     multiSelect: z
         .boolean()
@@ -65,7 +76,11 @@ export function formatAskAnswers(questions: AskQuestion[], answers: AskAnswer[])
 
 export function createAskTool(ctx: AskToolContext) {
     return tool({
-        description: `Ask the user 1-4 multiple-choice questions and wait for their answers. Use this when you need a decision or preference you cannot infer yourself — choosing between implementation approaches, confirming scope or trade-offs, or picking between valid alternatives. Do NOT use it for anything you can answer by reading the code, and do not use it to ask for permission to proceed with normal work. Each question shows its options plus an automatic "Other" entry where the user can type a custom answer, so never add your own "Other"/"Something else" option. Options should be distinct and self-explanatory; put the recommended choice first. Set multiSelect true only when combinations make sense. The user may decline to answer (Esc) — in that case proceed using your best judgment.`,
+        description: `Ask the user 1-4 multiple-choice questions and wait for their answers.
+
+WHEN to ask: only when you are blocked on a decision that is genuinely the user's to make — one you cannot resolve from their request, the code, or a sensible default. Good uses: choosing between implementation approaches with real trade-offs, confirming a scope change or destructive/irreversible step, or picking product/UX behavior the user would care about. Do NOT ask about facts you can verify yourself (read the code instead), decisions with an obvious conventional default (pick it and mention your choice in your reply), or permission to proceed with work the user already requested. Reserve it for questions whose answer changes what you do next.
+
+HOW to ask: phrase each question as one complete, specific sentence ending in a question mark, including any context needed to answer it without re-reading the conversation. Give 2-4 distinct, mutually exclusive options with concise labels (1-5 words) and descriptions that state the trade-offs or consequences of each choice. ALWAYS make a recommendation: put the option you recommend FIRST and append " (Recommended)" to its label. Each question automatically shows an "Other" free-text entry, so never add your own "Other"/"Something else" catch-all. Set multiSelect true only when several options can sensibly be combined, and phrase the question accordingly. Prefer one call with a few questions over several calls. The user may decline to answer (Esc) — in that case proceed using your best judgment.`,
         inputSchema: askInputSchema,
         execute: async ({ questions }, options) => {
             const signal = options?.abortSignal ?? ctx.abortSignal;
