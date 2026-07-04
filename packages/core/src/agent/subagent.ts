@@ -32,7 +32,7 @@ import {
 } from "./agents";
 import { runHooks } from "./hooks";
 import { withToolHooks } from "./tool-hooks";
-import { sumUsage, type CostTracker } from "./cost";
+import { stampUsageCost, sumUsage, type CostTracker } from "./cost";
 
 const SUBAGENT_SYSTEM_SUFFIX = `
 
@@ -407,6 +407,7 @@ async function runSubagent(
         // Persist for resume, same shape the events streamed: `activity` is
         // the full ordered run (what the box renders next time), `result` the
         // final report (what the model re-reads via toModelMessages).
+        const runUsage = totalUsage ?? stepUsageSum;
         await ctx.session.append({
             type: "subagent",
             ts: Date.now(),
@@ -414,7 +415,7 @@ async function runSubagent(
             prompt,
             result: report || formatSubagentActivity(activity) || "(subagent produced no output)",
             activity: activity.length ? activity : undefined,
-            usage: totalUsage ?? stepUsageSum,
+            usage: runUsage ? stampUsageCost(ctx.modelId, runUsage) : undefined,
             model: ctx.modelId,
         });
 

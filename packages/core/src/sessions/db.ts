@@ -15,7 +15,7 @@ import { migrateLegacySessions } from "./migrate";
  * fails with SQLITE_CANTOPEN.
  */
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS entries (
     usage_text        INTEGER,
     usage_reasoning   INTEGER,
     usage_estimated   INTEGER,
+    usage_usd         REAL,
     model             TEXT,
     UNIQUE (session_id, pub_id)
 );
@@ -66,6 +67,8 @@ CREATE TABLE IF NOT EXISTS cost_ledger (
     day          TEXT NOT NULL,
     session_id   INTEGER REFERENCES sessions(id) ON DELETE SET NULL,
     session_pub  TEXT,
+    entry_id     INTEGER REFERENCES entries(id) ON DELETE SET NULL,
+    entry_pub    TEXT,
     source       TEXT NOT NULL,
     cwd          TEXT,
     provider     TEXT NOT NULL,
@@ -148,6 +151,27 @@ function openDb(path: string): Database {
                 throw new Error(
                     `session db ${path} is schema v${version}, newer than this build (v${SCHEMA_VERSION}) — upgrade loop`,
                 );
+            }
+            if (version < 2) {
+                // v1 → v2: usage_usd (the billed-USD stamp denormalized for
+                // aggregate queries; payload stays the source of truth) and
+                // cost_ledger.entry_id/entry_pub (link a ledger row to the
+                // entry it billed, for cost-split analysis — NULL on rows with
+                // no attributable entry, e.g. pre-migration spend). Two
+                // processes can race an ALTER — the loser's duplicate-column
+                // error is the success case, everything else still throws.
+                for (const alter of [
+                    "ALTER TABLE entries ADD COLUMN usage_usd REAL",
+                    "ALTER TABLE cost_ledger ADD COLUMN entry_id INTEGER REFERENCES entries(id) ON DELETE SET NULL",
+                    "ALTER TABLE cost_ledger ADD COLUMN entry_pub TEXT",
+                ]) {
+                    try {
+                        candidate.exec(alter);
+                    } catch (err) {
+                        if (!/duplicate column/i.test(String((err as Error)?.message ?? err))) throw err;
+                    }
+                }
+                candidate.run("UPDATE meta SET value = ? WHERE key = 'schema_version'", [String(SCHEMA_VERSION)]);
             }
             const check = candidate.query<{ quick_check: string }, []>("PRAGMA quick_check").get();
             if (check && check.quick_check !== "ok") {

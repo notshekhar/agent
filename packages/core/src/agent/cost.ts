@@ -38,6 +38,15 @@ export function sumUsage(a: UsageBlock | undefined, b: UsageBlock): UsageBlock {
                   reasoningTokens: n(a.outputTokenDetails?.reasoningTokens, b.outputTokenDetails?.reasoningTokens),
               }
             : undefined;
+    const usdDetails =
+        a.usdDetails || b.usdDetails
+            ? {
+                  input: n(a.usdDetails?.input, b.usdDetails?.input),
+                  output: n(a.usdDetails?.output, b.usdDetails?.output),
+                  cacheRead: n(a.usdDetails?.cacheRead, b.usdDetails?.cacheRead),
+                  cacheWrite: n(a.usdDetails?.cacheWrite, b.usdDetails?.cacheWrite),
+              }
+            : undefined;
     // v7 reports reasoning tokens nested under outputTokenDetails; old (v6)
     // sessions used the flat field. Keep the flat field in sync off either.
     const reasoning = n(
@@ -56,6 +65,8 @@ export function sumUsage(a: UsageBlock | undefined, b: UsageBlock): UsageBlock {
         cost: n(a.cost, b.cost),
         inputTokenDetails: details,
         outputTokenDetails: outDetails,
+        usd: n(a.usd, b.usd),
+        usdDetails,
     };
 }
 
@@ -72,6 +83,50 @@ function ctxFromUsage(u: UsageBlock | undefined): number {
     return (u.inputTokens ?? 0) + (u.outputTokens ?? 0) + (u.cachedInputTokens ?? 0);
 }
 
+/**
+ * Price a usage block against the catalog, with the per-component split.
+ * Returns undefined when the model is unknown — callers decide the fallback
+ * (billing treats it as $0; stamping leaves the block unstamped so a later
+ * resume on a machine that DOES know the model can still price it).
+ */
+export function priceUsage(
+    modelId: string,
+    usage: UsageBlock,
+): { usd: number; details: NonNullable<UsageBlock["usdDetails"]> } | undefined {
+    const model = getModelSync(modelId);
+    if (!model) return undefined;
+    const inTok = usage.inputTokens ?? 0;
+    const cacheTok = usage.inputTokenDetails?.cacheReadTokens ?? usage.cachedInputTokens ?? 0;
+    const cacheWriteTok = usage.inputTokenDetails?.cacheWriteTokens ?? 0;
+    const billedIn = usage.inputTokenDetails?.noCacheTokens ?? Math.max(0, inTok - cacheTok - cacheWriteTok);
+    const details = {
+        input: (billedIn / 1_000_000) * model.cost.input,
+        output: ((usage.outputTokens ?? 0) / 1_000_000) * model.cost.output,
+        cacheRead: (cacheTok / 1_000_000) * model.cost.cacheRead,
+        cacheWrite: (cacheWriteTok / 1_000_000) * model.cost.cacheWrite,
+    };
+    return { usd: details.input + details.output + details.cacheRead + details.cacheWrite, details };
+}
+
+/**
+ * Stamp the billed USD (total + component split) onto a usage block before it
+ * is persisted, priced with the model that actually produced it. Resume-time
+ * cost seeding prefers the stamp over re-pricing, so a session's history keeps
+ * its true historical cost across model switches, catalog updates, and
+ * machines with a different/missing catalog. An unknown model stays unstamped
+ * (fall back to catalog pricing on read, exactly the pre-stamp behavior).
+ */
+export function stampUsageCost(modelId: string, usage: UsageBlock): UsageBlock {
+    const { provider } = parseModelId(modelId);
+    const priced = priceUsage(modelId, usage);
+    // openrouter reports the authoritative billed cost on the block itself
+    // (includes their fee) — prefer it for the total, keep the catalog split
+    // as the informational breakdown when available.
+    const usd = provider === "openrouter" && typeof usage.cost === "number" ? usage.cost : priced?.usd;
+    if (usd === undefined) return usage;
+    return { ...usage, usd, ...(priced ? { usdDetails: priced.details } : {}) };
+}
+
 export class CostTracker {
     private session: CostBreakdown = { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, usd: 0 };
     /** Sticky once any estimated (interrupted-turn) usage lands in the session
@@ -86,19 +141,12 @@ export class CostTracker {
     }
 
     private computeUsd(modelId: string, provider: string, usage: UsageBlock): number {
+        // A stamped block carries the USD it was actually billed at when it
+        // ran — trust it over re-pricing, which drifts with catalog changes
+        // and shows $0 when the stamped model is unknown on this machine.
+        if (typeof usage.usd === "number" && Number.isFinite(usage.usd)) return usage.usd;
         if (typeof usage.cost === "number" && provider === "openrouter") return usage.cost;
-        const model = getModelSync(modelId);
-        if (!model) return 0;
-        const inTok = usage.inputTokens ?? 0;
-        const cacheTok = usage.inputTokenDetails?.cacheReadTokens ?? usage.cachedInputTokens ?? 0;
-        const cacheWriteTok = usage.inputTokenDetails?.cacheWriteTokens ?? 0;
-        const billedIn = usage.inputTokenDetails?.noCacheTokens ?? Math.max(0, inTok - cacheTok - cacheWriteTok);
-        return (
-            (billedIn / 1_000_000) * model.cost.input +
-            ((usage.outputTokens ?? 0) / 1_000_000) * model.cost.output +
-            (cacheTok / 1_000_000) * model.cost.cacheRead +
-            (cacheWriteTok / 1_000_000) * model.cost.cacheWrite
-        );
+        return priceUsage(modelId, usage)?.usd ?? 0;
     }
 
     private accumulateSession(modelId: string, provider: string, usage: UsageBlock): number {

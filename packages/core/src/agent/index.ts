@@ -11,7 +11,7 @@ import { getAgentPrompt, getAgentTools, isReadOnlyBashAgent, listAgents } from "
 import { loadWorkspaceContext } from "./context";
 import { loadProjectSkills } from "./skills";
 import { extractImagesFromInput } from "./images";
-import { CostTracker, sumUsage } from "./cost";
+import { CostTracker, stampUsageCost, sumUsage } from "./cost";
 import { runCompact } from "./compact";
 import { runRecap, turnDeservesRecap } from "./recap";
 import { runHooks, type HookOutcome } from "./hooks";
@@ -587,9 +587,10 @@ Write complete prompts: the subagent knows nothing about this conversation — i
                         ts: Date.now(),
                         role: entry.role,
                         content: entry.content,
-                        // Stamp the model on usage-bearing (assistant) entries so
-                        // cost seeding prices them correctly after a model switch.
-                        ...(entry.usage ? { usage: entry.usage, model: modelId } : {}),
+                        // Stamp the model AND the billed USD on usage-bearing
+                        // (assistant) entries so cost seeding reads the true
+                        // historical cost after a model switch or catalog drift.
+                        ...(entry.usage ? { usage: stampUsageCost(modelId, entry.usage), model: modelId } : {}),
                     })),
                 ),
             )
@@ -809,19 +810,20 @@ Write complete prompts: the subagent knows nothing about this conversation — i
                 role: "assistant",
                 content: tailParts.length > 0 ? tailParts : "",
                 interrupted: true,
-                ...(est ? { usage: est, model: modelId } : {}),
+                ...(est ? { usage: stampUsageCost(modelId, est), model: modelId } : {}),
             });
         }
     } else if (!persistedAnyMessage && (tailParts.length > 0 || lastUsage || stepUsageSum)) {
         // Non-abort edge: the stream ended without any step persisting (e.g. a
         // provider error after partial output). Keep what streamed, with the
         // real usage we did capture.
+        const edgeUsage = lastUsage ?? stepUsageSum;
         await session.append({
             type: "message",
             ts: Date.now(),
             role: "assistant",
             content: tailParts.length > 0 ? tailParts : "",
-            usage: lastUsage ?? stepUsageSum,
+            usage: edgeUsage ? stampUsageCost(modelId, edgeUsage) : undefined,
             model: modelId,
         });
     }

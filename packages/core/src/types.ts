@@ -115,6 +115,19 @@ export interface UsageBlock {
      * abort; vercel/ai#7805). Estimated usage is summed into the session total
      * only, never the persistent lifetime/daily/cwd cost store. */
     estimated?: boolean;
+    /** USD this block was billed at when it ran, stamped at persist time with
+     * the pricing of the model that produced it. Resume seeding prefers this
+     * over re-pricing against the current catalog, so historical cost stays
+     * correct across model switches and catalog drift. Absent on entries
+     * persisted before stamping existed — those fall back to catalog pricing. */
+    usd?: number;
+    /** Per-component split of `usd`, mirroring the token detail blocks. */
+    usdDetails?: {
+        input?: number;
+        output?: number;
+        cacheRead?: number;
+        cacheWrite?: number;
+    };
 }
 
 export interface CostBreakdown {

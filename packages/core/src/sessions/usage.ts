@@ -18,6 +18,8 @@ export interface NormalizedUsage {
     reasoning?: number;
     /** Provider-reported dollar cost (openrouter), when present. */
     cost?: number;
+    /** USD the block was billed at when it ran (stamped at persist time). */
+    usd?: number;
     estimated: boolean;
 }
 
@@ -32,6 +34,7 @@ export function normalizeUsage(u: UsageBlock): NormalizedUsage {
         text: u.outputTokenDetails?.textTokens,
         reasoning: u.outputTokenDetails?.reasoningTokens ?? u.reasoningTokens,
         cost: u.cost,
+        usd: u.usd,
         estimated: u.estimated === true,
     };
 }

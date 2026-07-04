@@ -172,8 +172,8 @@ export class SessionStore {
                     session_id, pub_id, parent_pub_id, ts, type, role, payload,
                     usage_input, usage_output, usage_total, usage_no_cache,
                     usage_cache_read, usage_cache_write, usage_text,
-                    usage_reasoning, usage_estimated, model
-                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                    usage_reasoning, usage_estimated, usage_usd, model
+                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             )
             .run(
                 sessionRowId,
@@ -192,6 +192,7 @@ export class SessionStore {
                 usage?.text ?? null,
                 usage?.reasoning ?? null,
                 usage ? (usage.estimated ? 1 : 0) : null,
+                usage?.usd ?? null,
                 "model" in e ? (e.model ?? null) : null,
             );
     }

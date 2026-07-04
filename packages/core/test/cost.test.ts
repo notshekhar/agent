@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { CostTracker } from "../src/agent/cost";
+import { CostTracker, stampUsageCost, sumUsage } from "../src/agent/cost";
 import { stepMessagesToEntries } from "../src/agent";
 import { Session } from "../src/sessions";
 import type { Entry, UsageBlock } from "../src/types";
@@ -130,6 +130,56 @@ describe("CostTracker.seedFromSession", () => {
         const { ctxTokens } = t.seedFromSession(session);
         expect(ctxTokens).toBe(48); // last assistant turn, not the 9500-token subagent
         expect(t.sessionBreakdown().inputTokens).toBe(9040); // cost still counts both
+    });
+});
+
+// Persisted entries carry the USD they were billed at (total + split), so a
+// resumed session shows its true historical cost — not a re-price against
+// whatever model/catalog the resuming machine happens to have (which showed
+// $0 when the stamped model was unknown or swapped for a free one).
+describe("usd stamping", () => {
+    // fallback catalog: xai/grok-build-0.1 = $1/MTok in, $2/MTok out
+    test("stampUsageCost stamps total and per-component split for a known model", () => {
+        const stamped = stampUsageCost("xai/grok-build-0.1", usage(1_000_000, 500_000));
+        expect(stamped.usd).toBeCloseTo(2, 6); // $1 input + $1 output
+        expect(stamped.usdDetails?.input).toBeCloseTo(1, 6);
+        expect(stamped.usdDetails?.output).toBeCloseTo(1, 6);
+        expect(stamped.usdDetails?.cacheRead).toBe(0);
+    });
+
+    test("unknown model leaves the block unstamped so reads can still fall back", () => {
+        const u = usage(100, 10);
+        expect(stampUsageCost("nope/not-a-model", u)).toBe(u);
+    });
+
+    test("openrouter prefers the provider-reported cost for the total", () => {
+        const stamped = stampUsageCost("openrouter/some-model", { ...usage(100, 10), cost: 0.42 });
+        expect(stamped.usd).toBe(0.42);
+    });
+
+    test("seeding prefers the stamped usd over catalog re-pricing", () => {
+        const t = new CostTracker();
+        // Billed at $5 when it ran, by a model this machine's catalog doesn't
+        // know — the stamp must win (re-pricing would zero it: the old bug).
+        t.seedFromEntries("xai/grok-build-0.1", [
+            { usage: { ...usage(100, 20), usd: 5 }, model: "gone/removed-model" },
+        ]);
+        expect(t.sessionBreakdown().usd).toBe(5);
+    });
+
+    test("unstamped legacy entries still price via the catalog", () => {
+        const t = new CostTracker();
+        t.seedFromEntries("xai/grok-build-0.1", [usage(1_000_000, 0)]);
+        expect(t.sessionBreakdown().usd).toBeCloseTo(1, 6);
+    });
+
+    test("sumUsage sums usd and the split", () => {
+        const a = stampUsageCost("xai/grok-build-0.1", usage(1_000_000, 0));
+        const b = stampUsageCost("xai/grok-build-0.1", usage(0, 500_000));
+        const s = sumUsage(a, b);
+        expect(s.usd).toBeCloseTo(2, 6);
+        expect(s.usdDetails?.input).toBeCloseTo(1, 6);
+        expect(s.usdDetails?.output).toBeCloseTo(1, 6);
     });
 });
 
