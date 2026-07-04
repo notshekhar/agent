@@ -23,6 +23,18 @@ be flipped via `/settings`. Example: `"askUser": true` enables the `ask` tool,
 which lets the agent pause mid-turn and ask you multiple-choice questions
 (default off; interactive TUI only — never offered in print mode).
 
+Other notable keys (all managed via `/settings` too):
+
+- `"subagentModel"` — default model for subagents (full `provider/model` id,
+  cross-provider allowed). An agent file's own `model:` wins over it; unset =
+  subagents inherit the parent's model. Invalid/unavailable picks fall back to
+  the parent model with a visible warning.
+- `"bashApprove": true` — ask before every bash command (deny / allow once /
+  always allow), like a permission prompt. Default off; interactive TUI only.
+- `"bashAllow"` — the "always allow" list the approval prompt maintains
+  (same `command` / `"command subcommand"` pattern shape as `bashDeny`). A
+  command runs unprompted only when every segment matches an entry.
+
 ## Hard reload — REQUIRED after any config change
 
 Config is read into memory at startup. After you edit any file above, the change
@@ -219,11 +231,13 @@ Custom agents are named system prompts at `~/.loop/agents/<name>.md`. Each file
 registers a `/<name>` slash command. The name must start alphanumeric and be
 ≤32 chars of `[a-z0-9_-]` (case-insensitive).
 
-Format — optional frontmatter with a `tools:` line, then the prompt body:
+Format — optional frontmatter with `tools:` and/or `model:` lines, then the
+prompt body:
 
 ```markdown
 ---
 tools: read, grep, find, ls
+model: openai/gpt-5-mini
 ---
 
 You are a meticulous code reviewer. You investigate and report; you never edit.
@@ -231,10 +245,15 @@ You are a meticulous code reviewer. You investigate and report; you never edit.
 
 - `tools:` — comma-separated subset of: `read, write, edit, bash, ls, grep,
 find, sql, task`. Omit the frontmatter entirely to grant all tools.
-- No frontmatter = full toolset.
+- `model:` — full `provider/model` id this agent runs on when spawned as a
+  subagent (task tool). Cross-provider is fine. Omit = inherit (the
+  `subagentModel` setting if set, else the parent's model). If the id is
+  unknown or its provider isn't logged in, the run falls back to the parent's
+  model with a warning instead of failing.
+- No frontmatter = full toolset, inherited model.
 - Built-in names (`default`, `plan`, `data-analyst`) are special: saving a file
-  under one of those names overrides only its **prompt** — their tool sets are
-  fixed and ignored. Delete the file to reset.
+  under one of those names overrides only its **prompt** and **model** — their
+  tool sets are fixed and ignored. Delete the file to reset.
 - An agent that has `bash` but neither `write` nor `edit` runs bash read-only
   (sandboxed) — useful for review/plan-style agents.
 

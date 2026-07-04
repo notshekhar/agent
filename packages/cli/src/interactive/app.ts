@@ -40,6 +40,7 @@ import {
     DEFAULT_AGENT_NAME,
     getProjectModel,
     setAskUserBridge,
+    setBashApprovalBridge,
     type ThinkingLevel,
     type ProviderId,
     type Session,
@@ -54,6 +55,7 @@ import {
     toggleSelectOnce,
 } from "./selectors";
 import { createAskUserBridge } from "./ask-user";
+import { createBashApprovalBridge } from "./bash-approve";
 import { createCommandContext } from "./command-handlers";
 import { createInputHandler } from "./input-handler";
 import { isEventTraceEnabled, setEventTraceSink, toggleEventTrace } from "./debug-log";
@@ -338,6 +340,11 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     // Ask tool UI bridge — registering it is also what makes runTurn offer the
     // tool at all (print mode never registers, so no gate needed there).
     setAskUserBridge(createAskUserBridge({ host: selectorHost, editorTheme }));
+
+    // Bash approval bridge — only registered here (interactive), so the
+    // bashApprove setting has no effect in print mode / RPC. The setting
+    // itself is checked in the bash tool; the bridge is just the UI.
+    setBashApprovalBridge(createBashApprovalBridge(selectorHost));
 
     async function ensureSession(): Promise<Session> {
         if (state.session) return state.session;

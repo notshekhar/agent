@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { findDeniedCommand, formatDenyRefusal } from "../src/tools/utils/command-deny";
+import {
+    findDeniedCommand,
+    formatApprovalRefusal,
+    formatDenyRefusal,
+    isCommandAllowed,
+    suggestAllowPatterns,
+} from "../src/tools/utils/command-deny";
 
 const deny = ["rm", "git commit", "sudo"];
 
@@ -79,5 +85,79 @@ describe("formatDenyRefusal", () => {
     test("offers asking the user to run it or remove it from the denylist", () => {
         const text = formatDenyRefusal("git commit");
         expect(text).toContain("remove it from their denylist");
+    });
+});
+
+describe("isCommandAllowed (bashApprove allowlist)", () => {
+    const allow = ["ls", "git status", "cat"];
+
+    test("bare command on the list is allowed", () => {
+        expect(isCommandAllowed("ls -la src", allow)).toBe(true);
+    });
+
+    test("command + subcommand pattern scopes to that subcommand", () => {
+        expect(isCommandAllowed("git status -sb", allow)).toBe(true);
+        expect(isCommandAllowed("git push origin main", allow)).toBe(false);
+    });
+
+    test("every segment of a compound command must be allowed", () => {
+        expect(isCommandAllowed("ls && cat file.txt", allow)).toBe(true);
+        expect(isCommandAllowed("ls && rm -rf /", allow)).toBe(false);
+        expect(isCommandAllowed("cat $(rm -rf /)", allow)).toBe(false);
+    });
+
+    test("wrappers cannot smuggle an unlisted command", () => {
+        expect(isCommandAllowed("sudo rm x", allow)).toBe(false);
+        expect(isCommandAllowed("env FOO=1 ls", allow)).toBe(true);
+    });
+
+    test("fails closed: empty allowlist and empty command", () => {
+        expect(isCommandAllowed("ls", [])).toBe(false);
+        expect(isCommandAllowed("   ", allow)).toBe(false);
+    });
+
+    test("tolerates legacy {pattern} object entries", () => {
+        const legacy = [{ pattern: "ls" }] as unknown as string[];
+        expect(isCommandAllowed("ls", legacy)).toBe(true);
+    });
+});
+
+describe("suggestAllowPatterns", () => {
+    test("subcommand tools store command + subcommand", () => {
+        expect(suggestAllowPatterns("git status -sb")).toEqual(["git status"]);
+        expect(suggestAllowPatterns("npm install --save-dev x")).toEqual(["npm install"]);
+    });
+
+    test("plain tools store just the command name", () => {
+        expect(suggestAllowPatterns("ls -la src")).toEqual(["ls"]);
+        expect(suggestAllowPatterns("cat file.txt")).toEqual(["cat"]);
+    });
+
+    test("a flag after a subcommand tool is not treated as a subcommand", () => {
+        expect(suggestAllowPatterns("git --version")).toEqual(["git"]);
+    });
+
+    test("compound commands produce one pattern per segment, deduped", () => {
+        expect(suggestAllowPatterns("ls && ls -la | grep foo")).toEqual(["ls", "grep"]);
+    });
+
+    test("wrappers are peeled before suggesting", () => {
+        expect(suggestAllowPatterns("sudo git status")).toEqual(["git status"]);
+    });
+});
+
+describe("formatApprovalRefusal", () => {
+    test("names the command, frames it as this-time decision, forbids workarounds", () => {
+        const text = formatApprovalRefusal("rm -rf build");
+        expect(text).toContain("`rm -rf build`");
+        expect(text).toContain("declined");
+        expect(text).toContain("equivalent");
+    });
+
+    test("truncates long single-line commands and uses only the first line", () => {
+        const long = `${"x".repeat(200)}\nsecond line`;
+        const text = formatApprovalRefusal(long);
+        expect(text).not.toContain("second line");
+        expect(text).toContain("…");
     });
 });

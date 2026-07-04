@@ -49,8 +49,19 @@ export {
     denyPattern,
     findDeniedCommand,
     formatDenyRefusal,
+    isCommandAllowed,
+    suggestAllowPatterns,
     type BashDenyEntry,
 } from "./utils/command-deny";
+// Bash approval prompt (bashApprove setting): the CLI registers its UI bridge
+// at startup; without one the setting is inert (print mode / RPC).
+export {
+    getBashApprovalBridge,
+    setBashApprovalBridge,
+    type BashApprovalBridge,
+    type BashApprovalDecision,
+    type BashApprovalRequest,
+} from "./approval-bridge";
 // Resolves the bundled/downloaded `fd` & `rg` binaries — also used by the CLI to
 // power @-mention fuzzy file search in the editor's autocomplete.
 export { ensureTool, getToolPath } from "./utils/tools-manager";

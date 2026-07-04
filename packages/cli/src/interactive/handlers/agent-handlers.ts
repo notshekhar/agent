@@ -9,8 +9,10 @@ import {
     DEFAULT_BASE_PROMPT,
     agentExists,
     deleteAgent,
+    getAgentModel,
     getAgentPrompt,
     getAgentTools,
+    getCatalog,
     hasBuiltinOverride,
     isHiddenAgent,
     isValidAgentName,
@@ -26,7 +28,18 @@ import type { AppState } from "../state";
 type AgentHandlers = Pick<CommandContext, "useAgent" | "manageAgents">;
 
 export function createAgentHandlers(state: AppState, deps: AppDeps): AgentHandlers {
-    const { tui, history, statusLine, editor, commands, selectOnce, toggleOnce, promptOnce, refreshCommands } = deps;
+    const {
+        tui,
+        history,
+        statusLine,
+        editor,
+        commands,
+        selectOnce,
+        searchOnce,
+        toggleOnce,
+        promptOnce,
+        refreshCommands,
+    } = deps;
 
     return {
         useAgent(name, message) {
@@ -66,6 +79,32 @@ export function createAgentHandlers(state: AppState, deps: AppDeps): AgentHandle
             // capped to its tools, so delegation can never widen access.
             const pickTools = (initial: string[] | undefined) =>
                 pickFrom([...AGENT_TOOL_NAMES], initial, "Agent tools (task = can spawn subagents)");
+            const modelLabel = (model: string | undefined) => model ?? "inherit";
+            // Model this agent runs on as a subagent. Cross-provider on purpose
+            // (the whole point: drive on one model, fan out on a cheaper one).
+            // Returns undefined = inherit, null = cancelled.
+            const pickModel = async (current: string | undefined): Promise<string | undefined | null> => {
+                const INHERIT = "\x00inherit";
+                const cat = await getCatalog();
+                const items: SelectItem[] = [
+                    {
+                        value: INHERIT,
+                        label: "inherit (session model)",
+                        description: current ? "clear the override" : "(current)",
+                    },
+                    ...Object.values(cat)
+                        .filter((m) => m.available)
+                        .sort((a, b) => a.id.localeCompare(b.id))
+                        .map((m) => ({
+                            value: m.id,
+                            label: m.id + (m.id === current ? "  (current)" : ""),
+                            description: `${m.name}  ·  ctx ${m.contextWindow.toLocaleString()}  ·  $${m.cost.input}/$${m.cost.output}`,
+                        })),
+                ];
+                const pick = await searchOnce(items, "Subagent model for this agent (type to filter)");
+                if (!pick) return null;
+                return pick.value === INHERIT ? undefined : pick.value;
+            };
 
             // Loop so Esc in submenus returns to the agent list, like /settings.
             let lastIndex = 0;
@@ -81,7 +120,7 @@ export function createAgentHandlers(state: AppState, deps: AppDeps): AgentHandle
                         value: a.name,
                         label:
                             a.name + (a.name === state.agent ? "  (active)" : "") + (a.builtin ? "  [built-in]" : ""),
-                        description: `[${toolsLabel(a.tools)}] ${a.prompt.split("\n")[0].slice(0, 60)}`,
+                        description: `[${toolsLabel(a.tools)}]${a.model ? ` [${a.model}]` : ""} ${a.prompt.split("\n")[0].slice(0, 60)}`,
                     })),
                 ];
                 const pick = await selectOnce(items, "Agents (Esc to close)", { initialIndex: lastIndex });
@@ -104,19 +143,22 @@ export function createAgentHandlers(state: AppState, deps: AppDeps): AgentHandle
                         tui.requestRender();
                         continue;
                     }
-                    // Tools first, then the prompt — the prompt can reference what's allowed.
+                    // Tools first, then model, then the prompt — the prompt can
+                    // reference what's allowed.
                     const tools = await pickTools(undefined);
                     if (tools === null) continue;
+                    const model = await pickModel(undefined);
+                    if (model === null) continue;
                     const prompt = await promptOnce(
                         `system prompt for "${name}" [${toolsLabel(tools)}]`,
                         DEFAULT_BASE_PROMPT,
                     );
                     if (!prompt.trim()) continue;
-                    saveAgent(name, prompt, tools);
+                    saveAgent(name, prompt, tools, model);
                     registerAgentCommand(commands, name);
                     refreshCommands();
                     history.addSystem(
-                        `agent "${name}" created [${toolsLabel(tools)}] — /${name} <message> for one message, /agents → use for the session`,
+                        `agent "${name}" created [${toolsLabel(tools)}]${model ? ` on ${model}` : ""} — /${name} <message> for one message, /agents → use for the session`,
                     );
                     tui.requestRender();
                     continue;
@@ -126,9 +168,15 @@ export function createAgentHandlers(state: AppState, deps: AppDeps): AgentHandle
                 const info = agents.find((a) => a.name === name);
                 const isBuiltin = info?.builtin ?? false;
                 const currentTools = getAgentTools(name);
+                const currentModel = getAgentModel(name);
                 const actions: SelectItem[] = [
                     { value: "use", label: "use", description: `switch active agent to "${name}"` },
                     { value: "edit", label: "edit prompt", description: "edit this agent's system prompt" },
+                    {
+                        value: "model",
+                        label: `model: ${modelLabel(currentModel)}`,
+                        description: "model this agent runs on as a subagent — inherit = the session model",
+                    },
                 ];
                 if (isBuiltin) {
                     // Built-in tool sets are fixed — preview only, no edit.
@@ -152,7 +200,10 @@ export function createAgentHandlers(state: AppState, deps: AppDeps): AgentHandle
                     });
                     actions.push({ value: "delete", label: "delete", description: "remove agent and its /command" });
                 }
-                const action = await selectOnce(actions, `Agent: ${name} [${toolsLabel(currentTools)}]`);
+                const action = await selectOnce(
+                    actions,
+                    `Agent: ${name} [${toolsLabel(currentTools)}]${currentModel ? ` · ${currentModel}` : ""}`,
+                );
                 if (!action) continue;
 
                 if (action.value === "use") {
@@ -174,8 +225,16 @@ export function createAgentHandlers(state: AppState, deps: AppDeps): AgentHandle
                 if (action.value === "tools") {
                     const tools = await pickTools(currentTools);
                     if (tools === null) continue;
-                    saveAgent(name, getAgentPrompt(name) ?? DEFAULT_BASE_PROMPT, tools);
+                    saveAgent(name, getAgentPrompt(name) ?? DEFAULT_BASE_PROMPT, tools, currentModel);
                     history.addSystem(`agent "${name}" tools → ${toolsLabel(tools)}`);
+                    tui.requestRender();
+                    continue;
+                }
+                if (action.value === "model") {
+                    const model = await pickModel(currentModel);
+                    if (model === null) continue;
+                    saveAgent(name, getAgentPrompt(name) ?? DEFAULT_BASE_PROMPT, currentTools, model);
+                    history.addSystem(`agent "${name}" model → ${modelLabel(model)}`);
                     tui.requestRender();
                     continue;
                 }
@@ -191,7 +250,7 @@ export function createAgentHandlers(state: AppState, deps: AppDeps): AgentHandle
                         current,
                     );
                     if (!edited.trim() || edited.trim() === current.trim()) continue;
-                    saveAgent(name, edited, currentTools);
+                    saveAgent(name, edited, currentTools, currentModel);
                     history.addSystem(`agent "${name}" prompt updated`);
                     tui.requestRender();
                     continue;

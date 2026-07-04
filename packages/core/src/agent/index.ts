@@ -73,6 +73,7 @@ export {
     PLAN_BASE_PROMPT,
     ANALYST_BASE_PROMPT,
     listAgents,
+    getAgentModel,
     getAgentPrompt,
     getAgentTools,
     agentExists,

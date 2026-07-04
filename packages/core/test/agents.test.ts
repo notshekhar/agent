@@ -93,3 +93,32 @@ describe("parseAgentFile", () => {
         expect(parsed.tools).toBeUndefined();
     });
 });
+
+describe("parseAgentFile model", () => {
+    test("model line is parsed alongside tools", () => {
+        const parsed = parseAgentFile("---\ntools: read, grep\nmodel: openai/gpt-5-mini\n---\n\nReview only.");
+        expect(parsed.tools).toEqual(["read", "grep"]);
+        expect(parsed.model).toBe("openai/gpt-5-mini");
+        expect(parsed.prompt).toBe("Review only.");
+    });
+
+    test("model line alone (no tools) works", () => {
+        const parsed = parseAgentFile("---\nmodel: anthropic/claude-haiku-4-5\n---\n\nBody.");
+        expect(parsed.model).toBe("anthropic/claude-haiku-4-5");
+        expect(parsed.tools).toBeUndefined();
+    });
+
+    test("no model line = inherit (undefined)", () => {
+        expect(parseAgentFile("---\ntools: read\n---\n\nBody.").model).toBeUndefined();
+        expect(parseAgentFile("Plain body.").model).toBeUndefined();
+    });
+
+    test("model value is kept unvalidated (catalog check happens at spawn)", () => {
+        const parsed = parseAgentFile("---\nmodel: someprovider/not-in-catalog\n---\n\nBody.");
+        expect(parsed.model).toBe("someprovider/not-in-catalog");
+    });
+
+    test("whitespace-only model is treated as unset", () => {
+        expect(parseAgentFile("---\nmodel:   \n---\n\nBody.").model).toBeUndefined();
+    });
+});

@@ -20,7 +20,7 @@ import type { AppDeps } from "../deps";
 import type { AppState } from "../state";
 import { startMcpServers } from "../startup";
 import { initTheme } from "../ui/theme";
-import { currentBashDeny, runBashDenyManager } from "./bashdeny-handlers";
+import { currentBashAllow, currentBashDeny, runBashAllowManager, runBashDenyManager } from "./bashdeny-handlers";
 
 type SettingsHandlers = Pick<CommandContext, "openSettings" | "reload">;
 
@@ -36,6 +36,7 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
         clock: false,
         reminders: true,
         mcp: true,
+        bashApprove: false,
     };
     const boolSetting = (key: string): boolean =>
         (settingsStore.get(key) as boolean | undefined) ?? BOOLEAN_DEFAULTS[key];
@@ -68,6 +69,12 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                         description: "let agents delegate work to subagents via the task tool",
                     },
                     {
+                        value: "subagentModel",
+                        label: `subagentModel: ${(settingsStore.get("subagentModel") as string) ?? "inherit"}`,
+                        description:
+                            "default model for subagents (an agent's own model: wins) — inherit = parent's model",
+                    },
+                    {
                         value: "recap",
                         label: `recap: ${boolSetting("recap") ? "on" : "off"}`,
                         description: "short AI-generated recap under responses that changed files",
@@ -97,6 +104,16 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                         label: `bash denylist: ${currentBashDeny().length} blocked`,
                         description: "add/remove bash commands the agent is refused (guardrail)",
                     },
+                    {
+                        value: "bashApprove",
+                        label: `bash approval: ${boolSetting("bashApprove") ? "on" : "off"}`,
+                        description: "ask before every bash command — deny / allow once / always allow",
+                    },
+                    {
+                        value: "bashAllow",
+                        label: `bash allowlist: ${currentBashAllow().length} always-allowed`,
+                        description: "commands the approval prompt skips (“always allow” entries)",
+                    },
                 ];
                 const pick = await searchOnce(items, "Settings (type to filter, Esc to close)", {
                     initialIndex: lastIndex,
@@ -109,6 +126,40 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                 // Sub-flow: open the denylist manager, then return to settings.
                 if (pick.value === "bashDeny") {
                     await runBashDenyManager(deps);
+                    continue;
+                }
+                if (pick.value === "bashAllow") {
+                    await runBashAllowManager(deps);
+                    continue;
+                }
+                // Default subagent model: cross-provider picker (subagents may
+                // run on a different provider than the session) + "inherit".
+                // An agent file's own `model:` still wins over this setting.
+                if (pick.value === "subagentModel") {
+                    const INHERIT = "\x00inherit";
+                    const cat = await getCatalog();
+                    const cur = settingsStore.get("subagentModel") as string | undefined;
+                    const modelItems: SelectItem[] = [
+                        {
+                            value: INHERIT,
+                            label: "inherit (parent's model)",
+                            description: cur ? "clear the override" : "(current)",
+                        },
+                        ...Object.values(cat)
+                            .filter((m) => m.available)
+                            .sort((a, b) => a.id.localeCompare(b.id))
+                            .map((m) => ({
+                                value: m.id,
+                                label: m.id + (m.id === cur ? "  (current)" : ""),
+                                description: `${m.name}  ·  ctx ${m.contextWindow.toLocaleString()}  ·  $${m.cost.input}/$${m.cost.output}`,
+                            })),
+                    ];
+                    const mPick = await searchOnce(modelItems, "Subagent model (type to filter)");
+                    if (!mPick) continue;
+                    const chosen = mPick.value === INHERIT ? undefined : mPick.value;
+                    settingsStore.set("subagentModel", chosen);
+                    history.addSystem(`subagentModel → ${chosen ?? "inherit"}`);
+                    tui.requestRender();
                     continue;
                 }
                 if (pick.value in BOOLEAN_DEFAULTS) {

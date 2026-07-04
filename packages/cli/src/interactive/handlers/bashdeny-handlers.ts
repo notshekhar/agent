@@ -5,6 +5,10 @@
  * "git commit"). This UI lets the user add/remove entries without editing JSON.
  * An unset `bashDeny` means "use the seeded defaults"; the first edit here
  * materializes the resolved list so the user takes explicit ownership.
+ *
+ * Also home to the mirror-image allowlist manager (settings.json `bashAllow`):
+ * the "always allow" entries the bashApprove prompt persists, editable from
+ * the /settings "bash allowlist" row.
  */
 import type { SelectItem } from "@notshekhar/loop-tui";
 import chalk from "chalk";
@@ -87,6 +91,75 @@ export async function runBashDenyManager(deps: AppDeps): Promise<void> {
         if (!action || action.value !== "remove") continue;
         save(entries.filter((_, i) => i !== idx));
         history.addSystem(`unblocked "${pattern}"`);
+        tui.requestRender();
+    }
+}
+
+/** Resolved approval allowlist (settings.json `bashAllow`) as pattern strings. */
+export function currentBashAllow(): string[] {
+    const stored = settingsStore.get("bashAllow") as unknown[] | undefined;
+    if (!stored) return [];
+    return stored.map(denyPattern).filter((p) => p.length > 0);
+}
+
+/**
+ * Manager for the bashApprove allowlist ("always allow" entries). Reached from
+ * the /settings "bash allowlist" row; same flow as the denylist manager.
+ */
+export async function runBashAllowManager(deps: AppDeps): Promise<void> {
+    const { tui, history, selectOnce, searchOnce, promptOnce } = deps;
+    const save = (entries: string[]): void => settingsStore.set("bashAllow", entries);
+
+    let lastIndex = 0;
+    while (true) {
+        const entries = currentBashAllow();
+        const items: SelectItem[] = [
+            {
+                value: "+add",
+                label: "+ add command",
+                description: 'run without asking (e.g. "ls" or "git status") — only used while bash approval is on',
+            },
+            ...entries.map((pattern, i) => ({
+                value: `i:${i}`,
+                label: pattern,
+                description: "select to remove",
+            })),
+        ];
+        const pick = await searchOnce(items, `Bash allowlist · ${entries.length} always-allowed`, {
+            initialIndex: lastIndex,
+        });
+        if (!pick) return;
+        lastIndex = Math.max(
+            0,
+            items.findIndex((i) => i.value === pick.value),
+        );
+
+        if (pick.value === "+add") {
+            const pattern = (await promptOnce('command to always allow (e.g. "ls" or "git status")')).trim();
+            if (!pattern) continue;
+            if (entries.includes(pattern)) {
+                history.addSystem(chalk.yellow(`"${pattern}" is already in the allowlist`));
+                tui.requestRender();
+                continue;
+            }
+            save([...entries, pattern]);
+            history.addSystem(`always allowing "${pattern}"`);
+            tui.requestRender();
+            continue;
+        }
+
+        const idx = Number(pick.value.slice(2));
+        const pattern = entries[idx];
+        const action = await selectOnce(
+            [
+                { value: "remove", label: "remove", description: `ask again before running "${pattern}"` },
+                { value: "cancel", label: "cancel", description: "keep it" },
+            ],
+            `"${pattern}"`,
+        );
+        if (!action || action.value !== "remove") continue;
+        save(entries.filter((_, i) => i !== idx));
+        history.addSystem(`removed "${pattern}" from the allowlist`);
         tui.requestRender();
     }
 }

@@ -2,10 +2,13 @@
  * Custom agents — named system prompts under ~/.loop/agents/<name>.md.
  *
  * File format: optional frontmatter with a `tools:` line (comma-separated
- * subset of TOOL_NAMES), then the prompt body. No frontmatter = all tools.
+ * subset of TOOL_NAMES) and/or a `model:` line (full provider/model id the
+ * agent runs on when spawned as a subagent), then the prompt body. No
+ * frontmatter = all tools, inherit the session model.
  *
  *   ---
  *   tools: read, grep, find, ls
+ *   model: openai/gpt-5-mini
  *   ---
  *   You are a code reviewer...
  *
@@ -101,6 +104,9 @@ export interface AgentInfo {
     builtin: boolean;
     /** Allowed tool names (may include "task"); undefined = all tools. */
     tools?: string[];
+    /** Model this agent runs on as a subagent (full provider/model id);
+     * undefined = inherit (subagentModel setting, else the parent's model). */
+    model?: string;
     /** Built-in kept out of the Tab cycle until the user selects it. */
     hidden?: boolean;
 }
@@ -139,18 +145,23 @@ function sanitizeTools(tools: string[] | undefined, valid: readonly string[]): s
     return kept;
 }
 
-export function parseAgentFile(raw: string): { prompt: string; tools?: string[] } {
+export function parseAgentFile(raw: string): { prompt: string; tools?: string[]; model?: string } {
     const fm = /^---\n([\s\S]*?)\n---\n?/.exec(raw);
     if (!fm) return { prompt: raw.trim() };
     const prompt = raw.slice(fm[0].length).trim();
     const toolsLine = /^tools:\s*(.+)$/m.exec(fm[1]);
     const tools = toolsLine ? toolsLine[1].split(",").map((s) => s.trim()) : undefined;
+    // Any non-empty string is kept — validation happens at spawn time against
+    // the live catalog (fail-soft to the parent model), so a model that's
+    // temporarily unavailable isn't silently erased from the file.
+    const modelLine = /^model:\s*(.+)$/m.exec(fm[1]);
+    const model = modelLine?.[1].trim() || undefined;
     // `subagent-tools:` (removed) is ignored if present in older files —
     // subagents now inherit the spawning turn's tools instead of a config cap.
-    return { prompt, tools: sanitizeTools(tools, agentToolNames()) };
+    return { prompt, tools: sanitizeTools(tools, agentToolNames()), model };
 }
 
-function readAgentFile(name: string): { prompt: string; tools?: string[] } | undefined {
+function readAgentFile(name: string): { prompt: string; tools?: string[]; model?: string } | undefined {
     const p = agentPath(name);
     if (!existsSync(p)) return undefined;
     try {
@@ -162,13 +173,18 @@ function readAgentFile(name: string): { prompt: string; tools?: string[] } | und
 }
 
 export function listAgents(): AgentInfo[] {
-    const agents: AgentInfo[] = Object.entries(BUILTINS).map(([name, b]) => ({
-        name,
-        prompt: readAgentFile(name)?.prompt ?? b.prompt,
-        builtin: true,
-        tools: b.tools,
-        hidden: b.hidden,
-    }));
+    const agents: AgentInfo[] = Object.entries(BUILTINS).map(([name, b]) => {
+        const file = readAgentFile(name);
+        // Built-ins: prompt and model ride the override file; tools stay fixed.
+        return {
+            name,
+            prompt: file?.prompt ?? b.prompt,
+            builtin: true,
+            tools: b.tools,
+            model: file?.model,
+            hidden: b.hidden,
+        };
+    });
     const dir = agentsDir();
     if (existsSync(dir)) {
         for (const f of readdirSync(dir).sort()) {
@@ -177,7 +193,7 @@ export function listAgents(): AgentInfo[] {
             if (name in BUILTINS || !isValidAgentName(name)) continue;
             const parsed = readAgentFile(name);
             if (parsed) {
-                agents.push({ name, prompt: parsed.prompt, builtin: false, tools: parsed.tools });
+                agents.push({ name, prompt: parsed.prompt, builtin: false, tools: parsed.tools, model: parsed.model });
             }
         }
     }
@@ -198,6 +214,15 @@ export function getAgentPrompt(name: string): string | undefined {
     return getExtensionHost()
         .getAgents()
         .find((a) => a.name === name)?.prompt;
+}
+
+/**
+ * Model this agent runs on when spawned as a subagent (full provider/model
+ * id), or undefined = inherit. Built-ins carry it via their override file.
+ * Unvalidated here — the spawn path checks the catalog and fails soft.
+ */
+export function getAgentModel(name: string): string | undefined {
+    return readAgentFile(name)?.model;
 }
 
 /**
@@ -263,13 +288,18 @@ export function hasDefaultOverride(): boolean {
     return hasBuiltinOverride(DEFAULT_AGENT_NAME);
 }
 
-export function saveAgent(name: string, prompt: string, tools?: string[]): void {
+export function saveAgent(name: string, prompt: string, tools?: string[], model?: string): void {
     if (!isValidAgentName(name)) throw new Error(`invalid agent name: ${name}`);
     mkdirSync(agentsDir(), { recursive: true });
-    // Built-in tool sets are fixed — only the prompt is persisted for them.
+    // Built-in tool sets are fixed — prompt and model are persisted for them.
     const isBuiltin = name in BUILTINS;
     const effectiveTools = isBuiltin ? undefined : sanitizeTools(tools, agentToolNames());
-    const fm = effectiveTools ? `---\ntools: ${effectiveTools.join(", ")}\n---\n\n` : "";
+    const effectiveModel = model?.trim() || undefined;
+    const fmLines = [
+        ...(effectiveTools ? [`tools: ${effectiveTools.join(", ")}`] : []),
+        ...(effectiveModel ? [`model: ${effectiveModel}`] : []),
+    ];
+    const fm = fmLines.length ? `---\n${fmLines.join("\n")}\n---\n\n` : "";
     writeFileSync(agentPath(name), fm + prompt.trim() + "\n");
 }
 

@@ -12,8 +12,17 @@ import {
 } from "./utils/shell";
 import { OutputAccumulator } from "./utils/output-accumulator";
 import { DEFAULT_MAX_BYTES, formatSize } from "./utils/truncate";
-import { DEFAULT_BASH_DENY, findDeniedCommand, formatDenyRefusal } from "./utils/command-deny";
-import { getSetting } from "../settings";
+import {
+    DEFAULT_BASH_DENY,
+    denyPattern,
+    findDeniedCommand,
+    formatApprovalRefusal,
+    formatDenyRefusal,
+    isCommandAllowed,
+    suggestAllowPatterns,
+} from "./utils/command-deny";
+import { getBashApprovalBridge } from "./approval-bridge";
+import { getSetting, setSetting } from "../settings";
 import { sandbox, type SandboxConfig } from "@notshekhar/loop-sandbox";
 
 /**
@@ -226,6 +235,27 @@ export function createBashTool(ctx: BashToolContext) {
             if (denied) throw new Error(formatDenyRefusal(denied));
 
             const signal = options?.abortSignal ?? ctx.abortSignal;
+
+            // Approval prompt (opt-in bashApprove setting, default off): ask the
+            // user before running, unless every segment of the command is already
+            // on the bashAllow list. Needs the interactive bridge — print mode /
+            // RPC never register one, so the setting is inert there. Judged
+            // against the raw command (like the denylist) so the user approves
+            // exactly what the model wrote. Subagent bash goes through this same
+            // tool, so the safeguard covers delegation too.
+            const approvalBridge = getSetting("bashApprove") === true ? getBashApprovalBridge() : null;
+            if (approvalBridge) {
+                const allowlist = (getSetting("bashAllow") ?? []).map(denyPattern).filter((p) => p.length > 0);
+                if (!isCommandAllowed(command, allowlist)) {
+                    const patterns = suggestAllowPatterns(command);
+                    const decision = await approvalBridge.confirm({ command, cwd: ctx.cwd, patterns }, { signal });
+                    if (signal?.aborted) throw new Error("Command aborted");
+                    if (decision === "deny") throw new Error(formatApprovalRefusal(command));
+                    if (decision === "always" && patterns.length > 0) {
+                        setSetting("bashAllow", [...allowlist, ...patterns.filter((p) => !allowlist.includes(p))]);
+                    }
+                }
+            }
             const output = new OutputAccumulator({ tempFilePrefix: "loop-bash" });
             const finalCommand = ctx.commandPrefix ? `${ctx.commandPrefix}\n${command}` : command;
 

@@ -25,6 +25,7 @@ import { buildSystemPrompt } from "./system-prompt";
 import {
     agentExists,
     DEFAULT_AGENT_NAME,
+    getAgentModel,
     getAgentPrompt,
     getAgentTools,
     isReadOnlyBashAgent,
@@ -176,6 +177,38 @@ function boundReport(report: string): string {
 }
 
 /**
+ * Resolve which model a subagent runs on. Precedence: the target agent's own
+ * `model:` (file frontmatter) > the `subagentModel` setting > the parent's
+ * model. A configured model must exist in the catalog AND be available
+ * (provider logged in) — otherwise fail SOFT: fall back to the parent's model
+ * and return a warning, so a stale agent file or a logged-out provider never
+ * bricks delegation. Pure + exported so the precedence is unit-testable.
+ */
+export function resolveSubagentModel(opts: {
+    agentModel?: string;
+    settingModel?: string;
+    parentModelId: string;
+    catalog: Record<string, { available?: boolean }>;
+}): { modelId: string; warning?: string } {
+    const configured = opts.agentModel?.trim() || opts.settingModel?.trim();
+    if (!configured || configured === opts.parentModelId) return { modelId: opts.parentModelId };
+    const info = opts.catalog[configured];
+    if (!info) {
+        return {
+            modelId: opts.parentModelId,
+            warning: `subagent model "${configured}" not found in the catalog — using ${opts.parentModelId}`,
+        };
+    }
+    if (info.available === false) {
+        return {
+            modelId: opts.parentModelId,
+            warning: `subagent model "${configured}" is not available (provider not logged in?) — using ${opts.parentModelId}`,
+        };
+    }
+    return { modelId: configured };
+}
+
+/**
  * Resolve a subagent's effective tool names: the target agent's own tools,
  * intersected with the parent's effective tools. `task` is always stripped
  * (no nesting). A fork (target = parent agent) resolves to exactly the
@@ -206,6 +239,17 @@ async function runSubagent(
     const fork = ctx.turnAgent && agentExists(ctx.turnAgent) ? ctx.turnAgent : DEFAULT_AGENT_NAME;
     const name = agentName && agentExists(agentName) ? agentName : fork;
     try {
+        // Which model this subagent runs on: the agent file's `model:` >
+        // the subagentModel setting > the parent's model. Everything below
+        // (provider, catalog caps, caching, cost stamping) derives from this
+        // id, so a subagent can run on a different provider than the parent.
+        const catalog = await getCatalog();
+        const { modelId, warning: modelWarning } = resolveSubagentModel({
+            agentModel: getAgentModel(name),
+            settingModel: getSetting("subagentModel"),
+            parentModelId: ctx.modelId,
+            catalog,
+        });
         // MCP tools the parent exposed are inheritable: they're already in
         // ctx.parentTools, so the resolver's cap keeps them for a fork and drops
         // them for a named agent that doesn't list them — the same widen/narrow
@@ -238,7 +282,7 @@ async function runSubagent(
         ) as unknown as ReturnType<typeof createTools>;
         // Subagent tool calls run the same PreToolUse/PostToolUse hooks,
         // tagged with agent_id so watchers can tell them apart.
-        const { provider: subProvider, model: subModel } = parseModelId(ctx.modelId);
+        const { provider: subProvider, model: subModel } = parseModelId(modelId);
         const hooked = withToolHooks(subTools, {
             cwd: ctx.cwd,
             sessionId: ctx.sessionId,
@@ -254,7 +298,7 @@ async function runSubagent(
                 transcriptPath: ctx.transcriptPath,
                 cwd: ctx.cwd,
                 agent: name,
-                modelId: ctx.modelId,
+                modelId,
                 provider: subProvider,
                 model: subModel,
                 tools: Object.keys(subTools),
@@ -286,7 +330,7 @@ async function runSubagent(
         // portable reasoning effort for first-party providers, providerOptions
         // for community/edge ones. Guarded by the model's reasoning capability.
         const subThinking = getSetting("thinkingLevel") ?? "off";
-        const subModelInfo = (await getCatalog())[ctx.modelId];
+        const subModelInfo = catalog[modelId];
         const { reasoning: subReasoning, providerOptions: subProviderOptions } = buildReasoningParams(
             effSubProvider,
             subModel,
@@ -296,7 +340,7 @@ async function runSubagent(
         // AI SDK's native agent loop — same streamText core runTurn uses, with
         // the loop/stop handling owned by the SDK.
         const agent = new ToolLoopAgent({
-            model: await getModel(ctx.modelId),
+            model: await getModel(modelId),
             instructions: anthropicCaching ? anthropicCachedSystem(system) : system,
             tools: hooked,
             stopWhen: isStepCount(maxSteps),
@@ -327,6 +371,13 @@ async function runSubagent(
         // preserved — structured, so renderers can style each kind on its own.
         // Consecutive deltas of the same kind merge into one part.
         const activity: SubagentActivityPart[] = [];
+        // Fail-soft model fallback is never silent: the warning leads the
+        // activity box (live + persisted) so the user sees which model ran.
+        if (modelWarning) {
+            const text = `[${modelWarning}]\n`;
+            activity.push({ type: "text", text });
+            ctx.emitter.emit("subagent-delta", { toolCallId, agent: name, text });
+        }
         const appendDelta = (type: "text" | "reasoning", text: string) => {
             const last = activity[activity.length - 1];
             if (last && last.type === type) last.text += text;
@@ -357,7 +408,7 @@ async function runSubagent(
                     const u = (part as { usage?: UsageBlock }).usage;
                     if (u) {
                         stepUsageSum = sumUsage(stepUsageSum, u);
-                        ctx.tracker.add(ctx.modelId, u, ctx.cwd);
+                        ctx.tracker.add(modelId, u, ctx.cwd);
                         ctx.emitter.emit("subagent-step-usage", { toolCallId, agent: name, usage: u });
                     }
                     break;
@@ -415,8 +466,8 @@ async function runSubagent(
             prompt,
             result: report || formatSubagentActivity(activity) || "(subagent produced no output)",
             activity: activity.length ? activity : undefined,
-            usage: runUsage ? stampUsageCost(ctx.modelId, runUsage) : undefined,
-            model: ctx.modelId,
+            usage: runUsage ? stampUsageCost(modelId, runUsage) : undefined,
+            model: modelId,
         });
 
         // The history is the tool output (saved + rendered); toModelOutput

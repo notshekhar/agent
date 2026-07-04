@@ -134,6 +134,103 @@ export function findDeniedCommand(command: string, denylist: BashDenyEntry[]): s
     return null;
 }
 
+// ---------------------------------------------------------------------------
+// Approval allowlist (bashApprove setting) — the mirror image of the denylist.
+// Same pattern shape and the same segment parser, so "git status" allows
+// `git status -sb` but not `git push`, and wrappers/substitutions can't hide a
+// second command: EVERY resolved segment must match for the run to skip the
+// prompt.
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether a command is pre-approved by the allowlist: every executed segment
+ * matches some entry. Fail closed — no segments resolved (empty/odd input) or
+ * an empty allowlist means "not allowed" (i.e. prompt).
+ */
+export function isCommandAllowed(command: string, allowlist: BashDenyEntry[]): boolean {
+    if (allowlist.length === 0) return false;
+    const patterns = allowlist.map(denyPattern).filter((p) => p.length > 0);
+    if (patterns.length === 0) return false;
+    const resolved = splitSegments(command)
+        .map(resolveSegment)
+        .filter((s): s is { command: string; rest: string[] } => s !== null);
+    if (resolved.length === 0) return false;
+    return resolved.every((segment) => patterns.some((pattern) => segmentMatchesPattern(segment, pattern)));
+}
+
+/**
+ * Subcommand-style tools where "always allow" should scope to the subcommand
+ * ("git status", "npm install") instead of the whole tool — allowing all of
+ * `git` because the user approved `git status` would be far too broad.
+ */
+const SUBCOMMAND_TOOLS = new Set([
+    "git",
+    "gh",
+    "npm",
+    "pnpm",
+    "yarn",
+    "bun",
+    "deno",
+    "cargo",
+    "go",
+    "docker",
+    "kubectl",
+    "helm",
+    "pip",
+    "pip3",
+    "uv",
+    "brew",
+    "apt",
+    "apt-get",
+    "gem",
+    "mvn",
+    "gradle",
+    "composer",
+    "gcloud",
+    "aws",
+    "az",
+    "terraform",
+    "systemctl",
+]);
+
+/** Looks like a subcommand word (not a flag, path, or file). */
+const SUBCOMMAND_WORD = /^[a-z][a-z0-9-]*$/i;
+
+/**
+ * The patterns "always allow" would persist for this command — one per
+ * executed segment, deduped. Subcommand tools store "cmd sub"; everything
+ * else stores the bare command name.
+ */
+export function suggestAllowPatterns(command: string): string[] {
+    const out: string[] = [];
+    for (const segment of splitSegments(command)) {
+        const resolved = resolveSegment(segment);
+        if (!resolved) continue;
+        const sub = resolved.rest[0];
+        const pattern =
+            SUBCOMMAND_TOOLS.has(resolved.command) && sub && SUBCOMMAND_WORD.test(sub)
+                ? `${resolved.command} ${sub}`
+                : resolved.command;
+        if (!out.includes(pattern)) out.push(pattern);
+    }
+    return out;
+}
+
+/**
+ * The refusal handed back to the model when the user denies an approval
+ * prompt. A live human decision, not policy — so "this command, this time":
+ * don't retry or work around it, but continuing the task is fine.
+ */
+export function formatApprovalRefusal(command: string): string {
+    const first = command.split("\n")[0];
+    const shown = first.length > 80 ? `${first.slice(0, 77)}…` : first;
+    return (
+        `The user reviewed \`${shown}\` and declined to run it. ` +
+        `Don't retry it or run an equivalent (different flags, a script, piping). ` +
+        `Continue the task without it, or explain what you needed it for and let the user decide.`
+    );
+}
+
 /**
  * The refusal handed back to the model. Kept to 2-3 lines but deliberately
  * framed as the user's settled decision (not an error) and ruling out

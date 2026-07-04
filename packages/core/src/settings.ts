@@ -17,6 +17,13 @@ export interface LoopSettings {
     subagentMaxSteps?: number;
     /** Master switch for the task tool (subagents). Default on. */
     subagents?: boolean;
+    /**
+     * Default model for subagents (full provider/model id). Precedence:
+     * the agent file's `model:` > this setting > inherit the parent's model.
+     * Unset = inherit. Validated at spawn time; falls back to the parent
+     * model (with a visible warning) if unknown or unavailable.
+     */
+    subagentModel?: string;
     /** Post-turn recap under responses that wrote/edited files. Default off. */
     recap?: boolean;
     /** Let the agent pause mid-turn to ask multiple-choice questions (ask
@@ -30,6 +37,8 @@ export interface LoopSettings {
     workspaceContext?: boolean;
     skills?: boolean;
     agent?: string;
+    /** User-defined command aliases: name → expansion ("/model gpt …"). Managed via /alias. */
+    aliases?: Record<string, string>;
     lastChangelogVersion?: string;
     projectModels?: Record<string, string>;
     /** cwd → provider → last model picked with that provider in that folder. */
@@ -50,6 +59,20 @@ export interface LoopSettings {
      * key to use DEFAULT_BASH_DENY; set it (even to []) to take full control.
      */
     bashDeny?: BashDenyEntry[];
+    /**
+     * Ask before every bash command (deny / allow once / always allow), like a
+     * permission prompt. Default OFF — opt in via /settings for an extra
+     * safeguard. Only active in interactive mode (needs the UI bridge); print
+     * mode and RPC run unprompted as before.
+     */
+    bashApprove?: boolean;
+    /**
+     * Commands pre-approved for the bashApprove prompt ("always allow").
+     * Same pattern shape as bashDeny: command name, optionally + subcommand
+     * ("git status"). A command runs unprompted only when EVERY segment of the
+     * command line matches an entry. Ignored while bashApprove is off.
+     */
+    bashAllow?: BashDenyEntry[];
     /**
      * OS-level sandbox for the bash tool (Seatbelt on macOS, bubblewrap on
      * Linux). Off unless `enabled`. Fail-open: if it can't be enforced the
