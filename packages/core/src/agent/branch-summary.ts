@@ -7,8 +7,9 @@
 import { generateText } from "ai";
 import { getModel } from "../providers";
 import type { Session } from "../sessions";
-import type { Entry } from "../types";
+import type { Entry, UsageBlock } from "../types";
 import { isAbortError } from "./abort";
+import type { CostTracker } from "./cost";
 
 export const BRANCH_SUMMARY_PREAMBLE = `The user explored a different conversation branch before returning here.
 Summary of that exploration:
@@ -101,13 +102,21 @@ export class BranchSummaryAbortedError extends Error {
     }
 }
 
-/** Summarize an abandoned branch's entries for a branch-summary entry. */
+/**
+ * Summarize an abandoned branch's entries for a branch-summary entry. When a
+ * tracker is passed the summarization call is billed (source
+ * "branch-summary" — real API spend that historically went unrecorded); the
+ * returned usage should be stamped onto the entry the caller appends.
+ */
 export async function runBranchSummary(opts: {
     entries: Entry[];
     modelId: string;
     abortSignal?: AbortSignal;
     customInstructions?: string;
-}): Promise<string> {
+    tracker?: CostTracker;
+    sessionPub?: string;
+    cwd?: string;
+}): Promise<{ text: string; usage?: UsageBlock }> {
     const conversationText = opts.entries
         .map(branchEntryToText)
         .filter((t): t is string => t !== null)
@@ -125,7 +134,14 @@ export async function runBranchSummary(opts: {
             prompt: `<conversation>\n${conversationText}\n</conversation>\n\n${instructions}`,
             abortSignal: opts.abortSignal,
         });
-        return result.text;
+        if (opts.tracker && result.usage) {
+            opts.tracker.add(opts.modelId, result.usage, {
+                cwd: opts.cwd,
+                sessionPub: opts.sessionPub,
+                source: "branch-summary",
+            });
+        }
+        return { text: result.text, usage: result.usage };
     } catch (err) {
         if (isAbortError(err) || opts.abortSignal?.aborted) throw new BranchSummaryAbortedError();
         throw err;

@@ -70,4 +70,33 @@ describe("read-before-modify enforcement", () => {
             /has not been read/,
         );
     });
+
+    test("sessions don't share read state (RPC multi-session)", async () => {
+        const readA = createReadTool({ cwd: dir, sessionId: "A" });
+        const editA = createEditTool({ cwd: dir, sessionId: "A" });
+        const editB = createEditTool({ cwd: dir, sessionId: "B" });
+        writeFileSync(join(dir, "f.txt"), "shared");
+        await exec(readA, { path: "f.txt" });
+        // B never read the file — A's read must not unlock it for B.
+        await expect(exec(editB, { path: "f.txt", edits: [{ oldText: "shared", newText: "x" }] })).rejects.toThrow(
+            /has not been read/,
+        );
+        await exec(editA, { path: "f.txt", edits: [{ oldText: "shared", newText: "mine" }] });
+    });
+
+    test("clearing one session leaves another's reads intact", async () => {
+        const { clearReadRegistry } = await import("../src/tools/utils/read-registry");
+        const readA = createReadTool({ cwd: dir, sessionId: "A2" });
+        const editA = createEditTool({ cwd: dir, sessionId: "A2" });
+        const readB = createReadTool({ cwd: dir, sessionId: "B2" });
+        const editB = createEditTool({ cwd: dir, sessionId: "B2" });
+        writeFileSync(join(dir, "g.txt"), "keep both");
+        await exec(readA, { path: "g.txt" });
+        await exec(readB, { path: "g.txt" });
+        clearReadRegistry("A2");
+        await expect(exec(editA, { path: "g.txt", edits: [{ oldText: "keep", newText: "x" }] })).rejects.toThrow(
+            /has not been read/,
+        );
+        await exec(editB, { path: "g.txt", edits: [{ oldText: "both", newText: "B-still-ok" }] });
+    });
 });

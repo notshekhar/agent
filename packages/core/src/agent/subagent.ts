@@ -19,7 +19,7 @@ import { getSetting } from "../settings";
 import { createTools } from "../tools";
 import { getMcpManager } from "../mcp";
 import { getExtensionHost } from "../extensions";
-import type { Session } from "../sessions";
+import { attachLedgerEntry, type Session } from "../sessions";
 import type { SubagentActivityPart, UsageBlock } from "../types";
 import { buildSystemPrompt } from "./system-prompt";
 import {
@@ -270,7 +270,9 @@ async function runSubagent(
         // same fail-closed read-only sandbox guarantee as the top-level agent.
         const readOnlyFs = isReadOnlyBashAgent(effective);
         const full: Record<string, unknown> = {
-            ...createTools({ cwd: ctx.cwd, abortSignal: ctx.abortSignal, readOnlyFs }),
+            // Same sessionId as the parent turn: subagent reads share the
+            // session and must unlock parent edits (and vice versa).
+            ...createTools({ cwd: ctx.cwd, abortSignal: ctx.abortSignal, readOnlyFs, sessionId: ctx.sessionId }),
             ...mcpTools,
             ...Object.fromEntries(extTools.add),
         };
@@ -366,6 +368,9 @@ async function runSubagent(
         // never arrives, but the completed steps were already billed; persist
         // their sum so a resumed session seeds the real cost instead of 0.
         let stepUsageSum: UsageBlock | undefined;
+        // Ledger rows billed per step, attributed to the single subagent
+        // entry once it's persisted (money first, attribution second).
+        const ledgerRowIds: number[] = [];
         // One ordered activity log: text, reasoning, and tool parts appended in
         // stream order so the subagent's real flow (text → tool → text → …) is
         // preserved — structured, so renderers can style each kind on its own.
@@ -408,7 +413,13 @@ async function runSubagent(
                     const u = (part as { usage?: UsageBlock }).usage;
                     if (u) {
                         stepUsageSum = sumUsage(stepUsageSum, u);
-                        ctx.tracker.add(modelId, u, ctx.cwd);
+                        ctx.tracker.add(modelId, u, {
+                            cwd: ctx.cwd,
+                            sessionPub: ctx.sessionId,
+                            source: "subagent",
+                        });
+                        const rowId = ctx.tracker.takeLastLedgerRowId();
+                        if (rowId !== undefined) ledgerRowIds.push(rowId);
                         ctx.emitter.emit("subagent-step-usage", { toolCallId, agent: name, usage: u });
                     }
                     break;
@@ -459,8 +470,8 @@ async function runSubagent(
         // the full ordered run (what the box renders next time), `result` the
         // final report (what the model re-reads via toModelMessages).
         const runUsage = totalUsage ?? stepUsageSum;
-        await ctx.session.append({
-            type: "subagent",
+        const subagentEntry = {
+            type: "subagent" as const,
             ts: Date.now(),
             agent: name,
             prompt,
@@ -468,7 +479,12 @@ async function runSubagent(
             activity: activity.length ? activity : undefined,
             usage: runUsage ? stampUsageCost(modelId, runUsage) : undefined,
             model: modelId,
-        });
+        };
+        await ctx.session.append(subagentEntry);
+        // A subagent run is many billed steps but one persisted entry —
+        // attribute every step's ledger row to it.
+        const entryId = (subagentEntry as { id?: string }).id;
+        if (entryId) for (const rowId of ledgerRowIds) attachLedgerEntry(rowId, entryId);
 
         // The history is the tool output (saved + rendered); toModelOutput
         // extracts the report for the model.

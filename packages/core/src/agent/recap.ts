@@ -11,7 +11,7 @@
  */
 import { generateText } from "ai";
 import { getModel } from "../providers";
-import type { Session } from "../sessions";
+import { attachLedgerEntry, type Session } from "../sessions";
 import type { CostTracker } from "./cost";
 
 export const RECAP_KIND = "recap";
@@ -73,8 +73,18 @@ export async function runRecap(opts: {
     const text = result.text.trim().split("\n").slice(0, 3).join("\n").trim();
     if (!text) return "";
 
-    if (opts.tracker && result.usage) opts.tracker.add(opts.modelId, result.usage, opts.cwd);
+    if (opts.tracker && result.usage) {
+        opts.tracker.add(opts.modelId, result.usage, {
+            cwd: opts.cwd,
+            sessionPub: opts.session.info.id,
+            source: "recap",
+        });
+    }
     const payload: RecapPayload = { kind: RECAP_KIND, text };
-    await opts.session.append({ type: "custom", ts: Date.now(), payload });
+    const entry = { type: "custom" as const, ts: Date.now(), payload };
+    await opts.session.append(entry);
+    const rowId = opts.tracker?.takeLastLedgerRowId();
+    const entryId = (entry as { id?: string }).id;
+    if (rowId !== undefined && entryId) attachLedgerEntry(rowId, entryId);
     return text;
 }

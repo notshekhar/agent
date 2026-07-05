@@ -31,10 +31,10 @@ import {
     runAfterTurn,
     runBeforeTurn,
 } from "./turn-middleware";
-import type { Session } from "../sessions";
+import { attachLedgerEntry, type Session } from "../sessions";
 import type { UsageBlock } from "../types";
 
-export { CostTracker } from "./cost";
+export { CostTracker, stampUsageCost, type AddContext } from "./cost";
 export { buildSteakGrid, type SteakGrid, type SteakOptions } from "./steak";
 export { runCompact, CompactAbortedError } from "./compact";
 export { runRecap, isRecapPayload, RECAP_KIND, type RecapPayload } from "./recap";
@@ -205,6 +205,11 @@ export function stepMessagesToEntries(
             if (kept.length > 0) out.push({ role: "tool", content: kept });
         }
     }
+    // A step whose assistant message was ONLY the task tool-call filters to
+    // nothing — but its usage is still real billed tokens. Carry it on an
+    // empty assistant entry: toModelMessages drops empty content, so it never
+    // reaches the model, while resume cost seeding and /steak still count it.
+    if (usageToStamp) out.push({ role: "assistant", content: [], usage: usageToStamp });
     return out;
 }
 
@@ -333,7 +338,7 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
                 cwd,
             );
             try {
-                const result = await runCompact({ session, modelId, abortSignal });
+                const result = await runCompact({ session, modelId, abortSignal, tracker, cwd });
                 emitter.emit("compact-end", result);
             } catch (err) {
                 if (abortSignal?.aborted) {
@@ -363,7 +368,7 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
     // An agent allowed bash but NOT write/edit (e.g. plan) gets bash forced into
     // a fail-closed read-only sandbox, so the kernel guarantees no mutation.
     const readOnlyFs = isReadOnlyBashAgent(allowedTools);
-    const fullToolSet = createTools({ cwd, abortSignal, readOnlyFs });
+    const fullToolSet = createTools({ cwd, abortSignal, readOnlyFs, sessionId: session.id });
     const toolSet = (
         allowedTools?.length
             ? Object.fromEntries(Object.entries(fullToolSet).filter(([name]) => allowedTools.includes(name)))
@@ -570,6 +575,11 @@ Write complete prompts: the subagent knows nothing about this conversation — i
     // mistaken assumption it was cumulative, dropped every step after the first
     // — losing the final answer and its usage on reopen.)
     let persistedAnyMessage = false;
+    // Ledger rows billed at finish-step, waiting for their entry's id so the
+    // row can be attributed. One pending id per usage-bearing step; persist
+    // and billing race per step, so an empty shift just skips attribution
+    // (the money row itself is already safe).
+    const pendingLedgerRowIds: number[] = [];
     // Serialize appends so each step's messages land in order even if onStepEnd
     // callbacks overlap.
     let persistChain: Promise<void> = Promise.resolve();
@@ -580,21 +590,27 @@ Write complete prompts: the subagent knows nothing about this conversation — i
         const entries = stepMessagesToEntries(step.response.messages, step.usage);
         if (entries.length > 0) persistedAnyMessage = true;
         persistChain = persistChain
-            .then(() =>
-                // One batch = one file lock/write for the whole step's messages.
-                session.appendAll(
-                    entries.map((entry) => ({
-                        type: "message" as const,
-                        ts: Date.now(),
-                        role: entry.role,
-                        content: entry.content,
-                        // Stamp the model AND the billed USD on usage-bearing
-                        // (assistant) entries so cost seeding reads the true
-                        // historical cost after a model switch or catalog drift.
-                        ...(entry.usage ? { usage: stampUsageCost(modelId, entry.usage), model: modelId } : {}),
-                    })),
-                ),
-            )
+            .then(async () => {
+                const rows = entries.map((entry) => ({
+                    type: "message" as const,
+                    ts: Date.now(),
+                    role: entry.role,
+                    content: entry.content,
+                    // Stamp the model AND the billed USD on usage-bearing
+                    // (assistant) entries so cost seeding reads the true
+                    // historical cost after a model switch or catalog drift.
+                    ...(entry.usage ? { usage: stampUsageCost(modelId, entry.usage), model: modelId } : {}),
+                }));
+                // One batch = one transaction for the whole step's messages.
+                await session.appendAll(rows);
+                // appendAll assigned ids in place — attribute this step's
+                // ledger row to the entry that carries its usage.
+                const usageEntry = rows.find((r) => "usage" in r && r.usage) as { id?: string } | undefined;
+                if (usageEntry?.id) {
+                    const rowId = pendingLedgerRowIds.shift();
+                    if (rowId !== undefined) attachLedgerEntry(rowId, usageEntry.id);
+                }
+            })
             // Persistence must never break a turn — but a failed transcript
             // write is data loss, so leave a breadcrumb (LOOP_DEBUG=1).
             .catch((err) => debugLog("persist", `step persistence failed for session ${session.id}:`, err));
@@ -726,7 +742,17 @@ Write complete prompts: the subagent knows nothing about this conversation — i
                     if (u) {
                         lastStepUsage = u;
                         stepUsageSum = sumUsage(stepUsageSum, u);
-                        const breakdown = tracker.add(modelId, u, cwd);
+                        const breakdown = tracker.add(modelId, u, {
+                            cwd,
+                            sessionPub: session.info.id,
+                            source: "turn",
+                        });
+                        // Attribution handoff: persistStep attaches this row
+                        // to the entry that carries the same usage once the
+                        // entry has its id (persist and billing race per
+                        // step; the queue tolerates either order).
+                        const rowId = tracker.takeLastLedgerRowId();
+                        if (rowId !== undefined) pendingLedgerRowIds.push(rowId);
                         emitter.emit("step-usage", { usage: u, breakdown });
                     }
                     // This step's text/reasoning is now persisted via onStepEnd
@@ -795,7 +821,7 @@ Write complete prompts: the subagent knows nothing about this conversation — i
                 session,
             );
             if (est) {
-                tracker.addEstimated(modelId, est, cwd);
+                tracker.addEstimated(modelId, est, { cwd, sessionPub: session.info.id, source: "turn" });
                 emitter.emit("step-usage", { usage: est, breakdown: tracker.sessionBreakdown() });
             }
         }
@@ -805,14 +831,19 @@ Write complete prompts: the subagent knows nothing about this conversation — i
         // text/usage here — never tool-call parts (those persist on finished
         // steps only), so there's no orphaned tool_use to break the next turn.
         if (streamedTail || !persistedAnyMessage) {
-            await session.append({
-                type: "message",
+            const interruptedEntry = {
+                type: "message" as const,
                 ts: Date.now(),
-                role: "assistant",
+                role: "assistant" as const,
                 content: tailParts.length > 0 ? tailParts : "",
                 interrupted: true,
                 ...(est ? { usage: stampUsageCost(modelId, est), model: modelId } : {}),
-            });
+            };
+            await session.append(interruptedEntry);
+            const estRowId = tracker.takeLastLedgerRowId();
+            if (est && estRowId !== undefined && (interruptedEntry as { id?: string }).id) {
+                attachLedgerEntry(estRowId, (interruptedEntry as { id?: string }).id!);
+            }
         }
     } else if (!persistedAnyMessage && (tailParts.length > 0 || lastUsage || stepUsageSum)) {
         // Non-abort edge: the stream ended without any step persisting (e.g. a

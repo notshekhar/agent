@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { compactedContextEntries } from "../src/agent/compact";
+import { compactCut, compactedContextEntries } from "../src/agent/compact";
 import { Session } from "../src/sessions";
 import type { Entry } from "../src/types";
 import { useTempSessionDb } from "./helpers/temp-db";
@@ -44,5 +44,36 @@ describe("compactedContextEntries", () => {
             { kind: "message", role: "user", content: "new-1" },
             { kind: "subagent", agent: "default", result: "new-report" },
         ]);
+    });
+});
+
+describe("compactCut", () => {
+    const roles = (rs: string[]) => rs.map((role) => ({ role }));
+
+    test("plain numeric cut when the window starts on a user message", () => {
+        expect(compactCut(roles(["user", "assistant", "user", "assistant"]), 0, 2)).toBe(2);
+    });
+
+    test("walks back over tool results so the window keeps the tool-call pair", () => {
+        // cut would land on the tool result at index 3 — orphaning it from the
+        // assistant tool-call at index 2.
+        const messages = roles(["user", "assistant", "assistant", "tool", "assistant", "user"]);
+        expect(compactCut(messages, 0, 3)).toBe(2);
+    });
+
+    test("walks back over consecutive tool messages", () => {
+        const messages = roles(["user", "assistant", "tool", "tool", "assistant"]);
+        expect(compactCut(messages, 0, 2)).toBe(1);
+    });
+
+    test("never walks below the previous cut", () => {
+        // numeric cut lands exactly on previousCut, which is a tool message —
+        // the walk-back must stop there rather than dig into compacted history.
+        const messages = roles(["user", "assistant", "tool", "tool", "assistant"]);
+        expect(compactCut(messages, 3, 2)).toBe(3);
+    });
+
+    test("keeps everything when history is shorter than keep", () => {
+        expect(compactCut(roles(["user", "assistant"]), 0, 4)).toBe(0);
     });
 });

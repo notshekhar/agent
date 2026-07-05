@@ -7,33 +7,47 @@
  *   files/paths pass freely.
  *
  * In-memory and session-scoped: nothing persists to disk, and the registry
- * clears on /new. Subagent reads count — they share the session.
+ * clears on /new. Subagent reads count — they share the session. Registries
+ * are keyed by session id so concurrent sessions in one process (RPC) don't
+ * see each other's reads; callers without a session share one default slate.
  */
 import { statSync } from "node:fs";
 
-const readAt = new Map<string, number>(); // absolute path → mtimeMs when read
+const registries = new Map<string, Map<string, number>>(); // session → (absolute path → mtimeMs when read)
+const DEFAULT_KEY = "";
 
-/** New session = clean slate; reads never carry across sessions. */
-export function clearReadRegistry(): void {
-    readAt.clear();
+function registry(sessionId?: string): Map<string, number> {
+    const key = sessionId ?? DEFAULT_KEY;
+    let r = registries.get(key);
+    if (!r) {
+        r = new Map();
+        registries.set(key, r);
+    }
+    return r;
 }
 
-export function recordRead(absolutePath: string): void {
+/** New session = clean slate; reads never carry across sessions. */
+export function clearReadRegistry(sessionId?: string): void {
+    if (sessionId === undefined) registries.clear();
+    else registries.delete(sessionId);
+}
+
+export function recordRead(absolutePath: string, sessionId?: string): void {
     try {
-        readAt.set(absolutePath, statSync(absolutePath).mtimeMs);
+        registry(sessionId).set(absolutePath, statSync(absolutePath).mtimeMs);
     } catch {
         // unreadable stat — leave unrecorded
     }
 }
 
 /** Call after a successful edit/write so follow-up edits aren't flagged stale. */
-export function recordModified(absolutePath: string): void {
-    recordRead(absolutePath);
+export function recordModified(absolutePath: string, sessionId?: string): void {
+    recordRead(absolutePath, sessionId);
 }
 
 /** Returns an error message when the modification must be blocked, else null. */
-export function checkReadBeforeModify(absolutePath: string, displayPath: string): string | null {
-    const seenMtime = readAt.get(absolutePath);
+export function checkReadBeforeModify(absolutePath: string, displayPath: string, sessionId?: string): string | null {
+    const seenMtime = registry(sessionId).get(absolutePath);
     if (seenMtime === undefined) {
         return `File has not been read in this session: ${displayPath}. Read it with the read tool first, then edit.`;
     }

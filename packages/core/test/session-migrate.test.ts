@@ -118,6 +118,18 @@ describe("JSONL → SQLite migration", () => {
         expect(listed.map((s) => s.id)).toEqual(["EMPTY"]);
     });
 
+    test("headerless transcript gets its cwd de-slugged from the dir name", () => {
+        // No session-info line → cwd falls back to the parent dir, which is a
+        // slug. It must come back as a path so listSessions(cwd) can match.
+        writeTranscript("--Users-foo-proj--", "NOHEAD", [
+            JSON.stringify({ type: "message", role: "user", content: "hi", ts: 2 }),
+        ]);
+        migrateLegacySessions(getDb(), root);
+        const listed = new SessionManager().list();
+        const s = listed.find((x) => x.id === "NOHEAD");
+        expect(s?.cwd).toBe("/Users/foo/proj");
+    });
+
     test("duplicate session ids across files merge instead of failing", async () => {
         writeTranscript("--a--", "DUP", [
             sessionInfo("DUP", "/a"),

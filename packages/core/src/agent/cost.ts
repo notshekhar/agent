@@ -1,7 +1,18 @@
-import { costStore } from "../auth/storage";
 import { getModelSync } from "../catalog";
+import { debugLog } from "../debug";
 import type { CostBreakdown, ProviderId, UsageBlock } from "../types";
 import type { Session } from "../sessions";
+import {
+    addLedgerRow,
+    dayKey,
+    getCostBaseline,
+    ledgerCwdUsd,
+    ledgerDailyUsd,
+    ledgerLifetime,
+    priceSnapshot,
+    sumLedgerForSession,
+    type LedgerSource,
+} from "../sessions/cost-ledger";
 import { parseModelId } from "../providers";
 
 export interface CostStats {
@@ -13,9 +24,11 @@ export interface CostStats {
     cwdUsd: number;
 }
 
-/** Local-timezone YYYY-MM-DD — buckets should roll over at the user's midnight. */
-function dayKey(d = new Date()): string {
-    return d.toLocaleDateString("sv");
+/** Where a billed round-trip came from — rides the ledger row. */
+export interface AddContext {
+    cwd?: string;
+    sessionPub?: string;
+    source?: LedgerSource;
 }
 
 /** Sum two usage blocks field-wise — used to keep a running per-step total so
@@ -68,12 +81,6 @@ export function sumUsage(a: UsageBlock | undefined, b: UsageBlock): UsageBlock {
         usd: n(a.usd, b.usd),
         usdDetails,
     };
-}
-
-/** A stored number, defended against a corrupt store (null/NaN/Infinity would
- * otherwise poison every later accumulation and get written back forever). */
-function num(x: unknown): number {
-    return typeof x === "number" && Number.isFinite(x) ? x : 0;
 }
 
 /** Context size implied by a usage block — provider total when present, else the sum. */
@@ -132,12 +139,22 @@ export class CostTracker {
     /** Sticky once any estimated (interrupted-turn) usage lands in the session
      * total — drives the leading `~` in format()/sessionBreakdown(). */
     private estimated = false;
-    /** Persist to the lifetime/daily/cwd store (default). Tests pass false so
-     * exercising add() never touches the user's real ~/.loop/cost.json. */
+    /** Write ledger rows (default). Tests pass false so exercising add()
+     * accumulates in-memory only, never touching the session DB. */
     private readonly persist: boolean;
+    /** Ledger row id of the most recent add — consumed once by the persist
+     * path to attach the entry that carried the same usage (attribution). */
+    private lastLedgerRowId: number | undefined;
 
     constructor(opts: { persist?: boolean } = {}) {
         this.persist = opts.persist !== false;
+    }
+
+    /** The last add()'s ledger row id, consumed (returns undefined after). */
+    takeLastLedgerRowId(): number | undefined {
+        const id = this.lastLedgerRowId;
+        this.lastLedgerRowId = undefined;
+        return id;
     }
 
     private computeUsd(modelId: string, provider: string, usage: UsageBlock): number {
@@ -158,86 +175,88 @@ export class CostTracker {
         return usd;
     }
 
-    add(modelId: string, usage: UsageBlock, cwd?: string): CostBreakdown {
-        const { provider } = parseModelId(modelId);
-        const usd = this.accumulateSession(modelId, provider, usage);
-        if (!this.persist) return { ...this.session };
-
-        // Fresh read + single atomic write per step. The re-read matters:
-        // another loop instance accrues into the same file, and accumulating
-        // onto a stale cache would overwrite its spend (lost update).
-        costStore.refresh();
-        const all = costStore.all as {
-            lifetime?: { usd: number; byProvider: Record<string, number> };
-            daily?: Record<string, number>;
-            byCwd?: Record<string, number>;
-        };
-        const lifetime = all.lifetime ?? { usd: 0, byProvider: {} };
-        lifetime.usd = num(lifetime.usd) + usd;
-        lifetime.byProvider[provider] = num(lifetime.byProvider[provider]) + usd;
-        all.lifetime = lifetime;
-
-        // Daily + per-directory buckets power /cost's "today / 7d / month / here"
-        // views. Only accrues from now on — pre-existing lifetime spend has no
-        // time/cwd attribution to recover.
-        if (usd > 0) {
-            const daily = all.daily ?? {};
-            daily[dayKey()] = num(daily[dayKey()]) + usd;
-            all.daily = daily;
-            if (cwd) {
-                const byCwd = all.byCwd ?? {};
-                byCwd[cwd] = num(byCwd[cwd]) + usd;
-                all.byCwd = byCwd;
-            }
-        }
-        costStore.all = all;
-
+    /** Bill one API round-trip: accumulate in-memory + append a ledger row. */
+    add(modelId: string, usage: UsageBlock, ctxOrCwd?: string | AddContext): CostBreakdown {
+        this.bill(modelId, usage, ctxOrCwd, false);
         return { ...this.session };
     }
 
     /**
-     * Accumulate an *estimated* usage block into the session total only — never
-     * the persistent lifetime/daily/cwd store. Used for the in-flight request
-     * of an interrupted turn, whose real usage the AI SDK never reports
-     * (vercel/ai#7805). Sets the `estimated` flag so the footer shows a `~`.
+     * Bill an *estimated* usage block — the in-flight request of an
+     * interrupted turn, whose real usage the AI SDK never reports
+     * (vercel/ai#7805). The ledger row is flagged `estimated=1`, so the
+     * session sum includes it (with the `~` prefix) while billing views
+     * (lifetime/today/7d/month/cwd) exclude it.
      */
-    addEstimated(modelId: string, usage: UsageBlock, _cwd?: string): CostBreakdown {
-        const { provider } = parseModelId(modelId);
-        this.accumulateSession(modelId, provider, usage);
+    addEstimated(modelId: string, usage: UsageBlock, ctxOrCwd?: string | AddContext): CostBreakdown {
+        this.bill(modelId, usage, ctxOrCwd, true);
         this.estimated = true;
         return { ...this.session, estimated: true };
     }
 
+    private bill(modelId: string, usage: UsageBlock, ctxOrCwd: string | AddContext | undefined, estimated: boolean) {
+        // Legacy positional cwd still accepted; new callers pass the context.
+        const ctx: AddContext = typeof ctxOrCwd === "string" ? { cwd: ctxOrCwd } : (ctxOrCwd ?? {});
+        const { provider } = parseModelId(modelId);
+        const usd = this.accumulateSession(modelId, provider, usage);
+        if (!this.persist) return;
+        // A failed billing write must never break a turn — but it IS a money
+        // record dropping, so leave a breadcrumb (LOOP_DEBUG=1).
+        try {
+            this.lastLedgerRowId = addLedgerRow({
+                provider,
+                model: modelId,
+                usage,
+                usd,
+                providerCost: provider === "openrouter" && typeof usage.cost === "number" ? usage.cost : undefined,
+                prices: priceSnapshot(modelId),
+                estimated,
+                ctx: { source: ctx.source ?? "turn", cwd: ctx.cwd, sessionPub: ctx.sessionPub },
+            });
+        } catch (err) {
+            debugLog("cost", "ledger append failed:", err as Error);
+        }
+    }
+
     stats(cwd?: string): CostStats {
-        // /cost is user-triggered and must reflect other live instances' spend.
-        costStore.refresh();
-        const all = costStore.all as {
-            lifetime?: { usd: number; byProvider: Record<string, number> };
-            daily?: Record<string, number>;
-            byCwd?: Record<string, number>;
-        };
-        const lifetime = all.lifetime ?? { usd: 0, byProvider: {} };
-        const daily = all.daily ?? {};
-        const byCwd = all.byCwd ?? {};
+        // Ledger queries see other live instances' spend by construction
+        // (single WAL DB) — the cost.json refresh dance is gone. Pre-ledger
+        // spend rides the frozen baseline snapshot, merged bucket-by-bucket.
+        const baseline = getCostBaseline();
+        const life = ledgerLifetime();
+        const daily = ledgerDailyUsd();
+        for (const [day, usd] of Object.entries(baseline.daily)) {
+            daily.set(day, (daily.get(day) ?? 0) + usd);
+        }
 
         const today = dayKey();
-        const last7Keys = new Set(Array.from({ length: 7 }, (_, i) => dayKey(new Date(Date.now() - i * 86_400_000))));
+        // Walk back by calendar day, not 24h ticks — a DST-shortened day would
+        // make fixed 24h steps skip (or double-count) a date key.
+        const last7Keys = new Set<string>();
+        const cursor = new Date();
+        for (let i = 0; i < 7; i++) {
+            last7Keys.add(dayKey(cursor));
+            cursor.setDate(cursor.getDate() - 1);
+        }
         const monthPrefix = today.slice(0, 7);
 
         let last7Usd = 0;
         let monthUsd = 0;
-        for (const [day, usd] of Object.entries(daily)) {
+        for (const [day, usd] of daily) {
             if (last7Keys.has(day)) last7Usd += usd;
             if (day.startsWith(monthPrefix)) monthUsd += usd;
         }
 
+        const byProvider = { ...baseline.lifetime.byProvider };
+        for (const [p, usd] of Object.entries(life.byProvider)) byProvider[p] = (byProvider[p] ?? 0) + usd;
+
         return {
-            lifetimeUsd: lifetime.usd ?? 0,
-            byProvider: lifetime.byProvider ?? {},
-            todayUsd: daily[today] ?? 0,
+            lifetimeUsd: baseline.lifetime.usd + life.usd,
+            byProvider,
+            todayUsd: daily.get(today) ?? 0,
             last7Usd,
             monthUsd,
-            cwdUsd: cwd ? (byCwd[cwd] ?? 0) : 0,
+            cwdUsd: cwd ? ledgerCwdUsd(cwd) + (baseline.byCwd[cwd] ?? 0) : 0,
         };
     }
 
@@ -248,9 +267,29 @@ export class CostTracker {
      * for the ctx meter.
      */
     seedFromSession(session: Session): { ctxTokens: number } {
-        // Each usage is priced with the model that produced it (stamped on the
-        // entry), falling back to the session model for older/unstamped entries.
-        // This keeps cost correct across a mid-session model switch.
+        // Money comes from the ledger when the session has recorded rows —
+        // the dollars it was billed live, never a recompute (invariant 1:
+        // live total == reopened total). Sessions with no rows (imported
+        // straggler, fork) fall back to the entry walk, where each usage is
+        // priced with the model that produced it (stamped on the entry).
+        let ledgerRows = 0;
+        try {
+            const sums = sumLedgerForSession(session.info.id);
+            if (sums.rows > 0) {
+                ledgerRows = sums.rows;
+                this.reset();
+                this.session = {
+                    inputTokens: sums.inputTokens,
+                    outputTokens: sums.outputTokens,
+                    cachedInputTokens: sums.cachedInputTokens,
+                    usd: sums.usd,
+                };
+                this.estimated = sums.estimated;
+            }
+        } catch (err) {
+            debugLog("cost", "ledger seed failed, falling back to entries:", err as Error);
+        }
+
         const usages: { usage: UsageBlock; model: string }[] = [];
         let lastAssistantUsage: UsageBlock | undefined;
         for (const e of session.entries()) {
@@ -261,7 +300,7 @@ export class CostTracker {
                 usages.push({ usage: e.usage, model: e.model ?? session.info.model });
             }
         }
-        this.seedFromEntries(session.info.model, usages);
+        if (ledgerRows === 0) this.seedFromEntries(session.info.model, usages);
         // Ctx meter tracks the MAIN conversation: a subagent's usage counts
         // toward cost, but its context is separate — if the transcript ends on
         // a subagent entry (e.g. aborted mid-task), the meter must not adopt
@@ -292,9 +331,11 @@ export class CostTracker {
     }
 
     lifetimeBreakdown(): { usd: number; byProvider: Record<ProviderId, number> } {
-        const l = costStore.get("lifetime") as { usd?: number; byProvider?: Record<ProviderId, number> } | undefined;
-        // Defensive copy — the store's cached object must not be mutable by callers.
-        return { usd: num(l?.usd), byProvider: { ...(l?.byProvider ?? {}) } as Record<ProviderId, number> };
+        const baseline = getCostBaseline();
+        const life = ledgerLifetime();
+        const byProvider = { ...baseline.lifetime.byProvider };
+        for (const [p, usd] of Object.entries(life.byProvider)) byProvider[p] = (byProvider[p] ?? 0) + usd;
+        return { usd: baseline.lifetime.usd + life.usd, byProvider: byProvider as Record<ProviderId, number> };
     }
 
     reset(): void {

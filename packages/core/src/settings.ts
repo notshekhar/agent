@@ -40,9 +40,9 @@ export interface LoopSettings {
     /** User-defined command aliases: name → expansion ("/model gpt …"). Managed via /alias. */
     aliases?: Record<string, string>;
     lastChangelogVersion?: string;
-    projectModels?: Record<string, string>;
-    /** cwd → provider → last model picked with that provider in that folder. */
-    projectProviderModels?: Record<string, Record<string, string>>;
+    // projectModels / projectProviderModels moved to the projects table
+    // (sessions/projects.ts); the keys are deleted from settings.json by the
+    // one-time store migration.
     /** Pull in hooks from ~/.claude (settings + plugins) and project .claude.
      * Default OFF — set true to opt in. */
     importClaudeHooks?: boolean;

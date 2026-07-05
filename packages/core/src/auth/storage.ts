@@ -72,6 +72,11 @@ export class CachedStore {
         if (this.cache !== null) this.cache[key] = value;
     }
 
+    delete(key: string): void {
+        this.store.delete(key);
+        if (this.cache !== null) delete this.cache[key];
+    }
+
     /** Force a re-read on next access — call after an external write to the file. */
     refresh(): void {
         this.cache = null;
@@ -114,42 +119,6 @@ export function getLoopDir(): string {
     return LOOP_DIR;
 }
 
-/**
- * Per-project model memory: the last model picked while working in a folder
- * is restored next time loop starts there. Global defaultModel stays the
- * fallback for folders never seen before.
- */
-export function getProjectModel(cwd: string): string | undefined {
-    const m = settingsStore.get("projectModels") as Record<string, string> | undefined;
-    const id = m?.[cwd];
-    return typeof id === "string" && id ? id : undefined;
-}
-
-export function setProjectModel(cwd: string, modelId: string): void {
-    const m = (settingsStore.get("projectModels") as Record<string, string> | undefined) ?? {};
-    settingsStore.set("projectModels", { ...m, [cwd]: modelId });
-    // Also remember the pick per provider, so switching providers and back
-    // restores the model used last with that provider in this folder.
-    const provider = providerOfModelId(modelId);
-    if (!provider) return;
-    const pm = (settingsStore.get("projectProviderModels") as Record<string, Record<string, string>> | undefined) ?? {};
-    settingsStore.set("projectProviderModels", { ...pm, [cwd]: { ...pm[cwd], [provider]: modelId } });
-}
-
-/**
- * Last model used with a given provider in this folder. Lets /provider
- * restore the model you had with that provider instead of its first model.
- */
-export function getProjectProviderModel(cwd: string, provider: string): string | undefined {
-    const pm = settingsStore.get("projectProviderModels") as Record<string, Record<string, string>> | undefined;
-    const id = pm?.[cwd]?.[provider];
-    return typeof id === "string" && id ? id : undefined;
-}
-
-// Mirrors providers/parseModelId; inlined (and non-throwing) to avoid an
-// auth ↔ providers import cycle.
-function providerOfModelId(modelId: string): string | undefined {
-    const start = modelId.startsWith("custom:") ? "custom:".length : 0;
-    const idx = modelId.indexOf("/", start);
-    return idx > 0 ? modelId.slice(0, idx) : undefined;
-}
+// getProjectModel/setProjectModel/getProjectProviderModel moved to
+// sessions/projects.ts (the projects table); the auth barrel re-exports them
+// so the public surface is unchanged.

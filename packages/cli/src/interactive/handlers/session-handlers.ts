@@ -128,6 +128,8 @@ export function createSessionHandlers(state: AppState, deps: AppDeps): SessionHa
                     modelId: state.modelId,
                     keepTurns: 0,
                     abortSignal: state.abort.signal,
+                    tracker: deps.tracker,
+                    cwd: state.cwd,
                 });
                 if (result.summary) {
                     history.addCompactionSummary(result.summary, result.tokensBefore);

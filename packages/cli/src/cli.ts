@@ -70,6 +70,13 @@ async function main(): Promise<void> {
         case "whoami":
             (await commands()).cmdWhoami();
             return;
+        case "cost":
+            if (args.positional[0] === "audit") {
+                await (await commands()).cmdCostAudit();
+            } else {
+                console.log("Usage: loop cost audit — reconcile the cost ledger");
+            }
+            return;
         case "install":
             await (await extCommands()).cmdInstall(args);
             return;

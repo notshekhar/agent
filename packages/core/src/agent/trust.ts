@@ -2,23 +2,17 @@
  * Project trust — gate executable/instruction project resources (hooks, project
  * skills) behind an explicit per-folder decision, so opening an untrusted cloned
  * repo doesn't silently run its `.loop`/`.claude` hooks. Ported (simplified) from
- * Trust manager: nearest-ancestor lookup, persisted in ~/.loop/trust.json.
+ * Trust manager: nearest-ancestor lookup, persisted in the `projects` table
+ * (trust.json was migrated in and stays on disk unread).
  *
  * Decision: true = trusted, false = explicitly untrusted, null = not yet asked.
  * Resources load only when the nearest decision is `true`.
  */
-import Configstore from "configstore";
 import { existsSync, realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { getLoopDir } from "../auth/storage";
+import { allTrustRows, writeTrustRow } from "../sessions/projects";
 
 export type TrustDecision = boolean | null;
-
-let trustStore: Configstore | null = null;
-function store(): Configstore {
-    trustStore ??= new Configstore("loop-agent-trust", {}, { configPath: join(getLoopDir(), "trust.json") });
-    return trustStore;
-}
 
 function canonical(cwd: string): string {
     const resolved = resolve(cwd);
@@ -47,10 +41,12 @@ const sessionTrust = new Set<string>();
 export function getTrustDecision(cwd: string): TrustDecision {
     const canon = canonical(cwd);
     if (sessionTrust.has(canon)) return true;
-    const data = store().all as Record<string, boolean | null | undefined>;
+    // One SELECT for the (tiny) decided set, then the same ancestor walk —
+    // a live query is what lets two concurrent loops see each other's grants.
+    const data = allTrustRows();
     let dir = canon;
     for (;;) {
-        const v = data[dir];
+        const v = data.get(dir);
         if (v === true || v === false) return v;
         const parent = dirname(dir);
         if (parent === dir) return null;
@@ -63,9 +59,9 @@ export function isTrusted(cwd: string): boolean {
     return getTrustDecision(cwd) === true;
 }
 
-/** Persist a trust decision to ~/.loop/trust.json. */
+/** Persist a trust decision to the projects table. */
 export function setTrust(cwd: string, decision: boolean): void {
-    store().set(canonical(cwd), decision);
+    writeTrustRow(canonical(cwd), decision);
 }
 
 /** Trust for the running process only — not written to disk. */

@@ -153,11 +153,15 @@ export class SessionStore {
     dailyTokens(): Map<string, number> {
         const rows = this.db
             .query<{ day: string; toks: number }, []>(
+                // usage_estimated=1 rows are interrupted-turn guesses that
+                // /cost never bills — counting them in /steak was invariant
+                // 5's pre-existing inconsistency (DESIGN.md §1b).
                 `SELECT date(ts / 1000, 'unixepoch', 'localtime') AS day,
                         SUM(COALESCE(usage_input, 0) + COALESCE(usage_output, 0)) AS toks
                  FROM entries
                  WHERE ((type = 'message' AND role = 'assistant') OR type = 'subagent')
                    AND COALESCE(usage_input, 0) + COALESCE(usage_output, 0) > 0
+                   AND COALESCE(usage_estimated, 0) = 0
                  GROUP BY day`,
             )
             .all();

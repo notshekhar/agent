@@ -18,6 +18,8 @@ import { checkReadBeforeModify, recordModified } from "./utils/read-registry";
 export interface EditToolContext {
     cwd: string;
     abortSignal?: AbortSignal;
+    /** Scopes the read-before-edit registry (see tools/index.ts ToolContext). */
+    sessionId?: string;
 }
 
 function prepareEditInput(input: unknown): { path: string; edits: Edit[] } {
@@ -74,7 +76,7 @@ export function createEditTool(ctx: EditToolContext) {
                 if (signal?.aborted) throw new Error("Operation aborted");
                 // Read-before-edit: never modify a file the agent hasn't seen
                 // (or has only seen a stale version of) this session.
-                const readError = checkReadBeforeModify(absolutePath, path);
+                const readError = checkReadBeforeModify(absolutePath, path, ctx.sessionId);
                 if (readError) throw new Error(readError);
                 try {
                     await fsAccess(absolutePath, constants.R_OK | constants.W_OK);
@@ -98,7 +100,7 @@ export function createEditTool(ctx: EditToolContext) {
                 if (signal?.aborted) throw new Error("Operation aborted");
                 const finalContent = bom + restoreLineEndings(newContent, originalEnding);
                 await fsWriteFile(absolutePath, finalContent);
-                recordModified(absolutePath);
+                recordModified(absolutePath, ctx.sessionId);
 
                 const diffResult = generateDiffString(baseContent, newContent);
                 return `Successfully replaced ${edits.length} block(s) in ${path}.\n\n${diffResult.diff}`;

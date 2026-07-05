@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Entry, SessionInfoData } from "../types";
+import type { Entry, SessionInfoData, UsageBlock } from "../types";
 import { adaptLoopEntry } from "./loop-adapter";
 import { getSessionStore } from "./sqlite-store";
 
@@ -236,7 +236,13 @@ export class Session {
      * Branch to an entry and record a summary of the abandoned path
      *. Pass null to branch before the root.
      */
-    async branchWithSummary(branchFromId: string | null, summary: string): Promise<string> {
+    async branchWithSummary(
+        branchFromId: string | null,
+        summary: string,
+        // usage/model (pre-stamped by the caller) record what the
+        // summarization call itself cost — see runBranchSummary.
+        extra?: { usage?: UsageBlock; model?: string },
+    ): Promise<string> {
         if (branchFromId !== null && !this.byId.has(branchFromId)) {
             throw new Error(`Entry ${branchFromId} not found`);
         }
@@ -247,6 +253,8 @@ export class Session {
             summary,
             fromId: branchFromId ?? "root",
             parentId: branchFromId,
+            ...(extra?.usage ? { usage: extra.usage } : {}),
+            ...(extra?.model ? { model: extra.model } : {}),
         };
         await this.append(entry);
         return entry.id!;

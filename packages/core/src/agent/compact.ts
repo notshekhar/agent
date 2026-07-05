@@ -1,8 +1,10 @@
 import { generateText } from "ai";
 import { getModel } from "../providers";
-import type { Session } from "../sessions";
+import { attachLedgerEntry, type Session } from "../sessions";
 import { isAbortError } from "./abort";
 import { BRANCH_SUMMARY_PREAMBLE } from "./branch-summary";
+import { stampUsageCost, type CostTracker } from "./cost";
+import type { UsageBlock } from "../types";
 
 export const COMPACTION_SUMMARY_PREFIX = `The conversation history before this point was compacted into the following summary:
 
@@ -105,17 +107,33 @@ export class CompactAbortedError extends Error {
     }
 }
 
+/**
+ * Where the kept window starts. Purely numeric cuts can land on a tool
+ * result whose tool-call just got summarized away — Anthropic 400s on the
+ * orphaned tool_result — so walk back over tool messages to the assistant
+ * message that carries the matching tool calls.
+ */
+export function compactCut(messages: ReadonlyArray<{ role: string }>, previousCut: number, keep: number): number {
+    let cut = Math.max(previousCut, messages.length - keep);
+    while (cut > previousCut && messages[cut]?.role === "tool") cut--;
+    return cut;
+}
+
 export async function runCompact(opts: {
     session: Session;
     modelId: string;
     keepTurns?: number;
     abortSignal?: AbortSignal;
+    /** Bills the summarization call (source "compact") — real API spend that
+     * historically went unrecorded. */
+    tracker?: CostTracker;
+    cwd?: string;
 }): Promise<CompactResult> {
     const keep = opts.keepTurns ?? 4;
     const messages = opts.session.messages();
     const previousCompact = latestCompact(opts.session);
     const previousCut = previousCompact?.cutAt ?? 0;
-    const cut = Math.max(previousCut, messages.length - keep);
+    const cut = compactCut(messages, previousCut, keep);
     if (cut <= previousCut) {
         return { summary: "", cutAt: 0, tokensBefore: 0, tokensAfter: 0 };
     }
@@ -132,6 +150,7 @@ export async function runCompact(opts: {
 
     const model = await getModel(opts.modelId);
     let text: string;
+    let usage: UsageBlock | undefined;
     try {
         const result = await generateText({
             model,
@@ -140,6 +159,7 @@ export async function runCompact(opts: {
             abortSignal: opts.abortSignal,
         });
         text = result.text;
+        usage = result.usage;
     } catch (err) {
         if (isAbortError(err) || opts.abortSignal?.aborted) throw new CompactAbortedError();
         throw err;
@@ -147,14 +167,26 @@ export async function runCompact(opts: {
 
     if (opts.abortSignal?.aborted) throw new CompactAbortedError();
 
+    if (opts.tracker && usage) {
+        opts.tracker.add(opts.modelId, usage, {
+            cwd: opts.cwd ?? opts.session.info.cwd,
+            sessionPub: opts.session.info.id,
+            source: "compact",
+        });
+    }
     const tokensAfter = estimateTokens(text);
-    await opts.session.append({
-        type: "compact",
+    const entry = {
+        type: "compact" as const,
         ts: Date.now(),
         summary: text,
         cutAt: cut,
         tokensBefore,
         tokensAfter,
-    });
+        ...(usage ? { usage: stampUsageCost(opts.modelId, usage), model: opts.modelId } : {}),
+    };
+    await opts.session.append(entry);
+    const rowId = opts.tracker?.takeLastLedgerRowId();
+    const entryId = (entry as { id?: string }).id;
+    if (rowId !== undefined && entryId) attachLedgerEntry(rowId, entryId);
     return { summary: text, cutAt: cut, tokensBefore, tokensAfter };
 }

@@ -8,6 +8,7 @@
  * wrapped; the one exception is onBeforeTurn, where an explicit `false` is a
  * deliberate block (a thrown error there is swallowed and treated as "allow").
  */
+import { debugLog } from "../debug";
 import { getExtensionHost } from "../extensions";
 import type { TurnContext, TurnMiddleware } from "../extensions/api";
 
@@ -71,6 +72,12 @@ export function applyProviderOptions(opts: unknown, ctx: TurnContext): unknown {
         if (!m.onProviderOptions) continue;
         try {
             const r = m.onProviderOptions(out, ctx);
+            // The hook is sync; an async middleware hands back a Promise that
+            // would flow into the request as providerOptions and corrupt it.
+            if (r !== undefined && typeof (r as { then?: unknown })?.then === "function") {
+                debugLog("extensions", "onProviderOptions returned a Promise — hook is sync, result ignored");
+                continue;
+            }
             if (r !== undefined) out = r;
         } catch {
             /* keep options as-is */

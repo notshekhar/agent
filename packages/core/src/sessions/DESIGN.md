@@ -349,9 +349,21 @@ each asserting the five §1b invariants.
   /cost + /steak on queries, `loop cost audit`, the five invariant tests.
   Then projects (trust + model) and reminders — each module keeps its public
   API, file writes retired (files left on disk).
-- **P4** — cleanup (drop proper-lockfile, peek cache, torn-tail guard), a real
-  two-process concurrency test, compiled-binary smoke test, release **0.8.0**
-  (storage change ⇒ minor, not patch).
+  **Ledger DONE 2026-07-05** (`sessions/cost-ledger.ts`; inclusivity verified
+  against adapter sources, pinned in `test/provider-usage-fixtures.test.ts`;
+  baseline freezes the ENTIRE cost.json — lifetime + daily + byCwd — so /cost
+  views keep continuity across the cutover).
+  **Projects + reminders DONE 2026-07-05** (`sessions/projects.ts`, schema v3
+  adds projects.provider_models for the per-provider model memory; trust.ts /
+  reminders.ts keep their public surfaces; one-time migration gated on
+  meta.stores_migrated_at copies trust.json + the two settings keys +
+  reminders.json, then deletes the settings keys).
+- **P4** — cleanup (drop proper-lockfile — **DONE 2026-07-05**; peek cache and
+  torn-tail guard died with P1), a real two-process concurrency test
+  (**DONE**: `test/two-process-db.test.ts`, 2 OS processes × 250
+  transactional inserts through the production open path on a fresh file),
+  compiled-binary smoke test (open), release (storage change ⇒ minor, not
+  patch).
 
 ## 5. Known risks
 

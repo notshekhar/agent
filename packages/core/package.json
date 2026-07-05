@@ -45,13 +45,11 @@
         "configstore": "^8.0.0",
         "diff": "^9.0.0",
         "ollama-ai-provider-v2": "^3.5.1",
-        "proper-lockfile": "^4.1.2",
         "ulid": "^3.0.0",
         "zhipu-ai-provider": "^0.3.1",
         "zod": "^4.3.5"
     },
     "devDependencies": {
-        "@types/configstore": "^6.0.2",
-        "@types/proper-lockfile": "^4.1.4"
+        "@types/configstore": "^6.0.2"
     }
 }

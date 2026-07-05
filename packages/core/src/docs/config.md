@@ -70,16 +70,10 @@ region via `AWS_REGION` or `LOOP_BEDROCK_REGION`). The flow is:
 }
 ```
 
-Model ids are always `"<provider>/<model>"`. To pin a default only for the
-current project, use `projectModels` (keyed by absolute cwd):
-
-```json
-{
-    "projectModels": {
-        "/Users/me/work/repo": "openai/gpt-5"
-    }
-}
-```
+Model ids are always `"<provider>/<model>"`. Per-project model memory is
+automatic: the last model picked with `/model` in a folder is restored next
+time loop starts there (stored in loop's internal database, not in
+settings.json — there is no key to edit for it).
 
 If the user wants a model that isn't on a built-in provider (a gateway, a
 self-hosted endpoint, a proxy), that's a **custom provider** — see below.

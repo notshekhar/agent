@@ -204,7 +204,13 @@ export class RpcServer {
                 if (ctx.running) throw new Error(`session ${id} already has a turn running (cancel it first)`);
                 ctx.running = true;
                 try {
-                    return await runCompact({ session: ctx.session, modelId: ctx.modelId, keepTurns: 0 });
+                    return await runCompact({
+                        session: ctx.session,
+                        modelId: ctx.modelId,
+                        keepTurns: 0,
+                        tracker: ctx.tracker,
+                        cwd: ctx.session.info.cwd,
+                    });
                 } finally {
                     ctx.running = false;
                 }

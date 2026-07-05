@@ -196,4 +196,29 @@ describe("stepMessagesToEntries usage stamping", () => {
         expect(out[0].usage).toEqual(usage(100, 10));
         expect(out[1].usage).toBeUndefined();
     });
+
+    test("a task-only step still lands its usage on an empty assistant entry", () => {
+        const step = [
+            {
+                role: "assistant",
+                content: [{ type: "tool-call", toolName: "task", toolCallId: "t1", input: {} }],
+            },
+            { role: "tool", content: [{ type: "tool-result", toolCallId: "t1", output: "done" }] },
+        ];
+        const out = stepMessagesToEntries(step, usage(100, 10));
+        expect(out).toHaveLength(1);
+        expect(out[0].role).toBe("assistant");
+        expect(out[0].content).toEqual([]);
+        expect(out[0].usage).toEqual(usage(100, 10));
+    });
+
+    test("no usage-only entry is emitted when the step has no usage", () => {
+        const step = [
+            {
+                role: "assistant",
+                content: [{ type: "tool-call", toolName: "task", toolCallId: "t1", input: {} }],
+            },
+        ];
+        expect(stepMessagesToEntries(step, undefined)).toHaveLength(0);
+    });
 });

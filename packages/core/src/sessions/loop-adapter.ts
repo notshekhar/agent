@@ -94,6 +94,8 @@ export function adaptLoopEntry(raw: unknown): Entry | null {
                 cutAt: typeof obj.cutAt === "number" ? obj.cutAt : 0,
                 tokensBefore: typeof obj.tokensBefore === "number" ? obj.tokensBefore : 0,
                 tokensAfter: typeof obj.tokensAfter === "number" ? obj.tokensAfter : 0,
+                usage: obj.usage as UsageBlock | undefined,
+                ...(typeof obj.model === "string" ? { model: obj.model } : {}),
                 ...tree,
             };
         case "branch-summary":
@@ -102,6 +104,8 @@ export function adaptLoopEntry(raw: unknown): Entry | null {
                 ts,
                 summary: String(obj.summary ?? ""),
                 fromId: typeof obj.fromId === "string" ? obj.fromId : undefined,
+                usage: obj.usage as UsageBlock | undefined,
+                ...(typeof obj.model === "string" ? { model: obj.model } : {}),
                 ...tree,
             };
         // the reference branch summaries
@@ -113,6 +117,11 @@ export function adaptLoopEntry(raw: unknown): Entry | null {
                 fromId: typeof obj.fromId === "string" ? obj.fromId : undefined,
                 ...tree,
             };
+        case "custom":
+            // Already-adapted entries (e.g. recaps) round-trip through the store;
+            // re-wrapping them via the default branch would bury the payload one
+            // level deeper and break isRecapPayload() on resume.
+            return { type: "custom", ts, payload: obj.payload, ...tree };
         case "label":
             return {
                 type: "label",

@@ -108,4 +108,15 @@ describe("adaptLoopEntry", () => {
         expect(e.type).toBe("custom");
         expect(e.payload).toEqual(raw);
     });
+
+    test("custom entries round-trip: payload passes through un-rewrapped", () => {
+        const stored = { type: "custom", ts: 9, id: "c1", payload: { kind: "recap", text: "did things" } };
+        const e = adaptLoopEntry(stored) as any;
+        expect(e.type).toBe("custom");
+        expect(e.payload).toEqual({ kind: "recap", text: "did things" });
+        expect(e.id).toBe("c1");
+        // adapting twice (load after resume) must be idempotent
+        const twice = adaptLoopEntry(e) as any;
+        expect(twice.payload).toEqual({ kind: "recap", text: "did things" });
+    });
 });

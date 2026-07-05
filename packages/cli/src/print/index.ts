@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import {
     asTurnEmitter,
+    closeDb,
     CostTracker,
     SessionManager,
     runTurn,
@@ -119,4 +120,6 @@ export async function runPrint(opts: PrintOptions): Promise<void> {
     ]);
 
     process.stderr.write(`\n${tracker.format()}\n`);
+    // Checkpoint + close the session DB so the -wal file doesn't linger.
+    closeDb();
 }

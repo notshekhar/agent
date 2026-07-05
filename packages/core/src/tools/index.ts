@@ -13,6 +13,11 @@ export interface ToolContext {
     shellPath?: string;
     commandPrefix?: string;
     /**
+     * Scopes the read-before-edit registry. Concurrent sessions in one
+     * process (RPC) must not share read state; absent = one shared slate.
+     */
+    sessionId?: string;
+    /**
      * Force bash into a fail-closed, kernel-enforced read-only sandbox (no
      * writable cwd). Set for read-only agents (e.g. plan) that get bash but no
      * write/edit, so bash physically cannot mutate the filesystem.

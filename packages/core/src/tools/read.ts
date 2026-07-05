@@ -24,6 +24,8 @@ function detectImageMimeType(path: string): string | null {
 export interface ReadToolContext {
     cwd: string;
     abortSignal?: AbortSignal;
+    /** Scopes the read-before-edit registry (see tools/index.ts ToolContext). */
+    sessionId?: string;
 }
 
 /** Resolve a `loop://` URI: docs index, a specific doc, or a wrapped URL fetch. */
@@ -84,7 +86,7 @@ IMPORTANT: when the user asks to add or change a model, custom provider, hook, M
             }
             const buf = await fsReadFile(absolutePath);
             // Unlocks edit/write for this file (read-before-modify enforcement).
-            recordRead(absolutePath);
+            recordRead(absolutePath, ctx.sessionId);
             const textContent = buf.toString("utf-8");
             const allLines = textContent.split("\n");
             const totalFileLines = allLines.length;

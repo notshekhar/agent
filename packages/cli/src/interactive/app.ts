@@ -32,6 +32,7 @@ import {
     runHooks,
     hookBus,
     closeAllPools,
+    closeDb,
     getMcpManager,
     getExtensionHost,
     agentExists,
@@ -423,7 +424,12 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
                 state.cwd,
             ),
             new Promise((r) => setTimeout(r, 3_000)),
-        ]).finally(() => process.exit(code));
+        ]).finally(() => {
+            // Checkpoint + close the session DB last — SessionEnd hooks above
+            // may still read it, and bun:sqlite close is synchronous.
+            closeDb();
+            process.exit(code);
+        });
     };
 
     const deps: AppDeps = {

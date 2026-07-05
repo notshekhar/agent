@@ -10,6 +10,8 @@ import { checkReadBeforeModify, recordModified } from "./utils/read-registry";
 export interface WriteToolContext {
     cwd: string;
     abortSignal?: AbortSignal;
+    /** Scopes the read-before-edit registry (see tools/index.ts ToolContext). */
+    sessionId?: string;
 }
 
 export function createWriteTool(ctx: WriteToolContext) {
@@ -30,13 +32,13 @@ export function createWriteTool(ctx: WriteToolContext) {
                 // Overwriting an existing file requires having read it this
                 // session; new files/paths pass freely.
                 if (existsSync(absolutePath)) {
-                    const readError = checkReadBeforeModify(absolutePath, path);
+                    const readError = checkReadBeforeModify(absolutePath, path, ctx.sessionId);
                     if (readError) throw new Error(`${readError} (write would overwrite the existing file)`);
                 }
                 await mkdir(dir, { recursive: true });
                 if (signal?.aborted) throw new Error("Operation aborted");
                 await writeFile(absolutePath, content);
-                recordModified(absolutePath);
+                recordModified(absolutePath, ctx.sessionId);
                 return `Successfully wrote ${content.length} bytes to ${path}`;
             });
         },

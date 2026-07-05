@@ -74,7 +74,10 @@ describe("session db v1 → v2 migration", () => {
         expect(ledgerCols.map((c) => c.name)).toContain("entry_id");
         expect(ledgerCols.map((c) => c.name)).toContain("entry_pub");
         const version = db.query<{ value: string }, []>("SELECT value FROM meta WHERE key = 'schema_version'").get();
-        expect(version?.value).toBe("2");
+        expect(version?.value).toBe("3");
+        // v2 → v3 rides the same pass
+        const projCols = db.query<{ name: string }, []>("PRAGMA table_info(projects)").all();
+        expect(projCols.map((c) => c.name)).toContain("provider_models");
         // Pre-migration rows survive with a NULL stamp (no backfill).
         const row = db
             .query<{ usage_input: number; usage_usd: number | null }, []>(
@@ -115,5 +118,34 @@ describe("session db v1 → v2 migration", () => {
         // The split rides the payload (source of truth) — no extra columns.
         const usage = (JSON.parse(row!.payload) as { usage: { usdDetails?: { input?: number } } }).usage;
         expect(usage.usdDetails?.input).toBeCloseTo(0.1, 6);
+    });
+});
+
+describe("clean-shutdown marker", () => {
+    let dir: string | null = null;
+    afterEach(() => {
+        setDbPathForTests(null);
+        if (dir) rmSync(dir, { recursive: true, force: true });
+        dir = null;
+    });
+
+    const marker = () =>
+        getDb().query<{ value: string }, []>("SELECT value FROM meta WHERE key = 'clean_shutdown'").get()?.value;
+
+    test("open marks the run dirty; closeDb marks it clean", () => {
+        dir = mkdtempSync(join(tmpdir(), "loop-clean-"));
+        const path = join(dir, "loop.db");
+        setDbPathForTests(path);
+        expect(marker()).toBe("0");
+        // setDbPathForTests(path) closes via closeDb, then reopen reads the marker
+        setDbPathForTests(path);
+        const raw = new Database(path);
+        const afterClose = raw
+            .query<{ value: string }, []>("SELECT value FROM meta WHERE key = 'clean_shutdown'")
+            .get();
+        raw.close();
+        expect(afterClose?.value).toBe("1");
+        // and a fresh open flips it back to dirty for this run's duration
+        expect(marker()).toBe("0");
     });
 });

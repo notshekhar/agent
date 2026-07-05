@@ -248,8 +248,19 @@ export type Entry = EntryTreeFields &
               model?: string;
           }
         | { type: "model-change"; from: string; to: string; ts: number }
-        | { type: "compact"; summary: string; cutAt: number; ts: number; tokensBefore: number; tokensAfter: number }
-        | { type: "branch-summary"; summary: string; ts: number; fromId?: string }
+        // usage/model on compact + branch-summary: their generateText calls are
+        // real billed spend (source of the once-unbilled compact bug).
+        | {
+              type: "compact";
+              summary: string;
+              cutAt: number;
+              ts: number;
+              tokensBefore: number;
+              tokensAfter: number;
+              usage?: UsageBlock;
+              model?: string;
+          }
+        | { type: "branch-summary"; summary: string; ts: number; fromId?: string; usage?: UsageBlock; model?: string }
         | { type: "label"; targetId: string; label?: string; ts: number }
         // User-set session display name:
         // latest wins, empty/absent name clears.

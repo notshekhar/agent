@@ -27,6 +27,19 @@ export function legacySessionsRoot(): string {
 }
 
 /**
+ * Best-effort inverse of the manager's slugCwd ("--Users-foo-bar--" →
+ * "/Users/foo/bar"). Lossy — a "-" inside a real directory name also reads as
+ * a separator — but a path-shaped guess still beats storing the slug itself,
+ * which can never match listSessions(cwd) and gets re-slugged by
+ * transcriptPath. Non-slug input passes through untouched.
+ */
+export function deslugCwd(dir: string): string {
+    const m = /^--(.+)--$/.exec(dir);
+    if (!m) return dir;
+    return `/${m[1].replace(/-/g, "/")}`;
+}
+
+/**
  * Read a JSONL transcript with the exact tolerance the old Session.load had:
  * corrupt (torn) lines are skipped, legacy entry shapes are adapted, and flat
  * entries get tree fields. The last session-info line wins as the session's
@@ -72,7 +85,9 @@ export function parseSessionFile(path: string, fallbackCwd: string): ParsedSessi
         info = {
             id: basename(path).replace(/\.jsonl$/, ""),
             createdAt: stat.birthtimeMs,
-            cwd: fallbackCwd,
+            // Callers pass the transcript's parent dir name, which for legacy
+            // layouts is a cwd slug — turn it back into a real path.
+            cwd: deslugCwd(fallbackCwd),
             provider: "xai" as ProviderId,
             model: "",
         };

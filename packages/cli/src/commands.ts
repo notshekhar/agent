@@ -98,6 +98,7 @@ Usage:
   loop sessions            List sessions in current cwd
   loop models              List available models
   loop whoami              Show active provider + auth status
+  loop cost audit          Verify the cost ledger reconciles (self-audit)
   loop rpc [--socket|stop] Start JSON-RPC server (stop: end the socket daemon)
   loop mcp <cmd>           Manage MCP servers (add, list, remove, login…)
   loop upgrade             Pull latest and rebuild
@@ -226,4 +227,33 @@ export async function cmdModels(): Promise<void> {
 export function cmdWhoami(): void {
     console.log(`Active provider: ${getActiveProvider() ?? "none"}`);
     console.log(`Authorized: ${listAuthorizedProviders().join(", ") || "none"}`);
+}
+
+/** `loop cost audit` — reconcile the cost ledger against itself and the transcripts. */
+export async function cmdCostAudit(): Promise<void> {
+    const { auditLedger, closeDb } = await import("@notshekhar/loop-core");
+    const audit = auditLedger();
+    console.log(`Ledger rows: ${audit.rows}`);
+    if (audit.priceViolations.length === 0) {
+        console.log("✓ Every priced row recomputes to its recorded usd (qty × snapshot price).");
+    } else {
+        console.log(`✗ ${audit.priceViolations.length} row(s) fail the price reconciliation:`);
+        for (const v of audit.priceViolations.slice(0, 20)) {
+            console.log(
+                `  row ${v.id} (${v.model}): recorded $${v.usd.toFixed(6)}, recomputed $${v.computed.toFixed(6)}`,
+            );
+        }
+    }
+    if (audit.sessionMismatches.length === 0) {
+        console.log("✓ Ledger token sums match the transcripts for every session.");
+    } else {
+        console.log(`✗ ${audit.sessionMismatches.length} session(s) disagree with their transcripts:`);
+        for (const m of audit.sessionMismatches.slice(0, 20)) {
+            console.log(
+                `  ${m.sessionPub}: ledger in/out ${m.ledgerInput}/${m.ledgerOutput}, entries ${m.entriesInput}/${m.entriesOutput}`,
+            );
+        }
+    }
+    closeDb();
+    if (audit.priceViolations.length > 0 || audit.sessionMismatches.length > 0) process.exitCode = 1;
 }

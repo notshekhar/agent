@@ -16,16 +16,9 @@ import type {
 
 export { XaiOAuthError, XaiErrorCode } from "./errors";
 export { normalizeCustomAuth, describeCustomAuth, resolveCustomCredential, clearHelperCache } from "./custom-auth";
-export {
-    authStore,
-    settingsStore,
-    costStore,
-    getLoopDir,
-    migrateLegacyConfig,
-    getProjectModel,
-    setProjectModel,
-    getProjectProviderModel,
-} from "./storage";
+export { authStore, settingsStore, costStore, getLoopDir, migrateLegacyConfig } from "./storage";
+// Moved to the projects table; re-exported here so callers keep their imports.
+export { getProjectModel, setProjectModel, getProjectProviderModel } from "../sessions/projects";
 
 type ProviderMap = Record<string, AuthEntry>;
 

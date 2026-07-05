@@ -1,9 +1,11 @@
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { getLoopDir } from "../auth/storage";
+import { costStore, getLoopDir } from "../auth/storage";
 import { debugLog } from "../debug";
+import { migrateCostLedger } from "./cost-ledger";
 import { migrateLegacySessions } from "./migrate";
+import { migrateProjectStores } from "./projects";
 
 /**
  * The one place that opens the session database. Everything session-adjacent
@@ -15,7 +17,7 @@ import { migrateLegacySessions } from "./migrate";
  * fails with SQLITE_CANTOPEN.
  */
 
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -93,11 +95,12 @@ CREATE INDEX IF NOT EXISTS idx_ledger_cwd ON cost_ledger(cwd) WHERE estimated = 
 CREATE INDEX IF NOT EXISTS idx_ledger_session ON cost_ledger(session_pub);
 
 CREATE TABLE IF NOT EXISTS projects (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    dir        TEXT NOT NULL UNIQUE,
-    trust      INTEGER,
-    model      TEXT,
-    updated_at INTEGER NOT NULL
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    dir             TEXT NOT NULL UNIQUE,
+    trust           INTEGER,
+    model           TEXT,
+    provider_models TEXT,
+    updated_at      INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS reminders (
@@ -152,19 +155,28 @@ function openDb(path: string): Database {
                     `session db ${path} is schema v${version}, newer than this build (v${SCHEMA_VERSION}) — upgrade loop`,
                 );
             }
-            if (version < 2) {
+            if (version < SCHEMA_VERSION) {
                 // v1 → v2: usage_usd (the billed-USD stamp denormalized for
                 // aggregate queries; payload stays the source of truth) and
                 // cost_ledger.entry_id/entry_pub (link a ledger row to the
                 // entry it billed, for cost-split analysis — NULL on rows with
-                // no attributable entry, e.g. pre-migration spend). Two
-                // processes can race an ALTER — the loser's duplicate-column
-                // error is the success case, everything else still throws.
-                for (const alter of [
-                    "ALTER TABLE entries ADD COLUMN usage_usd REAL",
-                    "ALTER TABLE cost_ledger ADD COLUMN entry_id INTEGER REFERENCES entries(id) ON DELETE SET NULL",
-                    "ALTER TABLE cost_ledger ADD COLUMN entry_pub TEXT",
-                ]) {
+                // no attributable entry, e.g. pre-migration spend).
+                // v2 → v3: projects.provider_models (JSON provider→model map,
+                // was settings.projectProviderModels).
+                // Two processes can race an ALTER — the loser's
+                // duplicate-column error is the success case, everything else
+                // still throws.
+                const alters = [
+                    ...(version < 2
+                        ? [
+                              "ALTER TABLE entries ADD COLUMN usage_usd REAL",
+                              "ALTER TABLE cost_ledger ADD COLUMN entry_id INTEGER REFERENCES entries(id) ON DELETE SET NULL",
+                              "ALTER TABLE cost_ledger ADD COLUMN entry_pub TEXT",
+                          ]
+                        : []),
+                    ...(version < 3 ? ["ALTER TABLE projects ADD COLUMN provider_models TEXT"] : []),
+                ];
+                for (const alter of alters) {
                     try {
                         candidate.exec(alter);
                     } catch (err) {
@@ -173,12 +185,23 @@ function openDb(path: string): Database {
                 }
                 candidate.run("UPDATE meta SET value = ? WHERE key = 'schema_version'", [String(SCHEMA_VERSION)]);
             }
-            const check = candidate.query<{ quick_check: string }, []>("PRAGMA quick_check").get();
-            if (check && check.quick_check !== "ok") {
-                // Recovery (re-migrate from retained JSONL) is a later phase;
-                // surface loudly but keep the app usable.
-                debugLog("session-db", `quick_check failed for ${path}: ${check.quick_check}`);
+            // quick_check scans the whole DB — worth it only after an unclean
+            // exit. closeDb() stamps the marker '1'; here it flips to '0' for
+            // the duration of the run, so a crash leaves '0' behind and the
+            // next open verifies. A missing marker (pre-marker DB) also
+            // verifies once, then joins the scheme.
+            const clean = candidate
+                .query<{ value: string }, []>("SELECT value FROM meta WHERE key = 'clean_shutdown'")
+                .get();
+            if (clean?.value !== "1") {
+                const check = candidate.query<{ quick_check: string }, []>("PRAGMA quick_check").get();
+                if (check && check.quick_check !== "ok") {
+                    // Recovery (re-migrate from retained JSONL) is a later phase;
+                    // surface loudly but keep the app usable.
+                    debugLog("session-db", `quick_check failed for ${path}: ${check.quick_check}`);
+                }
             }
+            candidate.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('clean_shutdown', '0')");
             return candidate;
         } catch (err) {
             candidate?.close();
@@ -203,6 +226,23 @@ export function getDb(): Database {
             } catch (err) {
                 debugLog("session-db", "legacy session migration failed:", err as Error);
             }
+            // Cost cutover: freeze cost.json into meta.cost_baseline and
+            // backfill ledger rows for pre-ledger sessions. Same gate as
+            // above: a test-injected path must never read the user's real
+            // cost.json — ledger tests drive migrateCostLedger directly.
+            try {
+                costStore.refresh();
+                migrateCostLedger(costStore.all);
+            } catch (err) {
+                debugLog("session-db", "cost ledger migration failed:", err as Error);
+            }
+            // Small stores: trust.json + settings.projectModels/
+            // projectProviderModels → projects; reminders.json → reminders.
+            try {
+                migrateProjectStores();
+            } catch (err) {
+                debugLog("session-db", "project store migration failed:", err as Error);
+            }
         }
     }
     return db;
@@ -212,6 +252,10 @@ export function getDb(): Database {
 export function closeDb(): void {
     if (!db) return;
     try {
+        // Marks this run as cleanly shut down so the next open can skip the
+        // full quick_check scan. Best-effort: a failure here just means one
+        // extra verification pass next launch.
+        db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('clean_shutdown', '1')");
         db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
     } catch (err) {
         debugLog("session-db", "wal_checkpoint on close failed:", err as Error);

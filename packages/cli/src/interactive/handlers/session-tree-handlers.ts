@@ -7,6 +7,7 @@ import {
     estimateContextTokens,
     runBranchSummary,
     settingsStore,
+    stampUsageCost,
     stripSessionHookContext,
     type CommandContext,
 } from "@notshekhar/loop-core";
@@ -196,8 +197,17 @@ export function createSessionTreeHandlers(state: AppState, deps: AppDeps): Sessi
                                 modelId: state.modelId,
                                 abortSignal: signal,
                                 customInstructions: choice.customInstructions,
+                                tracker: deps.tracker,
+                                sessionPub: session.info.id,
+                                cwd: state.cwd,
                             });
-                            await session.branchWithSummary(newLeafId, summary);
+                            await session.branchWithSummary(
+                                newLeafId,
+                                summary.text,
+                                summary.usage
+                                    ? { usage: stampUsageCost(state.modelId, summary.usage), model: state.modelId }
+                                    : undefined,
+                            );
                             summarized = true;
                         } finally {
                             state.busy = false;
