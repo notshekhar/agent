@@ -61,6 +61,13 @@ export {
 export { StdinBuffer, type StdinBufferEventMap, type StdinBufferOptions } from "./stdin-buffer";
 // Terminal interface and implementations
 export { ProcessTerminal, type Terminal } from "./terminal";
+// Terminal colors
+export {
+    parseOsc11BackgroundColor,
+    parseTerminalColorSchemeReport,
+    type RgbColor,
+    type TerminalColorScheme,
+} from "./terminal-colors";
 // Terminal image support
 export {
     allocateImageId,
@@ -104,4 +111,4 @@ export {
     TUI,
 } from "./tui";
 // Utilities
-export { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "./utils";
+export { sliceByColumn, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "./utils";
