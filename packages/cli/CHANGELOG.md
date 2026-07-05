@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.9.3] - 2026-07-05
+
+### Added
+
+- **Subagents can be continued — `follow_up`.** When an earlier task's report is missing a detail, the model no longer relaunches from scratch and re-pays the whole discovery run: passing `follow_up` with the earlier task call's id resumes that subagent with its prompt and full activity replayed as context (chains of follow-ups included). A stale id fails soft — the run starts fresh with a visible warning in the box.
+- **Task boxes show what a run costs, live.** While a subagent works, its box title ticks `tool · step N · 41s · $0.0123` (elapsed time keeps ticking even when the provider is silent); a finished box reads `done · 12 steps · 41s · $0.0430`. Steps, duration, and the USD-stamped usage persist on the session entry, so `/resume` replays the same figures.
+- **A stalled subagent aborts itself instead of hanging forever.** If the provider streams nothing for `subagentStallSeconds` (default 180, 0 disables) while a subagent is waiting on it, the run aborts with a visible `[stalled connection]` note; completed steps stay billed, the partial run persists, and the parent is told it can `follow_up` to continue from the partial work. The watchdog disarms while the subagent's own tools execute, so a long build can't false-trip it.
+- **Reasoning tokens can carry their own price.** Some models (the Qwen family among them) bill reasoning output at a different rate than text output — up to several times higher. The catalog now ingests that rate from models.dev and the pricing math splits the output bill accordingly; models without a separate rate are priced exactly as before.
+- **Ask-tool quality of life.** Digits 1–9 pick or toggle options instantly; Tab selects the highlighted option and attaches a short typed note to it (the note reaches the model as a clarification of the choice); in multi-select the cursor now starts on the first option instead of the confirm row, with `done` moved last.
+
+### Changed
+
+- **Esc in an ask prompt skips only that question.** Previously Esc on question 1 of 3 silently declined all three; the remaining questions now still show. Aborting everything stays on the turn interrupt (Ctrl+C / Esc on the turn).
+- **`edit` streams its replacement text live, like `write`.** The edit box previously sat empty until the whole call finished (its nested input defeated the partial-JSON parser); the replacement text now fills the box as it streams, and the red/green diff still takes over when the call completes.
+- **A subagent handed a prompt with no instruction now says so** — one cheap bounce-back asking the main agent to re-issue the task, instead of inventing a plausible-sounding task and spending a whole run investigating it.
+
+### Fixed
+
+- **Aborting a turn mid-subagent no longer leaks the task box's ticker timer.**
+
 ## [0.9.2] - 2026-07-05
 
 ### Changed
