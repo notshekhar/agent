@@ -3635,12 +3635,12 @@
     "id": "openrouter/z-ai/glm-5.2",
     "provider": "openrouter",
     "name": "GLM-5.2",
-    "contextWindow": 1048576,
-    "maxOutput": 131072,
+    "contextWindow": 1024000,
+    "maxOutput": 128000,
     "cost": {
-      "input": 0.84,
-      "output": 2.64,
-      "cacheRead": 0.156,
+      "input": 0.77,
+      "output": 2.42,
+      "cacheRead": 0.143,
       "cacheWrite": 0
     },
     "reasoning": true,

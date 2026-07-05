@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.9.0] - 2026-07-05
+
+### Added
+
+- **Every dollar is now on the record — the cost ledger.** Each billed API round-trip (turn step, subagent step, recap, compaction, branch summary) writes one append-only row with the exact token quantities, the per-MTok prices it was computed from, and the resulting USD. Resuming a session shows the dollars it was billed live — never a re-price against today's catalog — and `/cost`'s lifetime/today/7-day/month/per-folder views are sums over these rows, so two loop instances always see each other's spend instantly. Your pre-existing totals carry over exactly: the old cost.json is frozen in as a baseline, and old sessions get backfilled rows so reopening one still shows a sensible figure.
+- **Compaction and branch summaries are billed now.** Both make real API calls that were previously invisible to cost tracking; they now record their spend and stamp their usage on the transcript.
+- **`loop cost audit`** — verifies the ledger reconciles: every row's quantities × its price snapshot must reproduce its recorded USD, and per-session ledger sums must match the transcripts. Exits non-zero on any discrepancy, so you can put it in a cron.
+
+### Changed
+
+- **Everything session-adjacent now lives in one SQLite database.** Folder trust decisions (`trust.json`), per-project model memory (the `projectModels`/`projectProviderModels` settings keys), and reminders (`reminders.json`) migrate automatically into `~/.loop/loop.db` on first launch — completing the storage move v0.8.0 started. The old files stay on disk untouched as a downgrade path; the two settings keys are removed so settings.json stops accumulating directory lists. No behavior changes: trust prompts, `/model` memory, and reminders work exactly as before.
+- **`/steak` counts only real tokens.** Interrupted-turn estimates (the `~` amounts `/cost` never bills) no longer inflate the daily heatmap.
+- **Faster startup on big databases.** The full integrity scan now runs only after an unclean exit instead of on every launch.
+
+### Fixed
+
+- **Recap boxes survive resume.** Persisted recaps were double-wrapped on reload and silently disappeared from replayed sessions.
+- **Delegation-only turns no longer lose their cost.** A step whose only output was a task (subagent) call dropped its usage on resume — undercounting session cost and `/steak`.
+- **Auto-compaction can no longer break the next request.** A compaction cut that landed on a tool result orphaned it from its tool call, and the next Anthropic request failed with a 400.
+- **The session database is checkpointed on exit**, so the write-ahead log no longer grows unbounded across long-running sessions.
+- **Old sessions imported from headerless transcripts** stored a mangled directory slug as their working directory and never appeared in `/resume` for that folder.
+- **Concurrent RPC sessions no longer share read-before-edit state** — one session's file reads can't unlock edits for another.
+- **`/cost`'s 7-day window is DST-safe**, and a sync extension middleware returning a Promise from `onProviderOptions` can no longer corrupt the request options.
+
 ## [0.8.5] - 2026-07-04
 
 ### Added
