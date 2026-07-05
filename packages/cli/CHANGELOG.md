@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.9.8] - 2026-07-05
+
+### Fixed
+
+- **TUI re-synced with upstream pi-mono** (our editor/terminal layer is a light fork; this pulls everything fixed upstream since we vendored it, on top of our local changes):
+    - Up arrow on the first line no longer hijacks you into prompt history while typing — it jumps to the start of the line; history opens only when the editor is empty, you're already browsing it, or the cursor is at column 0.
+    - Streaming code fences render stably while output is arriving.
+    - Markdown lists keep their original unordered markers, and loose lists get blank lines between items.
+    - Overlays align correctly over CJK wide cells.
+    - Autocomplete fuzzy filter understands slash-separated tokens (matching `foo/bar` paths piecewise).
+    - Kitty image protocol is enabled under the Warp terminal.
+
+### Added
+
+- **Terminal color-scheme detection (groundwork)** — the TUI can now query the terminal background via OSC-11 and report light/dark, per upstream. Not wired to anything user-facing yet.
+
 ## [0.9.7] - 2026-07-05
 
 ### Changed
