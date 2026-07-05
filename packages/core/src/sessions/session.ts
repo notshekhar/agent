@@ -73,8 +73,9 @@ export class Session {
     readonly id: string;
     readonly info: SessionInfoData;
     /** Canonical transcript path — kept as the session's public address for
-     * hooks (transcript_path) and pickers; the data itself lives in the DB. */
-    readonly path: string;
+     * hooks (transcript_path) and pickers; the data itself lives in the DB.
+     * Reassigned only by rehome() when /cd moves the session. */
+    path: string;
     private buffered: Entry[] = [];
     private byId = new Map<string, Entry>();
     private labelsById = new Map<string, string>();
@@ -207,6 +208,14 @@ export class Session {
 
     getLabel(id: string): string | undefined {
         return this.labelsById.get(id);
+    }
+
+    /** /cd — re-home this session's in-memory view (cwd + canonical transcript
+     * path). Persistence is the store's updateSessionCwd; callers go through
+     * SessionManager.moveSession which does both. */
+    rehome(cwd: string, path: string): void {
+        this.info.cwd = cwd;
+        this.path = path;
     }
 
     /** Move the leaf pointer to an earlier entry; the next append() branches there. */

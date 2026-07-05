@@ -6,7 +6,7 @@ import { getCatalog } from "../catalog";
 import { getSetting } from "../settings";
 import { effectiveSdkProvider } from "../auth";
 import { createAskTool, createTools, isAskUserAvailable } from "../tools";
-import { buildSystemPrompt } from "./system-prompt";
+import { buildSubagentNote, buildSystemPrompt } from "./system-prompt";
 import { getAgentPrompt, getAgentTools, isReadOnlyBashAgent, listAgents } from "./agents";
 import { loadWorkspaceContext } from "./context";
 import { loadProjectSkills } from "./skills";
@@ -52,13 +52,19 @@ export {
 } from "./branch-summary";
 export { estimateContextTokens } from "./model-messages";
 export {
+    buildContextReport,
+    type ContextReport,
+    type ContextCategory,
+    type SkillTokenEstimate,
+} from "./context-report";
+export {
     THINKING_LEVELS,
     THINKING_LEVEL_DESCRIPTIONS,
     buildProviderOptions,
     reasoningEffort,
     type ThinkingLevel,
 } from "./thinking";
-export { loadWorkspaceContext, watchWorkspaceContext } from "./context";
+export { loadWorkspaceContext, watchWorkspaceContext, listMemoryFiles, type MemoryFileCandidate } from "./context";
 export { loadProjectSkills, type Skill } from "./skills";
 export {
     runHooks,
@@ -436,15 +442,7 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
 
     // System prompt is built AFTER the task tool decision so the model's tool
     // list matches reality, plus explicit delegation guidance when present.
-    const subagentNote =
-        "task" in toolsForTurn
-            ? `\n\nSubagents (task tool): delegate work that would flood your context — broad codebase exploration, analyzing many files, research across directories, or an independent multi-file change. Each subagent runs in its own context window and returns only a final report.
-Use task when: the job is self-contained, needs many file reads/searches, or you want parallel investigation of separate areas.
-Do NOT use task when: the job is one or two tool calls, needs back-and-forth with the user, or depends on context only you have (unless you include it in the prompt).
-Write complete prompts: the subagent knows nothing about this conversation — include paths, goals, constraints, and the exact output you expect. Call task alone in its step, never alongside other tool calls. By default the subagent is a fork of you (same prompt and tools, minus task); pass agent to run a named agent instead. Available agents: ${listAgents()
-                  .map((a) => a.name)
-                  .join(", ")}.`
-            : "";
+    const subagentNote = "task" in toolsForTurn ? buildSubagentNote(listAgents().map((a) => a.name)) : "";
     let system =
         buildSystemPrompt({
             cwd,

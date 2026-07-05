@@ -2,7 +2,10 @@
  * Session lifecycle: /new, /clear, /compact, /resume, /session, /name,
  * /export, /import.
  */
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { spawn } from "node:child_process";
 import type { SelectItem } from "@notshekhar/loop-tui";
 import chalk from "chalk";
 import {
@@ -10,6 +13,7 @@ import {
     clearReadRegistry,
     runCompact,
     runHooks,
+    sessionToMarkdown,
     setProjectModel,
     settingsStore,
     type CommandContext,
@@ -30,6 +34,7 @@ type SessionHandlers = Pick<
     | "setSessionName"
     | "exportSession"
     | "importSession"
+    | "shareSession"
 >;
 
 export function createSessionHandlers(state: AppState, deps: AppDeps): SessionHandlers {
@@ -45,6 +50,7 @@ export function createSessionHandlers(state: AppState, deps: AppDeps): SessionHa
         showWorking,
         hideWorking,
         searchOnce,
+        selectOnce,
         promptOnce,
     } = deps;
 
@@ -268,6 +274,69 @@ export function createSessionHandlers(state: AppState, deps: AppDeps): SessionHa
             const content = entries.map((e) => JSON.stringify(e)).join("\n");
             writeFileSync(out, content);
             history.addSystem(`exported to ${out}`);
+            tui.requestRender();
+        },
+        async shareSession() {
+            const session = state.session;
+            if (!session) {
+                history.addSystem("session is unsaved — send a message first");
+                tui.requestRender();
+                return;
+            }
+            if (!Bun.which("gh")) {
+                history.addError("gh CLI not found — install it (brew install gh), then run: gh auth login");
+                tui.requestRender();
+                return;
+            }
+            const md = sessionToMarkdown(session);
+            const jsonl = session
+                .entries()
+                .map((e) => JSON.stringify(e))
+                .join("\n");
+            const confirm = await selectOnce(
+                [
+                    { value: "yes", label: `create secret gist (transcript.md ${md.length} chars + raw .jsonl)` },
+                    { value: "no", label: "cancel" },
+                ],
+                "share — uploads this session to GitHub as a secret gist",
+            );
+            if (confirm?.value !== "yes") return;
+
+            const dir = mkdtempSync(join(tmpdir(), "loop-share-"));
+            const mdPath = join(dir, "transcript.md");
+            const jsonlPath = join(dir, `${session.id}.jsonl`);
+            writeFileSync(mdPath, md);
+            writeFileSync(jsonlPath, jsonl);
+            showWorking("Creating secret gist");
+            try {
+                const desc = `loop session ${session.getName() ?? session.id}`;
+                const result = await new Promise<{ code: number; out: string; err: string }>((done) => {
+                    const child = spawn("gh", ["gist", "create", "--secret", "--desc", desc, mdPath, jsonlPath]);
+                    let out = "";
+                    let err = "";
+                    child.stdout.on("data", (d) => (out += String(d)));
+                    child.stderr.on("data", (d) => (err += String(d)));
+                    child.on("close", (code) => done({ code: code ?? 1, out, err }));
+                    child.on("error", (e) => done({ code: 1, out, err: e.message }));
+                });
+                hideWorking();
+                if (result.code !== 0) {
+                    const hint = /auth/i.test(result.err) ? " — run: gh auth login" : "";
+                    history.addError(`gist create failed: ${result.err.trim() || "unknown error"}${hint}`);
+                } else {
+                    const url = result.out.trim().split("\n").pop() ?? "";
+                    history.addSystem(`secret gist: ${url}`);
+                    try {
+                        const pb = spawn("pbcopy");
+                        pb.stdin.write(url);
+                        pb.stdin.end();
+                        history.addSystem(chalk.dim("(url copied to clipboard)"));
+                    } catch {}
+                }
+            } finally {
+                hideWorking();
+                rmSync(dir, { recursive: true, force: true });
+            }
             tui.requestRender();
         },
         async importSession(path) {

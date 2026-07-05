@@ -1,5 +1,5 @@
 import { getConfigDir } from "../brand";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, renameSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { ulid } from "ulid";
 import { debugLog } from "../debug";
@@ -89,6 +89,25 @@ export class SessionManager {
         const session = new Session(info, transcriptPath(opts.cwd, id), []);
         await session.append({ type: "session-info", ts: Date.now(), ...info });
         return session;
+    }
+
+    /**
+     * /cd — move a session to a new working directory: DB row, in-memory
+     * info/path, and a legacy JSONL transcript if one exists on disk. The DB
+     * is the source of truth; the file move is best-effort.
+     */
+    moveSession(session: Session, newCwd: string): void {
+        const newPath = transcriptPath(newCwd, session.id);
+        getSessionStore().updateSessionCwd(session.id, newCwd);
+        if (session.path !== newPath && existsSync(session.path)) {
+            try {
+                mkdirSync(dirname(newPath), { recursive: true });
+                renameSync(session.path, newPath);
+            } catch (err) {
+                debugLog("sessions", `transcript move failed for ${session.id}:`, err as Error);
+            }
+        }
+        session.rehome(newCwd, newPath);
     }
 
     async open(idOrPath: string): Promise<Session> {

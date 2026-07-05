@@ -5,6 +5,7 @@ export { wrapSessionHookContext, matchSessionHookContext, stripSessionHookContex
 export { getDb, closeDb, setDbPathForTests } from "./db";
 export { SessionStore, getSessionStore, type SessionRecord } from "./sqlite-store";
 export { normalizeUsage, type NormalizedUsage } from "./usage";
+export { sessionToMarkdown } from "./export-markdown";
 export { migrateLegacySessions, importSessionFile, parseSessionFile, legacySessionsRoot } from "./migrate";
 export {
     addLedgerRow,

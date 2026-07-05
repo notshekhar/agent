@@ -89,6 +89,11 @@ export class SessionStore {
         return rows.map(toRecord);
     }
 
+    /** Re-home a session to a new working directory (/cd). */
+    updateSessionCwd(pubId: string, cwd: string): void {
+        this.db.query("UPDATE sessions SET cwd = ?, updated_at = ? WHERE pub_id = ?").run(cwd, Date.now(), pubId);
+    }
+
     /** Append one batch of entries in a single transaction (the appendAll contract). */
     appendEntries(sessionRowId: number, entries: Entry[]): void {
         if (entries.length === 0) return;

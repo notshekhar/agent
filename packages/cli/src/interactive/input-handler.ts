@@ -1,11 +1,18 @@
 import type { CommandContext } from "@notshekhar/loop-core";
 import type { AppDeps } from "./deps";
 import type { AppState } from "./state";
-import { isCtrlC, isCtrlD, isCtrlE, isCtrlG, isCtrlI, isCtrlL, isCtrlV, isEsc, isShiftTab } from "./keys";
+import { isCtrlC, isCtrlD, isCtrlE, isCtrlG, isCtrlI, isCtrlL, isCtrlP, isCtrlV, isEsc, isShiftTab } from "./keys";
 import { isKeyRelease } from "@notshekhar/loop-tui";
 import { traceEvent } from "./debug-log";
 import { pickImageFile, readClipboardImageToFile } from "./clipboard-image";
-import { agentExists, extractImagesFromInput, getModelSync, listAgents, settingsStore } from "@notshekhar/loop-core";
+import {
+    agentExists,
+    extractImagesFromInput,
+    getModelSync,
+    getSetting,
+    listAgents,
+    settingsStore,
+} from "@notshekhar/loop-core";
 
 export type InputListener = (data: string) => { consume: boolean } | undefined;
 
@@ -97,6 +104,20 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
         }
         if (isCtrlL(data) && editorFocused) {
             ctx.clearScreen();
+            return { consume: true };
+        }
+        // Ctrl+P: cycle through the /scoped-models list. Editor-focused only
+        // (selectors own their own chords); skips models that dropped out of
+        // the catalog or lost availability since being scoped.
+        if (isCtrlP(data) && editorFocused) {
+            const scoped = (getSetting("scopedModels") ?? []).filter((id) => getModelSync(id)?.available !== false);
+            if (scoped.length === 0) {
+                history.addSystem("no scoped models — pick some with /scoped-models");
+                tui.requestRender();
+                return { consume: true };
+            }
+            const next = scoped[(scoped.indexOf(state.modelId) + 1) % scoped.length];
+            if (next !== state.modelId) void ctx.setModel(next);
             return { consume: true };
         }
         if (isCtrlE(data)) {

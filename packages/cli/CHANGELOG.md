@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.9.9] - 2026-07-06
+
+### Added
+
+- **/context** — context-window usage breakdown: a colored 10×20 cell grid (each cell = 0.5% of the window) with per-category estimates (system prompt, system tools, MCP tools, workspace context, skills, messages, compact summary), free space with the auto-compact threshold, and a per-skill token list. The headline count prefers the provider-reported context size; categories are chars/4 estimates.
+- **/cd** — move this session to a new working directory (with `~` expansion, relative resolution, and existence checks). The session is truly re-homed: `/resume` finds it under the new directory. `/cwd` is now an alias.
+- **/memory** — pick a context-file location (global `~/.loop/AGENTS.md`, project `AGENTS.md`, `.loop/AGENTS.md`, directory-level; legacy CLAUDE.md honored) and open it in `$VISUAL`/`$EDITOR`, creating it if missing.
+- **/doctor** — read-only diagnostics: version vs latest release, runtime, config dir, settings, session-DB integrity check, provider auth, model catalog, MCP server statuses, extensions, project trust, and optional binaries — each as a pass/warn/fail line.
+- **/share** — upload the session as a **secret** GitHub gist via the `gh` CLI: a readable `transcript.md` (tool calls collapsed, raw tool outputs excluded) plus the raw `.jsonl` for `/import`. Confirms before uploading; URL is printed and copied to the clipboard.
+- **/scoped-models + Ctrl+P** — pick a set of models in a searchable toggle panel (or `add <id>` / `rm <id>`), then cycle through them with Ctrl+P. Unavailable models are skipped automatically.
+- **/recap** — generate the post-turn recap on demand for the last turn, regardless of the `recap` setting.
+- **/init** — analyze the codebase and write (or improve in place) an `AGENTS.md`, run as a normal agent turn.
+- **/release-notes** — alias for `/changelog`.
+- **Type-to-filter in all toggle panels** — multi-select lists (scoped models, agent tool pickers, …) now have the same live search box as the single-select pickers. Space still toggles; printable keys filter.
+
+### Fixed
+
+- **Returning from an external editor no longer leaves the keyboard dead.** Terminal handoff (used by `/memory`) now blocks the event loop while the editor runs — the async version let renders fight the editor's screen and broke stdin on return.
+
 ## [0.9.8] - 2026-07-05
 
 ### Fixed

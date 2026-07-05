@@ -67,6 +67,39 @@ export function loadWorkspaceContext(cwd: string): WorkspaceContext {
     };
 }
 
+export interface MemoryFileCandidate {
+    label: string;
+    path: string;
+    exists: boolean;
+}
+
+/**
+ * /memory — the editable context-file locations for a cwd, existing or not.
+ * Each location prefers AGENTS.md; a location where only a legacy CLAUDE.md
+ * exists offers that file instead (the loader honors both).
+ */
+export function listMemoryFiles(cwd: string): MemoryFileCandidate[] {
+    const root = findRepoRoot(cwd);
+    const spots: Array<{ label: string; dir: string; rel?: string }> = [
+        { label: "User memory (global)", dir: getConfigDir() },
+        { label: "Project memory", dir: root },
+        { label: "Project memory (local)", dir: join(root, CONFIG_DIR_NAME) },
+    ];
+    if (cwd !== root) spots.push({ label: "Directory memory", dir: cwd });
+
+    const out: MemoryFileCandidate[] = [];
+    const seen = new Set<string>();
+    for (const spot of spots) {
+        const agents = join(spot.dir, "AGENTS.md");
+        const claude = join(spot.dir, "CLAUDE.md");
+        const path = !existsSync(agents) && existsSync(claude) ? claude : agents;
+        if (seen.has(path)) continue;
+        seen.add(path);
+        out.push({ label: spot.label, path, exists: existsSync(path) });
+    }
+    return out;
+}
+
 export function watchWorkspaceContext(files: string[], onChange: () => void): () => void {
     const watchers: FSWatcher[] = [];
     for (const f of files) {

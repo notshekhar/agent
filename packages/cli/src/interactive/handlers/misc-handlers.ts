@@ -3,10 +3,12 @@
  * command IO (emit), /cost, /changelog, /hotkeys, /copy, /attach, /cwd,
  * /login, /logout, /quit, and the not-implemented stub.
  */
-import { spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, statSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import chalk from "chalk";
-import { buildSteakGrid, getCatalog, type CommandContext } from "@notshekhar/loop-core";
+import { buildSteakGrid, getCatalog, listMemoryFiles, runRecap, type CommandContext } from "@notshekhar/loop-core";
 import type { AppDeps } from "../deps";
 import type { AppState } from "../state";
 import { readClipboardImageToFile } from "../clipboard-image";
@@ -29,6 +31,8 @@ type MiscHandlers = Pick<
     | "startLogout"
     | "updateApp"
     | "stub"
+    | "generateRecap"
+    | "openMemory"
 >;
 
 export function createMiscHandlers(state: AppState, deps: AppDeps): MiscHandlers {
@@ -82,7 +86,9 @@ export function createMiscHandlers(state: AppState, deps: AppDeps): MiscHandlers
             if (event === "help" || event === "error") history.addSystem(String(data ?? ""));
             if (event === "commands-changed") refreshCommands();
             if (event === "inject-prompt") state.pendingInjection = String(data ?? "");
-            if (event === "inject-skill") {
+            // Both submit immediately as if the user sent the text; run-prompt
+            // is the non-skill variant (/init and friends).
+            if (event === "inject-skill" || event === "run-prompt") {
                 const text = String(data ?? "");
                 if (text && editor.onSubmit) void editor.onSubmit(text);
             }
@@ -215,8 +221,28 @@ export function createMiscHandlers(state: AppState, deps: AppDeps): MiscHandlers
             cleanExit(0);
         },
         setCwd(p) {
-            state.cwd = p;
-            history.addSystem(`cwd → ${p}`);
+            const input = p.trim();
+            const expanded =
+                input === "~" ? homedir() : input.startsWith("~/") ? join(homedir(), input.slice(2)) : input;
+            const target = resolve(state.cwd, expanded);
+            let isDir = false;
+            try {
+                isDir = statSync(target).isDirectory();
+            } catch {}
+            if (!isDir) {
+                history.addError(`couldn't find a directory at ${target}`);
+                tui.requestRender();
+                return;
+            }
+            state.cwd = target;
+            // Move the session's home so /resume finds it under the new
+            // directory; an unsaved session just picks up the new cwd on save.
+            if (state.session) {
+                manager.moveSession(state.session, target);
+                history.addSystem(`cwd → ${target} (session moved)`);
+            } else {
+                history.addSystem(`cwd → ${target}`);
+            }
             tui.requestRender();
         },
         startLogin(target) {
@@ -251,6 +277,105 @@ export function createMiscHandlers(state: AppState, deps: AppDeps): MiscHandlers
         },
         stub(name) {
             history.addSystem(chalk.yellow(`/${name} not implemented yet`));
+            tui.requestRender();
+        },
+        async openMemory() {
+            if (state.busy) {
+                history.addSystem("busy; finish or abort current turn first");
+                tui.requestRender();
+                return;
+            }
+            const candidates = listMemoryFiles(state.cwd);
+            const items = candidates.map((c) => ({
+                value: c.path,
+                label: `${c.label.padEnd(24)} ${c.path.replace(process.env.HOME ?? "", "~")}${c.exists ? "" : chalk.dim(" (create)")}`,
+            }));
+            const pick = await selectOnce(items, "memory — pick a file to edit");
+            if (!pick) return;
+            const path = pick.value;
+            const editorCmd = process.env.VISUAL || process.env.EDITOR || "vi";
+            try {
+                mkdirSync(dirname(path), { recursive: true });
+            } catch {}
+            // Hand the terminal to the editor. spawnSync on purpose (the
+            // upstream interactive-shell pattern): blocking the event loop
+            // means no ticker/render can write over the editor's screen, and
+            // stdin never goes through an async pause/resume cycle — the
+            // async-spawn version came back with dead input.
+            tui.stop();
+            process.stdout.write("\x1b[2J\x1b[H");
+            const shell = process.env.SHELL || "/bin/sh";
+            const quoted = `'${path.replace(/'/g, "'\\''")}'`;
+            const result = spawnSync(shell, ["-c", `${editorCmd} ${quoted}`], {
+                stdio: "inherit",
+                env: process.env,
+            });
+            tui.start();
+            if (result.error) history.addError(`editor failed (${editorCmd}): ${result.error.message}`);
+            else history.addSystem(`edited ${path} — next turn picks it up`);
+            tui.requestRender(true);
+        },
+        async generateRecap() {
+            const session = state.session;
+            if (!session || state.busy) {
+                history.addSystem(state.busy ? "busy; wait for the turn to finish" : "nothing to recap yet");
+                tui.requestRender();
+                return;
+            }
+            // Last turn = last user message on the branch + everything after it.
+            const branch = session.getBranch();
+            const textOf = (content: unknown): string => {
+                if (typeof content === "string") return content;
+                if (!Array.isArray(content)) return "";
+                return (content as Array<{ type?: string; text?: string }>)
+                    .filter((p) => p?.type === "text" && typeof p.text === "string")
+                    .map((p) => p.text)
+                    .join("\n");
+            };
+            let lastUser = -1;
+            for (let i = branch.length - 1; i >= 0; i--) {
+                const e = branch[i] as { type: string; role?: string };
+                if (e.type === "message" && e.role === "user") {
+                    lastUser = i;
+                    break;
+                }
+            }
+            let assistantText = "";
+            const toolsUsed: string[] = [];
+            for (let i = lastUser + 1; i < branch.length; i++) {
+                const e = branch[i] as { type: string; role?: string; content?: unknown };
+                if (e.type !== "message" || e.role !== "assistant") continue;
+                assistantText += textOf(e.content);
+                if (Array.isArray(e.content)) {
+                    for (const p of e.content as Array<{ type?: string; toolName?: string }>) {
+                        if (p?.type === "tool-call" && p.toolName) toolsUsed.push(p.toolName);
+                    }
+                }
+            }
+            if (lastUser < 0 || !assistantText.trim()) {
+                history.addSystem("no completed turn to recap");
+                tui.requestRender();
+                return;
+            }
+            deps.showWorking("Generating recap");
+            try {
+                const text = await runRecap({
+                    session,
+                    modelId: state.modelId,
+                    userInput: textOf((branch[lastUser] as { content?: unknown }).content),
+                    assistantText,
+                    toolsUsed,
+                    tracker,
+                    cwd: state.cwd,
+                });
+                deps.hideWorking();
+                if (text) history.addRecap(text);
+                else history.addSystem("recap came back empty");
+                deps.refreshStatusLine();
+            } catch (err) {
+                deps.hideWorking();
+                history.addError(`recap failed: ${(err as Error).message}`);
+            }
             tui.requestRender();
         },
     };

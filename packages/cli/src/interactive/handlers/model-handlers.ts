@@ -8,6 +8,7 @@ import {
     getActiveProvider,
     getCatalog,
     getModelSync,
+    getSetting,
     getProjectProviderModel,
     listCustomModelIds,
     removeCustomModel,
@@ -25,7 +26,10 @@ import type { AppDeps } from "../deps";
 import type { AppState } from "../state";
 import { listUsableProviders } from "../provider-availability";
 
-type ModelHandlers = Pick<CommandContext, "setModel" | "setProvider" | "openModelPicker" | "setThinking">;
+type ModelHandlers = Pick<
+    CommandContext,
+    "setModel" | "setProvider" | "openModelPicker" | "setThinking" | "manageScopedModels"
+>;
 
 export function createModelHandlers(state: AppState, deps: AppDeps): ModelHandlers {
     const { tui, history, statusLine, refreshStatusLine, selectOnce, searchOnce, promptOnce, resolveModelId } = deps;
@@ -154,6 +158,65 @@ export function createModelHandlers(state: AppState, deps: AppDeps): ModelHandle
                 applyModel(pick.value);
                 return;
             }
+        },
+        async manageScopedModels(args) {
+            const current = getSetting("scopedModels") ?? [];
+
+            if (args) {
+                const [op = "", ...rest] = args.split(/\s+/);
+                const raw = rest.join(" ");
+                if (op === "add" && raw) {
+                    const resolved = await resolveModelId(raw);
+                    if (!resolved) {
+                        history.addSystem(chalk.red(`unknown model: ${raw}`));
+                    } else if (current.includes(resolved)) {
+                        history.addSystem(`already scoped: ${resolved}`);
+                    } else {
+                        settingsStore.set("scopedModels", [...current, resolved]);
+                        history.addSystem(`scoped models + ${resolved}`);
+                    }
+                } else if ((op === "rm" || op === "remove") && raw) {
+                    if (!current.includes(raw)) {
+                        history.addSystem(chalk.red(`not in scoped list: ${raw}`));
+                    } else {
+                        settingsStore.set(
+                            "scopedModels",
+                            current.filter((m) => m !== raw),
+                        );
+                        history.addSystem(`scoped models - ${raw}`);
+                    }
+                } else {
+                    history.addSystem("usage: /scoped-models · /scoped-models add <id> · /scoped-models rm <id>");
+                }
+                tui.requestRender();
+                return;
+            }
+
+            // Panel: toggle over every available model, across providers —
+            // Ctrl+P cycling is meant to hop providers too.
+            const cat = await getCatalog();
+            const values = Object.values(cat)
+                .filter((m) => m.available)
+                .map((m) => m.id)
+                .sort();
+            if (values.length === 0) {
+                history.addSystem(chalk.yellow("no available models — /login first"));
+                tui.requestRender();
+                return;
+            }
+            const picked = await deps.toggleOnce(
+                values,
+                new Set(current),
+                "Scoped models — Ctrl+P cycles the checked ones",
+            );
+            if (!picked) return;
+            settingsStore.set("scopedModels", picked);
+            history.addSystem(
+                picked.length
+                    ? `scoped models (${picked.length}): ${picked.join(", ")}`
+                    : "scoped models cleared — Ctrl+P disabled",
+            );
+            tui.requestRender();
         },
         async setThinking(level) {
             // Models that don't reason (e.g. composer-2.5, grok-3) have no

@@ -140,9 +140,10 @@ export function selectOnce(
 }
 
 /**
- * Multi-select with toggle semantics: Enter or Space flips the highlighted
- * entry in place (cursor stays put), "done" confirms, Esc cancels (null).
- * Items are mutated in place so the SelectList never resets its cursor.
+ * Multi-select with toggle semantics and a live type-to-filter: Enter or
+ * Space flips the highlighted entry in place (cursor stays put on plain
+ * toggles), printable keys filter the list (Space stays a toggle — values
+ * never contain spaces), "done" confirms, Esc cancels (null).
  */
 export function toggleSelectOnce(
     host: SelectorHost,
@@ -163,18 +164,37 @@ export function toggleSelectOnce(
             description:
                 selected.size === values.length ? "all" : [...selected].join(", ") || "none — pick at least one",
         });
-        const items: SelectItem[] = [
-            doneItem(),
-            ...values.map((v) => ({ value: v, label: `${selected.has(v) ? "[x]" : "[ ]"} ${v}`, description: "" })),
-        ];
+        // Stable per-value items: toggling mutates labels in place so the
+        // SelectList keeps its cursor; filtering swaps the visible subset.
+        const valueItems: SelectItem[] = values.map((v) => ({
+            value: v,
+            label: `${selected.has(v) ? "[x]" : "[ ]"} ${v}`,
+            description: "",
+        }));
+        const items: SelectItem[] = [doneItem(), ...valueItems];
         const list = new SelectList(items, Math.min(items.length, 10), getSelectListTheme());
 
+        const header = new Text("", 0, 0);
+        const renderHeader = (query: string) =>
+            header.setText(
+                chalk.bold.cyan(` ${title ?? "Toggle"}`) +
+                    chalk.dim("  search: ") +
+                    (query ? chalk.white(query) : chalk.dim("(type to filter)")),
+            );
+        renderHeader("");
+
         const wrapper = new Container();
-        if (title) wrapper.addChild(new Text(chalk.bold.cyan(` ${title}`), 0, 0));
+        wrapper.addChild(header);
         wrapper.addChild(new DynamicBorder());
         wrapper.addChild(list);
         wrapper.addChild(new DynamicBorder());
-        wrapper.addChild(new Text(chalk.dim(" ↑↓ navigate · Enter/Space toggle · done confirms · Esc cancel"), 0, 0));
+        wrapper.addChild(
+            new Text(
+                chalk.dim(" type to filter · ↑↓ navigate · Enter/Space toggle · done confirms · Esc cancel"),
+                0,
+                0,
+            ),
+        );
         const close = host.showSelector(wrapper, list);
 
         let current: SelectItem = items[0];
@@ -185,7 +205,7 @@ export function toggleSelectOnce(
             if (done) return;
             done = true;
             try {
-                removeSpaceListener?.();
+                removeInputListener?.();
             } catch {}
             close();
             resolve(v);
@@ -211,22 +231,47 @@ export function toggleSelectOnce(
         };
         list.onCancel = () => finish(null);
 
-        // Space toggles too (Enter is handled by the list itself).
-        const spaceListener = (data: string) => {
+        let query = "";
+        const applyQuery = () => {
+            const visible = query
+                ? valueItems.filter((i) => i.value.toLowerCase().includes(query.toLowerCase()))
+                : valueItems;
+            list.setItems([items[0], ...visible]);
+            // setItems resets the cursor to 0 without firing onSelectionChange —
+            // re-sync so Space can't toggle a stale entry.
+            current = items[0];
+            renderHeader(query);
+            host.tui.requestRender();
+        };
+
+        // Space toggles the highlighted entry; backspace edits the query;
+        // other printable chars filter. Arrows/Enter/Esc fall through to the list.
+        const onInput = (data: string): { consume: boolean } | undefined => {
             if (data === " ") {
                 toggle(current);
                 return { consume: true };
             }
+            if (data === "\x7f" || data === "\b") {
+                if (!query) return undefined;
+                query = query.slice(0, -1);
+                applyQuery();
+                return { consume: true };
+            }
+            if (data.length === 1 && data > " " && data !== "\x7f") {
+                query += data;
+                applyQuery();
+                return { consume: true };
+            }
             return undefined;
         };
-        let removeSpaceListener: (() => void) | undefined;
+        let removeInputListener: (() => void) | undefined;
         const addInput = (
             host.tui as unknown as {
                 addInputListener?: (cb: (d: string) => { consume: boolean } | undefined) => () => void;
             }
         ).addInputListener;
         if (typeof addInput === "function") {
-            removeSpaceListener = addInput.call(host.tui, spaceListener);
+            removeInputListener = addInput.call(host.tui, onInput);
         }
     });
 }

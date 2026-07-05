@@ -13,6 +13,8 @@ export interface CommandContext {
     manualCompact(): Promise<void>;
     setThinking(level?: string): Promise<void> | void;
     showCost(): void;
+    /** /context — context-window usage breakdown (grid + categories). */
+    showContext(): Promise<void>;
     /** /steak — GitHub-style token-usage heatmap; arg is an optional year. */
     showSteak(args: string): void;
     showSessions(): Promise<void>;
@@ -58,7 +60,30 @@ export interface CommandContext {
     setTimer(args: string): void;
     /** /reminder — open the reminder manager (create/edit/delete). */
     openReminders(): Promise<void>;
+    /** /recap — generate the post-turn recap on demand (ignores the recap setting). */
+    generateRecap(): Promise<void>;
+    /** /memory — pick an AGENTS.md location and open it in $EDITOR. */
+    openMemory(): Promise<void>;
+    /** /doctor — read-only diagnostics of the installation and settings. */
+    runDoctor(): Promise<void>;
+    /** /share — upload the session as a secret GitHub gist via the gh CLI. */
+    shareSession(): Promise<void>;
+    /** /scoped-models — toggle panel (no args) or `add <id>` / `rm <id>` / bare list. */
+    manageScopedModels(args: string): Promise<void> | void;
 }
+
+/** /init — runs as a normal agent turn via the "run-prompt" emit. */
+export const INIT_PROMPT = `Analyze this codebase and write an AGENTS.md file for coding agents working in this repository.
+
+First check whether AGENTS.md (or CLAUDE.md) already exists at the repo root — if it does, read it and improve it in place: fill gaps, fix anything stale, keep what's accurate. Don't create a duplicate.
+
+What to include (only what you can verify from the repo):
+- The exact commands to build, test (including running a single test), lint, and typecheck.
+- A short architecture overview: the main packages/directories and how they relate.
+- Project-specific conventions an agent must follow (code style, naming, error handling, commit rules).
+- Gotchas that would trip up a newcomer (non-obvious setup, generated files, things that must be run after edits).
+
+Keep it concise — aim for 20-60 lines. No generic advice ("write clean code"), no restating what's obvious from file names. Every line should save an agent a wrong turn.`;
 
 export interface SlashCommand {
     name: string;
@@ -229,6 +254,13 @@ export async function registerBuiltins(reg: CommandRegistry, opts: { cwd?: strin
             handler: (ctx) => ctx.showCost(),
         },
         {
+            name: "context",
+            description: "Show context window usage breakdown",
+            handler: async (ctx) => {
+                await ctx.showContext();
+            },
+        },
+        {
             name: "steak",
             description: "Token-usage heatmap, GitHub-contributions style: /steak · /steak <year>",
             handler: (ctx, args) => ctx.showSteak(args ?? ""),
@@ -248,10 +280,18 @@ export async function registerBuiltins(reg: CommandRegistry, opts: { cwd?: strin
             },
         },
         {
-            name: "cwd",
-            description: "Change working directory",
+            name: "cd",
+            description: "Move this session to a new working directory: /cd <path>",
             handler: (ctx, args) => {
-                if (!args) return ctx.emit("error", "usage: /cwd <path>");
+                if (!args) return ctx.emit("help", `cwd: ${ctx.cwd}`);
+                ctx.setCwd(args);
+            },
+        },
+        {
+            name: "cwd",
+            description: "Alias for /cd",
+            handler: (ctx, args) => {
+                if (!args) return ctx.emit("help", `cwd: ${ctx.cwd}`);
                 ctx.setCwd(args);
             },
         },
@@ -306,6 +346,33 @@ export async function registerBuiltins(reg: CommandRegistry, opts: { cwd?: strin
             },
         },
         { name: "changelog", description: "Show changelog entries", handler: (ctx) => ctx.showChangelog() },
+        { name: "release-notes", description: "Alias for /changelog", handler: (ctx) => ctx.showChangelog() },
+        {
+            name: "recap",
+            description: "Generate a short recap of the last turn now",
+            handler: async (ctx) => {
+                await ctx.generateRecap();
+            },
+        },
+        {
+            name: "doctor",
+            description: `Diagnose and verify your ${PRODUCT_NAME} installation and settings`,
+            handler: async (ctx) => {
+                await ctx.runDoctor();
+            },
+        },
+        {
+            name: "memory",
+            description: "Open an AGENTS.md memory file in your editor",
+            handler: async (ctx) => {
+                await ctx.openMemory();
+            },
+        },
+        {
+            name: "init",
+            description: "Analyze the codebase and create or improve AGENTS.md",
+            handler: (ctx) => ctx.emit("run-prompt", INIT_PROMPT),
+        },
         {
             name: "agents",
             description: "Create, select, or edit agents (custom system prompts)",
@@ -362,11 +429,19 @@ export async function registerBuiltins(reg: CommandRegistry, opts: { cwd?: strin
             },
         },
         { name: "tree", description: "Navigate session tree (switch branches)", handler: (ctx) => ctx.showTree() },
-        { name: "share", description: "Share session as a secret GitHub gist", handler: (ctx) => ctx.stub("share") },
+        {
+            name: "share",
+            description: "Share session as a secret GitHub gist (needs gh CLI)",
+            handler: async (ctx) => {
+                await ctx.shareSession();
+            },
+        },
         {
             name: "scoped-models",
-            description: "Enable/disable models for Ctrl+P cycling",
-            handler: (ctx) => ctx.stub("scoped-models"),
+            description: "Enable/disable models for Ctrl+P cycling (panel, or add/rm <id>)",
+            handler: async (ctx, args) => {
+                await ctx.manageScopedModels(args.trim());
+            },
         },
         { name: "quit", description: "Quit loop-agent", handler: (ctx) => ctx.exit() },
         { name: "exit", description: "Alias for /quit", handler: (ctx) => ctx.exit() },

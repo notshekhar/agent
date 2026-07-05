@@ -11,6 +11,8 @@ import type { BashDenyEntry } from "./tools/utils/command-deny";
 
 export interface AppSettings {
     defaultModel?: string;
+    /** Models Ctrl+P cycles through (full provider/model ids). Managed via /scoped-models. */
+    scopedModels?: string[];
     theme?: string;
     thinkingLevel?: ThinkingLevel;
     maxSteps?: number;
