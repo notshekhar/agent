@@ -76,8 +76,8 @@ export interface LoopSettings {
     /**
      * OS-level sandbox for the bash tool (Seatbelt on macOS, bubblewrap on
      * Linux). Off unless `enabled`. Fail-open: if it can't be enforced the
-     * command still runs, with a warning. Network is "deny" by default; the
-     * per-domain allowlist is not wired yet.
+     * command still runs, with a warning. Network is "deny" by default; a
+     * per-domain allowlist is supported (see `network` below).
      */
     sandbox?: {
         enabled?: boolean;

@@ -32,4 +32,4 @@ if (!result.success) {
     process.exit(1);
 }
 
-console.log(`✓ built core (${result.outputs.length} files)`);
+console.log(`built core (${result.outputs.length} files)`);

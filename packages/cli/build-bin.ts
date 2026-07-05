@@ -101,5 +101,5 @@ const tarballRel = `loop-${shortTarget}.tar.gz`;
 if (existsSync(tarball)) rmSync(tarball);
 await $`tar -czf ${tarballRel} ${shortTarget}`.cwd(binDir);
 
-console.log(`✓ built ${binPath}`);
-console.log(`✓ packaged ${tarball}`);
+console.log(`built ${binPath}`);
+console.log(`packaged ${tarball}`);

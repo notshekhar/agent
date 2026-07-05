@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, renameSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { costStore, getLoopDir } from "../auth/storage";
 import { debugLog } from "../debug";
@@ -130,7 +130,7 @@ function defaultDbPath(): string {
  * the whole init retries with backoff. On an existing WAL file no retry is
  * ever needed.
  */
-function openDb(path: string): Database {
+function openDb(path: string, recovered = false): Database {
     // SQLite can create the file but not its parent (fresh install / temp HOME).
     if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
     let lastErr: unknown;
@@ -196,9 +196,16 @@ function openDb(path: string): Database {
             if (clean?.value !== "1") {
                 const check = candidate.query<{ quick_check: string }, []>("PRAGMA quick_check").get();
                 if (check && check.quick_check !== "ok") {
-                    // Recovery (re-migrate from retained JSONL) is a later phase;
-                    // surface loudly but keep the app usable.
                     debugLog("session-db", `quick_check failed for ${path}: ${check.quick_check}`);
+                    // Recover once per open: set the corrupt file aside, start
+                    // fresh, salvage what's readable, and let getDb()'s
+                    // migrations re-import the retained JSONL for the rest.
+                    // A corrupt :memory: db or a second corruption falls
+                    // through and continues on the damaged handle.
+                    if (!recovered && path !== ":memory:") {
+                        candidate.close();
+                        return recoverCorruptDb(path);
+                    }
                 }
             }
             candidate.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('clean_shutdown', '0')");
@@ -207,11 +214,115 @@ function openDb(path: string): Database {
             candidate?.close();
             lastErr = err;
             const msg = String((err as Error)?.message ?? err);
+            // Heavier damage surfaces before quick_check ever runs — the very
+            // reads/writes of the open sequence throw. Same recovery path.
+            if (!recovered && path !== ":memory:" && /malformed|not a database|corrupt/i.test(msg)) {
+                debugLog("session-db", `open failed on damaged db ${path}: ${msg}`);
+                return recoverCorruptDb(path);
+            }
             if (!/SQLITE_BUSY|database is locked/i.test(msg)) throw err;
             Bun.sleepSync(25);
         }
     }
     throw lastErr instanceof Error ? lastErr : new Error(`could not open session db at ${path}: ${lastErr}`);
+}
+
+/**
+ * Corruption recovery: move the damaged file (and its WAL sidecars — they must
+ * never attach to the replacement) aside, open a fresh db, then copy every
+ * readable row over. The fresh db carries no migration markers, so getDb()'s
+ * JSONL re-import fills whatever the salvage couldn't read (originals are
+ * retained exactly for this). Post-migration data lives only in the db, so the
+ * salvage runs first and INSERT OR IGNORE makes its rows win over re-imports.
+ *
+ * Best-effort by design: a row that can't be read or re-inserted is skipped,
+ * never fatal. The damaged file is kept beside the fresh one for forensics.
+ * Note: another live process still holding the damaged file keeps writing to
+ * the renamed path — acceptable for an already-corrupt store.
+ *
+ * The caller has already closed its handle to the damaged file.
+ */
+function recoverCorruptDb(path: string): Database {
+    const corruptPath = `${path}.corrupt-${Date.now()}`;
+    try {
+        renameSync(path, corruptPath);
+    } catch (err) {
+        // Can't set it aside (permissions?) — reopen and continue on the
+        // damaged file rather than losing the app.
+        debugLog("session-db", `could not set corrupt db aside, continuing damaged:`, err as Error);
+        return openDb(path, true);
+    }
+    for (const suffix of ["-wal", "-shm"]) {
+        try {
+            renameSync(path + suffix, corruptPath + suffix);
+        } catch {
+            // sidecar absent — fine
+        }
+    }
+    const fresh = openDb(path, true);
+    salvageCorruptDb(corruptPath, fresh);
+    fresh.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('recovered_at', ?)", [String(Date.now())]);
+    debugLog("session-db", `recovered ${path}; damaged file kept at ${corruptPath}`);
+    return fresh;
+}
+
+/** Copy every readable row from the damaged db into the fresh one. Parent
+ * tables first so FK checks pass; a child whose parent was lost is skipped. */
+function salvageCorruptDb(corruptPath: string, fresh: Database): void {
+    let damaged: Database | null = null;
+    try {
+        damaged = new Database(corruptPath);
+        for (const table of ["sessions", "entries", "cost_ledger", "projects", "reminders"]) {
+            try {
+                const select = damaged.query(`SELECT * FROM ${table}`);
+                const cols = select.columnNames;
+                if (cols.length === 0) continue;
+                const insert = fresh.query(
+                    `INSERT OR IGNORE INTO ${table} (${cols.join(", ")})
+                     VALUES (${cols.map(() => "?").join(", ")})`,
+                );
+                let copied = 0;
+                fresh.transaction(() => {
+                    // iterate() (not all()) so rows before a torn page still
+                    // land — and the read-error catch sits INSIDE the
+                    // transaction, so a tear mid-table commits the prefix
+                    // instead of rolling it back.
+                    try {
+                        for (const row of select.iterate() as IterableIterator<Record<string, unknown>>) {
+                            try {
+                                insert.run(...(cols.map((c) => row[c]) as never[]));
+                                copied++;
+                            } catch {
+                                // FK parent lost to the corruption — skip the child.
+                            }
+                        }
+                    } catch (err) {
+                        debugLog("session-db", `salvage: ${table} tore after ${copied} rows:`, err as Error);
+                    }
+                })();
+                debugLog("session-db", `salvaged ${copied} rows from ${table}`);
+            } catch (err) {
+                debugLog("session-db", `salvage: ${table} unreadable, relying on JSONL re-import:`, err as Error);
+            }
+        }
+        // cost_baseline is the frozen pre-ledger spend — unrecoverable from
+        // anywhere else once cost.json is stale. Other meta keys deliberately
+        // stay unset so getDb()'s migrations re-run and fill salvage gaps.
+        try {
+            const baseline = damaged
+                .query<{ value: string }, []>("SELECT value FROM meta WHERE key = 'cost_baseline'")
+                .get();
+            if (baseline) {
+                fresh.run("INSERT OR IGNORE INTO meta (key, value) VALUES ('cost_baseline', ?)", [baseline.value]);
+            }
+        } catch (err) {
+            debugLog("session-db", "salvage: cost_baseline unreadable:", err as Error);
+        }
+    } catch (err) {
+        debugLog("session-db", `salvage: could not open ${corruptPath}:`, err as Error);
+    } finally {
+        damaged?.close();
+    }
 }
 
 export function getDb(): Database {

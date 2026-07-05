@@ -226,10 +226,10 @@ export class Session {
         const startId = fromId === undefined ? this.leafId : fromId;
         let current = startId ? this.byId.get(startId) : undefined;
         while (current) {
-            path.unshift(current);
+            path.push(current);
             current = current.parentId ? this.byId.get(current.parentId) : undefined;
         }
-        return path;
+        return path.reverse();
     }
 
     /**

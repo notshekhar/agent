@@ -36,7 +36,7 @@ export function createExtensionHandlers(_state: AppState, deps: AppDeps): Extens
             await getExtensionHost().reload(r.name);
             bustCatalogCache();
             history.addSystem(
-                `✓ installed ${r.name}${r.version ? `@${r.version}` : ""} — /reload to pick up its slash commands`,
+                `installed ${r.name}${r.version ? `@${r.version}` : ""} — /reload to pick up its slash commands`,
             );
         } catch (err) {
             history.addError(`install failed: ${err instanceof Error ? err.message : String(err)}`);
@@ -69,22 +69,22 @@ export function createExtensionHandlers(_state: AppState, deps: AppDeps): Extens
         switch (pick.value) {
             case "enable":
                 await setEnabled(entry, true);
-                history.addSystem(`✓ enabled ${entry.name} — /reload to add its slash commands`);
+                history.addSystem(`enabled ${entry.name} — /reload to add its slash commands`);
                 break;
             case "disable":
                 await setEnabled(entry, false);
-                history.addSystem(`✓ disabled ${entry.name}`);
+                history.addSystem(`disabled ${entry.name}`);
                 break;
             case "reload":
                 await host.reload(entry.name);
                 bustCatalogCache();
-                history.addSystem(`✓ reloaded ${entry.name}`);
+                history.addSystem(`reloaded ${entry.name}`);
                 break;
             case "uninstall":
                 await host.unload(entry.name);
                 removeExtension(entry.name);
                 bustCatalogCache();
-                history.addSystem(`✓ uninstalled ${entry.name}`);
+                history.addSystem(`uninstalled ${entry.name}`);
                 break;
             case "info":
                 history.addSystem(

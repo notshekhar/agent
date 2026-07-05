@@ -12,7 +12,14 @@ import { compactedContextEntries, latestCompactEntry } from "./compact";
 // O(whole history).
 const entryCharCache = new WeakMap<object, number>();
 
-export function estimateContextTokens(session: Session): number {
+/**
+ * chars/4 estimate of the transcript's token footprint, plus `overheadTokens`
+ * for the parts that don't live in the session (system prompt + tool
+ * definitions) when the caller can supply them — without it the estimate
+ * undercounts by the full system block (10–20k tokens with workspace context
+ * and skills loaded).
+ */
+export function estimateContextTokens(session: Session, overheadTokens = 0): number {
     const compact = latestCompactEntry(session);
     let chars = compact ? compact.summary.length + 200 : 0;
     let messageIndex = 0;
@@ -33,7 +40,27 @@ export function estimateContextTokens(session: Session): number {
         }
         chars += n;
     }
-    return Math.ceil(chars / 4);
+    return Math.ceil(chars / 4) + overheadTokens;
+}
+
+/**
+ * Token overhead of the request parts that never appear in the session: the
+ * system prompt (chars/4, same heuristic as entries) and the tool
+ * definitions. Tool schemas are zod objects — serializing them to JSON schema
+ * just for an estimate isn't worth it, so each tool counts its name +
+ * description at chars/4 plus a flat allowance for the schema body.
+ */
+const TOOL_SCHEMA_ALLOWANCE_TOKENS = 120;
+
+export function estimateOverheadTokens(system: string, tools: Record<string, unknown>): number {
+    let chars = system.length;
+    let schemaAllowance = 0;
+    for (const [name, tool] of Object.entries(tools)) {
+        const description = (tool as { description?: string })?.description ?? "";
+        chars += name.length + description.length;
+        schemaAllowance += TOOL_SCHEMA_ALLOWANCE_TOKENS;
+    }
+    return Math.ceil(chars / 4) + schemaAllowance;
 }
 
 const ANTHROPIC_CACHE = { anthropic: { cacheControl: { type: "ephemeral" as const } } };

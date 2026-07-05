@@ -22,4 +22,4 @@ if (!result.success) {
     process.exit(1);
 }
 
-console.log(`✓ built tui (${result.outputs.length} files)`);
+console.log(`built tui (${result.outputs.length} files)`);

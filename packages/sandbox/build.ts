@@ -22,4 +22,4 @@ if (!result.success) {
     process.exit(1);
 }
 
-console.log(`✓ built sandbox (${result.outputs.length} files)`);
+console.log(`built sandbox (${result.outputs.length} files)`);

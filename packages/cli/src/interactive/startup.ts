@@ -123,7 +123,7 @@ export async function runStartupTrustAndHooks(state: AppState, deps: AppDeps): P
             else if (chosen.trusted) trustForSession(state.cwd); // session-only: in-memory, not persisted
             history.addSystem(
                 chalk.dim(
-                    chosen.trusted ? "✓ project trusted" : "✗ project not trusted — project hooks/skills disabled",
+                    chosen.trusted ? "project trusted" : "project not trusted — project hooks/skills disabled",
                 ),
             );
         } else {

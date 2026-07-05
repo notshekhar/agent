@@ -26,4 +26,4 @@ if (!result.success) {
 }
 
 chmodSync(join(import.meta.dir, "dist/cli.js"), 0o755);
-console.log("✓ built cli");
+console.log("built cli");

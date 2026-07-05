@@ -103,7 +103,7 @@ export const THEMES: Theme[] = [
     {
         id: "rainbow",
         label: "rainbow",
-        description: "every character a different hue 🌈",
+        description: "every character a different hue",
         spec: { kind: "rainbow" },
     },
     {

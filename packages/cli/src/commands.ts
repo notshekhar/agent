@@ -116,7 +116,7 @@ export async function runUpgrade(version: string, opts: { force?: boolean } = {}
     const latest = await fetchLatestTag();
     if (!opts.force && latest) {
         if (!semverGt(latest, `v${version}`)) {
-            console.log(`✓ Up to date (latest ${latest})`);
+            console.log(`Up to date (latest ${latest})`);
             return;
         }
         console.log(`▶ Upgrading ${version} → ${latest}`);
@@ -235,9 +235,9 @@ export async function cmdCostAudit(): Promise<void> {
     const audit = auditLedger();
     console.log(`Ledger rows: ${audit.rows}`);
     if (audit.priceViolations.length === 0) {
-        console.log("✓ Every priced row recomputes to its recorded usd (qty × snapshot price).");
+        console.log("Every priced row recomputes to its recorded usd (qty × snapshot price).");
     } else {
-        console.log(`✗ ${audit.priceViolations.length} row(s) fail the price reconciliation:`);
+        console.log(`${audit.priceViolations.length} row(s) fail the price reconciliation:`);
         for (const v of audit.priceViolations.slice(0, 20)) {
             console.log(
                 `  row ${v.id} (${v.model}): recorded $${v.usd.toFixed(6)}, recomputed $${v.computed.toFixed(6)}`,
@@ -245,9 +245,9 @@ export async function cmdCostAudit(): Promise<void> {
         }
     }
     if (audit.sessionMismatches.length === 0) {
-        console.log("✓ Ledger token sums match the transcripts for every session.");
+        console.log("Ledger token sums match the transcripts for every session.");
     } else {
-        console.log(`✗ ${audit.sessionMismatches.length} session(s) disagree with their transcripts:`);
+        console.log(`${audit.sessionMismatches.length} session(s) disagree with their transcripts:`);
         for (const m of audit.sessionMismatches.slice(0, 20)) {
             console.log(
                 `  ${m.sessionPub}: ledger in/out ${m.ledgerInput}/${m.ledgerOutput}, entries ${m.entriesInput}/${m.entriesOutput}`,

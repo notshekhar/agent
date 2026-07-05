@@ -17,7 +17,13 @@ import { runRecap, turnDeservesRecap } from "./recap";
 import { runHooks, type HookOutcome } from "./hooks";
 import { isTrusted } from "./trust";
 import { buildReasoningParams, type ThinkingLevel } from "./thinking";
-import { estimateContextTokens, moveAnthropicCacheTail, toModelMessages, withAnthropicCaching } from "./model-messages";
+import {
+    estimateContextTokens,
+    estimateOverheadTokens,
+    moveAnthropicCacheTail,
+    toModelMessages,
+    withAnthropicCaching,
+} from "./model-messages";
 import { withToolHooks } from "./tool-hooks";
 import { createTaskTool } from "./subagent";
 import { isAbortError } from "./abort";
@@ -245,13 +251,14 @@ function estimateInterruptedUsage(
     tailReasoning: string,
     basis: UsageBlock | undefined,
     session: Session,
+    overheadTokens: number,
 ): UsageBlock | undefined {
     const textTokens = Math.ceil(tailText.length / 4);
     const reasoningTokens = Math.ceil(tailReasoning.length / 4);
     const outputTokens = textTokens + reasoningTokens;
     // No output streamed and no real basis to anchor to → fabricate nothing.
     if (outputTokens === 0 && !basis) return undefined;
-    const inputTokens = basis?.inputTokens ?? estimateContextTokens(session);
+    const inputTokens = basis?.inputTokens ?? estimateContextTokens(session, overheadTokens);
     const inputTokenDetails = basis?.inputTokenDetails ? { ...basis.inputTokenDetails } : undefined;
     const cachedInputTokens = basis?.inputTokenDetails?.cacheReadTokens ?? basis?.cachedInputTokens;
     return {
@@ -322,39 +329,8 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
 
     const { provider, model: modelShortId } = parseModelId(modelId);
 
-    // auto-compact check
     const catalog = await getCatalog();
     const modelInfo = catalog[modelId];
-    const threshold = getSetting("autoCompactThreshold") ?? 0.8;
-    if (modelInfo) {
-        const tokens = estimateContextTokens(session);
-        if (tokens > modelInfo.contextWindow * threshold) {
-            emitter.emit("compact-start", { reason: "auto" });
-            // PreCompact is informational for watchers — block is ignored.
-            await runHooks(
-                "PreCompact",
-                "auto",
-                { session_id: session.id, transcript_path: session.path, trigger: "auto" },
-                cwd,
-            );
-            try {
-                const result = await runCompact({ session, modelId, abortSignal, tracker, cwd });
-                emitter.emit("compact-end", result);
-            } catch (err) {
-                if (abortSignal?.aborted) {
-                    emitter.emit("compact-end", {
-                        summary: "",
-                        cutAt: 0,
-                        tokensBefore: 0,
-                        tokensAfter: 0,
-                        aborted: true,
-                    });
-                    return;
-                }
-                throw err;
-            }
-        }
-    }
 
     const workspaceContext =
         getSetting("workspaceContext") !== false ? loadWorkspaceContext(cwd) : { text: "", files: [] };
@@ -492,6 +468,43 @@ Write complete prompts: the subagent knows nothing about this conversation — i
         resultMiddleware: getExtensionHost().getToolResultMiddleware(),
     });
     const model = await getModel(modelId);
+
+    // Auto-compact check — runs here (not at turn start) so the estimate can
+    // count the actual system prompt + tool definitions of THIS turn, which
+    // never appear in the session but are billed context all the same.
+    // Compaction only needs to land before toModelMessages() below; nothing
+    // above reads the transcript.
+    const contextOverheadTokens = estimateOverheadTokens(system, toolsForTurn);
+    const threshold = getSetting("autoCompactThreshold") ?? 0.8;
+    if (modelInfo) {
+        const tokens = estimateContextTokens(session, contextOverheadTokens);
+        if (tokens > modelInfo.contextWindow * threshold) {
+            emitter.emit("compact-start", { reason: "auto" });
+            // PreCompact is informational for watchers — block is ignored.
+            await runHooks(
+                "PreCompact",
+                "auto",
+                { session_id: session.id, transcript_path: session.path, trigger: "auto" },
+                cwd,
+            );
+            try {
+                const result = await runCompact({ session, modelId, abortSignal, tracker, cwd });
+                emitter.emit("compact-end", result);
+            } catch (err) {
+                if (abortSignal?.aborted) {
+                    emitter.emit("compact-end", {
+                        summary: "",
+                        cutAt: 0,
+                        tokensBefore: 0,
+                        tokensAfter: 0,
+                        aborted: true,
+                    });
+                    return;
+                }
+                throw err;
+            }
+        }
+    }
 
     // If we extracted image paths, override the last user message with a multipart
     // content array (text + image parts) so vision models actually see the image.
@@ -819,6 +832,7 @@ Write complete prompts: the subagent knows nothing about this conversation — i
                 reasoningSinceStep,
                 lastStepUsage ?? lastUsageInSession(session),
                 session,
+                contextOverheadTokens,
             );
             if (est) {
                 tracker.addEstimated(modelId, est, { cwd, sessionPub: session.info.id, source: "turn" });

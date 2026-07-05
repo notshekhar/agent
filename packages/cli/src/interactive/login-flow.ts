@@ -245,7 +245,7 @@ async function loginCustom(deps: LoginDeps): Promise<StepResult> {
                     },
                 },
             );
-            history.addSystem(chalk.green(`✓ signed in to ${name}.`));
+            history.addSystem(chalk.green(`signed in to ${name}.`));
             tui.requestRender();
         } catch (err) {
             history.addError(`OAuth sign-in failed: ${(err as Error).message}`);
@@ -283,7 +283,7 @@ async function loginCustom(deps: LoginDeps): Promise<StepResult> {
             ...(m.contextWindow ? { contextWindow: m.contextWindow } : {}),
             ...(m.maxOutput ? { maxOutput: m.maxOutput } : {}),
         }));
-        history.addSystem(chalk.green(`✓ found ${discovered.length} models:`));
+        history.addSystem(chalk.green(`found ${discovered.length} models:`));
         for (const m of discovered.slice(0, 12)) history.addSystem(chalk.dim(`  • ${m.id}`));
         if (discovered.length > 12) history.addSystem(chalk.dim(`  … +${discovered.length - 12} more`));
     } else {
@@ -306,7 +306,7 @@ async function loginCustom(deps: LoginDeps): Promise<StepResult> {
     saveCustomProvider(cfg);
     setActiveProvider(`custom:${name}`);
     bustCatalogCache();
-    history.addSystem(chalk.green(`✓ custom provider "${name}" saved (${cfg.models!.length} models) and set active.`));
+    history.addSystem(chalk.green(`custom provider "${name}" saved (${cfg.models!.length} models) and set active.`));
     tui.requestRender();
     return "done";
 }
@@ -327,7 +327,7 @@ async function loginXai(deps: LoginDeps): Promise<StepResult> {
         try {
             await loginXaiOAuth(({ url, instructions }) => presentAuth(deps, "xAI", url, instructions));
             setActiveProvider("xai");
-            history.addSystem(chalk.green("✓ xAI subscription connected."));
+            history.addSystem(chalk.green("xAI subscription connected."));
         } catch (err) {
             history.addError(`xAI login failed: ${(err as Error).message}`);
         }
@@ -356,7 +356,7 @@ async function loginCopilot(deps: LoginDeps): Promise<StepResult> {
         });
         setActiveProvider("github-copilot");
         bustCatalogCache();
-        history.addSystem(chalk.green("✓ GitHub Copilot connected."));
+        history.addSystem(chalk.green("GitHub Copilot connected."));
     } catch (err) {
         history.addError(`Copilot login failed: ${(err as Error).message}`);
     }
@@ -401,7 +401,7 @@ async function loginChatgpt(deps: LoginDeps): Promise<StepResult> {
         });
         setActiveProvider("openai-chatgpt");
         bustCatalogCache();
-        history.addSystem(chalk.green("✓ ChatGPT (Codex) connected."));
+        history.addSystem(chalk.green("ChatGPT (Codex) connected."));
         history.addSystem(chalk.dim("Personal/local use only — usage is billed to your ChatGPT subscription."));
     } catch (err) {
         history.addError(`ChatGPT login failed: ${(err as Error).message}`);
@@ -436,7 +436,7 @@ async function loginOllama(deps: LoginDeps): Promise<StepResult> {
     setActiveProvider("ollama");
     bustCatalogCache();
     history.addSystem(
-        chalk.green(`✓ Ollama connected — ${models.length} model${models.length === 1 ? "" : "s"} installed.`),
+        chalk.green(`Ollama connected — ${models.length} model${models.length === 1 ? "" : "s"} installed.`),
     );
     tui.requestRender();
     return "done";
@@ -480,7 +480,7 @@ async function loginBedrock(deps: LoginDeps): Promise<StepResult> {
     setActiveProvider("bedrock");
     bustCatalogCache();
     history.addSystem(
-        chalk.green(`✓ Bedrock connected — ${models.length} model${models.length === 1 ? "" : "s"} in ${region}.`),
+        chalk.green(`Bedrock connected — ${models.length} model${models.length === 1 ? "" : "s"} in ${region}.`),
     );
     tui.requestRender();
     return "done";
@@ -499,7 +499,7 @@ async function apiKeyLogin(
     loginApiKey(p, key);
     setActiveProvider(p);
     bustCatalogCache();
-    history.addSystem(chalk.green(`✓ ${p} key saved.`));
+    history.addSystem(chalk.green(`${p} key saved.`));
     tui.requestRender();
     return "done";
 }

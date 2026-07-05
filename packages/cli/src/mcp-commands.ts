@@ -64,7 +64,7 @@ function cmdAdd(args: string[]): void {
     else addServer(name, cfg);
 
     const where = scope === "project" ? projectServersPath(cwd) : "~/.loop/settings.json";
-    console.log(`✓ Added MCP server "${name}" — ${describeTarget(cfg)}  [scope: ${scope}]`);
+    console.log(`Added MCP server "${name}" — ${describeTarget(cfg)}  [scope: ${scope}]`);
     console.log(`  written to ${where}`);
     if (isHttpServer(cfg) && cfg.auth === "oauth") {
         console.log(`\n  This server uses OAuth. Sign in with:\n    loop mcp login ${name}`);
@@ -105,7 +105,7 @@ function cmdRemove(args: string[]): void {
         throw new McpUsageError(`no MCP server named "${name}"${wanted ? ` in scope ${wanted}` : ""}`);
     }
     clearMcpAuth(name); // forget any stored OAuth session
-    console.log(`✓ Removed MCP server "${name}" [scope: ${removed}]`);
+    console.log(`Removed MCP server "${name}" [scope: ${removed}]`);
 }
 
 function cmdSetEnabled(args: string[], enabled: boolean): void {
@@ -117,7 +117,7 @@ function cmdSetEnabled(args: string[], enabled: boolean): void {
         (!wanted || wanted === "user" ? setServerEnabled(name, enabled) : false) ||
         (!wanted || wanted === "project" ? setProjectServerEnabled(cwd, name, enabled) : false);
     if (!ok) throw new McpUsageError(`no MCP server named "${name}"`);
-    console.log(`✓ ${enabled ? "Enabled" : "Disabled"} MCP server "${name}"`);
+    console.log(`${enabled ? "Enabled" : "Disabled"} MCP server "${name}"`);
 }
 
 async function cmdLogin(args: string[]): Promise<void> {
@@ -131,7 +131,7 @@ async function cmdLogin(args: string[]): Promise<void> {
         console.log(`\nOpening your browser to:\n  ${url}\n`);
         openBrowser(url);
     });
-    console.log(`✓ Authorized "${name}". It will connect on next launch.`);
+    console.log(`Authorized "${name}". It will connect on next launch.`);
 }
 
 function cmdAddJson(args: string[]): void {
@@ -152,7 +152,7 @@ function cmdAddJson(args: string[]): void {
     const scope = scopeFlag(args) ?? "user";
     if (scope === "project") addProjectServer(process.cwd(), name, cfg);
     else addServer(name, cfg);
-    console.log(`✓ Added MCP server "${name}" — ${describeTarget(cfg)}  [scope: ${scope}]`);
+    console.log(`Added MCP server "${name}" — ${describeTarget(cfg)}  [scope: ${scope}]`);
 }
 
 function printHelp(): void {

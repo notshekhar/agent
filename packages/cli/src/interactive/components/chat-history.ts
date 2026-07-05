@@ -226,7 +226,7 @@ export class ChatHistory extends Container {
 
     /** Hook-related lines get their own orange accent, like tools get grey/green. */
     addHook(text: string): void {
-        this.addChild(new Text(HOOK_ORANGE(`⚙ ${text}`), 1, 0));
+        this.addChild(new Text(HOOK_ORANGE(text), 1, 0));
     }
 
     /** Echo an executed slash command: highlighted /name, dim args. */
@@ -268,11 +268,11 @@ export class ChatHistory extends Container {
         this.addChild(new Text(chalk.red(`error: ${text}`), 1, 0));
     }
 
-    /** Post-turn recap (data-recap): dim ✻ lines under the response. */
+    /** Post-turn recap (data-recap): dim `※ recap:`-labelled lines under the response. */
     addRecap(text: string): void {
         const lines = text.split("\n");
         lines.push("(disable recaps in /settings)");
-        const body = lines.map((l, i) => chalk.dim(i === 0 ? `✻ ${l}` : `  ${l}`)).join("\n");
+        const body = lines.map((l, i) => chalk.dim(i === 0 ? `※ recap: ${l}` : `  ${l}`)).join("\n");
         this.addChild(new Spacer(1));
         this.addChild(new Text(body, 1, 0));
     }
