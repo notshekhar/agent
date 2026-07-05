@@ -8,6 +8,7 @@
  *   loop mcp add                   <name> -- <command> [args...]
  *   loop mcp add                   <name> <command> [args...]
  */
+import { PRODUCT_NAME } from "@notshekhar/loop-core";
 import type { HttpServerConfig, McpServerConfig, StdioServerConfig } from "@notshekhar/loop-core";
 
 export type McpScope = "user" | "project";
@@ -157,7 +158,7 @@ export function buildAddConfig(args: string[]): AddSpec {
         const cmdArgs = tail.length ? tail.slice(1) : positional.slice(2);
         if (!command) {
             throw new McpUsageError(
-                "a command is required for stdio transport (e.g. `loop mcp add my-server -- npx -y @scope/pkg`)",
+                `a command is required for stdio transport (e.g. \`${PRODUCT_NAME} mcp add my-server -- npx -y @scope/pkg\`)`,
             );
         }
         if (Object.keys(headers).length) throw new McpUsageError("--header only applies to http/sse transport");

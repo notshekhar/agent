@@ -8,6 +8,7 @@
  * language servers reject. To add a doc: drop a `.md` file here, re-run
  * gen:docs, and add a SUMMARIES entry. `loop://docs` lists them.
  */
+import { PRODUCT_NAME } from "../brand";
 import { DOCS_CONTENT } from "./generated";
 
 export interface DocEntry {
@@ -21,9 +22,8 @@ export interface DocEntry {
 
 /** One-line descriptions for the `loop://docs` index, keyed by filename. */
 const SUMMARIES: Record<string, string> = {
-    "config.md": "Configure loop: add models, custom providers, hooks, MCP servers, and custom agents.",
-    "extensions.md":
-        "Write a loop extension (Bun/TS): add or override slash commands, tools, providers + models, agents, skills, settings, the system prompt, and the turn loop.",
+    "config.md": `Configure ${PRODUCT_NAME}: add models, custom providers, hooks, MCP servers, and custom agents.`,
+    "extensions.md": `Write a ${PRODUCT_NAME} extension (Bun/TS): add or override slash commands, tools, providers + models, agents, skills, settings, the system prompt, and the turn loop.`,
 };
 
 export const DOCS: Record<string, DocEntry> = Object.fromEntries(
@@ -42,8 +42,10 @@ export function getDoc(name: string): DocEntry | undefined {
 
 /** Rendered index for `loop://docs` — the discovery entry point for agents. */
 export function renderDocsIndex(): string {
-    const lines = listDocs().map((d) => `- loop://docs/${d.name} — ${d.summary}`);
-    return ["Internal loop docs. Read one with the read tool, e.g. read loop://docs/config.md", "", ...lines].join(
-        "\n",
-    );
+    const lines = listDocs().map((d) => `- ${PRODUCT_NAME}://docs/${d.name} — ${d.summary}`);
+    return [
+        `Internal ${PRODUCT_NAME} docs. Read one with the read tool, e.g. read ${PRODUCT_NAME}://docs/config.md`,
+        "",
+        ...lines,
+    ].join("\n");
 }

@@ -5,6 +5,7 @@
  * Ported from anthropic-experimental/sandbox-runtime (Apache-2.0):
  * https://github.com/anthropic-experimental/sandbox-runtime — see NOTICE.md.
  */
+import { brandEnv } from "./brand";
 import { homedir } from "node:os";
 import * as path from "node:path";
 import * as fs from "node:fs";
@@ -215,7 +216,7 @@ export function generateProxyEnvVars(
     proxyAuthToken?: string,
 ): string[] {
     const auth = proxyAuthToken ? `srt:${proxyAuthToken}@` : "";
-    const tmpdir = process.env.LOOP_SANDBOX_TMPDIR || process.env.CLAUDE_CODE_TMPDIR || "/tmp/claude";
+    const tmpdir = brandEnv("SANDBOX_TMPDIR") || process.env.CLAUDE_CODE_TMPDIR || "/tmp/claude";
     const envVars: string[] = [`SANDBOX_RUNTIME=1`, `TMPDIR=${tmpdir}`];
 
     if (caCertPath) {

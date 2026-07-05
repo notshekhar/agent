@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Entry, SessionInfoData, UsageBlock } from "../types";
-import { adaptLoopEntry } from "./loop-adapter";
+import { adaptSessionEntry } from "./session-adapter";
 import { getSessionStore } from "./sqlite-store";
 
 /** Generate a unique short ID (8 hex chars, collision-checked) — the reference parity. */
@@ -100,7 +100,7 @@ export class Session {
         const entries: Entry[] = [];
         if (record) {
             for (const raw of store.loadEntries(record.rowId)) {
-                const adapted = adaptLoopEntry(raw);
+                const adapted = adaptSessionEntry(raw);
                 if (adapted) entries.push(adapted);
             }
         }

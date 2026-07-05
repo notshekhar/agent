@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { LoopOAuthProvider, oauthClientOptions } from "../src/mcp/oauth";
+import { McpOAuthProvider, oauthClientOptions } from "../src/mcp/oauth";
 import type { HttpServerConfig } from "../src/mcp/config";
 
 const REDIRECT = "http://127.0.0.1:8976/callback";
 
 describe("MCP OAuth: pre-registered client support", () => {
     test("a configured clientId is handed to the SDK, skipping dynamic registration", () => {
-        const p = new LoopOAuthProvider("test-figma", REDIRECT, undefined, {
+        const p = new McpOAuthProvider("test-figma", REDIRECT, undefined, {
             clientId: "abc123",
             clientSecret: "shh",
             scopes: ["mcp:connect"],
@@ -15,7 +15,7 @@ describe("MCP OAuth: pre-registered client support", () => {
     });
 
     test("a confidential client (secret) negotiates client_secret_post + requested scope", () => {
-        const p = new LoopOAuthProvider("test-figma", REDIRECT, undefined, {
+        const p = new McpOAuthProvider("test-figma", REDIRECT, undefined, {
             clientId: "abc123",
             clientSecret: "shh",
             scopes: ["mcp:connect", "files:read"],
@@ -25,7 +25,7 @@ describe("MCP OAuth: pre-registered client support", () => {
     });
 
     test("a public client (no secret) stays PKCE-only (token_endpoint_auth_method=none)", () => {
-        const p = new LoopOAuthProvider("test-pub-" + Date.now(), REDIRECT);
+        const p = new McpOAuthProvider("test-pub-" + Date.now(), REDIRECT);
         expect(p.clientMetadata.token_endpoint_auth_method).toBe("none");
         expect(p.clientMetadata.scope).toBeUndefined();
         // No configured client and nothing stored → undefined, so the SDK runs

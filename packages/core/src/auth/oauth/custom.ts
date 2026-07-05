@@ -7,6 +7,7 @@
  * omitting refresh_token (RFC 6749 §6) — dropping it there is what forces a
  * re-login on every launch.
  */
+import { PRODUCT_NAME } from "../../brand";
 import type { CustomOAuthOptions, CustomProviderConfig, GenericOAuthCredentials } from "../../types";
 import { startCallbackServer } from "../oauth-callback";
 import { generatePKCE } from "./pkce";
@@ -78,7 +79,7 @@ async function registerClient(
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/json" },
         body: JSON.stringify({
-            client_name: "loop",
+            client_name: PRODUCT_NAME,
             redirect_uris: [redirectUri],
             grant_types: ["authorization_code", "refresh_token"],
             response_types: ["code"],

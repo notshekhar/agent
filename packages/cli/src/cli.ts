@@ -13,8 +13,8 @@ const extCommands = () => import("./ext-commands");
 const interactive = () => import("./interactive/app");
 
 // injected at build time via tsup define
-declare const __LOOP_VERSION__: string;
-const VERSION = typeof __LOOP_VERSION__ !== "undefined" ? __LOOP_VERSION__ : "0.0.0";
+declare const __APP_VERSION__: string;
+const VERSION = typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "0.0.0";
 
 async function main(): Promise<void> {
     const args = parseArgs(process.argv.slice(2));
@@ -74,7 +74,9 @@ async function main(): Promise<void> {
             if (args.positional[0] === "audit") {
                 await (await commands()).cmdCostAudit();
             } else {
-                console.log("Usage: loop cost audit — reconcile the cost ledger");
+                console.log(
+                    `Usage: ${(await import("@notshekhar/loop-core")).PRODUCT_NAME} cost audit — reconcile the cost ledger`,
+                );
             }
             return;
         case "install":

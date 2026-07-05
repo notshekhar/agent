@@ -4,12 +4,13 @@
  * (so third-party extensions can run a browser login without reinventing this).
  * Mirrors the xAI OAuth callback pattern in auth/xai-oauth.ts.
  */
+import { brandEnv, PRODUCT_NAME } from "../brand";
 import { createServer, type Server } from "node:http";
 
-const CALLBACK_HOST = process.env.LOOP_MCP_OAUTH_CALLBACK_HOST || "127.0.0.1";
+const CALLBACK_HOST = brandEnv("MCP_OAUTH_CALLBACK_HOST") || "127.0.0.1";
 const CALLBACK_PATH = "/callback";
 /** Try a stable port first (nicer for allow-listed redirect URIs), else any. */
-const PREFERRED_PORT = Number(process.env.LOOP_MCP_OAUTH_CALLBACK_PORT) || 8976;
+const PREFERRED_PORT = Number(brandEnv("MCP_OAUTH_CALLBACK_PORT")) || 8976;
 
 export interface CallbackResult {
     code: string;
@@ -49,7 +50,7 @@ export async function startCallbackServer(): Promise<CallbackServer> {
             rejectResult(new Error("OAuth callback missing authorization code"));
             return;
         }
-        res.end(page("Authorized. You can close this tab and return to loop."));
+        res.end(page(`Authorized. You can close this tab and return to ${PRODUCT_NAME}.`));
         resolveResult({ code, state: url.searchParams.get("state") ?? undefined });
     });
 

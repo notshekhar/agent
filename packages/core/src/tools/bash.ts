@@ -1,3 +1,4 @@
+import { PRODUCT_NAME } from "../brand";
 import { existsSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { tool } from "ai";
@@ -262,7 +263,7 @@ export function createBashTool(ctx: BashToolContext) {
             // Resolve the sandbox against the final command (commandPrefix included).
             const sandboxRun = await resolveSandbox(finalCommand, ctx);
             const withSandboxWarning = (text: string): string =>
-                sandboxRun.warning ? appendStatus(`[loop sandbox] ${sandboxRun.warning}`, text) : text;
+                sandboxRun.warning ? appendStatus(`[${PRODUCT_NAME} sandbox] ${sandboxRun.warning}`, text) : text;
 
             const formatOutput = async (emptyText = "(no output)"): Promise<{ text: string; truncated: boolean }> => {
                 output.finish();

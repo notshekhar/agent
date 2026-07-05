@@ -3,6 +3,7 @@
  * a StdioMCPTransport instance; http/sse entries become a plain transport
  * config object the client turns into a streamable-HTTP (or SSE) transport.
  */
+import { brandEnv } from "../brand";
 import { Experimental_StdioMCPTransport } from "@ai-sdk/mcp/mcp-stdio";
 import type { MCPClientConfig, OAuthClientProvider } from "@ai-sdk/mcp";
 import { isHttpServer, resolveSecretMap, type McpServerConfig } from "./config";
@@ -36,6 +37,6 @@ export function buildTransport(cfg: McpServerConfig, authProvider?: OAuthClientP
         // model so the screen appears frozen until a full redraw. Discard it so
         // the child can never write to our terminal. LOOP_MCP_STDERR=inherit
         // restores the old behavior for debugging a server outside the TUI.
-        stderr: (process.env.LOOP_MCP_STDERR as "inherit" | "ignore") || "ignore",
+        stderr: (brandEnv("MCP_STDERR") as "inherit" | "ignore") || "ignore",
     });
 }

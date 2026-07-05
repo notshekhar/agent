@@ -2,6 +2,7 @@ import { type SelectItem, type TUI } from "@notshekhar/loop-tui";
 import chalk from "chalk";
 import {
     bedrockRegion,
+    envName,
     bustCatalogCache,
     deleteCustomProvider,
     fetchCustomProviderModels,
@@ -417,7 +418,7 @@ async function loginOllama(deps: LoginDeps): Promise<StepResult> {
     const models = await listOllamaModels();
     if (models === null) {
         history.addError(
-            `Ollama not reachable at ${ollamaBaseURL()}. Start it (\`ollama serve\`) or set LOOP_OLLAMA_BASE_URL.`,
+            `Ollama not reachable at ${ollamaBaseURL()}. Start it (\`ollama serve\`) or set ${envName("OLLAMA_BASE_URL")}.`,
         );
         tui.requestRender();
         return "done";
@@ -460,7 +461,7 @@ async function loginBedrock(deps: LoginDeps): Promise<StepResult> {
     const models = await refreshBedrockCatalog();
     if (models === null) {
         history.addError(
-            `Couldn't list Bedrock models in ${region}. Check the account has Bedrock access in this region (set AWS_REGION or LOOP_BEDROCK_REGION to switch).`,
+            `Couldn't list Bedrock models in ${region}. Check the account has Bedrock access in this region (set AWS_REGION or ${envName("BEDROCK_REGION")} to switch).`,
         );
         tui.requestRender();
         return "done";

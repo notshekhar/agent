@@ -1,3 +1,4 @@
+import { CONFIG_DIR_NAME } from "../src/brand";
 import { describe, expect, test, afterEach, beforeEach } from "bun:test";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -117,13 +118,13 @@ describe("McpManager", () => {
 
 describe("OAuth provider", () => {
     test("persists tokens/client info and reports needs-auth via a thrown redirect", async () => {
-        const { LoopOAuthProvider, hasStoredTokens, clearMcpAuth, McpAuthRequiredError } =
+        const { McpOAuthProvider, hasStoredTokens, clearMcpAuth, McpAuthRequiredError } =
             await import("../src/mcp/oauth");
         const server = `test-oauth-${Date.now()}`;
         clearMcpAuth(server);
         expect(hasStoredTokens(server)).toBe(false);
 
-        const provider = new LoopOAuthProvider(server, "http://127.0.0.1:8976/callback");
+        const provider = new McpOAuthProvider(server, "http://127.0.0.1:8976/callback");
         provider.saveClientInformation({ client_id: "abc" });
         provider.saveTokens({ access_token: "tok", token_type: "bearer" });
         expect(provider.clientInformation()).toMatchObject({ client_id: "abc" });
@@ -144,7 +145,7 @@ function makeProjectWith(servers: Record<string, McpServerConfig>): string {
     const { mkdtempSync, mkdirSync, writeFileSync } = require("node:fs") as typeof import("node:fs");
     const { tmpdir } = require("node:os") as typeof import("node:os");
     const root = mkdtempSync(join(tmpdir(), "loop-mcp-test-"));
-    mkdirSync(join(root, ".loop"), { recursive: true });
-    writeFileSync(join(root, ".loop", "mcp.json"), JSON.stringify({ mcpServers: servers }));
+    mkdirSync(join(root, CONFIG_DIR_NAME), { recursive: true });
+    writeFileSync(join(root, CONFIG_DIR_NAME, "mcp.json"), JSON.stringify({ mcpServers: servers }));
     return root;
 }

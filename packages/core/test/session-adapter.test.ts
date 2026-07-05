@@ -1,15 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { adaptLoopEntry } from "../src/sessions/loop-adapter";
+import { adaptSessionEntry } from "../src/sessions/session-adapter";
 
-describe("adaptLoopEntry", () => {
+describe("adaptSessionEntry", () => {
     test("returns null for non-objects", () => {
-        expect(adaptLoopEntry(null)).toBeNull();
-        expect(adaptLoopEntry("nope")).toBeNull();
-        expect(adaptLoopEntry(42)).toBeNull();
+        expect(adaptSessionEntry(null)).toBeNull();
+        expect(adaptSessionEntry("nope")).toBeNull();
+        expect(adaptSessionEntry(42)).toBeNull();
     });
 
     test("session-info: fills defaults and keeps id as both session and tree id", () => {
-        const e = adaptLoopEntry({ type: "session-info", id: "sid", cwd: "/x", model: "m", ts: 5 }) as any;
+        const e = adaptSessionEntry({ type: "session-info", id: "sid", cwd: "/x", model: "m", ts: 5 }) as any;
         expect(e.type).toBe("session-info");
         expect(e.id).toBe("sid");
         expect(e.provider).toBe("xai"); // default
@@ -17,7 +17,7 @@ describe("adaptLoopEntry", () => {
     });
 
     test("nested reference message shape is flattened; toolResult role maps to tool", () => {
-        const e = adaptLoopEntry({
+        const e = adaptSessionEntry({
             type: "message",
             id: "m1",
             parentId: "p0",
@@ -32,7 +32,7 @@ describe("adaptLoopEntry", () => {
     });
 
     test("assistant message keeps its per-message model + interrupted flags", () => {
-        const e = adaptLoopEntry({
+        const e = adaptSessionEntry({
             type: "message",
             role: "assistant",
             content: "hi",
@@ -45,14 +45,14 @@ describe("adaptLoopEntry", () => {
     });
 
     test("unknown roles default to user; absent model/interrupted are omitted", () => {
-        const e = adaptLoopEntry({ type: "message", role: "system", content: "c" }) as any;
+        const e = adaptSessionEntry({ type: "message", role: "system", content: "c" }) as any;
         expect(e.role).toBe("user");
         expect("model" in e).toBe(false);
         expect("interrupted" in e).toBe(false);
     });
 
     test("subagent: string activity is upgraded to a text part", () => {
-        const e = adaptLoopEntry({
+        const e = adaptSessionEntry({
             type: "subagent",
             agent: "explore",
             prompt: "p",
@@ -63,7 +63,7 @@ describe("adaptLoopEntry", () => {
     });
 
     test("subagent: malformed activity parts are dropped", () => {
-        const e = adaptLoopEntry({
+        const e = adaptSessionEntry({
             type: "subagent",
             activity: [{ type: "text", text: "ok" }, { type: "text" }, { junk: true }],
         }) as any;
@@ -71,26 +71,26 @@ describe("adaptLoopEntry", () => {
     });
 
     test("legacy model_change maps to model-change with modelId as `to`", () => {
-        const e = adaptLoopEntry({ type: "model_change", modelId: "grok-4" }) as any;
+        const e = adaptSessionEntry({ type: "model_change", modelId: "grok-4" }) as any;
         expect(e.type).toBe("model-change");
         expect(e.to).toBe("grok-4");
     });
 
     test("legacy branch_summary and session_info map to canonical types", () => {
-        expect((adaptLoopEntry({ type: "branch_summary", summary: "s" }) as any).type).toBe("branch-summary");
-        expect(adaptLoopEntry({ type: "session_info", name: "My chat" }) as any).toMatchObject({
+        expect((adaptSessionEntry({ type: "branch_summary", summary: "s" }) as any).type).toBe("branch-summary");
+        expect(adaptSessionEntry({ type: "session_info", name: "My chat" }) as any).toMatchObject({
             type: "session-name",
             name: "My chat",
         });
     });
 
     test("legacy flat shapes: user-prompt / assistant-message / role-only", () => {
-        expect(adaptLoopEntry({ type: "user-prompt", text: "hey" }) as any).toMatchObject({
+        expect(adaptSessionEntry({ type: "user-prompt", text: "hey" }) as any).toMatchObject({
             type: "message",
             role: "user",
             content: "hey",
         });
-        expect(adaptLoopEntry({ role: "assistant", content: "yo" }) as any).toMatchObject({
+        expect(adaptSessionEntry({ role: "assistant", content: "yo" }) as any).toMatchObject({
             type: "message",
             role: "assistant",
             content: "yo",
@@ -98,25 +98,25 @@ describe("adaptLoopEntry", () => {
     });
 
     test("timestamp field is honored when ts is absent", () => {
-        const e = adaptLoopEntry({ type: "message", role: "user", content: "x", timestamp: 777 }) as any;
+        const e = adaptSessionEntry({ type: "message", role: "user", content: "x", timestamp: 777 }) as any;
         expect(e.ts).toBe(777);
     });
 
     test("truly unknown shapes fall back to a custom entry carrying the payload", () => {
         const raw = { type: "mystery", foo: 1 };
-        const e = adaptLoopEntry(raw) as any;
+        const e = adaptSessionEntry(raw) as any;
         expect(e.type).toBe("custom");
         expect(e.payload).toEqual(raw);
     });
 
     test("custom entries round-trip: payload passes through un-rewrapped", () => {
         const stored = { type: "custom", ts: 9, id: "c1", payload: { kind: "recap", text: "did things" } };
-        const e = adaptLoopEntry(stored) as any;
+        const e = adaptSessionEntry(stored) as any;
         expect(e.type).toBe("custom");
         expect(e.payload).toEqual({ kind: "recap", text: "did things" });
         expect(e.id).toBe("c1");
         // adapting twice (load after resume) must be idempotent
-        const twice = adaptLoopEntry(e) as any;
+        const twice = adaptSessionEntry(e) as any;
         expect(twice.payload).toEqual({ kind: "recap", text: "did things" });
     });
 });

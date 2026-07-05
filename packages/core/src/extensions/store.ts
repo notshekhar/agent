@@ -5,8 +5,9 @@
  * lives in ~/.loop/extensions/<name>/; this file is just the index of what's
  * installed and which are on.
  */
+import { getConfigDir } from "../brand";
 import { join } from "node:path";
-import { CachedStore, getLoopDir } from "../auth/storage";
+import { CachedStore } from "../auth/storage";
 import type { SourceKind } from "./sources";
 
 export interface ExtensionRecord {
@@ -27,13 +28,13 @@ const store = new CachedStore(
     "loop-agent-extensions",
     { extensions: {} },
     {
-        configPath: join(getLoopDir(), "extensions.json"),
+        configPath: join(getConfigDir(), "extensions.json"),
     },
 );
 
 /** Root dir holding each extension's own directory. */
 export function extensionsDir(): string {
-    return join(getLoopDir(), "extensions");
+    return join(getConfigDir(), "extensions");
 }
 
 export function extensionDir(name: string): string {

@@ -10,6 +10,7 @@ import {
     type CommandContext,
     type McpServerConfig,
     type ServerSnapshot,
+    CONFIG_DIR_NAME,
 } from "@notshekhar/loop-core";
 import { openBrowser } from "../../open-browser";
 import type { AppDeps } from "../deps";
@@ -139,7 +140,11 @@ export function createMcpHandlers(_state: AppState, deps: AppDeps): McpHandlers 
                     ? { value: "enable", label: "enable", description: "turn this server on" }
                     : { value: "disable", label: "disable", description: "turn this server off" },
             );
-            items.push({ value: "delete", label: "delete", description: "remove from ~/.loop/settings.json" });
+            items.push({
+                value: "delete",
+                label: "delete",
+                description: `remove from ~/${CONFIG_DIR_NAME}/settings.json`,
+            });
         }
 
         const pick = await selectOnce(items, `${s.name} — ${STATUS_LABEL[s.status]}`);

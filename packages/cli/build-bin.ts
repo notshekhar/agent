@@ -80,8 +80,8 @@ const result = await Bun.build({
     compile: { target: compileTarget as Bun.Build.CompileTarget, outfile: binPath },
     minify: true,
     define: {
-        __LOOP_VERSION__: JSON.stringify(pkg.version),
-        __LOOP_CHANGELOG__: JSON.stringify(changelog),
+        __APP_VERSION__: JSON.stringify(pkg.version),
+        __APP_CHANGELOG__: JSON.stringify(changelog),
     },
 });
 if (!result.success) {

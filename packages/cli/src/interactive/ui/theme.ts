@@ -5,6 +5,7 @@
  * file watcher). Custom themes still load from ~/.loop/agent/themes/<name>.json
  * using a simple theme JSON shape (vars + colors).
  */
+import { CONFIG_DIR_NAME } from "@notshekhar/loop-core";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { MarkdownTheme, SelectListTheme } from "@notshekhar/loop-tui";
@@ -169,7 +170,7 @@ export const theme: Theme = new Proxy({} as Theme, {
 
 function customThemesDir(): string {
     const home = process.env.HOME ?? process.env.USERPROFILE ?? "";
-    return path.join(home, ".loop", "agent", "themes");
+    return path.join(home, CONFIG_DIR_NAME, "agent", "themes");
 }
 
 function loadThemeJson(name: string): ThemeJson {

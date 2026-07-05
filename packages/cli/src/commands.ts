@@ -1,3 +1,4 @@
+import { brandEnv, envName, REPO_SLUG, PRODUCT_NAME } from "@notshekhar/loop-core";
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
@@ -18,7 +19,6 @@ import { readStdinLine, type Args } from "./args";
 import { runPrint } from "./print";
 import { openBrowser } from "./open-browser";
 
-const REPO_SLUG = "notshekhar/loop";
 const UPGRADE_URL = `https://raw.githubusercontent.com/${REPO_SLUG}/main/install.sh`;
 const UPGRADE_URL_PS1 = `https://raw.githubusercontent.com/${REPO_SLUG}/main/install.ps1`;
 const RELEASES_API = `https://api.github.com/repos/${REPO_SLUG}/releases/latest`;
@@ -83,26 +83,26 @@ export async function resolveAvailableUpdate(version: string): Promise<string | 
 // failures resolve to null so startup is never blocked or noisy.
 // Set LOOP_SKIP_VERSION_CHECK to disable.
 export async function checkForUpdate(version: string): Promise<string | null> {
-    if (process.env.LOOP_SKIP_VERSION_CHECK) return null;
+    if (brandEnv("SKIP_VERSION_CHECK")) return null;
     return resolveAvailableUpdate(version);
 }
 
 export function printHelp(version: string): void {
-    console.log(`loop/agent — terminal coding agent (v${version})
+    console.log(`${PRODUCT_NAME}/agent — terminal coding agent (v${version})
 
 Usage:
-  loop                     Start interactive TUI
-  loop run <prompt>        Run a single prompt and exit
-  loop login [provider]    Configure provider auth
-  loop logout [provider]   Remove auth
-  loop sessions            List sessions in current cwd
-  loop models              List available models
-  loop whoami              Show active provider + auth status
-  loop cost audit          Verify the cost ledger reconciles (self-audit)
-  loop rpc [--socket|stop] Start JSON-RPC server (stop: end the socket daemon)
-  loop mcp <cmd>           Manage MCP servers (add, list, remove, login…)
-  loop upgrade             Pull latest and rebuild
-  loop version | -v        Print version
+  ${PRODUCT_NAME}                     Start interactive TUI
+  ${PRODUCT_NAME} run <prompt>        Run a single prompt and exit
+  ${PRODUCT_NAME} login [provider]    Configure provider auth
+  ${PRODUCT_NAME} logout [provider]   Remove auth
+  ${PRODUCT_NAME} sessions            List sessions in current cwd
+  ${PRODUCT_NAME} models              List available models
+  ${PRODUCT_NAME} whoami              Show active provider + auth status
+  ${PRODUCT_NAME} cost audit          Verify the cost ledger reconciles (self-audit)
+  ${PRODUCT_NAME} rpc [--socket|stop] Start JSON-RPC server (stop: end the socket daemon)
+  ${PRODUCT_NAME} mcp <cmd>           Manage MCP servers (add, list, remove, login…)
+  ${PRODUCT_NAME} upgrade             Pull latest and rebuild
+  ${PRODUCT_NAME} version | -v        Print version
 
 Flags:
   --model <provider/id>    Override default model
@@ -128,8 +128,8 @@ export async function runUpgrade(version: string, opts: { force?: boolean } = {}
     console.log(`▶ Install method: ${method}`);
 
     const env: NodeJS.ProcessEnv = { ...process.env };
-    if (opts.force) env.LOOP_FORCE = "1";
-    if (method === "source") env.LOOP_FROM_SOURCE = "1";
+    if (opts.force) env[envName("FORCE")] = "1";
+    if (method === "source") env[envName("FROM_SOURCE")] = "1";
 
     // Windows: invoke PowerShell installer. Mac/Linux: bash.
     const isWin = process.platform === "win32";
@@ -192,13 +192,13 @@ export function cmdRpc(args: Args): void {
     const sub = args.positional[0];
     if (sub === "stop") {
         const r = stopSocketServer();
-        console.log(r.stopped ? `Stopped loop RPC daemon (pid ${r.pid}).` : "No RPC daemon running.");
+        console.log(r.stopped ? `Stopped ${PRODUCT_NAME} RPC daemon (pid ${r.pid}).` : "No RPC daemon running.");
         return;
     }
     if (args.flags.socket) {
         try {
             const { socketPath } = startSocketServer();
-            console.log(`loop RPC daemon listening on ${socketPath}`);
+            console.log(`${PRODUCT_NAME} RPC daemon listening on ${socketPath}`);
         } catch (err) {
             console.error((err as Error).message);
             process.exitCode = 1;

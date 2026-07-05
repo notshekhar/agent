@@ -14,6 +14,7 @@ import {
     isTrusted,
     parseModelId,
     settingsStore,
+    PRODUCT_NAME,
 } from "@notshekhar/loop-core";
 import type { ProviderId } from "@notshekhar/loop-core";
 import { openBrowser } from "../open-browser";
@@ -30,7 +31,7 @@ export async function runPrint(opts: PrintOptions): Promise<void> {
         opts.modelId ?? getProjectModel(opts.cwd) ?? (settingsStore.get("defaultModel") as string | undefined);
     if (!modelId) {
         process.stderr.write(
-            "No model selected. Pass --model <provider/model>, or run loop interactively and use /login + /provider first.\n",
+            `No model selected. Pass --model <provider/model>, or run ${PRODUCT_NAME} interactively and use /login + /provider first.\n`,
         );
         process.exit(1);
     }

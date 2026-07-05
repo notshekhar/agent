@@ -5,6 +5,7 @@
  * in the project's node_modules/.bin then PATH) and, optionally, how to INSTALL
  * it when absent (npm deps provisioned into ~/.loop/servers/<key>/).
  */
+import { getConfigDir } from "../../../brand";
 import { existsSync, readFileSync } from "node:fs";
 import { extname, join } from "node:path";
 import { homedir } from "node:os";
@@ -43,7 +44,7 @@ const BUILTINS: LanguageServerDef[] = [
     },
 ];
 
-const MANIFEST_PATH = join(homedir(), ".loop", "servers", "servers.json");
+const MANIFEST_PATH = join(getConfigDir(), "servers", "servers.json");
 
 let cache: LanguageServerDef[] | null = null;
 

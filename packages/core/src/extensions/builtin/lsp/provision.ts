@@ -5,12 +5,13 @@
  * loop binary, and BUN_BE_BUN=1 makes it behave as the bun CLI — so `install`
  * works with no separate node/bun on the machine.
  */
+import { getConfigDir } from "../../../brand";
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-const SERVERS_DIR = join(homedir(), ".loop", "servers");
+const SERVERS_DIR = join(getConfigDir(), "servers");
 const INSTALL_TIMEOUT_MS = 90_000;
 
 const inFlight = new Map<string, Promise<string | null>>();

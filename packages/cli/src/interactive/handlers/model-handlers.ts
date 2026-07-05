@@ -19,6 +19,7 @@ import {
     type CommandContext,
     type ProviderId,
     type ThinkingLevel,
+    CONFIG_DIR_NAME,
 } from "@notshekhar/loop-core";
 import type { AppDeps } from "../deps";
 import type { AppState } from "../state";
@@ -137,7 +138,7 @@ export function createModelHandlers(state: AppState, deps: AppDeps): ModelHandle
                             {
                                 value: "remove",
                                 label: "remove custom model",
-                                description: "delete from ~/.loop/models.json",
+                                description: `delete from ~/${CONFIG_DIR_NAME}/models.json`,
                             },
                         ],
                         pick.value,

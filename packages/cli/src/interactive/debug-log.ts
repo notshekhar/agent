@@ -11,13 +11,13 @@
  */
 import { appendFileSync } from "node:fs";
 import { join } from "node:path";
-import { getLoopDir } from "@notshekhar/loop-core";
+import { getConfigDir, brandEnv } from "@notshekhar/loop-core";
 
-let enabled = process.env.LOOP_DEBUG_EVENTS === "1";
+let enabled = brandEnv("DEBUG_EVENTS") === "1";
 let sink: ((line: string) => void) | null = null;
 let lastAt = 0;
 
-const LOG_PATH = join(getLoopDir(), "events-debug.log");
+const LOG_PATH = join(getConfigDir(), "events-debug.log");
 
 /** UI sink (set by app.ts) that renders a trace line in the chat. */
 export function setEventTraceSink(fn: ((line: string) => void) | null): void {

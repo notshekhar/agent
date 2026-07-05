@@ -8,7 +8,7 @@ import { getSessionStore } from "../src/sessions/sqlite-store";
 
 /**
  * Corruption recovery: a db that fails quick_check on open is set aside as
- * loop.db.corrupt-<ts>, a fresh db takes its path, and every readable row is
+ * agent.db.corrupt-<ts>, a fresh db takes its path, and every readable row is
  * salvaged into it. The test db is an injected path, so getDb()'s JSONL
  * re-import never runs — everything asserted here came through the salvage.
  */
@@ -33,9 +33,7 @@ describe("session db corruption recovery", () => {
         });
         const fat = "x".repeat(2048);
         for (let i = 0; i < 50; i++) {
-            store.appendEntries(rowId, [
-                { type: "message", ts: i, role: "user", content: fat, id: `e${i}` },
-            ]);
+            store.appendEntries(rowId, [{ type: "message", ts: i, role: "user", content: fat, id: `e${i}` }]);
         }
         getDb().run("INSERT OR REPLACE INTO meta (key, value) VALUES ('cost_baseline', '{\"lifetime\":{\"usd\":42}}')");
         // Release the handle (marks clean_shutdown='1', checkpoints the WAL)…
@@ -57,7 +55,7 @@ describe("session db corruption recovery", () => {
 
     test("sets the damaged file aside, salvages readable rows, stamps recovered_at", () => {
         dir = mkdtempSync(join(tmpdir(), "loop-recover-"));
-        const path = join(dir, "loop.db");
+        const path = join(dir, "agent.db");
         seed(path);
         corrupt(path);
 
@@ -65,13 +63,11 @@ describe("session db corruption recovery", () => {
         const db = getDb();
 
         // The damaged original is preserved beside the fresh db.
-        const corpses = readdirSync(dir).filter((f) => /^loop\.db\.corrupt-\d+$/.test(f));
+        const corpses = readdirSync(dir).filter((f) => /^agent\.db\.corrupt-\d+$/.test(f));
         expect(corpses.length).toBe(1);
 
         // Recovery is stamped, and the fresh db passes verification.
-        const recovered = db
-            .query<{ value: string }, []>("SELECT value FROM meta WHERE key = 'recovered_at'")
-            .get();
+        const recovered = db.query<{ value: string }, []>("SELECT value FROM meta WHERE key = 'recovered_at'").get();
         expect(recovered).not.toBeNull();
         expect(db.query<{ quick_check: string }, []>("PRAGMA quick_check").get()?.quick_check).toBe("ok");
 
@@ -83,13 +79,9 @@ describe("session db corruption recovery", () => {
 
         // The frozen pre-ledger baseline is carried over; migration markers are
         // NOT, so the real store would re-import retained JSONL to fill gaps.
-        const baseline = db
-            .query<{ value: string }, []>("SELECT value FROM meta WHERE key = 'cost_baseline'")
-            .get();
+        const baseline = db.query<{ value: string }, []>("SELECT value FROM meta WHERE key = 'cost_baseline'").get();
         expect(baseline?.value).toContain("42");
-        const migrated = db
-            .query<{ value: string }, []>("SELECT value FROM meta WHERE key = 'migrated_at'")
-            .get();
+        const migrated = db.query<{ value: string }, []>("SELECT value FROM meta WHERE key = 'migrated_at'").get();
         expect(migrated).toBeNull();
 
         // The recovered store keeps working.
@@ -106,15 +98,13 @@ describe("session db corruption recovery", () => {
 
     test("an intact dirty db verifies and opens in place — no recovery", () => {
         dir = mkdtempSync(join(tmpdir(), "loop-norecover-"));
-        const path = join(dir, "loop.db");
+        const path = join(dir, "agent.db");
         seed(path);
 
         setDbPathForTests(path);
         const db = getDb();
         expect(readdirSync(dir).filter((f) => f.includes("corrupt")).length).toBe(0);
-        const recovered = db
-            .query<{ value: string }, []>("SELECT value FROM meta WHERE key = 'recovered_at'")
-            .get();
+        const recovered = db.query<{ value: string }, []>("SELECT value FROM meta WHERE key = 'recovered_at'").get();
         expect(recovered).toBeNull();
         expect(db.query<{ n: number }, []>("SELECT COUNT(*) AS n FROM entries").get()!.n).toBe(50);
     });

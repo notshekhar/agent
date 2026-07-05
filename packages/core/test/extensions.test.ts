@@ -1,3 +1,4 @@
+import { EXTENSION_MANIFEST_KEYS } from "../src/brand";
 import { describe, expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
 import { getExtensionHost } from "../src/extensions";
@@ -226,7 +227,10 @@ describe("extensions — source parsing", () => {
 });
 
 describe("extensions — API compat check (0.x minors are breaking)", () => {
-    const withEngines = (range?: string) => ({ name: "x", loop: range ? { engines: { loop: range } } : {} });
+    const withEngines = (range?: string) => ({
+        name: "x",
+        [EXTENSION_MANIFEST_KEYS[0]]: range ? { engines: { [EXTENSION_MANIFEST_KEYS[0]]: range } } : {},
+    });
 
     test("unspecified engines is compatible", () => {
         expect(isCompatible({ name: "x" })).toBe(true);

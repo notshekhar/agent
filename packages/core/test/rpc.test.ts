@@ -46,7 +46,7 @@ beforeAll(async () => {
     // The session store must land under the temp HOME too — the db path is
     // resolved lazily, so an explicit override beats load-order roulette.
     const { setDbPathForTests } = await import("../src/sessions");
-    setDbPathForTests(join(HOME, ".loop", "loop.db"));
+    setDbPathForTests(join(HOME, ".loop", "agent.db"));
     // Mock the model resolver BEFORE importing the server, so runTurn's binding
     // resolves to the mock. Every turn streams whatever doStreamImpl returns.
     const realProviders = await import("../src/providers");

@@ -23,6 +23,7 @@
  * so they can emit OSC notifications without touching /dev/tty (which would
  * tear our TUI). `hookBus` exposes start/end of every hook command for UI.
  */
+import { CONFIG_DIR_NAME, envName, PRODUCT_NAME } from "../brand";
 import { spawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { readFileSync, statSync } from "node:fs";
@@ -291,7 +292,7 @@ function loadHooksConfigUnsafe(cwd: string): HooksConfig {
     let projectPi: HooksConfig = {};
     let projectClaude: HooksConfig = {};
     if (isTrusted(cwd)) {
-        projectPi = readHooksFromFile(join(cwd, ".loop", "settings.json"));
+        projectPi = readHooksFromFile(join(cwd, CONFIG_DIR_NAME, "settings.json"));
         projectClaude = importClaude
             ? readClaudeHooks([join(cwd, ".claude", "settings.json"), join(cwd, ".claude", "settings.local.json")])
             : {};
@@ -312,8 +313,8 @@ export interface HookSourceEntry {
     matcher?: string;
     command: string;
     async?: boolean;
-    /** Where it loads from: loop-user | loop-project | claude-user | claude-plugins | claude-project */
-    source: "loop-user" | "loop-project" | "claude-user" | "claude-plugins" | "claude-project";
+    /** Where it loads from: user | project (our settings files) | claude-user | claude-plugins | claude-project */
+    source: "user" | "project" | "claude-user" | "claude-plugins" | "claude-project";
 }
 
 /** Flatten every loaded hook with its source. Same readers/gates as loadHooksConfig. */
@@ -336,7 +337,7 @@ export function listHooksWithSources(cwd: string): HookSourceEntry[] {
             collect(readClaudeHooks([join(home, ".claude", "settings.json")]), "claude-user");
             collect(readClaudePluginHooks(home), "claude-plugins");
         }
-        collect(getSetting("hooks") ?? {}, "loop-user");
+        collect(getSetting("hooks") ?? {}, "user");
         if (isTrusted(cwd)) {
             if (importClaude) {
                 collect(
@@ -347,7 +348,7 @@ export function listHooksWithSources(cwd: string): HookSourceEntry[] {
                     "claude-project",
                 );
             }
-            collect(readHooksFromFile(join(cwd, ".loop", "settings.json")), "loop-project");
+            collect(readHooksFromFile(join(cwd, CONFIG_DIR_NAME, "settings.json")), "project");
         }
     } catch {
         // management view must never throw
@@ -367,7 +368,7 @@ export function addPiUserHook(event: HookEvent, command: string, matcher?: strin
     setSetting("hooks", { ...hooks, [event]: groups });
 }
 
-/** Remove a loop-user hook by event + exact command (first match). */
+/** Remove a user-scope hook by event + exact command (first match). */
 export function removePiUserHook(event: HookEvent, command: string): boolean {
     const hooks = (getSetting("hooks") ?? {}) as HooksConfig;
     const groups = hooks[event];
@@ -456,7 +457,7 @@ function runCommand(cmd: HookCommand, payload: HookPayload, cwd: string): Promis
             // Watcher env (HERDR_*, etc.) flows through untouched via process.env.
             env: {
                 ...process.env,
-                LOOP_PROJECT_DIR: cwd,
+                [envName("PROJECT_DIR")]: cwd,
                 CLAUDE_PROJECT_DIR: cwd,
                 CLAUDE_CODE_VERSION: CLAUDE_HOOK_API_VERSION,
             },
@@ -594,7 +595,7 @@ function applyResult(
     // fallback (silently allowing would grant what the hook wanted gated).
     if (hso?.permissionDecision === "ask") {
         block(
-            `${hso.permissionDecisionReason ?? `${event} hook requested confirmation`} (ask unsupported in loop — denied)`,
+            `${hso.permissionDecisionReason ?? `${event} hook requested confirmation`} (ask unsupported in ${PRODUCT_NAME} — denied)`,
         );
         return;
     }

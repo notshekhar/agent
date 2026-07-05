@@ -9,7 +9,7 @@ import type { HooksConfig } from "./agent/hooks";
 import type { McpServerConfig } from "./mcp/config";
 import type { BashDenyEntry } from "./tools/utils/command-deny";
 
-export interface LoopSettings {
+export interface AppSettings {
     defaultModel?: string;
     theme?: string;
     thinkingLevel?: ThinkingLevel;
@@ -100,10 +100,10 @@ export interface LoopSettings {
     };
 }
 
-export function getSetting<K extends keyof LoopSettings>(key: K): LoopSettings[K] {
-    return settingsStore.get(key) as LoopSettings[K];
+export function getSetting<K extends keyof AppSettings>(key: K): AppSettings[K] {
+    return settingsStore.get(key) as AppSettings[K];
 }
 
-export function setSetting<K extends keyof LoopSettings>(key: K, value: LoopSettings[K]): void {
+export function setSetting<K extends keyof AppSettings>(key: K, value: AppSettings[K]): void {
     settingsStore.set(key, value);
 }

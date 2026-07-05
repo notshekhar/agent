@@ -20,6 +20,8 @@ import {
     setTrust,
     settingsStore,
     trustForSession,
+    CONFIG_DIR_NAME,
+    PRODUCT_NAME,
 } from "@notshekhar/loop-core";
 import type { ChatHistory } from "./components/chat-history";
 import type { AppDeps } from "./deps";
@@ -61,7 +63,7 @@ export function startUpdateCheck(version: string | undefined): void {
             // under the masthead instead of floating below the conversation when
             // this async check resolves.
             setWelcomeUpdateNotice(
-                `Update available: v${version} → ${latest}. Run /update (or \`loop update\`) to upgrade.`,
+                `Update available: v${version} → ${latest}. Run /update (or \`${PRODUCT_NAME} update\`) to upgrade.`,
             );
         }
     });
@@ -112,7 +114,9 @@ export async function runStartupTrustAndHooks(state: AppState, deps: AppDeps): P
         const opts = getTrustOptions(state.cwd);
         history.addSystem(
             chalk.yellow(`Trust this project folder?\n${state.cwd}`) +
-                chalk.dim("\nTrusting lets loop load this repo's .loop/.claude settings, hooks, and skills."),
+                chalk.dim(
+                    `\nTrusting lets ${PRODUCT_NAME} load this repo's ${CONFIG_DIR_NAME}/.claude settings, hooks, and skills.`,
+                ),
         );
         tui.requestRender();
         const items: SelectItem[] = opts.map((o) => ({ value: o.label, label: o.label, description: "" }));
@@ -122,9 +126,7 @@ export async function runStartupTrustAndHooks(state: AppState, deps: AppDeps): P
             if (chosen.remember) setTrust(chosen.savePath, chosen.trusted);
             else if (chosen.trusted) trustForSession(state.cwd); // session-only: in-memory, not persisted
             history.addSystem(
-                chalk.dim(
-                    chosen.trusted ? "project trusted" : "project not trusted — project hooks/skills disabled",
-                ),
+                chalk.dim(chosen.trusted ? "project trusted" : "project not trusted — project hooks/skills disabled"),
             );
         } else {
             history.addSystem(chalk.dim("trust prompt dismissed — treating project as untrusted for now"));

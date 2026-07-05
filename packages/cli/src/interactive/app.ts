@@ -20,6 +20,7 @@ import {
 } from "@notshekhar/loop-tui";
 import chalk from "chalk";
 import {
+    envName,
     CommandRegistry,
     CostTracker,
     SessionManager,
@@ -45,6 +46,7 @@ import {
     type ThinkingLevel,
     type ProviderId,
     type Session,
+    CONFIG_DIR_NAME,
 } from "@notshekhar/loop-core";
 import { getSelectListTheme, initTheme } from "./ui/theme";
 import { ChatHistory } from "./components/chat-history";
@@ -393,11 +395,11 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     });
     tui.onDebug = () => {
         const on = toggleEventTrace();
-        history.addSystem(chalk.dim(`· event trace ${on ? "ON" : "off"} → ~/.loop/events-debug.log`));
+        history.addSystem(chalk.dim(`· event trace ${on ? "ON" : "off"} → ~/${CONFIG_DIR_NAME}/events-debug.log`));
         tui.requestRender();
     };
     if (isEventTraceEnabled()) {
-        history.addSystem(chalk.dim("· event trace ON (LOOP_DEBUG_EVENTS) — Shift+Ctrl+D to toggle"));
+        history.addSystem(chalk.dim(`· event trace ON (${envName("DEBUG_EVENTS")}) — Shift+Ctrl+D to toggle`));
     }
 
     // (Active-extensions banner is shown by showWorkspaceBanners, grouped with

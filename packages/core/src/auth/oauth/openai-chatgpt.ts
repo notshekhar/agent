@@ -12,26 +12,27 @@
  * derived from the id_token and sent as the `chatgpt-account-id` header by the
  * provider fetch (see providers/index.ts).
  */
+import { brandEnv, PRODUCT_NAME } from "../../brand";
 import { createServer } from "node:http";
 import type { GenericOAuthCredentials } from "../../types";
 import { generatePKCE } from "./pkce";
 import type { OAuthLoginCallbacks, OAuthProviderInterface } from "./types";
 
 // Public Codex CLI OAuth client (same values the official CLI uses).
-const CLIENT_ID = process.env.LOOP_OPENAI_OAUTH_CLIENT_ID || "app_EMoamEEZ73f0CkXaXp7hrann";
+const CLIENT_ID = brandEnv("OPENAI_OAUTH_CLIENT_ID") || "app_EMoamEEZ73f0CkXaXp7hrann";
 const AUTHORIZE_URL = "https://auth.openai.com/oauth/authorize";
 const TOKEN_URL = "https://auth.openai.com/oauth/token";
 const SCOPE = "openid profile email offline_access";
 // The Codex client is registered with this exact redirect — it must match.
 const CALLBACK_HOST = "localhost";
-const CALLBACK_PORT = Number.parseInt(process.env.LOOP_OPENAI_OAUTH_CALLBACK_PORT || "1455", 10);
+const CALLBACK_PORT = Number.parseInt(brandEnv("OPENAI_OAUTH_CALLBACK_PORT") || "1455", 10);
 const CALLBACK_PATH = "/auth/callback";
 const REDIRECT_URI = `http://${CALLBACK_HOST}:${CALLBACK_PORT}${CALLBACK_PATH}`;
 const REFRESH_SKEW_MS = 5 * 60 * 1000;
 const LOGIN_TIMEOUT_MS = 180_000;
 
 /** Codex Responses backend — billed to the signed-in ChatGPT subscription. */
-export const CODEX_BASE_URL = process.env.LOOP_OPENAI_CODEX_BASE_URL || "https://chatgpt.com/backend-api/codex";
+export const CODEX_BASE_URL = brandEnv("OPENAI_CODEX_BASE_URL") || "https://chatgpt.com/backend-api/codex";
 
 /** Static headers every Codex request needs (besides auth + account id). */
 export const OPENAI_CHATGPT_HEADERS: Record<string, string> = {
@@ -110,7 +111,7 @@ function startCallbackServer(expectedState: string) {
         res.setHeader("Content-Type", "text/html; charset=utf-8");
         res.end(
             ok
-                ? "<html><body><h1>ChatGPT authorization received.</h1>You can close this tab and return to loop.</body></html>"
+                ? `<html><body><h1>ChatGPT authorization received.</h1>You can close this tab and return to ${PRODUCT_NAME}.</body></html>`
                 : "<html><body><h1>ChatGPT authorization failed.</h1>You can close this tab.</body></html>",
         );
         settle?.({ code, state, error });
@@ -196,7 +197,7 @@ export const openaiChatgptOAuthProvider: OAuthProviderInterface = {
         cb.onAuth({
             url: authUrl.toString(),
             instructions: callback
-                ? "Sign in with ChatGPT in the browser, then return to loop. Or paste the redirect URL/code here."
+                ? `Sign in with ChatGPT in the browser, then return to ${PRODUCT_NAME}. Or paste the redirect URL/code here.`
                 : "Sign in with ChatGPT, then paste the full redirect URL (or code) here.",
         });
 

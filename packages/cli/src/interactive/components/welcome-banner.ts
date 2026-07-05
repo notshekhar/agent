@@ -1,3 +1,4 @@
+import { PRODUCT_NAME } from "@notshekhar/loop-core";
 import { type Component, type TUI, visibleWidth } from "@notshekhar/loop-tui";
 import chalk from "chalk";
 
@@ -141,7 +142,7 @@ export class WelcomeBanner implements Component {
         const modelLabel = this.info.model || chalk.yellow("no model — run /login or /provider");
         const sessionLabel = this.info.session === "unsaved" ? chalk.dim("unsaved") : this.info.session;
         const idLine =
-            chalk.bold("loop") +
+            chalk.bold(PRODUCT_NAME) +
             chalk.dim(" · ") +
             modelLabel +
             chalk.dim(" · ") +
@@ -150,7 +151,7 @@ export class WelcomeBanner implements Component {
 
         // One text row beside each of the icon's 4 rows.
         const textRows: string[] = [
-            chalk.bold(`Welcome to loop, ${this.info.name}!`) +
+            chalk.bold(`Welcome to ${PRODUCT_NAME}, ${this.info.name}!`) +
                 (this.info.version ? chalk.dim(`  v${this.info.version}`) : ""),
             idLine,
             chalk.dim(this.info.cwd),

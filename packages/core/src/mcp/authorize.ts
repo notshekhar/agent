@@ -3,9 +3,10 @@
  * UI-agnostic: the caller supplies `openUrl` (the browser opener lives in the
  * CLI) and we resolve once tokens are stored.
  */
+import { CONFIG_DIR_NAME } from "../brand";
 import { auth } from "@ai-sdk/mcp";
 import { isHttpServer, type McpServerConfig } from "./config";
-import { clearMcpAuth, oauthClientOptions, LoopOAuthProvider } from "./oauth";
+import { clearMcpAuth, oauthClientOptions, McpOAuthProvider } from "./oauth";
 import { startCallbackServer } from "../auth/oauth-callback";
 
 const LOGIN_TIMEOUT_MS = 180_000;
@@ -40,7 +41,7 @@ export async function authorizeServer(
         // from a background connect) was registered on a different port. A
         // pre-configured clientId isn't stored here, so this never drops it.
         clearMcpAuth(name);
-        const provider = new LoopOAuthProvider(name, callback.redirectUri, (url) => openUrl(url.toString()), opts);
+        const provider = new McpOAuthProvider(name, callback.redirectUri, (url) => openUrl(url.toString()), opts);
 
         // First pass: no auth code yet → provider.redirectToAuthorization fires,
         // the browser opens, and auth() returns "REDIRECT".
@@ -83,7 +84,7 @@ async function runAuth<T>(fn: () => Promise<T>, usedDynamicRegistration: boolean
             throw new Error(
                 `${msg}\n\nThis server appears to block automatic OAuth client registration. ` +
                     `Register an OAuth app with the provider, then add "clientId" (and "clientSecret" ` +
-                    `for confidential clients) to the server entry in ~/.loop/settings.json.`,
+                    `for confidential clients) to the server entry in ~/${CONFIG_DIR_NAME}/settings.json.`,
             );
         }
         throw err;

@@ -1,12 +1,13 @@
+import { CONFIG_DIR_NAME, getConfigDir } from "../brand";
 import { existsSync, readFileSync, statSync, watch, type FSWatcher } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-const CONTEXT_FILES = ["AGENTS.md", "CLAUDE.md", ".loop/AGENTS.md", ".loop/CLAUDE.md"];
+const CONTEXT_FILES = ["AGENTS.md", "CLAUDE.md", `${CONFIG_DIR_NAME}/AGENTS.md`, `${CONFIG_DIR_NAME}/CLAUDE.md`];
 // Global instructions, loaded everywhere (mirrors Claude's ~/.claude/CLAUDE.md).
 // Both are loaded if present; loop writes AGENTS.md by default, but a user-authored
 // ~/.loop/CLAUDE.md is honored too.
-const GLOBAL_CONTEXT_FILES = [join(homedir(), ".loop", "AGENTS.md"), join(homedir(), ".loop", "CLAUDE.md")];
+const GLOBAL_CONTEXT_FILES = [join(getConfigDir(), "AGENTS.md"), join(getConfigDir(), "CLAUDE.md")];
 const MAX_FILE_BYTES = 64 * 1024;
 
 export interface WorkspaceContext {

@@ -2,10 +2,11 @@
  * Connects to a single MCP server and returns its tools, namespaced so they
  * never collide with loop's built-ins or another server's tools.
  */
+import { brandEnv } from "../brand";
 import { createMCPClient } from "@ai-sdk/mcp";
 import { isHttpServer, type McpServerConfig } from "./config";
 import { buildTransport } from "./transport";
-import { oauthClientOptions, LoopOAuthProvider } from "./oauth";
+import { oauthClientOptions, McpOAuthProvider } from "./oauth";
 
 export type McpClient = Awaited<ReturnType<typeof createMCPClient>>;
 export type McpToolSet = Record<string, unknown>;
@@ -41,7 +42,7 @@ export function namespacedToolName(server: string, tool: string): string {
  * each call against a timeout turns that hang into a normal tool error the
  * model can recover from. Overridable via LOOP_MCP_TOOL_TIMEOUT_MS.
  */
-const MCP_TOOL_TIMEOUT_MS = Number(process.env.LOOP_MCP_TOOL_TIMEOUT_MS) || 120_000;
+const MCP_TOOL_TIMEOUT_MS = Number(brandEnv("MCP_TOOL_TIMEOUT_MS")) || 120_000;
 
 type ExecutableTool = { execute?: (input: unknown, options: unknown) => Promise<unknown> };
 
@@ -122,7 +123,7 @@ function namespaceTools(server: string, tools: McpToolSet): McpToolSet {
 export async function connectServer(name: string, cfg: McpServerConfig): Promise<ConnectResult> {
     const authProvider =
         isHttpServer(cfg) && cfg.auth === "oauth"
-            ? new LoopOAuthProvider(name, oauthRefreshRedirectUri(), undefined, oauthClientOptions(cfg))
+            ? new McpOAuthProvider(name, oauthRefreshRedirectUri(), undefined, oauthClientOptions(cfg))
             : undefined;
     const transport = buildTransport(cfg, authProvider);
     const client = await createMCPClient({
@@ -143,6 +144,6 @@ export async function connectServer(name: string, cfg: McpServerConfig): Promise
  * it; refresh itself never sends the redirect, so the exact port rarely matters.
  */
 function oauthRefreshRedirectUri(): string {
-    const port = Number(process.env.LOOP_MCP_OAUTH_CALLBACK_PORT) || 8976;
+    const port = Number(brandEnv("MCP_OAUTH_CALLBACK_PORT")) || 8976;
     return `http://127.0.0.1:${port}/callback`;
 }

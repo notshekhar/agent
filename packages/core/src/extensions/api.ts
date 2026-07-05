@@ -4,16 +4,29 @@
  * compile against; keep it additive. Authoring is pure Bun/TypeScript — no build
  * step (the host transpiles the entry on import) and no Node compat layer.
  */
+import { EXTENSION_MANIFEST_KEYS } from "../brand";
 import type { Tool } from "ai";
 import type { LanguageModel } from "ai";
 import type { SlashCommand } from "../commands";
-import type { LoopSettings } from "../settings";
+import type { AppSettings } from "../settings";
 import type { ModelInfo } from "../types";
 
 /** Current extension API version — bumped on breaking changes to this surface. */
 export const EXTENSION_API_VERSION = "0.3.0";
 
-/** The `loop` field of an extension's package.json, plus the npm fields we read. */
+/** The product-named section of an extension's package.json (see EXTENSION_MANIFEST_KEYS). */
+export interface ExtensionManifestSection {
+    /** Override the entry the host imports. */
+    entry?: string;
+    /** Friendly name for the /extensions panel. */
+    displayName?: string;
+    /** Required host API range, semver, keyed by the product name (e.g. { loop: "^0.3" }; while the API is 0.x, minor must match). */
+    engines?: Record<string, string>;
+    /** Declared capabilities, shown to the user (advisory in v1). */
+    permissions?: string[];
+}
+
+/** An extension's package.json: the npm fields we read plus its product-named section. */
 export interface ExtensionManifest {
     /** npm package name (the extension's identity). */
     name: string;
@@ -22,16 +35,30 @@ export interface ExtensionManifest {
     /** ESM/main entry (TS allowed). Falls back to `module` → `main` → index.ts. */
     module?: string;
     main?: string;
-    loop?: {
-        /** Override the entry the host imports. */
-        entry?: string;
-        /** Friendly name for the /extensions panel. */
-        displayName?: string;
-        /** Required host API range, semver (e.g. "^0.3"; while the API is 0.x, minor must match). */
-        engines?: { loop?: string };
-        /** Declared capabilities, shown to the user (advisory in v1). */
-        permissions?: string[];
-    };
+    /** The product-named manifest section lives under any key in EXTENSION_MANIFEST_KEYS. */
+    [key: string]: unknown;
+}
+
+/**
+ * The extension's manifest section, found under the current product name (or a
+ * legacy name, so published extensions survive a product rename).
+ */
+export function manifestSection(manifest: ExtensionManifest): ExtensionManifestSection | undefined {
+    for (const key of EXTENSION_MANIFEST_KEYS) {
+        const section = manifest[key];
+        if (section && typeof section === "object") return section as ExtensionManifestSection;
+    }
+    return undefined;
+}
+
+/** The host-API range the manifest asks for, under any accepted product name. */
+export function requiredApiRange(manifest: ExtensionManifest): string | undefined {
+    const engines = manifestSection(manifest)?.engines;
+    if (!engines) return undefined;
+    for (const key of EXTENSION_MANIFEST_KEYS) {
+        if (engines[key]) return engines[key];
+    }
+    return undefined;
 }
 
 /**
@@ -201,7 +228,7 @@ export interface UiSelectItem {
  * user session. `select`/`search`/`prompt` resolve to null/"" when the user
  * cancels (Esc).
  */
-export interface LoopUI {
+export interface ExtensionUI {
     /** Single-choice menu; arrow-key navigation. Resolves null on Esc. */
     select(items: UiSelectItem[], title?: string, opts?: { initialIndex?: number }): Promise<UiSelectItem | null>;
     /** Like select, but type-to-filter. Resolves null on Esc. */
@@ -214,7 +241,7 @@ export interface LoopUI {
     error(text: string): void;
 }
 
-/** Options for {@link LoopAuth.loopbackOAuth}. */
+/** Options for {@link ExtensionAuth.loopbackOAuth}. */
 export interface LoopbackOAuthOptions {
     /**
      * Build the provider's authorize URL given the loopback `redirect_uri` loop
@@ -226,7 +253,7 @@ export interface LoopbackOAuthOptions {
     timeoutMs?: number;
 }
 
-/** Result of a completed {@link LoopAuth.loopbackOAuth} round-trip. */
+/** Result of a completed {@link ExtensionAuth.loopbackOAuth} round-trip. */
 export interface LoopbackOAuthResult {
     /** The authorization code returned on the redirect. */
     code: string;
@@ -242,7 +269,7 @@ export interface LoopbackOAuthResult {
  * the extension and persisted outside `settings.json`. Token *exchange* stays in
  * the extension (provider-specific); loop only provides the loopback code-catch.
  */
-export interface LoopAuth {
+export interface ExtensionAuth {
     /** Read a secret previously stored by this extension. */
     getSecret(key: string): string | undefined;
     /** Persist a secret for this extension (e.g. an OAuth refresh token). */
@@ -331,14 +358,14 @@ export interface ExtensionInfo {
  * automatically when the extension is disabled/uninstalled/reloaded — the host
  * tracks ownership, so an extension never has to clean up its own contributions.
  */
-export interface LoopAPI {
+export interface ExtensionAPI {
     readonly extension: ExtensionInfo;
     readonly version: string;
 
     /** Interactive menus/prompts. Throws in non-interactive (print) mode. */
-    readonly ui: LoopUI;
+    readonly ui: ExtensionUI;
     /** Secrets + browser/OAuth helpers. */
-    readonly auth: LoopAuth;
+    readonly auth: ExtensionAuth;
 
     commands: {
         register(cmd: SlashCommand): void;
@@ -363,8 +390,8 @@ export interface LoopAPI {
     };
 
     settings: {
-        get<K extends keyof LoopSettings>(key: K): LoopSettings[K];
-        set<K extends keyof LoopSettings>(key: K, value: LoopSettings[K]): void;
+        get<K extends keyof AppSettings>(key: K): AppSettings[K];
+        set<K extends keyof AppSettings>(key: K, value: AppSettings[K]): void;
         /** The extension's own namespaced settings (the `extensionSettings.<name>` bag in settings.json). */
         getOwn<T = unknown>(key: string, fallback?: T): T;
         setOwn<T = unknown>(key: string, value: T): void;
@@ -393,6 +420,6 @@ export interface LoopAPI {
 
 /** The shape an extension's entry module must export (default or named). */
 export interface ExtensionModule {
-    activate?(api: LoopAPI): void | Promise<void>;
+    activate?(api: ExtensionAPI): void | Promise<void>;
     deactivate?(): void | Promise<void>;
 }

@@ -3,6 +3,7 @@
  * the page as readable text (HTML stripped to text). Kept small and
  * dependency-free — no headless browser, just fetch + a light HTML→text pass.
  */
+import { PRODUCT_NAME, REPO_SLUG } from "../../brand";
 import { DEFAULT_MAX_BYTES, formatSize, truncateHead } from "./truncate";
 
 const FETCH_TIMEOUT_MS = 20_000;
@@ -47,7 +48,7 @@ export async function fetchUrlAsText(url: string, abortSignal?: AbortSignal): Pr
         const res = await fetch(url, {
             signal: controller.signal,
             redirect: "follow",
-            headers: { "user-agent": "loop-agent/1.0 (+https://github.com/notshekhar/loop)" },
+            headers: { "user-agent": `${PRODUCT_NAME}-agent/1.0 (+https://github.com/${REPO_SLUG})` },
         });
         if (!res.ok) return `[fetch failed: ${res.status} ${res.statusText} for ${url}]`;
 

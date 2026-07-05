@@ -1,7 +1,8 @@
+import { getConfigDir, LEGACY_CONFIG_DIR_NAMES, PRODUCT_NAME } from "../brand";
 import { Database } from "bun:sqlite";
-import { mkdirSync, renameSync } from "node:fs";
+import { existsSync, mkdirSync, renameSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { costStore, getLoopDir } from "../auth/storage";
+import { costStore } from "../auth/storage";
 import { debugLog } from "../debug";
 import { migrateCostLedger } from "./cost-ledger";
 import { migrateLegacySessions } from "./migrate";
@@ -12,7 +13,7 @@ import { migrateProjectStores } from "./projects";
  * (transcripts, cost ledger, per-project trust/model, reminders) lives in this
  * single WAL SQLite file; nothing else in the codebase touches `new Database`.
  *
- * The path must come from getLoopDir(): inside a compiled binary
+ * The path must come from getConfigDir(): inside a compiled binary
  * `import.meta.dir` is the read-only /$bunfs bundle and opening a DB there
  * fails with SQLITE_CANTOPEN.
  */
@@ -118,8 +119,30 @@ CREATE TABLE IF NOT EXISTS reminders (
 let db: Database | null = null;
 let overridePath: string | null = null;
 
+/** Brand-free db filename, so a product rename only has to move the config dir. */
+export const DB_FILE_NAME = "agent.db";
+
 function defaultDbPath(): string {
-    return join(getLoopDir(), "loop.db");
+    const path = join(getConfigDir(), DB_FILE_NAME);
+    // Installs from before the filename went generic hold the db under a
+    // brand-derived name (loop.db / pi.db) — adopt it (with its WAL/SHM
+    // sidecars) so history survives. One-time: a no-op once agent.db exists.
+    if (!existsSync(path)) {
+        const brandNames = [PRODUCT_NAME, ...LEGACY_CONFIG_DIR_NAMES.map((d) => d.replace(/^\./, ""))];
+        for (const brand of brandNames) {
+            const oldBase = join(getConfigDir(), `${brand}.db`);
+            if (!existsSync(oldBase)) continue;
+            try {
+                for (const suffix of ["", "-wal", "-shm"]) {
+                    if (existsSync(oldBase + suffix)) renameSync(oldBase + suffix, path + suffix);
+                }
+            } catch {
+                // Best-effort: fall through and start a fresh db rather than crash.
+            }
+            break;
+        }
+    }
+    return path;
 }
 
 /**
@@ -152,7 +175,7 @@ function openDb(path: string, recovered = false): Database {
             const version = Number(row?.value ?? SCHEMA_VERSION);
             if (version > SCHEMA_VERSION) {
                 throw new Error(
-                    `session db ${path} is schema v${version}, newer than this build (v${SCHEMA_VERSION}) — upgrade loop`,
+                    `session db ${path} is schema v${version}, newer than this build (v${SCHEMA_VERSION}) — upgrade ${PRODUCT_NAME}`,
                 );
             }
             if (version < SCHEMA_VERSION) {

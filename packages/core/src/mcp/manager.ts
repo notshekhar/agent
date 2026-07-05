@@ -4,6 +4,7 @@
  * agent loop reads aggregated tools via the module singleton; the /mcp panel
  * reads status snapshots and drives authorize/enable/remove.
  */
+import { brandEnv } from "../brand";
 import { UnauthorizedError } from "@ai-sdk/mcp";
 import { connectServer, serverPrefix, type McpClient, type McpToolSet } from "./client";
 import {
@@ -27,7 +28,7 @@ export type ServerStatus = "disabled" | "connecting" | "ready" | "error" | "need
  * whole run hangs. Racing against a timeout turns that into a normal `error`
  * status the user can see and retry. Overridable via LOOP_MCP_CONNECT_TIMEOUT_MS.
  */
-const CONNECT_TIMEOUT_MS = Number(process.env.LOOP_MCP_CONNECT_TIMEOUT_MS) || 30_000;
+const CONNECT_TIMEOUT_MS = Number(brandEnv("MCP_CONNECT_TIMEOUT_MS")) || 30_000;
 
 /**
  * A rejecting timer plus a `clear()` so a fast connect doesn't leave the

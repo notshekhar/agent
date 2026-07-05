@@ -11,7 +11,7 @@
  */
 import { readFile } from "node:fs/promises";
 import { isAbsolute, join, relative } from "node:path";
-import type { LoopAPI } from "../../api";
+import type { ExtensionAPI } from "../../api";
 import { getLspManager, shutdownAllManagers } from "./manager";
 import { type Diagnostic, type DiagnosticSeverity, SEVERITY_LABEL } from "./protocol";
 
@@ -40,7 +40,7 @@ function formatDiagnostics(cwd: string, absPath: string, diags: Diagnostic[]): s
 }
 
 export default {
-    activate(api: LoopAPI) {
+    activate(api: ExtensionAPI) {
         // After write/edit, diagnose the file on disk (works for both: the tool
         // has already written it). Appends a diagnostics block, or leaves the
         // result untouched when clean / unsupported / disabled. Never throws — a

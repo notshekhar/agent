@@ -1,6 +1,6 @@
+import { getConfigDir, PRODUCT_NAME } from "../brand";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { getLoopDir } from "../auth/storage";
 import { loadProjectSkills } from "../agent/skills";
 import { DATA_ANALYST_AGENT_NAME, listAgents } from "../agent/agents";
 import { getSetting, setSetting } from "../settings";
@@ -300,7 +300,7 @@ export async function registerBuiltins(reg: CommandRegistry, opts: { cwd?: strin
         },
         {
             name: "update",
-            description: "Update loop to the latest release",
+            description: `Update ${PRODUCT_NAME} to the latest release`,
             handler: async (ctx) => {
                 await ctx.updateApp();
             },
@@ -409,7 +409,7 @@ export async function registerBuiltins(reg: CommandRegistry, opts: { cwd?: strin
     } catch {}
 
     // user prompts as commands
-    const promptsDir = join(getLoopDir(), "agent", "prompts");
+    const promptsDir = join(getConfigDir(), "agent", "prompts");
     if (existsSync(promptsDir)) {
         for (const file of readdirSync(promptsDir)) {
             if (!file.endsWith(".md")) continue;

@@ -6,9 +6,9 @@
  * authorization URL to a caller-supplied opener (the browser).
  */
 import Configstore from "configstore";
+import { getConfigDir, PRODUCT_NAME } from "../brand";
 import { join } from "node:path";
 import type { OAuthClientInformation, OAuthClientMetadata, OAuthClientProvider, OAuthTokens } from "@ai-sdk/mcp";
-import { getLoopDir } from "../auth/storage";
 import { resolveSecrets, type HttpServerConfig } from "./config";
 
 /**
@@ -32,7 +32,24 @@ export function oauthClientOptions(cfg: HttpServerConfig): OAuthClientOptions {
     };
 }
 
-const mcpAuthStore = new Configstore("loop-agent-mcp-auth", {}, { configPath: join(getLoopDir(), "mcp-auth.json") });
+// Lazy so importing this module never touches the disk (Configstore writes its
+// defaults file in the constructor, which would pre-create the config dir
+// before migrateLegacyConfig runs). Raw Configstore (not CachedStore): server
+// names are user-chosen and may contain dots, which Configstore treats as
+// nested paths — get/set must stay symmetric with existing files.
+let _mcpAuthStore: Configstore | null = null;
+function mcpAuthStore(): Configstore {
+    if (_mcpAuthStore === null) {
+        _mcpAuthStore = new Configstore(
+            `${PRODUCT_NAME}-agent-mcp-auth`,
+            {},
+            {
+                configPath: join(getConfigDir(), "mcp-auth.json"),
+            },
+        );
+    }
+    return _mcpAuthStore;
+}
 
 /** Everything we persist for one server's OAuth session. */
 interface StoredAuth {
@@ -43,11 +60,11 @@ interface StoredAuth {
 }
 
 function read(server: string): StoredAuth {
-    return (mcpAuthStore.get(server) as StoredAuth | undefined) ?? {};
+    return (mcpAuthStore().get(server) as StoredAuth | undefined) ?? {};
 }
 
 function write(server: string, patch: Partial<StoredAuth>): void {
-    mcpAuthStore.set(server, { ...read(server), ...patch });
+    mcpAuthStore().set(server, { ...read(server), ...patch });
 }
 
 /** True once a server has completed login (used to decide auto-connect). */
@@ -57,7 +74,7 @@ export function hasStoredTokens(server: string): boolean {
 
 /** Forget a server's OAuth session entirely (used on /mcp delete or re-auth). */
 export function clearMcpAuth(server: string): void {
-    mcpAuthStore.delete(server);
+    mcpAuthStore().delete(server);
 }
 
 /**
@@ -66,7 +83,7 @@ export function clearMcpAuth(server: string): void {
  * surfaces as needs-auth instead of silently popping a browser. The /mcp
  * authorize flow passes a real opener.
  */
-export class LoopOAuthProvider implements OAuthClientProvider {
+export class McpOAuthProvider implements OAuthClientProvider {
     constructor(
         private readonly server: string,
         private readonly redirectUri: string,
@@ -80,7 +97,7 @@ export class LoopOAuthProvider implements OAuthClientProvider {
 
     get clientMetadata(): OAuthClientMetadata {
         return {
-            client_name: "loop",
+            client_name: PRODUCT_NAME,
             redirect_uris: [this.redirectUri],
             grant_types: ["authorization_code", "refresh_token"],
             response_types: ["code"],

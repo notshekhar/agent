@@ -1,3 +1,4 @@
+import { brandEnv } from "./brand";
 import * as fs from "node:fs";
 import { createRequire } from "node:module";
 import * as path from "node:path";
@@ -122,7 +123,7 @@ export class ProcessTerminal implements Terminal {
         process.exit(128 + (SIGNAL_NUMBERS[signal] ?? 0));
     };
     private writeLogPath = (() => {
-        const env = process.env.LOOP_TUI_WRITE_LOG || "";
+        const env = brandEnv("TUI_WRITE_LOG") || "";
         if (!env) return "";
         try {
             if (fs.statSync(env).isDirectory()) {

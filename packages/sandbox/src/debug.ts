@@ -1,10 +1,11 @@
+import { brandEnv } from "./brand";
 /**
  * Minimal debug logger for the sandbox module. Upstream
  * (anthropic-experimental/sandbox-runtime) has a richer logger; we only need a
  * gated stderr line. Enable with LOOP_SANDBOX_DEBUG=1.
  */
 export function logForDebugging(message: string, opts?: { level?: "error" | "warn" | "info" }): void {
-    if (!process.env.LOOP_SANDBOX_DEBUG) return;
+    if (!brandEnv("SANDBOX_DEBUG")) return;
     const level = opts?.level ?? "info";
     process.stderr.write(`[sandbox:${level}] ${message}\n`);
 }

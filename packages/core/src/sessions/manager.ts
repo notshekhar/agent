@@ -1,7 +1,7 @@
+import { getConfigDir } from "../brand";
 import { existsSync, readdirSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { ulid } from "ulid";
-import { getLoopDir } from "../auth/storage";
 import { debugLog } from "../debug";
 import type { Entry, ProviderId, SessionInfoData } from "../types";
 import { Session, generateEntryId } from "./session";
@@ -21,7 +21,7 @@ function slugCwd(cwd: string): string {
  * session's public name, kept in the historical JSONL shape.
  */
 function transcriptPath(cwd: string, id: string): string {
-    return join(getLoopDir(), "agent", "sessions", slugCwd(cwd), `${id}.jsonl`);
+    return join(getConfigDir(), "agent", "sessions", slugCwd(cwd), `${id}.jsonl`);
 }
 
 export interface SessionInfo extends SessionInfoData {

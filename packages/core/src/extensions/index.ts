@@ -20,9 +20,9 @@ export { BUILTIN_EXTENSIONS, getBuiltin, isBuiltin, type BuiltinExtension } from
 export { parseSource, type ParsedSource, type SourceKind } from "./sources";
 export {
     EXTENSION_API_VERSION,
-    type LoopAPI,
-    type LoopUI,
-    type LoopAuth,
+    type ExtensionAPI,
+    type ExtensionUI,
+    type ExtensionAuth,
     type UiSelectItem,
     type LoopbackOAuthOptions,
     type LoopbackOAuthResult,

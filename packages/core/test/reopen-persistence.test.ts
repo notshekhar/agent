@@ -134,7 +134,7 @@ describe("turns survive being reopened from disk", () => {
             emitter: em,
         });
 
-        // Reopen from disk: the interrupted flag must survive adaptLoopEntry.
+        // Reopen from disk: the interrupted flag must survive adaptSessionEntry.
         const reloaded = Session.load(join(dir, "s.jsonl"), info);
         const entry = (reloaded.entries() as any[]).filter((e) => e.type === "message" && e.role === "assistant").pop();
         expect(entry?.interrupted).toBe(true);

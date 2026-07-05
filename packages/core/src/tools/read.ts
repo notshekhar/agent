@@ -1,3 +1,4 @@
+import { PRODUCT_NAME } from "../brand";
 import { access as fsAccess, readFile as fsReadFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import { tool } from "ai";
@@ -30,7 +31,7 @@ export interface ReadToolContext {
 
 /** Resolve a `loop://` URI: docs index, a specific doc, or a wrapped URL fetch. */
 async function readLoopUri(uri: string, signal?: AbortSignal): Promise<string> {
-    const rest = uri.slice("loop://".length);
+    const rest = uri.slice(`${PRODUCT_NAME}://`.length);
     if (rest === "docs" || rest === "docs/") {
         return renderDocsIndex();
     }
@@ -42,26 +43,26 @@ async function readLoopUri(uri: string, signal?: AbortSignal): Promise<string> {
     }
     if (rest.startsWith("fetch/")) {
         const url = rest.slice("fetch/".length).trim();
-        if (!isHttpUrl(url)) return `[loop://fetch/ expects an http(s):// URL, got: ${url}]`;
+        if (!isHttpUrl(url)) return `[${PRODUCT_NAME}://fetch/ expects an http(s):// URL, got: ${url}]`;
         return fetchUrlAsText(url, signal);
     }
-    return `[unknown loop:// path: ${uri}. Use loop://docs, loop://docs/<name>.md, or loop://fetch/<url>]`;
+    return `[unknown ${PRODUCT_NAME}:// path: ${uri}. Use ${PRODUCT_NAME}://docs, ${PRODUCT_NAME}://docs/<name>.md, or ${PRODUCT_NAME}://fetch/<url>]`;
 }
 
 export function createReadTool(ctx: ReadToolContext) {
     return tool({
-        description: `Read the contents of a file, fetch a URL, or read loop's internal docs.
+        description: `Read the contents of a file, fetch a URL, or read ${PRODUCT_NAME}'s internal docs.
 
 - Local path → reads the file (text, truncated to ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB; use offset/limit for large files; continue with offset until complete).
-- \`loop://fetch/<url>\` (or a bare http(s):// URL) → fetches the page and returns it as readable text (HTML stripped).
-- \`loop://docs\` → lists loop's internal docs. \`loop://docs/<name>.md\` reads one (e.g. \`loop://docs/config.md\`).
+- \`${PRODUCT_NAME}://fetch/<url>\` (or a bare http(s):// URL) → fetches the page and returns it as readable text (HTML stripped).
+- \`${PRODUCT_NAME}://docs\` → lists ${PRODUCT_NAME}'s internal docs. \`${PRODUCT_NAME}://docs/<name>.md\` reads one (e.g. \`${PRODUCT_NAME}://docs/config.md\`).
 
-IMPORTANT: when the user asks to add or change a model, custom provider, hook, MCP server, or custom agent, FIRST read \`loop://docs/config.md\` for the exact file locations and JSON shapes, then make the change. After editing any loop config, tell the user to hard-reload with /reload or by restarting loop — config changes don't apply to the running session until then.`,
+IMPORTANT: when the user asks to add or change a model, custom provider, hook, MCP server, or custom agent, FIRST read \`${PRODUCT_NAME}://docs/config.md\` for the exact file locations and JSON shapes, then make the change. After editing any ${PRODUCT_NAME} config, tell the user to hard-reload with /reload or by restarting ${PRODUCT_NAME} — config changes don't apply to the running session until then.`,
         inputSchema: z.object({
             path: z
                 .string()
                 .describe(
-                    "Local file path (relative or absolute), an http(s):// URL, or a loop:// URI (loop://docs, loop://docs/<name>.md, loop://fetch/<url>)",
+                    `Local file path (relative or absolute), an http(s):// URL, or a ${PRODUCT_NAME}:// URI (${PRODUCT_NAME}://docs, ${PRODUCT_NAME}://docs/<name>.md, ${PRODUCT_NAME}://fetch/<url>)`,
                 ),
             offset: z.number().int().positive().optional().describe("Line number to start reading from (1-indexed)"),
             limit: z.number().int().positive().optional().describe("Maximum number of lines to read"),
@@ -71,7 +72,7 @@ IMPORTANT: when the user asks to add or change a model, custom provider, hook, M
             if (signal?.aborted) throw new Error("Operation aborted");
             const trimmed = path.trim();
             // loop:// scheme → internal docs or wrapped URL fetch.
-            if (trimmed.toLowerCase().startsWith("loop://")) {
+            if (trimmed.toLowerCase().startsWith(`${PRODUCT_NAME}://`)) {
                 return readLoopUri(trimmed, signal);
             }
             // URL → fetch as text (offset/limit don't apply to web content).

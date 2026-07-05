@@ -3,6 +3,7 @@
  * `mcpServers`, and optionally overridden per-project in <cwd>/.loop/mcp.json.
  * Two sources only (global + project) — project entries win on name collision.
  */
+import { CONFIG_DIR_NAME } from "../brand";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { getSetting, setSetting } from "../settings";
@@ -119,7 +120,7 @@ export function removeServer(name: string): boolean {
 
 /** Path of the project-scoped server file for a working directory. */
 export function projectServersPath(cwd: string): string {
-    return join(cwd, ".loop", "mcp.json");
+    return join(cwd, CONFIG_DIR_NAME, "mcp.json");
 }
 
 /** Servers declared in <cwd>/.loop/mcp.json (the project scope, shareable via the repo). */

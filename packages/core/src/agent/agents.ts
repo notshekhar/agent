@@ -17,9 +17,9 @@
  * to reset) — built-in tool sets are fixed and never editable. Every other
  * file registers as a /<name> slash command for one-shot runs.
  */
+import { getConfigDir } from "../brand";
 import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { getLoopDir } from "../auth/storage";
 import { TOOL_NAMES } from "../tools";
 import { DEFAULT_BASE_PROMPT } from "./system-prompt";
 import { getExtensionHost } from "../extensions";
@@ -112,7 +112,7 @@ export interface AgentInfo {
 }
 
 function agentsDir(): string {
-    return join(getLoopDir(), "agents");
+    return join(getConfigDir(), "agents");
 }
 
 function agentPath(name: string): string {

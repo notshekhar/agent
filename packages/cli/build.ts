@@ -17,7 +17,7 @@ const result = await Bun.build({
     minify: { whitespace: true, identifiers: false, syntax: true },
     external: ["@notshekhar/loop-core", "@notshekhar/loop-tui", "chalk", "highlight.js"],
     banner: "#!/usr/bin/env node",
-    define: { __LOOP_VERSION__: JSON.stringify(pkg.version), __LOOP_CHANGELOG__: JSON.stringify(changelog) },
+    define: { __APP_VERSION__: JSON.stringify(pkg.version), __APP_CHANGELOG__: JSON.stringify(changelog) },
 });
 
 if (!result.success) {

@@ -11,7 +11,7 @@
  * reads CPU/mem from a background sampler that only runs while it's the active
  * layout.
  */
-import type { LoopAPI } from "../../api";
+import type { ExtensionAPI } from "../../api";
 import { DEFAULT_LAYOUT, getLayout, LAYOUTS, type LayoutId } from "./layouts";
 import { SystemSampler } from "./system";
 import { applyTheme, DEFAULT_THEME, getTheme, THEMES, type ThemeId } from "./themes";
@@ -22,7 +22,7 @@ import { applyTheme, DEFAULT_THEME, getTheme, THEMES, type ThemeId } from "./the
 let sampler: SystemSampler | null = null;
 
 export default {
-    activate(api: LoopAPI) {
+    activate(api: ExtensionAPI) {
         const sys = new SystemSampler();
         sampler = sys;
         const layoutId = (): LayoutId => getLayout(api.settings.getOwn("layout", DEFAULT_LAYOUT)).id;

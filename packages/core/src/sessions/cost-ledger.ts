@@ -136,10 +136,7 @@ export interface LedgerSessionSums {
 export function sumLedgerForSession(sessionPub: string): LedgerSessionSums {
     const db = getDb();
     const row = db
-        .query<
-            { rows: number; usd: number; inp: number; out: number; cached: number; est: number },
-            [string]
-        >(
+        .query<{ rows: number; usd: number; inp: number; out: number; cached: number; est: number }, [string]>(
             `SELECT COUNT(*) AS rows, COALESCE(SUM(usd), 0) AS usd,
                     COALESCE(SUM(input_tokens), 0) AS inp,
                     COALESCE(SUM(output_tokens), 0) AS out,
@@ -433,10 +430,7 @@ export function auditLedger(): LedgerAudit {
     // Invariant 4: per session, turn+subagent ledger token sums == the token
     // sums of that session's usage-bearing entries.
     const mismatches = db
-        .query<
-            { session_pub: string; l_in: number; e_in: number; l_out: number; e_out: number },
-            []
-        >(
+        .query<{ session_pub: string; l_in: number; e_in: number; l_out: number; e_out: number }, []>(
             // Entry side counts only message/subagent usage — compact,
             // branch-summary, and recap entries carry usage too, but their
             // ledger rows have their own sources and are excluded here.

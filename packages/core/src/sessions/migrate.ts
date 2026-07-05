@@ -1,10 +1,10 @@
+import { getConfigDir } from "../brand";
 import type { Database } from "bun:sqlite";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
-import { getLoopDir } from "../auth/storage";
 import { debugLog } from "../debug";
 import type { Entry, ProviderId, SessionInfoData } from "../types";
-import { adaptLoopEntry } from "./loop-adapter";
+import { adaptSessionEntry } from "./session-adapter";
 import { ensureTreeFields } from "./session";
 import { SessionStore } from "./sqlite-store";
 
@@ -23,7 +23,7 @@ export interface ParsedSessionFile {
 }
 
 export function legacySessionsRoot(): string {
-    return join(getLoopDir(), "agent", "sessions");
+    return join(getConfigDir(), "agent", "sessions");
 }
 
 /**
@@ -60,7 +60,7 @@ export function parseSessionFile(path: string, fallbackCwd: string): ParsedSessi
     for (const line of raw.split("\n")) {
         if (!line.trim()) continue;
         try {
-            const adapted = adaptLoopEntry(JSON.parse(line));
+            const adapted = adaptSessionEntry(JSON.parse(line));
             if (adapted) entries.push(adapted);
         } catch {
             debugLog("session-migrate", `skipped corrupt line in ${path}`);

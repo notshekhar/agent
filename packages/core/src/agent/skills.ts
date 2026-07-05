@@ -15,9 +15,9 @@
  *     quoted strings, booleans) — multiline/folded values are not supported
  *   - .gitignore/.ignore files inside skill directories are not honored
  */
+import { CONFIG_DIR_NAME, getConfigDir } from "../brand";
 import { existsSync, readdirSync, readFileSync, statSync, type Dirent } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
-import { getLoopDir } from "../auth/storage";
 import { getExtensionHost } from "../extensions";
 
 const MAX_NAME_LENGTH = 64;
@@ -208,8 +208,8 @@ export async function loadProjectSkills(cwd: string): Promise<LoadedSkills & { p
         }
     };
 
-    addSkills(loadSkillsFromDir(join(getLoopDir(), "agent", "skills"), true));
-    addSkills(loadSkillsFromDir(resolve(cwd, ".loop", "skills"), true));
+    addSkills(loadSkillsFromDir(join(getConfigDir(), "agent", "skills"), true));
+    addSkills(loadSkillsFromDir(resolve(cwd, CONFIG_DIR_NAME, "skills"), true));
     // Extension-contributed skill directories (api.skills.addDir). None when no
     // extensions are loaded, so discovery is unchanged in a clean install.
     for (const dir of getExtensionHost().getSkillDirs()) addSkills(loadSkillsFromDir(dir, true));

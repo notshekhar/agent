@@ -16,6 +16,7 @@ import {
     setBuiltinEnabled,
     setRecordEnabled,
     syncExtensions,
+    PRODUCT_NAME,
 } from "@notshekhar/loop-core";
 import type { Args } from "./args";
 
@@ -40,7 +41,7 @@ export async function cmdInstall(args: Args): Promise<void> {
 export async function cmdLink(args: Args): Promise<void> {
     const path = args.positional[0];
     if (!path) {
-        console.error("usage: loop link <path>");
+        console.error(`usage: ${PRODUCT_NAME} link <path>`);
         process.exitCode = 1;
         return;
     }
@@ -55,7 +56,7 @@ export async function cmdLink(args: Args): Promise<void> {
 }
 
 export function cmdListExtensions(): void {
-    console.log("Built-in (toggle with: loop enable|disable <name>):");
+    console.log(`Built-in (toggle with: ${PRODUCT_NAME} enable|disable <name>):`);
     for (const b of BUILTIN_EXTENSIONS) {
         const state = getBuiltinEnabled(b.name, b.defaultEnabled) ? "on " : "off";
         console.log(`  [${state}] ${b.name}  — ${b.description}`);
@@ -74,7 +75,7 @@ export function cmdListExtensions(): void {
 export async function cmdRemoveExtension(args: Args): Promise<void> {
     const name = args.positional[0];
     if (!name) {
-        console.error("usage: loop remove <name>");
+        console.error(`usage: ${PRODUCT_NAME} remove <name>`);
         process.exitCode = 1;
         return;
     }
@@ -84,7 +85,7 @@ export async function cmdRemoveExtension(args: Args): Promise<void> {
 export function cmdSetExtensionEnabled(args: Args, enabled: boolean): void {
     const name = args.positional[0];
     if (!name) {
-        console.error(`usage: loop ${enabled ? "enable" : "disable"} <name>`);
+        console.error(`usage: ${PRODUCT_NAME} ${enabled ? "enable" : "disable"} <name>`);
         process.exitCode = 1;
         return;
     }

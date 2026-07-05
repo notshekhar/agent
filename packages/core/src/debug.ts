@@ -4,11 +4,11 @@
  * appends them to ~/.loop/debug.log so field failures are diagnosable without
  * making every best-effort path noisy.
  */
+import { getConfigDir, brandEnv } from "./brand";
 import { appendFileSync } from "node:fs";
 import { join } from "node:path";
-import { getLoopDir } from "./auth/storage";
 
-const enabled = Boolean(process.env.LOOP_DEBUG);
+const enabled = Boolean(brandEnv("DEBUG"));
 
 export function isDebugEnabled(): boolean {
     return enabled;
@@ -28,7 +28,7 @@ export function debugLog(scope: string, ...parts: unknown[]): void {
                 }
             })
             .join(" ");
-        appendFileSync(join(getLoopDir(), "debug.log"), `${new Date().toISOString()} [${scope}] ${rendered}\n`);
+        appendFileSync(join(getConfigDir(), "debug.log"), `${new Date().toISOString()} [${scope}] ${rendered}\n`);
     } catch {
         // The breadcrumb logger itself must never throw.
     }

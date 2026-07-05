@@ -92,12 +92,12 @@ describe("reminders table", () => {
 describe("store migration (trust.json + settings keys + reminders.json)", () => {
     // Injected sources: a temp loop dir + a mock settings store, so the
     // user's real ~/.loop files are never read or written.
-    let loopDir: string;
+    let configDir: string;
     beforeEach(() => {
-        loopDir = mkdtempSync(join(tmpdir(), "loop-stores-"));
-        mkdirSync(loopDir, { recursive: true });
+        configDir = mkdtempSync(join(tmpdir(), "loop-stores-"));
+        mkdirSync(configDir, { recursive: true });
     });
-    afterEach(() => rmSync(loopDir, { recursive: true, force: true }));
+    afterEach(() => rmSync(configDir, { recursive: true, force: true }));
 
     const mockSettings = (data: Record<string, unknown>) => ({
         get: (key: string) => data[key],
@@ -108,9 +108,9 @@ describe("store migration (trust.json + settings keys + reminders.json)", () => 
     });
 
     test("copies all three stores once, then gates", () => {
-        writeFileSync(`${loopDir}/trust.json`, JSON.stringify({ "/repo/a": true, "/repo/b": false, "/bad": "junk" }));
+        writeFileSync(`${configDir}/trust.json`, JSON.stringify({ "/repo/a": true, "/repo/b": false, "/bad": "junk" }));
         writeFileSync(
-            `${loopDir}/reminders.json`,
+            `${configDir}/reminders.json`,
             JSON.stringify({
                 reminders: [
                     { id: "R1", text: "hi", enabled: true, kind: "once", at: 123 },
@@ -124,7 +124,7 @@ describe("store migration (trust.json + settings keys + reminders.json)", () => 
             projectProviderModels: { "/repo/a": { xai: "xai/grok-build-0.1" } },
         });
 
-        migrateProjectStores({ loopDir, settings });
+        migrateProjectStores({ configDir, settings });
 
         expect(getTrustDecision("/repo/a")).toBe(true);
         expect(getTrustDecision("/repo/b")).toBe(false);
@@ -141,13 +141,13 @@ describe("store migration (trust.json + settings keys + reminders.json)", () => 
 
         // re-run is a no-op (gate set) — existing rows keep their values
         setTrust("/repo/a", false);
-        migrateProjectStores({ loopDir, settings });
+        migrateProjectStores({ configDir, settings });
         expect(getTrustDecision("/repo/a")).toBe(false);
     });
 
     test("corrupt files are skipped, migration still gates", () => {
-        writeFileSync(`${loopDir}/trust.json`, "{not json");
-        migrateProjectStores({ loopDir, settings: mockSettings({}) });
+        writeFileSync(`${configDir}/trust.json`, "{not json");
+        migrateProjectStores({ configDir, settings: mockSettings({}) });
         const gate = getDb()
             .query<{ value: string }, []>("SELECT value FROM meta WHERE key = 'stores_migrated_at'")
             .get();

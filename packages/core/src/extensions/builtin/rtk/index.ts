@@ -17,7 +17,7 @@
  * so enabling it without rtk installed never breaks bash.
  */
 import { spawnSync } from "node:child_process";
-import type { LoopAPI } from "../../api";
+import type { ExtensionAPI } from "../../api";
 
 /** Is `rtk` runnable on this machine? Cached at activate. */
 function rtkAvailable(): boolean {
@@ -45,7 +45,7 @@ function rtkRewrite(command: string): string | null {
 }
 
 export default {
-    activate(api: LoopAPI) {
+    activate(api: ExtensionAPI) {
         const available = rtkAvailable();
         const isOn = () => available && api.settings.getOwn<boolean>("enabled", true) !== false;
         api.extension.setStatus(() => (!available ? "no binary" : isOn() ? "on" : "off"));

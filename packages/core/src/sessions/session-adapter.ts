@@ -27,7 +27,7 @@ function treeFields(obj: Record<string, unknown>): { id?: string; parentId?: str
  * Adapt a raw JSON line from a legacy or loop session into our Entry shape.
  * Unknown shapes fall back to { type: "custom", payload }.
  */
-export function adaptLoopEntry(raw: unknown): Entry | null {
+export function adaptSessionEntry(raw: unknown): Entry | null {
     if (!raw || typeof raw !== "object") return null;
     const obj = raw as Record<string, unknown>;
     const ts = typeof obj.ts === "number" ? obj.ts : typeof obj.timestamp === "number" ? obj.timestamp : Date.now();

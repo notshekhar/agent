@@ -3,6 +3,7 @@
  * through the hook dispatcher. Shared by the main agent loop and subagents
  * (subagents pass agentId so hook payloads carry agent_id, Claude Code parity).
  */
+import { PRODUCT_NAME } from "../brand";
 import type { TurnEmitter } from "./events";
 import { runHooks } from "./hooks";
 import type { ToolCallMiddleware, ToolResultMiddleware, ToolCallContext, TurnContext } from "../extensions/api";
@@ -86,7 +87,7 @@ export function withToolHooks<T extends object>(tools: T, ctx: ToolHookCtx): T {
                             session_id: ctx.sessionId,
                             transcript_path: ctx.transcriptPath,
                             message: `Permission needed: ${name} — ${pre.reason}`,
-                            title: "loop",
+                            title: PRODUCT_NAME,
                         },
                         ctx.cwd,
                     ).then((n) => {

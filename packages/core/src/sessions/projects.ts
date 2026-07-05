@@ -1,6 +1,7 @@
+import { getConfigDir } from "../brand";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { getLoopDir, settingsStore } from "../auth/storage";
+import { settingsStore } from "../auth/storage";
 import { debugLog } from "../debug";
 import { getDb } from "./db";
 
@@ -130,15 +131,15 @@ interface SettingsLike {
  * `sources` defaults to the real ~/.loop + settings.json; tests inject a
  * temp dir and a mock store so the user's real files are never touched.
  */
-export function migrateProjectStores(sources?: { loopDir?: string; settings?: SettingsLike }): void {
+export function migrateProjectStores(sources?: { configDir?: string; settings?: SettingsLike }): void {
     const db = getDb();
     const done = db.query<{ value: string }, []>("SELECT value FROM meta WHERE key = 'stores_migrated_at'").get();
     if (done) return;
-    const loopDir = sources?.loopDir ?? getLoopDir();
+    const configDir = sources?.configDir ?? getConfigDir();
     const settings: SettingsLike = sources?.settings ?? settingsStore;
 
     const readJson = (file: string): unknown => {
-        const path = join(loopDir, file);
+        const path = join(configDir, file);
         if (!existsSync(path)) return undefined;
         try {
             return JSON.parse(readFileSync(path, "utf8"));
@@ -160,8 +161,7 @@ export function migrateProjectStores(sources?: { loopDir?: string; settings?: Se
             if (typeof id === "string" && id) upsert(dir, { model: id });
         }
         const providerModels = settings.get("projectProviderModels") as
-            | Record<string, Record<string, string>>
-            | undefined;
+            Record<string, Record<string, string>> | undefined;
         for (const [dir, map] of Object.entries(providerModels ?? {})) {
             if (map && typeof map === "object") upsert(dir, { providerModels: map });
         }

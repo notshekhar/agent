@@ -1,4 +1,4 @@
-# Configuring loop
+# Configuring {{name}}
 
 How to add models, custom providers, hooks, MCP servers, and custom agents.
 Read the relevant section in full before editing anything, then make the edit,
@@ -6,19 +6,19 @@ then tell the user to **hard-reload** (see below) so it takes effect.
 
 ## Where config lives
 
-| What                                                         | File                        |
-| ------------------------------------------------------------ | --------------------------- |
-| Global settings (default model, hooks, MCP servers, toggles) | `~/.loop/settings.json`     |
-| Auth + custom providers (API keys, OAuth creds, gateways)    | `~/.loop/auth.json`         |
-| Custom agents                                                | `~/.loop/agents/<name>.md`  |
-| Project settings / hooks (override global)                   | `<cwd>/.loop/settings.json` |
-| Project MCP servers (override global)                        | `<cwd>/.loop/mcp.json`      |
+| What                                                         | File                          |
+| ------------------------------------------------------------ | ----------------------------- |
+| Global settings (default model, hooks, MCP servers, toggles) | `~/{{dir}}/settings.json`     |
+| Auth + custom providers (API keys, OAuth creds, gateways)    | `~/{{dir}}/auth.json`         |
+| Custom agents                                                | `~/{{dir}}/agents/<name>.md`  |
+| Project settings / hooks (override global)                   | `<cwd>/{{dir}}/settings.json` |
+| Project MCP servers (override global)                        | `<cwd>/{{dir}}/mcp.json`      |
 
 All config files are plain JSON — edit them with the normal edit/write tools.
 Unknown keys are preserved, so only touch the keys you mean to change. Always
 read the existing file first (the edit tool requires it) and keep valid JSON.
 
-Boolean toggles live at the top level of `~/.loop/settings.json` and can also
+Boolean toggles live at the top level of `~/{{dir}}/settings.json` and can also
 be flipped via `/settings`. Example: `"askUser": true` enables the `ask` tool,
 which lets the agent pause mid-turn and ask you multiple-choice questions
 (default off; interactive TUI only — never offered in print mode).
@@ -41,7 +41,7 @@ Config is read into memory at startup. After you edit any file above, the change
 does **not** apply to the running session. Tell the user to either:
 
 - run **`/reload`** (re-reads settings, theme, commands, agents, hooks, models), or
-- **quit and restart** loop.
+- **quit and restart** {{name}}.
 
 End every config task by telling the user which one to do.
 
@@ -57,12 +57,12 @@ Their models are discovered automatically once the provider is authenticated —
 there is no per-model list to maintain. Two providers need no login at all:
 `ollama` (detected local daemon) and `bedrock` (AWS credentials from the aws
 CLI / env / SSO; the model list comes from the account's Bedrock access —
-region via `AWS_REGION` or `LOOP_BEDROCK_REGION`). The flow is:
+region via `AWS_REGION` or `{{env}}_BEDROCK_REGION`). The flow is:
 
-1. Authenticate: the user runs `loop login <provider>` (or `/login`). API keys
-   and OAuth creds are stored in `~/.loop/auth.json`; do not hand-write secrets
+1. Authenticate: the user runs `{{name}} login <provider>` (or `/login`). API keys
+   and OAuth creds are stored in `~/{{dir}}/auth.json`; do not hand-write secrets
    into it unless the user asks.
-2. Pick the model live with `/model`, or pin a default in `~/.loop/settings.json`:
+2. Pick the model live with `/model`, or pin a default in `~/{{dir}}/settings.json`:
 
 ```json
 {
@@ -72,7 +72,7 @@ region via `AWS_REGION` or `LOOP_BEDROCK_REGION`). The flow is:
 
 Model ids are always `"<provider>/<model>"`. Per-project model memory is
 automatic: the last model picked with `/model` in a folder is restored next
-time loop starts there (stored in loop's internal database, not in
+time {{name}} starts there (stored in {{name}}'s internal database, not in
 settings.json — there is no key to edit for it).
 
 If the user wants a model that isn't on a built-in provider (a gateway, a
@@ -83,7 +83,7 @@ self-hosted endpoint, a proxy), that's a **custom provider** — see below.
 ## Add a custom provider (and its models)
 
 Custom providers are gateways or OpenAI/Anthropic/Google-compatible endpoints
-(bifrost, litellm, a self-hosted proxy, etc.). They live in `~/.loop/auth.json`
+(bifrost, litellm, a self-hosted proxy, etc.). They live in `~/{{dir}}/auth.json`
 under `customProviders`, keyed by name. Their models are referenced as
 `"custom:<name>/<model>"`.
 
@@ -119,7 +119,7 @@ Shape (`CustomProviderConfig`):
   automatically when missing, so a bare host is fine.
 - `apiKey` — gateway key (use a placeholder if the endpoint needs none).
 - `headers` — optional extra headers sent on every request.
-- `models` — optional. If the endpoint supports listing, loop can discover
+- `models` — optional. If the endpoint supports listing, {{name}} can discover
   models; list them here to control exactly what's exposed plus names/pricing.
   Adding a model to an existing custom provider = appending to this array.
 
@@ -131,8 +131,8 @@ or pin it: `"defaultModel": "custom:bifrost/claude-opus-4-8"`.
 ## Add a hook
 
 Hooks are Claude-Code-compatible lifecycle commands under the `hooks` key.
-Global hooks go in `~/.loop/settings.json`; project hooks in
-`<cwd>/.loop/settings.json` (project groups run after global groups).
+Global hooks go in `~/{{dir}}/settings.json`; project hooks in
+`<cwd>/{{dir}}/settings.json` (project groups run after global groups).
 
 Events: `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`,
 `Notification`, `PermissionRequest`, `PreCompact`, `SubagentStop`, `Stop`,
@@ -151,7 +151,7 @@ Shape — each event maps to matcher groups; each group has `hooks` (command lis
         ],
         "Stop": [
             {
-                "hooks": [{ "type": "command", "command": "notify-send 'loop done'", "async": true }]
+                "hooks": [{ "type": "command", "command": "notify-send '{{name}} done'", "async": true }]
             }
         ]
     }
@@ -174,8 +174,8 @@ Existing Claude Code hook scripts port over 1:1.
 
 ## Add an MCP server
 
-MCP servers are declared under `mcpServers` in `~/.loop/settings.json` (global),
-or per-project in `<cwd>/.loop/mcp.json` (project entries win on name clash).
+MCP servers are declared under `mcpServers` in `~/{{dir}}/settings.json` (global),
+or per-project in `<cwd>/{{dir}}/mcp.json` (project entries win on name clash).
 The project file accepts either `{ "mcpServers": { ... } }` or a bare map.
 
 Two transports:
@@ -221,7 +221,7 @@ Two transports:
 
 ## Create a custom agent
 
-Custom agents are named system prompts at `~/.loop/agents/<name>.md`. Each file
+Custom agents are named system prompts at `~/{{dir}}/agents/<name>.md`. Each file
 registers a `/<name>` slash command. The name must start alphanumeric and be
 ≤32 chars of `[a-z0-9_-]` (case-insensitive).
 

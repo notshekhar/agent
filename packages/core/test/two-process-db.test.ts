@@ -31,7 +31,7 @@ process.exit(0);
 describe("two-process WAL concurrency", () => {
     test("2 × 250 transactional inserts on a fresh file → 500 rows, integrity ok", async () => {
         const dir = mkdtempSync(join(tmpdir(), "loop-2proc-"));
-        const dbPath = join(dir, "loop.db");
+        const dbPath = join(dir, "agent.db");
         const workerPath = join(dir, "worker.ts");
         // The worker imports the production db module by absolute path.
         writeFileSync(workerPath, WORKER.replace("../src/sessions/db", join(import.meta.dir, "../src/sessions/db.ts")));

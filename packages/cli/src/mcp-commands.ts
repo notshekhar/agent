@@ -18,6 +18,8 @@ import {
     setProjectServerEnabled,
     setServerEnabled,
     type McpServerConfig,
+    CONFIG_DIR_NAME,
+    PRODUCT_NAME,
 } from "@notshekhar/loop-core";
 import { buildAddConfig, McpUsageError, type McpScope } from "./mcp-add-parse";
 import { openBrowser } from "./open-browser";
@@ -63,18 +65,18 @@ function cmdAdd(args: string[]): void {
     if (scope === "project") addProjectServer(cwd, name, cfg);
     else addServer(name, cfg);
 
-    const where = scope === "project" ? projectServersPath(cwd) : "~/.loop/settings.json";
+    const where = scope === "project" ? projectServersPath(cwd) : `~/${CONFIG_DIR_NAME}/settings.json`;
     console.log(`Added MCP server "${name}" — ${describeTarget(cfg)}  [scope: ${scope}]`);
     console.log(`  written to ${where}`);
     if (isHttpServer(cfg) && cfg.auth === "oauth") {
-        console.log(`\n  This server uses OAuth. Sign in with:\n    loop mcp login ${name}`);
+        console.log(`\n  This server uses OAuth. Sign in with:\n    ${PRODUCT_NAME} mcp login ${name}`);
     }
 }
 
 function cmdList(cwd: string): void {
     const servers = allServers(cwd);
     if (servers.length === 0) {
-        console.log("No MCP servers configured.\nAdd one with:  loop mcp add --transport http <name> <url>");
+        console.log(`No MCP servers configured.\nAdd one with:  ${PRODUCT_NAME} mcp add --transport http <name> <url>`);
         return;
     }
     for (const { name, cfg, scope } of servers) {
@@ -85,7 +87,7 @@ function cmdList(cwd: string): void {
 
 function cmdGet(args: string[]): void {
     const name = firstPositional(args);
-    if (!name) throw new McpUsageError("usage: loop mcp get <name>");
+    if (!name) throw new McpUsageError(`usage: ${PRODUCT_NAME} mcp get <name>`);
     const found = allServers(process.cwd()).find((s) => s.name === name);
     if (!found) throw new McpUsageError(`no MCP server named "${name}"`);
     console.log(`${name}  [scope: ${found.scope}]`);
@@ -95,7 +97,7 @@ function cmdGet(args: string[]): void {
 
 function cmdRemove(args: string[]): void {
     const name = firstPositional(args);
-    if (!name) throw new McpUsageError("usage: loop mcp remove <name> [--scope user|project]");
+    if (!name) throw new McpUsageError(`usage: ${PRODUCT_NAME} mcp remove <name> [--scope user|project]`);
     const cwd = process.cwd();
     const wanted = scopeFlag(args);
     let removed: McpScope | undefined;
@@ -110,7 +112,7 @@ function cmdRemove(args: string[]): void {
 
 function cmdSetEnabled(args: string[], enabled: boolean): void {
     const name = firstPositional(args);
-    if (!name) throw new McpUsageError(`usage: loop mcp ${enabled ? "enable" : "disable"} <name>`);
+    if (!name) throw new McpUsageError(`usage: ${PRODUCT_NAME} mcp ${enabled ? "enable" : "disable"} <name>`);
     const cwd = process.cwd();
     const wanted = scopeFlag(args);
     const ok =
@@ -122,7 +124,7 @@ function cmdSetEnabled(args: string[], enabled: boolean): void {
 
 async function cmdLogin(args: string[]): Promise<void> {
     const name = firstPositional(args);
-    if (!name) throw new McpUsageError("usage: loop mcp login <name>");
+    if (!name) throw new McpUsageError(`usage: ${PRODUCT_NAME} mcp login <name>`);
     const cfg = loadMcpServers(process.cwd())[name];
     if (!cfg) throw new McpUsageError(`no MCP server named "${name}"`);
     if (!isHttpServer(cfg)) throw new McpUsageError(`"${name}" is a stdio server — OAuth only applies to http/sse`);
@@ -138,7 +140,8 @@ function cmdAddJson(args: string[]): void {
     const positional = args.filter((a) => !a.startsWith("-"));
     const name = positional[0];
     const json = positional[1];
-    if (!name || !json) throw new McpUsageError(`usage: loop mcp add-json <name> '<json>' [--scope user|project]`);
+    if (!name || !json)
+        throw new McpUsageError(`usage: ${PRODUCT_NAME} mcp add-json <name> '<json>' [--scope user|project]`);
     let cfg: McpServerConfig;
     try {
         cfg = JSON.parse(json) as McpServerConfig;
@@ -156,17 +159,17 @@ function cmdAddJson(args: string[]): void {
 }
 
 function printHelp(): void {
-    console.log(`loop mcp — manage MCP (Model Context Protocol) servers
+    console.log(`${PRODUCT_NAME} mcp — manage MCP (Model Context Protocol) servers
 
 Usage:
-  loop mcp add [options] <name> <url>            add an http/sse server
-  loop mcp add [options] <name> -- <cmd> [args]  add a stdio (local) server
-  loop mcp add-json <name> '<json>'              add from a raw JSON config
-  loop mcp list                                  list configured servers
-  loop mcp get <name>                            show one server's config
-  loop mcp remove <name>                         remove a server
-  loop mcp enable|disable <name>                 toggle a server
-  loop mcp login <name>                          run the OAuth browser sign-in
+  ${PRODUCT_NAME} mcp add [options] <name> <url>            add an http/sse server
+  ${PRODUCT_NAME} mcp add [options] <name> -- <cmd> [args]  add a stdio (local) server
+  ${PRODUCT_NAME} mcp add-json <name> '<json>'              add from a raw JSON config
+  ${PRODUCT_NAME} mcp list                                  list configured servers
+  ${PRODUCT_NAME} mcp get <name>                            show one server's config
+  ${PRODUCT_NAME} mcp remove <name>                         remove a server
+  ${PRODUCT_NAME} mcp enable|disable <name>                 toggle a server
+  ${PRODUCT_NAME} mcp login <name>                          run the OAuth browser sign-in
 
 Options for add:
   --transport, -t <stdio|http|sse>   transport (default: stdio)
@@ -179,11 +182,11 @@ Options for add:
   --oauth-scopes a,b,c               OAuth scopes to request
 
 Examples:
-  loop mcp add --transport http docs https://code.claude.com/docs/mcp
-  loop mcp add --transport http figma https://mcp.figma.com/mcp --oauth
-  loop mcp add --transport sse linear https://mcp.linear.app/sse \\
+  ${PRODUCT_NAME} mcp add --transport http docs https://code.claude.com/docs/mcp
+  ${PRODUCT_NAME} mcp add --transport http figma https://mcp.figma.com/mcp --oauth
+  ${PRODUCT_NAME} mcp add --transport sse linear https://mcp.linear.app/sse \\
     --header "Authorization: Bearer \${env:LINEAR_TOKEN}"
-  loop mcp add fs -- npx -y @modelcontextprotocol/server-filesystem ~/code
+  ${PRODUCT_NAME} mcp add fs -- npx -y @modelcontextprotocol/server-filesystem ~/code
 
 Tokens: headers and \${env:VAR} placeholders resolve from your environment at
 connect time, so secrets stay out of the config file.`);

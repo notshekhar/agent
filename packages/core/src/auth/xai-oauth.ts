@@ -1,3 +1,4 @@
+import { brandEnv } from "../brand";
 import { createServer } from "node:http";
 import { XaiErrorCode, XaiOAuthError } from "./errors";
 import type { XaiOAuthCredentials } from "../types";
@@ -5,10 +6,10 @@ import type { XaiOAuthCredentials } from "../types";
 const DEFAULT_BASE_URL = "https://api.x.ai/v1";
 const ISSUER = "https://auth.x.ai";
 const DISCOVERY_URL = `${ISSUER}/.well-known/openid-configuration`;
-const CLIENT_ID = process.env.LOOP_XAI_OAUTH_CLIENT_ID || "b1a00492-073a-47ea-816f-4c329264a828";
-const SCOPE = process.env.LOOP_XAI_OAUTH_SCOPE || "openid profile email offline_access grok-cli:access api:access";
-const CALLBACK_HOST = process.env.LOOP_XAI_OAUTH_CALLBACK_HOST || "127.0.0.1";
-const CALLBACK_PORT = Number.parseInt(process.env.LOOP_XAI_OAUTH_CALLBACK_PORT || "56121", 10);
+const CLIENT_ID = brandEnv("XAI_OAUTH_CLIENT_ID") || "b1a00492-073a-47ea-816f-4c329264a828";
+const SCOPE = brandEnv("XAI_OAUTH_SCOPE") || "openid profile email offline_access grok-cli:access api:access";
+const CALLBACK_HOST = brandEnv("XAI_OAUTH_CALLBACK_HOST") || "127.0.0.1";
+const CALLBACK_PORT = Number.parseInt(brandEnv("XAI_OAUTH_CALLBACK_PORT") || "56121", 10);
 const CALLBACK_PATH = "/callback";
 const REFRESH_SKEW_MS = 120_000;
 
@@ -22,7 +23,7 @@ export interface OAuthLoginCallbacks {
 }
 
 export function getBaseUrl(): string {
-    return (process.env.LOOP_XAI_BASE_URL || process.env.XAI_BASE_URL || DEFAULT_BASE_URL).replace(/\/+$/, "");
+    return (brandEnv("XAI_BASE_URL") || process.env.XAI_BASE_URL || DEFAULT_BASE_URL).replace(/\/+$/, "");
 }
 
 function base64Url(buffer: ArrayBuffer | Uint8Array): string {

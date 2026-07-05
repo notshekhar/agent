@@ -9,6 +9,8 @@ import {
     removePiUserHook,
     type CommandContext,
     type HookEvent,
+    CONFIG_DIR_NAME,
+    PRODUCT_NAME,
 } from "@notshekhar/loop-core";
 import type { AppDeps } from "../deps";
 import type { AppState } from "../state";
@@ -28,7 +30,7 @@ export function createHookHandlers(state: AppState, deps: AppDeps): HookHandlers
                     {
                         value: "+add",
                         label: "+ add hook",
-                        description: "register a loop-owned hook in ~/.loop/settings.json",
+                        description: `register a loop-owned hook in ~/${CONFIG_DIR_NAME}/settings.json`,
                     },
                     ...entries.map((e, i) => ({
                         value: String(i),
@@ -69,9 +71,15 @@ export function createHookHandlers(state: AppState, deps: AppDeps): HookHandlers
                 if (!e) continue;
                 const label = `${e.event}: ${e.command.length > 50 ? `${e.command.slice(0, 47)}…` : e.command}`;
 
-                if (e.source === "loop-user") {
+                if (e.source === "user") {
                     const act = await selectOnce(
-                        [{ value: "remove", label: "remove", description: "delete from ~/.loop/settings.json" }],
+                        [
+                            {
+                                value: "remove",
+                                label: "remove",
+                                description: `delete from ~/${CONFIG_DIR_NAME}/settings.json`,
+                            },
+                        ],
                         label,
                     );
                     if (act?.value === "remove" && removePiUserHook(e.event, e.command)) {
@@ -85,8 +93,8 @@ export function createHookHandlers(state: AppState, deps: AppDeps): HookHandlers
                         [
                             {
                                 value: "copy",
-                                label: "copy to loop",
-                                description: "own it in ~/.loop/settings.json — keeps working without Claude Code",
+                                label: `copy to ${PRODUCT_NAME}`,
+                                description: `own it in ~/${CONFIG_DIR_NAME}/settings.json — keeps working without Claude Code`,
                             },
                         ],
                         `${label}  (${e.source})`,
@@ -94,14 +102,16 @@ export function createHookHandlers(state: AppState, deps: AppDeps): HookHandlers
                     if (act?.value === "copy") {
                         addPiUserHook(e.event, e.command, e.matcher, e.async);
                         history.addSystem(
-                            `hook copied to ~/.loop: ${e.event} → ${e.command.slice(0, 60)} — adjust claudeHooksFilter if it now fires twice`,
+                            `hook copied to ~/${CONFIG_DIR_NAME}: ${e.event} → ${e.command.slice(0, 60)} — adjust claudeHooksFilter if it now fires twice`,
                         );
                         tui.requestRender();
                     }
                     continue;
                 }
-                // loop-project hooks live in the repo — point there instead of mutating it.
-                history.addSystem(`project hook — edit ${state.cwd}/.loop/settings.json: ${e.event} → ${e.command}`);
+                // project-scope hooks live in the repo — point there instead of mutating it.
+                history.addSystem(
+                    `project hook — edit ${state.cwd}/${CONFIG_DIR_NAME}/settings.json: ${e.event} → ${e.command}`,
+                );
                 tui.requestRender();
             }
         },

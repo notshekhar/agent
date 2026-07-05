@@ -6,6 +6,7 @@
  * ACCOUNT can actually invoke in the region (foundation models + cross-region
  * inference profiles), not a hardcoded table.
  */
+import { brandEnv } from "../brand";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -52,7 +53,7 @@ function awsConfigFileRegion(): string | undefined {
 
 export function bedrockRegion(): string {
     return (
-        process.env.LOOP_BEDROCK_REGION ||
+        brandEnv("BEDROCK_REGION") ||
         process.env.AWS_REGION ||
         process.env.AWS_DEFAULT_REGION ||
         awsConfigFileRegion() ||

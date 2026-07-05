@@ -1,9 +1,9 @@
-import Configstore from "configstore";
+import { getConfigDir, PRODUCT_NAME } from "../brand";
+import { CachedStore } from "../auth/storage";
 import { join } from "node:path";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { GENERATED_MODELS } from "./generated/models";
 import { FALLBACK_MODELS, XAI_FALLBACK_MODELS, fallbackModelsForSdk } from "./fallbacks";
-import { getLoopDir } from "../auth/storage";
 import { getApiKey, getAccessToken, listAuthorizedProviders, listCustomProviders, saveCustomProvider } from "../auth";
 import {
     bedrockShortModelId,
@@ -17,10 +17,10 @@ import {
 import { getExtensionHost } from "../extensions";
 import type { ModelInfo, ProviderId } from "../types";
 
-const cacheStore = new Configstore(
-    "loop-agent-catalog",
+const cacheStore = new CachedStore(
+    `${PRODUCT_NAME}-agent-catalog`,
     { availability: {}, ts: 0, models: {}, modelsTs: 0 },
-    { configPath: join(getLoopDir(), "catalog.json") },
+    { configPath: join(getConfigDir(), "catalog.json") },
 );
 
 const TTL_MS = 60 * 60 * 1000; // 1h
@@ -217,7 +217,7 @@ async function bedrockModelSummaries(refresh: boolean): Promise<BedrockModelSumm
 }
 
 function userOverridesPath(): string {
-    return join(getLoopDir(), "models.json");
+    return join(getConfigDir(), "models.json");
 }
 
 function readUserOverrides(): Record<string, Partial<ModelInfo>> {

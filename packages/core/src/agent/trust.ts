@@ -8,6 +8,7 @@
  * Decision: true = trusted, false = explicitly untrusted, null = not yet asked.
  * Resources load only when the nearest decision is `true`.
  */
+import { CONFIG_DIR_NAME } from "../brand";
 import { existsSync, realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { allTrustRows, writeTrustRow } from "../sessions/projects";
@@ -27,7 +28,7 @@ function canonical(cwd: string): string {
 export function hasProjectTrustInputs(cwd: string): boolean {
     let dir = canonical(cwd);
     for (;;) {
-        if (existsSync(join(dir, ".loop")) || existsSync(join(dir, ".claude"))) return true;
+        if (existsSync(join(dir, CONFIG_DIR_NAME)) || existsSync(join(dir, ".claude"))) return true;
         const parent = dirname(dir);
         if (parent === dir) return false;
         dir = parent;

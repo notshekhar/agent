@@ -1,10 +1,10 @@
-# Writing loop extensions
+# Writing {{name}} extensions
 
-Extensions add to or override almost everything in loop: slash commands, tools,
+Extensions add to or override almost everything in {{name}}: slash commands, tools,
 providers and their models, agents, skills, settings, the system prompt, and the
 turn loop. They are plain **Bun/TypeScript** packages loaded in-process — no
-build step (loop transpiles the entry on import) and they may carry their own npm
-dependencies (resolved by the Bun runtime shipped inside the loop binary).
+build step ({{name}} transpiles the entry on import) and they may carry their own npm
+dependencies (resolved by the Bun runtime shipped inside the {{name}} binary).
 
 ## Anatomy
 
@@ -21,14 +21,14 @@ my-ext/
 
 ```jsonc
 {
-    "name": "loop-ext-myext", // the extension's identity
+    "name": "{{name}}-ext-myext", // the extension's identity
     "version": "1.0.0",
     "type": "module",
     "dependencies": { "zod": "^3" }, // optional — its own deps
-    "loop": {
+    "{{name}}": {
         "entry": "./index.ts", // optional; default: module → main → index.ts
         "displayName": "My Extension",
-        "engines": { "loop": "^0.1" }, // optional host API range (major checked)
+        "engines": { "{{name}}": "^0.1" }, // optional host API range (major checked)
         "permissions": ["fs", "net"], // optional, advisory for now
     },
 }
@@ -37,30 +37,30 @@ my-ext/
 Entry module:
 
 ```ts
-import type { LoopAPI } from "@notshekhar/loop-core"; // types only (optional)
+import type { ExtensionAPI } from "@notshekhar/{{name}}-core"; // types only (optional)
 
 export default {
-    activate(api: LoopAPI) {
+    activate(api: ExtensionAPI) {
         // register contributions here
     },
     deactivate() {
-        // optional; loop already undoes every contribution on disable/uninstall.
+        // optional; {{name}} already undoes every contribution on disable/uninstall.
         // Use this only to release your own resources (timers, subprocesses).
     },
 };
 ```
 
-Everything an extension registers is **owned** by it: loop tears it all down on
+Everything an extension registers is **owned** by it: {{name}} tears it all down on
 disable / uninstall / reload. You never unwind your own contributions.
 
 ## Install & manage
 
 ```
-loop install <npm-name|@scope/pkg|github:owner/repo|https://github.com/o/r|./local-path>
-loop link <path>          # dev: load a local folder in place
-loop list                 # or: loop extensions
-loop enable <name> / loop disable <name>
-loop remove <name>
+{{name}} install <npm-name|@scope/pkg|github:owner/repo|https://github.com/o/r|./local-path>
+{{name}} link <path>          # dev: load a local folder in place
+{{name}} list                 # or: {{name}} extensions
+{{name}} enable <name> / {{name}} disable <name>
+{{name}} remove <name>
 ```
 
 In-session: `/extensions` (panel: enable/disable/reload/uninstall/info) and
@@ -69,9 +69,9 @@ newly added **slash commands** need `/reload`.
 
 ## Built-in extensions
 
-loop ships several extensions inside the binary — already "installed", just
-**disabled by default**. They show in `/extensions` and `loop list` with no
-install step; the user enables the ones they want (`loop enable <name>` or the
+{{name}} ships several extensions inside the binary — already "installed", just
+**disabled by default**. They show in `/extensions` and `{{name}} list` with no
+install step; the user enables the ones they want (`{{name}} enable <name>` or the
 panel). They can be enabled/disabled/reloaded but not uninstalled.
 
 | name       | what it does                                                                                      |
@@ -87,7 +87,7 @@ These are also the reference implementations — read their source under
 external-process lifecycle). Because they're statically bundled, built-ins carry
 no per-extension `node_modules`: a built-in either uses only the runtime/`ai`
 SDK or embeds its assets (e.g. ponytail/caveman embed their skill text as a TS
-constant). Third-party extensions you `loop install` get their own `node_modules`.
+constant). Third-party extensions you `{{name}} install` get their own `node_modules`.
 
 ## The `api` object
 
@@ -183,7 +183,7 @@ api.settings.setOwn("level", "debug");
 
 Add a whole provider and the models inside it. Two flavors.
 
-**Declarative** (OpenAI/Anthropic/Google-compatible endpoints — loop builds the
+**Declarative** (OpenAI/Anthropic/Google-compatible endpoints — {{name}} builds the
 model for you):
 
 ```ts
@@ -209,7 +209,7 @@ api.providers.register({
 ```
 
 Models are addressed `myvendor/fast-1`, show in `/model`, and price correctly.
-Key resolution order: config `apiKey` → loop auth store (`loop login myvendor`) →
+Key resolution order: config `apiKey` → {{name}} auth store (`{{name}} login myvendor`) →
 `auth.envVar`. Apikey providers appear in the `/login` picker automatically.
 
 **Imperative** (custom auth/fetch/SDK — you build the ai-sdk model, importing
@@ -308,14 +308,14 @@ api.commands.register({
 ```
 
 > **Interactive only.** Every `api.ui.*` method **throws** in non-interactive
-> (`loop -p` / print) mode. Guard interactive flows, or keep them inside command
+> (`{{name}} -p` / print) mode. Guard interactive flows, or keep them inside command
 > handlers (which only run in a real session).
 
 ### Auth & OAuth — secrets, browser, loopback login
 
 Namespaced secret storage (kept out of `settings.json`) plus a browser opener and
 a localhost-loopback OAuth helper — enough to implement a full remote-auth flow.
-loop catches the redirect and hands you the `code`; you do the provider-specific
+{{name}} catches the redirect and hands you the `code`; you do the provider-specific
 token exchange yourself and persist the result with `setSecret`.
 
 ```ts
@@ -385,7 +385,7 @@ string (appended to the usage row), or `null`/`undefined` to add nothing.
 - `deactivate()` runs on disable / uninstall / reload / app exit — close
   anything you opened (subprocesses, watchers, sockets).
 - A throwing `activate` is caught: the extension is skipped and a warning is
-  surfaced; it never crashes loop.
+  surfaced; it never crashes {{name}}.
 - Runtime is **Bun-only**. Use Bun/Web APIs and your own npm deps freely; there
   is no Node-compatibility shim to target.
 
@@ -421,12 +421,12 @@ export default {
 ```jsonc
 // package.json
 {
-    "name": "loop-ext-demo",
+    "name": "{{name}}-ext-demo",
     "version": "1.0.0",
     "type": "module",
     "dependencies": { "ai": "^5", "zod": "^3" },
-    "loop": { "entry": "./index.ts" },
+    "{{name}}": { "entry": "./index.ts" },
 }
 ```
 
-Install with `loop link ./my-ext` (dev) or `loop install <name|github:o/r>`.
+Install with `{{name}} link ./my-ext` (dev) or `{{name}} install <name|github:o/r>`.

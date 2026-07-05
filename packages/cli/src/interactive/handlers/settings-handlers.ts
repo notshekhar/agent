@@ -6,6 +6,7 @@ import { join } from "node:path";
 import type { SelectItem } from "@notshekhar/loop-tui";
 import {
     CommandRegistry,
+    CONFIG_DIR_NAME,
     DEFAULT_AGENT_NAME,
     agentExists,
     bustCatalogCache,
@@ -181,7 +182,7 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                 // applies live — the global theme proxy makes themed components
                 // re-resolve colors on the next render.
                 if (pick.value === "theme") {
-                    const customDir = join(process.env.HOME ?? "", ".loop", "agent", "themes");
+                    const customDir = join(process.env.HOME ?? "", CONFIG_DIR_NAME, "agent", "themes");
                     const custom = existsSync(customDir)
                         ? readdirSync(customDir)
                               .filter((f) => f.endsWith(".json"))

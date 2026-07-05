@@ -52,7 +52,7 @@ describe("session db v1 → v2 migration", () => {
 
     test("adds usage_usd to an existing v1 db and keeps its rows", () => {
         dir = mkdtempSync(join(tmpdir(), "loop-migrate-"));
-        const path = join(dir, "loop.db");
+        const path = join(dir, "agent.db");
         const v1 = new Database(path, { create: true });
         v1.exec(V1_SCHEMA);
         v1.run("INSERT INTO meta (key, value) VALUES ('schema_version', '1')");
@@ -90,7 +90,7 @@ describe("session db v1 → v2 migration", () => {
 
     test("new inserts persist the usd stamp into the derived column", () => {
         dir = mkdtempSync(join(tmpdir(), "loop-usd-col-"));
-        setDbPathForTests(join(dir, "loop.db"));
+        setDbPathForTests(join(dir, "agent.db"));
         const store = getSessionStore();
         const rowId = store.ensureSession({
             id: "s2",
@@ -134,7 +134,7 @@ describe("clean-shutdown marker", () => {
 
     test("open marks the run dirty; closeDb marks it clean", () => {
         dir = mkdtempSync(join(tmpdir(), "loop-clean-"));
-        const path = join(dir, "loop.db");
+        const path = join(dir, "agent.db");
         setDbPathForTests(path);
         expect(marker()).toBe("0");
         // setDbPathForTests(path) closes via closeDb, then reopen reads the marker

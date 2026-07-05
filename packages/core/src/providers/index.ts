@@ -1,3 +1,4 @@
+import { brandEnv, PRODUCT_NAME } from "../brand";
 import type { LanguageModel } from "ai";
 import {
     getAccessToken,
@@ -71,7 +72,7 @@ function messageContentToText(content: unknown): string {
 }
 
 function openaiChatgptAuthFetch(): typeof fetch {
-    const overrideInstructions = process.env.LOOP_CODEX_INSTRUCTIONS;
+    const overrideInstructions = brandEnv("CODEX_INSTRUCTIONS");
     return withPreconnect(async (input, init) => {
         const creds = await resolveOAuthCreds("openai-chatgpt");
         if (!creds) throw new Error("No ChatGPT credentials. Run: /login openai-chatgpt");
@@ -120,7 +121,7 @@ function openaiChatgptAuthFetch(): typeof fetch {
 
 /** Ollama host root (no /api suffix). Override with LOOP_OLLAMA_BASE_URL. */
 export function ollamaBaseURL(): string {
-    return (process.env.LOOP_OLLAMA_BASE_URL || "http://127.0.0.1:11434").replace(/\/+$/, "");
+    return (brandEnv("OLLAMA_BASE_URL") || "http://127.0.0.1:11434").replace(/\/+$/, "");
 }
 
 export interface OllamaModelTag {
@@ -199,7 +200,7 @@ function xaiAuthFetch(): typeof fetch {
             token = await getAccessToken("xai");
         } catch {
             const key = getApiKey("xai");
-            if (!key) throw new Error("No xAI credentials. Run: loop login xai");
+            if (!key) throw new Error(`No xAI credentials. Run: ${PRODUCT_NAME} login xai`);
             token = key;
         }
         const headers = new Headers(init?.headers);
@@ -402,26 +403,26 @@ export async function getModel(fullId: string): Promise<LanguageModel> {
             const { createXai } = await import("@ai-sdk/xai");
             const xai = createXai({
                 apiKey: getApiKey("xai") ?? "placeholder",
-                baseURL: process.env.LOOP_XAI_BASE_URL || "https://api.x.ai/v1",
+                baseURL: brandEnv("XAI_BASE_URL") || "https://api.x.ai/v1",
                 fetch: xaiAuthFetch(),
             });
             return xai(model);
         }
         case "anthropic": {
             const key = getApiKey("anthropic");
-            if (!key) throw new Error("No Anthropic API key. Run: loop login anthropic");
+            if (!key) throw new Error(`No Anthropic API key. Run: ${PRODUCT_NAME} login anthropic`);
             const { createAnthropic } = await import("@ai-sdk/anthropic");
             return createAnthropic({ apiKey: key })(model);
         }
         case "openai": {
             const key = getApiKey("openai");
-            if (!key) throw new Error("No OpenAI API key. Run: loop login openai");
+            if (!key) throw new Error(`No OpenAI API key. Run: ${PRODUCT_NAME} login openai`);
             const { createOpenAI } = await import("@ai-sdk/openai");
             return createOpenAI({ apiKey: key })(model);
         }
         case "google": {
             const key = getApiKey("google");
-            if (!key) throw new Error("No Google API key. Run: loop login google");
+            if (!key) throw new Error(`No Google API key. Run: ${PRODUCT_NAME} login google`);
             const { createGoogleGenerativeAI } = await import("@ai-sdk/google");
             return createGoogleGenerativeAI({ apiKey: key })(model);
         }
@@ -433,52 +434,52 @@ export async function getModel(fullId: string): Promise<LanguageModel> {
             // provider-routing/reasoning options the OpenAI-compatible route
             // would drop. Bump it to a v4-spec build when upstream ships one.
             const key = getApiKey("openrouter");
-            if (!key) throw new Error("No OpenRouter API key. Run: loop login openrouter");
+            if (!key) throw new Error(`No OpenRouter API key. Run: ${PRODUCT_NAME} login openrouter`);
             const { createOpenRouter } = await import("@openrouter/ai-sdk-provider");
             return createOpenRouter({ apiKey: key })(model);
         }
         case "deepseek": {
             const key = getApiKey("deepseek");
-            if (!key) throw new Error("No DeepSeek API key. Run: loop login deepseek");
+            if (!key) throw new Error(`No DeepSeek API key. Run: ${PRODUCT_NAME} login deepseek`);
             const { createDeepSeek } = await import("@ai-sdk/deepseek");
             return createDeepSeek({ apiKey: key })(model);
         }
         case "mistral": {
             const key = getApiKey("mistral");
-            if (!key) throw new Error("No Mistral API key. Run: loop login mistral");
+            if (!key) throw new Error(`No Mistral API key. Run: ${PRODUCT_NAME} login mistral`);
             const { createMistral } = await import("@ai-sdk/mistral");
             return createMistral({ apiKey: key })(model);
         }
         case "glm": {
             // Zhipu GLM models via the BigModel endpoint (open.bigmodel.cn).
             const key = getApiKey("glm");
-            if (!key) throw new Error("No GLM (Zhipu) API key. Run: loop login glm");
+            if (!key) throw new Error(`No GLM (Zhipu) API key. Run: ${PRODUCT_NAME} login glm`);
             const { createZhipu } = await import("zhipu-ai-provider");
             return createZhipu({ apiKey: key })(model);
         }
         case "zai": {
             // Same Zhipu GLM models via the international z.ai endpoint.
             const key = getApiKey("zai");
-            if (!key) throw new Error("No z.ai API key. Run: loop login zai");
+            if (!key) throw new Error(`No z.ai API key. Run: ${PRODUCT_NAME} login zai`);
             const { createZhipu } = await import("zhipu-ai-provider");
             return createZhipu({ apiKey: key, baseURL: "https://api.z.ai/api/paas/v4" })(model);
         }
         case "groq": {
             const key = getApiKey("groq");
-            if (!key) throw new Error("No Groq API key. Run: loop login groq");
+            if (!key) throw new Error(`No Groq API key. Run: ${PRODUCT_NAME} login groq`);
             const { createGroq } = await import("@ai-sdk/groq");
             return createGroq({ apiKey: key })(model);
         }
         case "zenmux": {
             // OpenAI-compatible gateway (https://zenmux.ai/api/v1), author/model ids.
             const key = getApiKey("zenmux");
-            if (!key) throw new Error("No ZenMux API key. Run: loop login zenmux");
+            if (!key) throw new Error(`No ZenMux API key. Run: ${PRODUCT_NAME} login zenmux`);
             const { createOpenAI } = await import("@ai-sdk/openai");
             return createOpenAI({ apiKey: key, baseURL: "https://zenmux.ai/api/v1" })(model);
         }
         case "cerebras": {
             const key = getApiKey("cerebras");
-            if (!key) throw new Error("No Cerebras API key. Run: loop login cerebras");
+            if (!key) throw new Error(`No Cerebras API key. Run: ${PRODUCT_NAME} login cerebras`);
             const { createCerebras } = await import("@ai-sdk/cerebras");
             return createCerebras({ apiKey: key })(model);
         }

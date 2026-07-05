@@ -1,3 +1,4 @@
+import { brandEnv, PRODUCT_NAME } from "../../brand";
 import { type SpawnSyncReturns, spawnSync } from "node:child_process";
 import { chmodSync, createWriteStream, existsSync, mkdirSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { arch, platform } from "node:os";
@@ -9,10 +10,10 @@ import { getBinDir } from "./shell";
 const TOOLS_DIR = getBinDir();
 const NETWORK_TIMEOUT_MS = 10_000;
 const DOWNLOAD_TIMEOUT_MS = 120_000;
-const APP_NAME = "loop";
+const APP_NAME = PRODUCT_NAME;
 
 function isOfflineModeEnabled(): boolean {
-    const v = process.env.LOOP_OFFLINE;
+    const v = brandEnv("OFFLINE");
     if (!v) return false;
     return v === "1" || v.toLowerCase() === "true" || v.toLowerCase() === "yes";
 }

@@ -9,7 +9,7 @@
  * `onSystemPrompt` (a persistent per-turn persona), with a `/caveman` command to
  * switch modes and the "stop caveman" phrase to disable.
  */
-import type { LoopAPI } from "../../api";
+import type { ExtensionAPI } from "../../api";
 import {
     buildInstructions,
     DEFAULT_MODE,
@@ -20,7 +20,7 @@ import {
 } from "./instructions";
 
 export default {
-    activate(api: LoopAPI) {
+    activate(api: ExtensionAPI) {
         const getMode = (): Mode => normalizeMode(api.settings.getOwn("mode", DEFAULT_MODE)) ?? DEFAULT_MODE;
         api.extension.setStatus(() => getMode());
 

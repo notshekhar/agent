@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.9.2] - 2026-07-05
+
+### Changed
+
+- **The whole product is rename-ready.** Every brand-derived value — the `~/.loop` config dir, `<cwd>/.loop` project dir, all `LOOP_*` environment variables, the `loop://` docs scheme, the `"loop"` extension-manifest key, CLI usage text, OAuth client names, the user-agent — now flows from a single `brand.ts` per package instead of being hardcoded in ~90 files. A future rename is a three-line constant edit plus the `RENAME.md` playbook; config and extensions migrate automatically (as `.pi` → `.loop` once did).
+- **The session database is now `agent.db`.** The filename is deliberately brand-free so renames never touch it. Your existing `~/.loop/loop.db` is adopted in place on first launch (an atomic rename, WAL/SHM sidecars included) — all sessions, cost history, trust decisions, and reminders carry over.
+- **Faster cold start, correct migration ordering.** Config stores no longer touch the disk at import time (configstore eagerly wrote its defaults file on construction), which both keeps `--help`/`--version` disk-free and fixes an ordering hazard where the config dir could spring into existence before the legacy-dir migration check ran.
+
 ## [0.9.1] - 2026-07-05
 
 ### Added

@@ -11,12 +11,14 @@
  * node_modules/<pkg>. `loop link` instead loads a local path in place (after a
  * `bun install` there) for development.
  */
+import { PRODUCT_NAME } from "../brand";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { parseSource } from "./sources";
 import { assertLoadable } from "./manifest";
 import { deleteRecord, extensionDir, extensionsDir, getRecord, putRecord } from "./store";
 import type { ExtensionManifest } from "./api";
+import { manifestSection } from "./api";
 
 /** Hard cap on one package-manager run — a stalled registry must not hang `loop install` forever. */
 const RUN_BUN_TIMEOUT_MS = 300_000;
@@ -71,7 +73,7 @@ function installedDepName(wrapperDir: string): string {
             const m = JSON.parse(
                 readFileSync(join(wrapperDir, "node_modules", n, "package.json"), "utf8"),
             ) as ExtensionManifest;
-            return m.loop !== undefined;
+            return manifestSection(m) !== undefined;
         } catch {
             return false;
         }
@@ -114,7 +116,7 @@ export async function installExtension(input: string): Promise<InstallResult> {
     mkdirSync(stageDir, { recursive: true });
     writeFileSync(
         join(stageDir, "package.json"),
-        JSON.stringify({ name: "loop-extension-host", private: true, type: "module" }, null, 2),
+        JSON.stringify({ name: `${PRODUCT_NAME}-extension-host`, private: true, type: "module" }, null, 2),
     );
 
     try {

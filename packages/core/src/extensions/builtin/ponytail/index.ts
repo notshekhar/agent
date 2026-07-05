@@ -8,7 +8,7 @@
  * prompt, a slash command (`/ponytail`) to switch modes, persisted settings
  * (`getOwn`/`setOwn`), and `onBeforeTurn` for the "stop ponytail" phrase.
  */
-import type { LoopAPI } from "../../api";
+import type { ExtensionAPI } from "../../api";
 import {
     buildInstructions,
     DEFAULT_MODE,
@@ -19,7 +19,7 @@ import {
 } from "./instructions";
 
 export default {
-    activate(api: LoopAPI) {
+    activate(api: ExtensionAPI) {
         const getMode = (): Mode => normalizeMode(api.settings.getOwn("mode", DEFAULT_MODE)) ?? DEFAULT_MODE;
         // Surface the active mode in the startup banner / panel so the
         // system-prompt injection is visible, not silent.

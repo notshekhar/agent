@@ -9,18 +9,18 @@
  * extension's TypeScript entry on import (verified to work inside a
  * `bun --compile` binary), and resolves the extension's own node_modules deps.
  */
+import { EXTENSION_MANIFEST_KEYS, getConfigDir, PRODUCT_NAME } from "../brand";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import Configstore from "configstore";
-import { getLoopDir, settingsStore } from "../auth/storage";
+import { CachedStore, settingsStore } from "../auth/storage";
 import { startCallbackServer } from "../auth/oauth-callback";
 import type {
     AgentPlugin,
     ExtensionManifest,
     ExtensionModule,
-    LoopAPI,
-    LoopUI,
+    ExtensionAPI,
+    ExtensionUI,
     ProviderPlugin,
     StatusLineContributor,
     StatusLineTransform,
@@ -28,7 +28,7 @@ import type {
     ToolResultMiddleware,
     TurnMiddleware,
 } from "./api";
-import { EXTENSION_API_VERSION } from "./api";
+import { EXTENSION_API_VERSION, requiredApiRange } from "./api";
 import { isCompatible, resolveEntry, resolvePkgDir } from "./manifest";
 import { collectProviderModelInfos } from "./providers";
 import { getBuiltinEnabled, listRecords, type ExtensionRecord } from "./store";
@@ -45,7 +45,7 @@ type ModelInfo = import("../types").ModelInfo;
  * undefined (so `api.ui` throws) and `openExternal` is a no-op.
  */
 export interface HostServices {
-    ui?: LoopUI;
+    ui?: ExtensionUI;
     openExternal?: (url: string) => void;
     /** Ask the interactive UI to repaint (e.g. a live status line). No-op in print mode. */
     requestRender?: () => void;
@@ -56,7 +56,11 @@ export interface HostServices {
  * its own file, mirroring the MCP auth store (mcp/oauth.ts). Shape:
  * `{ <extension>: { <key>: <value> } }`.
  */
-const extAuthStore = new Configstore("loop-agent-ext-auth", {}, { configPath: join(getLoopDir(), "ext-auth.json") });
+const extAuthStore = new CachedStore(
+    `${PRODUCT_NAME}-agent-ext-auth`,
+    {},
+    { configPath: join(getConfigDir(), "ext-auth.json") },
+);
 type SecretBag = Record<string, Record<string, string>>;
 
 type CommandOp =
@@ -186,7 +190,10 @@ export class ExtensionHost {
             enabled: true,
             installedAt: 0,
         };
-        const manifest: ExtensionManifest = { name: b.name, loop: { displayName: b.displayName } };
+        const manifest: ExtensionManifest = {
+            name: b.name,
+            [EXTENSION_MANIFEST_KEYS[0]]: { displayName: b.displayName },
+        };
         const contributions = emptyContributions();
         const api = this.makeApi(record, manifest, "", contributions);
         await b.module.activate?.(api);
@@ -199,7 +206,9 @@ export class ExtensionHost {
         if (!existsSync(pkgJsonPath)) throw new Error(`missing package.json at ${pkgDir}`);
         const manifest = JSON.parse(readFileSync(pkgJsonPath, "utf8")) as ExtensionManifest;
         if (!isCompatible(manifest)) {
-            throw new Error(`requires loop API ${manifest.loop?.engines?.loop}, host is ${EXTENSION_API_VERSION}`);
+            throw new Error(
+                `requires ${PRODUCT_NAME} API ${requiredApiRange(manifest)}, host is ${EXTENSION_API_VERSION}`,
+            );
         }
         const entry = resolveEntry(pkgDir, manifest);
         if (!existsSync(entry)) throw new Error(`entry not found: ${entry}`);
@@ -218,7 +227,12 @@ export class ExtensionHost {
         this.loaded.set(record.name, { record, manifest, pkgDir, module, contributions });
     }
 
-    private makeApi(record: ExtensionRecord, manifest: ExtensionManifest, pkgDir: string, c: Contributions): LoopAPI {
+    private makeApi(
+        record: ExtensionRecord,
+        manifest: ExtensionManifest,
+        pkgDir: string,
+        c: Contributions,
+    ): ExtensionAPI {
         // Info-level: routes to the chat as a dim system line, not a red error.
         const log = (...args: unknown[]) => console.log(`[${record.name}]`, ...args);
         // Per-extension settings live under one un-dotted top-level key as a
@@ -239,7 +253,7 @@ export class ExtensionHost {
 
         // api.ui — proxy to the CLI-injected bridge; throw when absent (print
         // mode) so an extension never silently no-ops an interactive flow.
-        const requireUi = (): LoopUI => {
+        const requireUi = (): ExtensionUI => {
             if (!this.services.ui) {
                 throw new Error(
                     `api.ui is not available in this context (non-interactive / print mode); ` +
@@ -248,7 +262,7 @@ export class ExtensionHost {
             }
             return this.services.ui;
         };
-        const ui: LoopUI = {
+        const ui: ExtensionUI = {
             select: (items, title, opts) => requireUi().select(items, title, opts),
             search: (items, title, opts) => requireUi().search(items, title, opts),
             prompt: (label, initial) => requireUi().prompt(label, initial),
@@ -269,7 +283,7 @@ export class ExtensionHost {
             if (this.services.openExternal) this.services.openExternal(url);
             else log(`cannot open browser (no opener in this context): ${url}`);
         };
-        const auth: LoopAPI["auth"] = {
+        const auth: ExtensionAPI["auth"] = {
             getSecret: (key) => readSecret(key),
             setSecret: (key, value) => writeSecrets((bag) => void (bag[key] = value)),
             deleteSecret: (key) => writeSecrets((bag) => void delete bag[key]),
@@ -314,7 +328,7 @@ export class ExtensionHost {
                 getOwn: ((key: string, fallback?: unknown) => {
                     const v = readOwn(key);
                     return (v === undefined ? fallback : v) as never;
-                }) as LoopAPI["settings"]["getOwn"],
+                }) as ExtensionAPI["settings"]["getOwn"],
                 setOwn: ((key: string, value: unknown) => writeOwn(key, value)) as never,
             },
             providers: {
