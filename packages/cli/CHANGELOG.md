@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.9.6] - 2026-07-05
+
+### Fixed
+
+- **The pending tool box now actually appears while write/edit input streams — the real fix.** An AI SDK v7 field rename (`toolCallId` → `id`, `inputTextDelta` → `delta` on tool-input stream parts) was read through casts, so it never failed the build: every tool-input-start event carried an undefined id, the UI dropped it, and the box for write/edit only appeared once the complete call arrived — on every provider, since the v6→v7 upgrade. Verified end-to-end against a live provider this time. Note: how early the box shows still depends on the provider — Anthropic/OpenAI stream tool arguments token by token (the preview grows live); xAI's composer sends each call's arguments in one chunk shortly before the call completes, so the pending window there is inherently brief.
+
 ## [0.9.5] - 2026-07-05
 
 ### Fixed
