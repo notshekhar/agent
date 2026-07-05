@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.9.1] - 2026-07-05
+
+### Added
+
+- **The session database heals itself.** If `~/.loop/loop.db` fails its integrity check — or is too damaged to even open — loop now sets the damaged file aside (kept as `loop.db.corrupt-<timestamp>` for forensics), starts a fresh database, salvages every readable row from the damaged one, and re-imports your retained JSONL transcripts to fill whatever couldn't be read. Your frozen pre-ledger cost baseline is carried over too. Previously a corrupt database was only logged and you ran on it anyway.
+
+### Changed
+
+- **Auto-compaction now counts the whole request.** The context estimate that decides when to compact previously ignored the system prompt and tool definitions — 10–20k tokens with workspace context and skills loaded — so compaction could kick in later than it should and a long turn could hit the window. The same honest estimate now also anchors interrupted-turn cost estimates.
+- **Cleaner output: no more emoji and icon prefixes.** The `✓`/`✗` prefixes on login, MCP, extension, and cost-audit messages are gone, as is the gear on hook lines — color already says what happened. Recaps now read `※ recap: …`, and `/steak` keeps its 🥩 (the pun is the feature).
+- **Long sessions walk their history faster** — the transcript branch walk was accidentally quadratic in session length; it's linear now.
+
 ## [0.9.0] - 2026-07-05
 
 ### Added
