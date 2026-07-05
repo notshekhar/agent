@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.9.5] - 2026-07-05
+
+### Fixed
+
+- **Streaming write/edit no longer freezes the box in expanded tool view.** The live preview re-rendered on every input token, and expanded mode syntax-highlighted the entire content-so-far each time — on large files the pending box never painted until the input finished streaming. Rendering now coalesces behind a ~50ms flush, and the expanded preview highlights only the last 200 lines while streaming (the completed call still shows everything). The grey box now appears the moment the call starts, in both views.
+
 ## [0.9.4] - 2026-07-05
 
 ### Changed
