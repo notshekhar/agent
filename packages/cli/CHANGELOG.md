@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.9.7] - 2026-07-05
+
+### Changed
+
+- **AI SDK upgraded across the board** — `ai` 7.0.15 and the latest provider adapters (xAI, Google, Groq, Mistral, DeepSeek, Cerebras, MCP). Verified against a live provider that tool-input streaming (the v0.9.6 fix) still works on the new versions.
+
 ## [0.9.6] - 2026-07-05
 
 ### Fixed
