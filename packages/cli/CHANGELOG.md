@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.9.4] - 2026-07-05
+
+### Changed
+
+- **`edit` streams its replacement text live, like `write`.** The edit box previously sat empty until the whole call finished (its nested input defeated the partial-JSON parser); the replacement text now fills the box as it streams, and the red/green diff still takes over when the call completes.
+
 ## [0.9.3] - 2026-07-05
 
 ### Added
@@ -13,7 +19,6 @@
 ### Changed
 
 - **Esc in an ask prompt skips only that question.** Previously Esc on question 1 of 3 silently declined all three; the remaining questions now still show. Aborting everything stays on the turn interrupt (Ctrl+C / Esc on the turn).
-- **`edit` streams its replacement text live, like `write`.** The edit box previously sat empty until the whole call finished (its nested input defeated the partial-JSON parser); the replacement text now fills the box as it streams, and the red/green diff still takes over when the call completes.
 - **A subagent handed a prompt with no instruction now says so** — one cheap bounce-back asking the main agent to re-issue the task, instead of inventing a plausible-sounding task and spending a whole run investigating it.
 
 ### Fixed
