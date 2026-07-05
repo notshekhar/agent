@@ -4,7 +4,7 @@ import type { ChatHistory } from "./components/chat-history";
 import type { AppState } from "./state";
 import type { SubagentStream } from "./subagent-stream";
 import { formatError } from "./format-error";
-import { parsePartialToolInput } from "./ui/streaming-input";
+import { parsePartialEditInput, parsePartialToolInput } from "./ui/streaming-input";
 
 type TurnEmitter = ReturnType<typeof asTurnEmitter>;
 
@@ -41,29 +41,32 @@ export function wireTurnEmitter(emitter: TurnEmitter, deps: TurnEmitterDeps): vo
         history.appendAssistantThinking(t, turnProvider, state.modelId);
         tui.requestRender();
     });
-    // Raw JSON input text of still-streaming write calls, keyed by toolCallId —
-    // re-parsed on each delta so the box can show the path + content live.
-    const writeInputBuffers = new Map<string, string>();
+    // Raw JSON input text of still-streaming write/edit calls, keyed by
+    // toolCallId — re-parsed on each delta so the box shows path + content
+    // live. The tool name picks the parser (edit's input is nested).
+    const writeInputBuffers = new Map<string, { tool: string; buf: string }>();
 
     // The call has begun streaming its input: show the pending box immediately so
     // a large-input tool (e.g. write's file content) doesn't pop in only once
     // complete. The full `tool-call` below fills in the args on the same box.
     emitter.on("tool-input-start", (part: { toolName?: string; toolCallId?: string }) => {
         if (!part.toolCallId) return;
-        if (part.toolName === "write") writeInputBuffers.set(part.toolCallId, "");
+        if (part.toolName === "write" || part.toolName === "edit") {
+            writeInputBuffers.set(part.toolCallId, { tool: part.toolName, buf: "" });
+        }
         history.addToolCall(part.toolName ?? "tool", part.toolCallId, {});
         showWorking(`Running ${part.toolName}…`);
         tui.requestRender();
     });
-    // Live write rendering: grow the buffered input and re-extract its string
-    // fields, so the pending box fills with the file content as it streams.
+    // Live write/edit rendering: grow the buffered input and re-extract its
+    // string fields, so the pending box fills with the content as it streams.
     emitter.on("tool-input-delta", (part: { toolCallId?: string; delta: string }) => {
         const id = part.toolCallId ?? "";
-        const buffer = writeInputBuffers.get(id);
-        if (buffer === undefined || !part.delta) return;
-        const grown = buffer + part.delta;
-        writeInputBuffers.set(id, grown);
-        history.updateToolInputStream(id, parsePartialToolInput(grown));
+        const entry = writeInputBuffers.get(id);
+        if (entry === undefined || !part.delta) return;
+        entry.buf += part.delta;
+        const fields = entry.tool === "edit" ? parsePartialEditInput(entry.buf) : parsePartialToolInput(entry.buf);
+        history.updateToolInputStream(id, fields);
         tui.requestRender();
     });
     emitter.on("tool-call", (part: { toolName?: string; input?: unknown; toolCallId?: string }) => {

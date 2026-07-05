@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { parsePartialToolInput } from "../src/interactive/ui/streaming-input";
+import { parsePartialEditInput, parsePartialToolInput } from "../src/interactive/ui/streaming-input";
 
 describe("parsePartialToolInput", () => {
     test("parses a complete write input", () => {
@@ -42,5 +42,47 @@ describe("parsePartialToolInput", () => {
     test("whitespace-tolerant", () => {
         const out = parsePartialToolInput('{ "path" : "a.ts" ,\n  "content" : "x" }');
         expect(out).toEqual({ path: "a.ts", content: "x" });
+    });
+});
+
+describe("parsePartialEditInput", () => {
+    test("parses a complete single-edit input (newText only, oldText skipped)", () => {
+        const out = parsePartialEditInput(
+            '{"path":"src/a.ts","edits":[{"oldText":"const x = 1;","newText":"const x = 2;"}]}',
+        );
+        expect(out).toEqual({ path: "src/a.ts", content: "const x = 2;" });
+    });
+
+    test("joins multiple edits with a separator line", () => {
+        const out = parsePartialEditInput(
+            '{"path":"a.ts","edits":[{"oldText":"a","newText":"A"},{"oldText":"b","newText":"B"}]}',
+        );
+        expect(out.content).toBe("A\n⋯\nB");
+    });
+
+    test("streams: path first, then a growing still-open newText", () => {
+        expect(parsePartialEditInput('{"path":"a.ts","edits":[{"oldT')).toEqual({ path: "a.ts" });
+        expect(parsePartialEditInput('{"path":"a.ts","edits":[{"oldText":"x","newText":"const y')).toEqual({
+            path: "a.ts",
+            content: "const y",
+        });
+    });
+
+    test("mid-oldText: only the path shows (no misattributed content)", () => {
+        const out = parsePartialEditInput('{"path":"a.ts","edits":[{"oldText":"function fo');
+        expect(out).toEqual({ path: "a.ts" });
+    });
+
+    test("field names inside string values are not mistaken for keys", () => {
+        const out = parsePartialEditInput(
+            '{"path":"a.ts","edits":[{"oldText":"say \\"newText\\": here","newText":"real"}]}',
+        );
+        expect(out.content).toBe("real");
+    });
+
+    test("handles the very start of the stream", () => {
+        expect(parsePartialEditInput("")).toEqual({});
+        expect(parsePartialEditInput('{"pa')).toEqual({});
+        expect(parsePartialEditInput('{"path":"sr')).toEqual({ path: "sr" });
     });
 });

@@ -1,10 +1,11 @@
 /**
  * Incremental view over a tool call's input while it is still streaming as raw
  * JSON text. A full JSON.parse can't work here — the buffer usually ends in the
- * middle of a string value — so this walks the partial object literal and pulls
- * out every top-level string field it has seen so far (for write: `path`, then
- * `content` growing chunk by chunk). Used by the live tool box to render a
- * write's file content as it streams instead of popping in only when complete.
+ * middle of a string value — so these walk the partial object literal and pull
+ * out the fields seen so far. parsePartialToolInput handles flat string fields
+ * (write: `path`, then `content` growing chunk by chunk); parsePartialEditInput
+ * handles edit's nested `edits[].newText` shape. Used by the live tool box to
+ * render file content as it streams instead of popping in only when complete.
  */
 
 /** Decoded string starting at the opening quote `start`, the index just past
@@ -74,5 +75,50 @@ export function parsePartialToolInput(json: string): Record<string, string> {
             key = null;
         }
     }
+    return out;
+}
+
+/** Separator between edits in the live preview — visually splits hunks the
+ * way the final diff will, without pretending to be one. */
+const EDIT_SEPARATOR = "⋯";
+
+/**
+ * Extract `path` and the growing replacement text from edit's nested input
+ * (`{ path, edits: [{ oldText, newText }, …] }`). Depth doesn't matter for
+ * display, so instead of a full parser this walks every string in the buffer
+ * and classifies it by the preceding significant character — `{`/`,` means
+ * key, `:` means value — which is unambiguous in JSON at any nesting level.
+ * Values whose key was `newText` (including a still-open last one) join into
+ * `content`, so the box shows what's being written; oldText is skipped — the
+ * result diff renders it better once the call completes.
+ */
+export function parsePartialEditInput(json: string): Record<string, string> {
+    const out: Record<string, string> = {};
+    const newTexts: string[] = [];
+    let lastSig = "";
+    let lastKey: string | null = null;
+    let i = json.indexOf("{");
+    if (i === -1) return out;
+    while (i < json.length) {
+        const c = json[i];
+        if (c === '"') {
+            const s = readJsonString(json, i);
+            if (lastSig === ":") {
+                if (lastKey === "path") out.path = s.text;
+                else if (lastKey === "newText") newTexts.push(s.text);
+                lastKey = null;
+            } else {
+                if (!s.closed) break; // key still streaming
+                lastKey = s.text;
+            }
+            if (!s.closed) break;
+            lastSig = '"';
+            i = s.end;
+        } else {
+            if (c !== " " && c !== "\n" && c !== "\r" && c !== "\t") lastSig = c;
+            i++;
+        }
+    }
+    if (newTexts.length > 0) out.content = newTexts.join(`\n${EDIT_SEPARATOR}\n`);
     return out;
 }
