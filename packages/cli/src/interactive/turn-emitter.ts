@@ -42,9 +42,23 @@ export function wireTurnEmitter(emitter: TurnEmitter, deps: TurnEmitterDeps): vo
         tui.requestRender();
     });
     // Raw JSON input text of still-streaming write/edit calls, keyed by
-    // toolCallId — re-parsed on each delta so the box shows path + content
-    // live. The tool name picks the parser (edit's input is nested).
-    const writeInputBuffers = new Map<string, { tool: string; buf: string }>();
+    // toolCallId — re-parsed so the box shows path + content live. The tool
+    // name picks the parser (edit's input is nested). Parsing + re-render are
+    // coalesced behind a ~50ms timer (same pattern as subagent-stream):
+    // per-token re-rendering starved the TUI of frames — in expanded mode the
+    // grey box never painted at all until the input finished streaming.
+    const writeInputBuffers = new Map<string, { tool: string; buf: string; dirty: boolean }>();
+    let inputFlushTimer: ReturnType<typeof setTimeout> | null = null;
+    const flushInputStreams = () => {
+        inputFlushTimer = null;
+        for (const [id, entry] of writeInputBuffers) {
+            if (!entry.dirty) continue;
+            entry.dirty = false;
+            const fields = entry.tool === "edit" ? parsePartialEditInput(entry.buf) : parsePartialToolInput(entry.buf);
+            history.updateToolInputStream(id, fields);
+        }
+        tui.requestRender();
+    };
 
     // The call has begun streaming its input: show the pending box immediately so
     // a large-input tool (e.g. write's file content) doesn't pop in only once
@@ -52,22 +66,21 @@ export function wireTurnEmitter(emitter: TurnEmitter, deps: TurnEmitterDeps): vo
     emitter.on("tool-input-start", (part: { toolName?: string; toolCallId?: string }) => {
         if (!part.toolCallId) return;
         if (part.toolName === "write" || part.toolName === "edit") {
-            writeInputBuffers.set(part.toolCallId, { tool: part.toolName, buf: "" });
+            writeInputBuffers.set(part.toolCallId, { tool: part.toolName, buf: "", dirty: false });
         }
         history.addToolCall(part.toolName ?? "tool", part.toolCallId, {});
         showWorking(`Running ${part.toolName}…`);
         tui.requestRender();
     });
-    // Live write/edit rendering: grow the buffered input and re-extract its
-    // string fields, so the pending box fills with the content as it streams.
+    // Live write/edit rendering: grow the buffered input; the flush timer
+    // re-extracts its string fields so the pending box fills with the content
+    // as it streams — at ~20fps, not per token.
     emitter.on("tool-input-delta", (part: { toolCallId?: string; delta: string }) => {
-        const id = part.toolCallId ?? "";
-        const entry = writeInputBuffers.get(id);
+        const entry = writeInputBuffers.get(part.toolCallId ?? "");
         if (entry === undefined || !part.delta) return;
         entry.buf += part.delta;
-        const fields = entry.tool === "edit" ? parsePartialEditInput(entry.buf) : parsePartialToolInput(entry.buf);
-        history.updateToolInputStream(id, fields);
-        tui.requestRender();
+        entry.dirty = true;
+        if (!inputFlushTimer) inputFlushTimer = setTimeout(flushInputStreams, 50);
     });
     emitter.on("tool-call", (part: { toolName?: string; input?: unknown; toolCallId?: string }) => {
         const id = part.toolCallId ?? `${part.toolName}-${Date.now()}`;

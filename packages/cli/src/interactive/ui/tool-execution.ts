@@ -10,6 +10,11 @@ import { formatToolArgs, readLineRangeText } from "./tool-summary";
 
 const COLLAPSED_LINES = 6;
 const EXPAND_HINT = "ctrl+e";
+/** Live-streaming preview cap in EXPANDED mode. Highlighting runs on every
+ * flush while input streams — unbounded, a large file made a single frame
+ * expensive enough to freeze the box. The full content still renders once
+ * the call completes (the result path has no such cap). */
+const STREAMING_EXPANDED_LINES = 200;
 
 export interface ToolResultLike {
     content: Array<{ type: string; text?: string }>;
@@ -226,15 +231,16 @@ export class ToolExecutionComponent extends Container {
     private streamingLines(): string[] | null {
         if (!this.isPartial || this.result || !this.streamingContent) return null;
         const raw = this.streamingContent.split("\n");
-        const truncated = !this.expanded && raw.length > COLLAPSED_LINES;
-        const shown = truncated ? raw.slice(-COLLAPSED_LINES) : raw;
+        // Expanded mode is capped too: the preview re-highlights on every
+        // flush, so an unbounded window froze the TUI on large files.
+        const cap = this.expanded ? STREAMING_EXPANDED_LINES : COLLAPSED_LINES;
+        const truncated = raw.length > cap;
+        const shown = truncated ? raw.slice(-cap) : raw;
         const lang = getLanguageFromPath(String(this.args.path ?? ""));
         const lines = lang ? highlightCode(shown.join("\n"), lang) : shown.map((l) => theme.fg("toolOutput", l));
         if (!truncated) return lines;
-        return [
-            theme.fg("dim", `… +${raw.length - COLLAPSED_LINES} earlier lines (${EXPAND_HINT} to expand)`),
-            ...lines,
-        ];
+        const hint = this.expanded ? "streaming" : `${EXPAND_HINT} to expand`;
+        return [theme.fg("dim", `… +${raw.length - cap} earlier lines (${hint})`), ...lines];
     }
 
     /** sql: the query, highlighted as a SQL block under the title. */
