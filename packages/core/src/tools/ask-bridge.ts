@@ -26,8 +26,10 @@ export interface AskAnswer {
     answers: string[];
     /** Answer came from the automatic "Other" free-text entry. */
     custom?: boolean;
-    /** User pressed Esc — this and all following questions were skipped. */
+    /** User pressed Esc — this question was skipped (the rest still show). */
     declined?: boolean;
+    /** Free-text note the user attached to a picked option (Tab in the menu). */
+    note?: string;
 }
 
 export interface AskUserBridge {

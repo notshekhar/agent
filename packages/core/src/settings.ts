@@ -15,6 +15,15 @@ export interface AppSettings {
     thinkingLevel?: ThinkingLevel;
     maxSteps?: number;
     subagentMaxSteps?: number;
+    /**
+     * Abort a subagent when the PROVIDER goes silent for this many seconds
+     * while we're waiting on it (a stalled stream that never errors). Only
+     * armed between steps / during generation — never while the subagent's own
+     * tools run, so a long build can't false-trip it. Deep-reasoning models
+     * that stream nothing while thinking may need this raised. Default 180;
+     * 0 disables.
+     */
+    subagentStallSeconds?: number;
     /** Master switch for the task tool (subagents). Default on. */
     subagents?: boolean;
     /**

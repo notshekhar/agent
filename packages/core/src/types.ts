@@ -108,7 +108,10 @@ export interface ModelInfo {
     name: string;
     contextWindow: number;
     maxOutput: number;
-    cost: { input: number; output: number; cacheRead: number; cacheWrite: number };
+    /** $/MTok. `reasoning` is the rate for reasoning output tokens on models
+     * that price them differently (e.g. Qwen: up to 4-10x the output rate);
+     * absent = reasoning bills at the plain output rate. */
+    cost: { input: number; output: number; cacheRead: number; cacheWrite: number; reasoning?: number };
     reasoning: boolean;
     modalities: string[];
     available: boolean;
@@ -246,6 +249,15 @@ export type Entry = EntryTreeFields &
               usage?: UsageBlock;
               /** Model that ran the subagent — pins its cost to the right pricing. */
               model?: string;
+              /** The task tool call that launched this run — the handle a later
+               * `follow_up` uses to continue it with context intact. */
+              toolCallId?: string;
+              /** toolCallId of the run this one continued (follow-up chains). */
+              followUpOf?: string;
+              /** Billed steps and wall-clock duration — replay renders the same
+               * `N steps · Xs · $` line the live box showed. */
+              steps?: number;
+              durationMs?: number;
           }
         | { type: "model-change"; from: string; to: string; ts: number }
         // usage/model on compact + branch-summary: their generateText calls are

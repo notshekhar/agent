@@ -215,6 +215,10 @@ export class ChatHistory extends Container {
     addToolResult(toolCallId: string, output: unknown, isError = false): void {
         const comp = this.toolComponents.get(toolCallId);
         if (!comp) return;
+        // Task output carries a run summary — surfaces steps/duration/cost in
+        // the done title (live runs and replayed sessions alike).
+        const stats = (output as { stats?: { steps?: number; durationMs?: number; usd?: number } } | null)?.stats;
+        if (stats && typeof stats === "object") comp.setTaskStats(stats);
         const text = stringifyResult(output);
         comp.updateResult({ content: [{ type: "text", text }], isError }, false);
         this.toolComponents.delete(toolCallId);

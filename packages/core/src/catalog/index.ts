@@ -49,7 +49,7 @@ interface RawDevModel {
     id?: string;
     name?: string;
     limit?: { context?: number; output?: number };
-    cost?: { input?: number; output?: number; cache_read?: number; cache_write?: number };
+    cost?: { input?: number; output?: number; cache_read?: number; cache_write?: number; reasoning?: number };
     reasoning?: boolean;
     modalities?: { input?: string[]; output?: string[] };
 }
@@ -74,6 +74,9 @@ async function fetchModelDefs(): Promise<Record<string, ModelInfo> | null> {
                         output: m.cost?.output ?? 0,
                         cacheRead: m.cost?.cache_read ?? 0,
                         cacheWrite: m.cost?.cache_write ?? 0,
+                        // Distinct reasoning-token rate (Qwen-style); absent for
+                        // the many models that bill reasoning as plain output.
+                        ...(m.cost?.reasoning !== undefined ? { reasoning: m.cost.reasoning } : {}),
                     },
                     reasoning: m.reasoning ?? false,
                     modalities: m.modalities?.input ?? ["text"],

@@ -71,10 +71,18 @@ export function renderSessionBranch(session: Session, history: ChatHistory, mode
         } else if (e.type === "subagent") {
             if (latestCompact && messageIndex < latestCompact.cutAt) continue;
             // Replay the task box exactly like a live run's final state: same
-            // { history, report } shape the task tool outputs.
+            // { history, report, stats } shape the task tool outputs. Stats come
+            // from the persisted entry (usd was stamped when the run was billed).
             const id = `replay-task-${e.ts}`;
             history.addToolCall("task", id, { agent: e.agent, prompt: e.prompt });
-            history.addToolResult(id, e.activity ? { history: e.activity, report: e.result } : e.result);
+            const stats =
+                e.steps !== undefined || e.durationMs !== undefined || e.usage?.usd !== undefined
+                    ? { steps: e.steps, durationMs: e.durationMs, usd: e.usage?.usd }
+                    : undefined;
+            history.addToolResult(
+                id,
+                e.activity || stats ? { history: e.activity ?? [], report: e.result, stats } : e.result,
+            );
         } else if (e.type === "branch-summary" && e.summary) {
             if (latestCompact && messageIndex < latestCompact.cutAt) continue;
             history.addBranchSummary(e.summary);

@@ -38,7 +38,15 @@ export interface TurnEvents {
     error: unknown;
     "subagent-delta": { toolCallId: string; agent: string; text: string };
     "subagent-tool": { toolCallId: string; agent: string; toolName?: string; input?: unknown };
-    "subagent-step-usage": { toolCallId: string; agent: string; usage: UsageBlock };
+    "subagent-step-usage": {
+        toolCallId: string;
+        agent: string;
+        usage: UsageBlock;
+        /** Completed steps so far and their billed USD sum — drives the live
+         * `step N · $x` ticker in the task box. */
+        steps?: number;
+        usd?: number;
+    };
     "subagent-finish": { toolCallId: string; agent: string; usage?: UsageBlock };
 }
 

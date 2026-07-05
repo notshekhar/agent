@@ -69,6 +69,7 @@ export function formatAskAnswers(questions: AskQuestion[], answers: AskAnswer[])
         if (!a || a.declined) line = "→ (no answer — user skipped this question)";
         else if (a.custom) line = `→ (custom answer) "${a.answers.join("; ")}"`;
         else line = `→ ${a.answers.join(", ")}`;
+        if (a?.note && !a.declined) line += `\n→ user note: "${a.note}"`;
         parts.push(`[${q.header}] ${q.question}${suffix}\n${line}`);
     }
     return parts.join("\n\n");
@@ -80,7 +81,7 @@ export function createAskTool(ctx: AskToolContext) {
 
 WHEN to ask: only when you are blocked on a decision that is genuinely the user's to make — one you cannot resolve from their request, the code, or a sensible default. Good uses: choosing between implementation approaches with real trade-offs, confirming a scope change or destructive/irreversible step, or picking product/UX behavior the user would care about. Do NOT ask about facts you can verify yourself (read the code instead), decisions with an obvious conventional default (pick it and mention your choice in your reply), or permission to proceed with work the user already requested. Reserve it for questions whose answer changes what you do next.
 
-HOW to ask: phrase each question as one complete, specific sentence ending in a question mark, including any context needed to answer it without re-reading the conversation. Give 2-4 distinct, mutually exclusive options with concise labels (1-5 words) and descriptions that state the trade-offs or consequences of each choice. ALWAYS make a recommendation: put the option you recommend FIRST and append " (Recommended)" to its label. Each question automatically shows an "Other" free-text entry, so never add your own "Other"/"Something else" catch-all. Set multiSelect true only when several options can sensibly be combined, and phrase the question accordingly. Prefer one call with a few questions over several calls. The user may decline to answer (Esc) — in that case proceed using your best judgment.`,
+HOW to ask: phrase each question as one complete, specific sentence ending in a question mark, including any context needed to answer it without re-reading the conversation. Give 2-4 distinct, mutually exclusive options with concise labels (1-5 words) and descriptions that state the trade-offs or consequences of each choice. ALWAYS make a recommendation: put the option you recommend FIRST and append " (Recommended)" to its label. Each question automatically shows an "Other" free-text entry, so never add your own "Other"/"Something else" catch-all. Set multiSelect true only when several options can sensibly be combined, and phrase the question accordingly. Prefer one call with a few questions over several calls. The user may skip individual questions (Esc) or attach a short free-text note to a picked option — treat a note as a clarification of that choice. For skipped questions proceed using your best judgment.`,
         inputSchema: askInputSchema,
         execute: async ({ questions }, options) => {
             const signal = options?.abortSignal ?? ctx.abortSignal;

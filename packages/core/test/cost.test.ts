@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { CostTracker, stampUsageCost, sumUsage } from "../src/agent/cost";
+import { CostTracker, outputUsd, stampUsageCost, sumUsage } from "../src/agent/cost";
 import { stepMessagesToEntries } from "../src/agent";
 import { Session } from "../src/sessions";
 import type { Entry, UsageBlock } from "../src/types";
@@ -11,6 +11,44 @@ const usage = (input: number, output: number, total?: number): UsageBlock => ({
     inputTokens: input,
     outputTokens: output,
     totalTokens: total ?? input + output,
+});
+
+describe("outputUsd — reasoning-rate models", () => {
+    test("no reasoning rate: all output tokens bill at the output price", () => {
+        const u: UsageBlock = { outputTokens: 1_000_000, outputTokenDetails: { reasoningTokens: 400_000 } };
+        expect(outputUsd({ output: 2 }, u)).toBeCloseTo(2, 10);
+    });
+
+    test("reasoning rate splits the bill: text at output price, reasoning at its own", () => {
+        // 600k text @ $2 + 400k reasoning @ $8 = 1.2 + 3.2
+        const u: UsageBlock = { outputTokens: 1_000_000, outputTokenDetails: { reasoningTokens: 400_000 } };
+        expect(outputUsd({ output: 2, reasoning: 8 }, u)).toBeCloseTo(4.4, 10);
+    });
+
+    test("provider-reported textTokens wins over the subtraction", () => {
+        const u: UsageBlock = {
+            outputTokens: 1_000_000,
+            outputTokenDetails: { textTokens: 500_000, reasoningTokens: 400_000 },
+        };
+        // 500k @ $2 + 400k @ $8 = 1 + 3.2
+        expect(outputUsd({ output: 2, reasoning: 8 }, u)).toBeCloseTo(4.2, 10);
+    });
+
+    test("reasoning reported OUTSIDE outputTokens bills both fully (clamped subtraction)", () => {
+        const u: UsageBlock = { outputTokens: 100_000, outputTokenDetails: { reasoningTokens: 400_000 } };
+        // text = max(0, 100k - 400k) = 0 → 0 @ $2 + 400k @ $8
+        expect(outputUsd({ output: 2, reasoning: 8 }, u)).toBeCloseTo(3.2, 10);
+    });
+
+    test("v6 flat reasoningTokens field is honored", () => {
+        const u: UsageBlock = { outputTokens: 1_000_000, reasoningTokens: 400_000 };
+        expect(outputUsd({ output: 2, reasoning: 8 }, u)).toBeCloseTo(4.4, 10);
+    });
+
+    test("zero reasoning tokens: plain output pricing even with a rate set", () => {
+        const u: UsageBlock = { outputTokens: 1_000_000 };
+        expect(outputUsd({ output: 2, reasoning: 8 }, u)).toBeCloseTo(2, 10);
+    });
 });
 
 describe("CostTracker.seedFromEntries", () => {

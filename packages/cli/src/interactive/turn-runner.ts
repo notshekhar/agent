@@ -151,6 +151,7 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
         } finally {
             traceEvent("turn", `end   "${text}" abortedAtEnd=${turnSignal.aborted}`);
             state.busy = false;
+            subagentStream.dispose();
             history.finishAssistant();
             hideWorking();
             tui.requestRender();

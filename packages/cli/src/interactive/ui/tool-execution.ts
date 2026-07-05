@@ -16,6 +16,21 @@ export interface ToolResultLike {
     isError: boolean;
 }
 
+/** Per-run summary a finished task box shows in its title (all optional —
+ * older persisted runs may miss any of them). */
+export interface TaskStatsLike {
+    steps?: number;
+    durationMs?: number;
+    usd?: number;
+}
+
+/** `41s` under a minute, `2m05s` beyond — compact enough for a title line. */
+export function formatTaskDuration(ms: number): string {
+    const s = Math.max(0, Math.round(ms / 1000));
+    if (s < 60) return `${s}s`;
+    return `${Math.floor(s / 60)}m${String(s % 60).padStart(2, "0")}s`;
+}
+
 export class ToolExecutionComponent extends Container {
     private box: Box;
     private expanded = false;
@@ -25,6 +40,8 @@ export class ToolExecutionComponent extends Container {
     private statusText = "";
     /** Live input while the call's args stream (write: file content so far). */
     private streamingContent = "";
+    /** Finished task run summary — steps/duration/cost in the done title. */
+    private taskStats?: TaskStatsLike;
 
     constructor(
         private toolName: string,
@@ -67,6 +84,13 @@ export class ToolExecutionComponent extends Container {
 
     updateStatus(status: string): void {
         this.statusText = status;
+        this.updateDisplay();
+        this.tui.requestRender();
+    }
+
+    /** Attach a finished task run's summary — rendered in the done title. */
+    setTaskStats(stats: TaskStatsLike): void {
+        this.taskStats = stats;
         this.updateDisplay();
         this.tui.requestRender();
     }
@@ -151,7 +175,11 @@ export class ToolExecutionComponent extends Container {
         // state is the live tool while running, then done/failed.
         if (this.toolName === "task") {
             const agent = typeof this.args.agent === "string" ? this.args.agent : "default";
-            const state = this.isPartial ? this.statusText || "running" : this.result?.isError ? "failed" : "done";
+            const state = this.isPartial
+                ? this.statusText || "running"
+                : this.result?.isError
+                  ? "failed"
+                  : ["done", ...this.taskStatsParts()].join(" · ");
             const snippet = typeof this.args.prompt === "string" ? this.args.prompt.split("\n")[0].slice(0, 50) : "";
             const title = theme.fg(this.titleColor(), theme.bold(`task ${agent}`));
             return `${title} ${theme.fg("muted", snippet ? `${state} · ${snippet}` : state)}`;
@@ -164,6 +192,17 @@ export class ToolExecutionComponent extends Container {
         // keeps its own color.
         const range = this.toolName === "read" ? this.readLineRange() : "";
         return `${title} ${theme.fg("muted", summary)}${range}`;
+    }
+
+    /** `12 steps · 41s · $0.0430` fragments — only what the run recorded. */
+    private taskStatsParts(): string[] {
+        const s = this.taskStats;
+        if (!s) return [];
+        const parts: string[] = [];
+        if (s.steps) parts.push(`${s.steps} step${s.steps === 1 ? "" : "s"}`);
+        if (s.durationMs !== undefined) parts.push(formatTaskDuration(s.durationMs));
+        if (s.usd !== undefined) parts.push(`$${s.usd.toFixed(4)}`);
+        return parts;
     }
 
     private argsSummary(): string {

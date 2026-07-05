@@ -20,7 +20,7 @@ import { createTools } from "../tools";
 import { getMcpManager } from "../mcp";
 import { getExtensionHost } from "../extensions";
 import { attachLedgerEntry, type Session } from "../sessions";
-import type { SubagentActivityPart, UsageBlock } from "../types";
+import type { Entry, SubagentActivityPart, UsageBlock } from "../types";
 import { buildSystemPrompt } from "./system-prompt";
 import {
     agentExists,
@@ -39,6 +39,7 @@ const SUBAGENT_SYSTEM_SUFFIX = `
 
 You are a subagent launched by a main agent. Rules of the run:
 - Work autonomously — there is no user to ask; resolve ambiguity with the most reasonable reading of the prompt and state which reading you chose.
+- If the prompt contains NO actionable task — only a path, a name, or a fragment with no instruction — do NOT invent one. Stop immediately and reply: "The task prompt contains no instruction — re-issue the task stating exactly what to find or do." Guessing at an unstated task wastes the entire run.
 - Stay on the given task. Do not expand scope or touch anything the prompt didn't cover.
 - Be economical while investigating: take the shortest path to the answer. Don't repeat searches, or exhaustively sweep directories when targeted reads suffice. Stop the moment you can answer — every extra step costs real money and delays the main agent.
 - Only your final message returns to the main agent — it is their only window into your work. Write like the main agent would: lead with the outcome, then the insight needed to understand and act (exact paths, names, key findings, conclusions, evidence, surprises). Be precise and concise for what was asked — complete enough that the main agent need not redo your investigation, but no padding and no play-by-play of what you tried.
@@ -91,6 +92,9 @@ export function createTaskTool(ctx: SubagentCtx) {
             "front-load the context you already have (exact paths, file/symbol names, findings so far, constraints, " +
             "conventions to follow) so it never re-discovers what you already know. State exactly what to return. " +
             "It runs autonomously and cannot ask questions. " +
+            "If an earlier task's report is missing a detail, don't relaunch from scratch: pass follow_up with " +
+            "that task call's tool call id — the subagent continues with the earlier run's context intact, so the " +
+            "prompt need only contain the new question. " +
             "Call task on its own: do not combine it with other tool calls in the same step — the subagent " +
             "covers the exploration itself.",
         inputSchema: z.object({
@@ -105,11 +109,26 @@ export function createTaskTool(ctx: SubagentCtx) {
                 .describe(
                     "Self-contained task for the subagent: one precise objective, the context you already have " +
                         "(exact paths, names, findings, constraints), and the exact output you expect back. The " +
-                        "subagent sees only this prompt — assume no shared context.",
+                        "subagent sees only this prompt — assume no shared context. With follow_up, just the new " +
+                        "question or instruction — the earlier run's context carries over.",
+                ),
+            follow_up: z
+                .string()
+                .optional()
+                .describe(
+                    "Tool call id of an earlier task call in this session to continue. The subagent resumes with " +
+                        "that run's prompt and activity as context instead of starting blank; its agent is reused " +
+                        "(agent is ignored). Use for narrow follow-up questions on work a subagent already did.",
                 ),
         }),
         execute: (input, options) =>
-            runSubagent(ctx, input.agent, input.prompt, (options as { toolCallId?: string })?.toolCallId ?? "task"),
+            runSubagent(
+                ctx,
+                input.agent,
+                input.prompt,
+                (options as { toolCallId?: string })?.toolCallId ?? "task",
+                input.follow_up,
+            ),
         // Anti-bloat (AI SDK subagents pattern): the parent model receives only
         // the subagent's final report, bounded — never the full history of
         // intermediate tool calls or file contents. The history is the tool
@@ -132,11 +151,72 @@ export function taskToolModelOutput({ output }: { output: unknown }): { type: "t
     return { type: "text", value: boundReport(reportOf(output)) };
 }
 
+/** Per-run cost/effort summary — shown in the task box title and persisted so
+ * replay renders the same line. usd is absent when the model isn't priceable. */
+export interface SubagentStats {
+    steps: number;
+    durationMs: number;
+    usd?: number;
+    model: string;
+}
+
 export interface SubagentOutput {
     /** Full ordered run (text/reasoning/tool parts, stream order) — what the box shows. */
     history: SubagentActivityPart[];
     /** The subagent's final response text — what the parent model reads. */
     report: string;
+    /** Run summary for display (never sent to the parent model). */
+    stats?: SubagentStats;
+}
+
+// A follow-up run replays each prior run's transcript as one assistant
+// message. Tail-capped per run so a chain of long runs can't blow the
+// follow-up's own context before it starts.
+const MAX_FOLLOWUP_TRANSCRIPT_CHARS = 12_000;
+
+/**
+ * Reconstruct the conversation of a prior subagent run — and any runs it
+ * itself continued — as alternating user/assistant messages, so a follow_up
+ * task resumes with that context instead of starting blank. Walks the
+ * followUpOf chain backwards (cycle-safe); returns undefined when the id
+ * doesn't match a persisted run on this branch. Pure + exported for tests.
+ */
+export function buildFollowUpThread(
+    entries: Entry[],
+    followUpId: string,
+): { agent: string; messages: ModelMessage[] } | undefined {
+    const byCallId = new Map<string, Extract<Entry, { type: "subagent" }>>();
+    for (const e of entries) {
+        if (e.type === "subagent" && e.toolCallId) byCallId.set(e.toolCallId, e);
+    }
+    const target = byCallId.get(followUpId);
+    if (!target) return undefined;
+
+    // Oldest-first chain: target's ancestors via followUpOf, then target.
+    const chain: Extract<Entry, { type: "subagent" }>[] = [];
+    const seen = new Set<string>();
+    for (
+        let run: typeof target | undefined = target;
+        run;
+        run = run.followUpOf ? byCallId.get(run.followUpOf) : undefined
+    ) {
+        if (run.toolCallId && seen.has(run.toolCallId)) break;
+        if (run.toolCallId) seen.add(run.toolCallId);
+        chain.unshift(run);
+    }
+
+    const messages: ModelMessage[] = [];
+    for (const run of chain) {
+        // The flattened activity (text + `> tool` lines) beats the bare report:
+        // the follow-up sees what was already explored and doesn't redo it.
+        let transcript = (run.activity ? formatSubagentActivity(run.activity) : "") || run.result;
+        if (transcript.length > MAX_FOLLOWUP_TRANSCRIPT_CHARS) {
+            transcript = `[earlier activity truncated]\n…${transcript.slice(-MAX_FOLLOWUP_TRANSCRIPT_CHARS)}`;
+        }
+        messages.push({ role: "user", content: run.prompt });
+        messages.push({ role: "assistant", content: transcript || "(no output)" });
+    }
+    return { agent: target.agent, messages };
 }
 
 /**
@@ -233,11 +313,27 @@ async function runSubagent(
     agentName: string | undefined,
     prompt: string,
     toolCallId: string,
+    followUp?: string,
 ): Promise<SubagentOutput> {
     // No override → fork of the turn's agent (session agent or one-shot
     // /<agent> for this message): same prompt, same tools, fresh context.
     const fork = ctx.turnAgent && agentExists(ctx.turnAgent) ? ctx.turnAgent : DEFAULT_AGENT_NAME;
-    const name = agentName && agentExists(agentName) ? agentName : fork;
+    let name = agentName && agentExists(agentName) ? agentName : fork;
+    // follow_up → resume a prior run: its transcript becomes the message
+    // history and its agent wins (continuity beats the agent param). A stale
+    // id fails soft — run fresh, with a visible warning below.
+    const followUpThread = followUp ? buildFollowUpThread(ctx.session.getBranch(), followUp) : undefined;
+    if (followUpThread && agentExists(followUpThread.agent)) name = followUpThread.agent;
+    // Stall watchdog: a provider stream that goes silent without erroring
+    // (dead socket, server-side hang) would otherwise pin the run forever —
+    // the parent turn can only wait. The controller chains the parent signal,
+    // so Esc still aborts everything; the timer trips only while we're waiting
+    // on the PROVIDER (armed between parts, disarmed while the subagent's own
+    // tools run, so a long build can't false-trip it).
+    const stall = new AbortController();
+    let stallTimer: ReturnType<typeof setTimeout> | null = null;
+    let stalled = false;
+    const onParentAbort = () => stall.abort();
     try {
         // Which model this subagent runs on: the agent file's `model:` >
         // the subagentModel setting > the parent's model. Everything below
@@ -361,8 +457,39 @@ async function runSubagent(
                   }
                 : {}),
         });
-        const result = await agent.stream({ prompt, abortSignal: ctx.abortSignal });
+        const stallSeconds = getSetting("subagentStallSeconds") ?? 180;
+        if (ctx.abortSignal?.aborted) stall.abort();
+        else ctx.abortSignal?.addEventListener("abort", onParentAbort);
+        // Armed only while the provider owes us the next part: every stream
+        // part re-arms; a pending tool execution disarms (tools have their own
+        // timeouts and can legitimately run long).
+        let pendingTools = 0;
+        const rearmStall = () => {
+            if (stallTimer) clearTimeout(stallTimer);
+            stallTimer = null;
+            if (stallSeconds > 0 && pendingTools === 0 && !stall.signal.aborted) {
+                stallTimer = setTimeout(() => {
+                    stalled = true;
+                    stall.abort();
+                }, stallSeconds * 1000);
+            }
+        };
 
+        // Follow-up: prior runs replay as user/assistant pairs, the new prompt
+        // is the final user message — same shape a live conversation would have.
+        const result = followUpThread
+            ? await agent.stream({
+                  messages: [...followUpThread.messages, { role: "user" as const, content: prompt }],
+                  abortSignal: stall.signal,
+              })
+            : await agent.stream({ prompt, abortSignal: stall.signal });
+
+        const startedAt = Date.now();
+        let steps = 0;
+        // Billed USD summed per step, stamped with the model that ran — the
+        // live `step N · $x` ticker and the persisted per-run cost. Unknown
+        // model → stays undefined (never a misleading $0.00).
+        let usdTotal: number | undefined;
         let totalUsage: UsageBlock | undefined;
         // Running per-step sum — when the run is aborted mid-flight `finish`
         // never arrives, but the completed steps were already billed; persist
@@ -383,60 +510,91 @@ async function runSubagent(
             activity.push({ type: "text", text });
             ctx.emitter.emit("subagent-delta", { toolCallId, agent: name, text });
         }
+        // Same fail-soft visibility for a follow_up id that matched no run.
+        if (followUp && !followUpThread) {
+            const text = `[follow_up "${followUp}" matches no earlier task in this session — starting fresh]\n`;
+            activity.push({ type: "text", text });
+            ctx.emitter.emit("subagent-delta", { toolCallId, agent: name, text });
+        }
         const appendDelta = (type: "text" | "reasoning", text: string) => {
             const last = activity[activity.length - 1];
             if (last && last.type === type) last.text += text;
             else activity.push({ type, text });
         };
         let lastYieldAt = Date.now();
-        for await (const part of result.stream) {
-            if (ctx.abortSignal?.aborted) break;
-            switch (part.type) {
-                case "text-delta":
-                    appendDelta("text", part.text);
-                    ctx.emitter.emit("subagent-delta", { toolCallId, agent: name, text: part.text });
-                    break;
-                case "reasoning-delta":
-                    appendDelta("reasoning", part.text);
-                    break;
-                case "tool-call": {
-                    const toolName = (part as { toolName?: string }).toolName;
-                    const input = (part as { input?: unknown }).input;
-                    activity.push({ type: "tool", name: toolName ?? "tool", summary: subagentArgSummary(input) });
-                    ctx.emitter.emit("subagent-tool", { toolCallId, agent: name, toolName, input });
-                    break;
-                }
-                case "finish-step": {
-                    // Per-step cost accrual into the parent's tracker — the
-                    // footer ticks while the subagent works, and aborts keep
-                    // the spend of completed steps.
-                    const u = (part as { usage?: UsageBlock }).usage;
-                    if (u) {
-                        stepUsageSum = sumUsage(stepUsageSum, u);
-                        ctx.tracker.add(modelId, u, {
-                            cwd: ctx.cwd,
-                            sessionPub: ctx.sessionId,
-                            source: "subagent",
-                        });
-                        const rowId = ctx.tracker.takeLastLedgerRowId();
-                        if (rowId !== undefined) ledgerRowIds.push(rowId);
-                        ctx.emitter.emit("subagent-step-usage", { toolCallId, agent: name, usage: u });
+        rearmStall();
+        try {
+            for await (const part of result.stream) {
+                // Covers the parent's Esc too — the parent signal chains into stall.
+                if (stall.signal.aborted) break;
+                // Watchdog accounting: a tool call in flight means the silence is
+                // ours, not the provider's; every part proves liveness and re-arms.
+                if (part.type === "tool-call") pendingTools++;
+                else if (part.type === "tool-result" || part.type === "tool-error")
+                    pendingTools = Math.max(0, pendingTools - 1);
+                rearmStall();
+                switch (part.type) {
+                    case "text-delta":
+                        appendDelta("text", part.text);
+                        ctx.emitter.emit("subagent-delta", { toolCallId, agent: name, text: part.text });
+                        break;
+                    case "reasoning-delta":
+                        appendDelta("reasoning", part.text);
+                        break;
+                    case "tool-call": {
+                        const toolName = (part as { toolName?: string }).toolName;
+                        const input = (part as { input?: unknown }).input;
+                        activity.push({ type: "tool", name: toolName ?? "tool", summary: subagentArgSummary(input) });
+                        ctx.emitter.emit("subagent-tool", { toolCallId, agent: name, toolName, input });
+                        break;
                     }
-                    break;
+                    case "finish-step": {
+                        // Per-step cost accrual into the parent's tracker — the
+                        // footer ticks while the subagent works, and aborts keep
+                        // the spend of completed steps.
+                        steps++;
+                        const u = (part as { usage?: UsageBlock }).usage;
+                        if (u) {
+                            stepUsageSum = sumUsage(stepUsageSum, u);
+                            ctx.tracker.add(modelId, u, {
+                                cwd: ctx.cwd,
+                                sessionPub: ctx.sessionId,
+                                source: "subagent",
+                            });
+                            const rowId = ctx.tracker.takeLastLedgerRowId();
+                            if (rowId !== undefined) ledgerRowIds.push(rowId);
+                            const stepUsd = stampUsageCost(modelId, u).usd;
+                            if (stepUsd !== undefined) usdTotal = (usdTotal ?? 0) + stepUsd;
+                            ctx.emitter.emit("subagent-step-usage", {
+                                toolCallId,
+                                agent: name,
+                                usage: u,
+                                steps,
+                                usd: usdTotal,
+                            });
+                        }
+                        break;
+                    }
+                    case "finish": {
+                        totalUsage = (part as { totalUsage?: UsageBlock }).totalUsage;
+                        ctx.emitter.emit("subagent-finish", { toolCallId, agent: name, usage: totalUsage });
+                        break;
+                    }
                 }
-                case "finish": {
-                    totalUsage = (part as { totalUsage?: UsageBlock }).totalUsage;
-                    ctx.emitter.emit("subagent-finish", { toolCallId, agent: name, usage: totalUsage });
-                    break;
+                // Yield to the event loop between buffered parts so the parent TUI's
+                // render timers fire — same starvation fix as the main loop in
+                // index.ts (see yieldToEventLoop there for the full rationale).
+                if (Date.now() - lastYieldAt >= 16) {
+                    await new Promise((resolve) => setImmediate(resolve));
+                    lastYieldAt = Date.now();
                 }
             }
-            // Yield to the event loop between buffered parts so the parent TUI's
-            // render timers fire — same starvation fix as the main loop in
-            // index.ts (see yieldToEventLoop there for the full rationale).
-            if (Date.now() - lastYieldAt >= 16) {
-                await new Promise((resolve) => setImmediate(resolve));
-                lastYieldAt = Date.now();
-            }
+        } catch (streamErr) {
+            // An aborted stream may end by throwing (SDK/provider dependent).
+            // For our own aborts (stall trip or parent Esc) that's a normal
+            // ending: fall through so the partial run still persists and the
+            // parent still gets the stall report. Real errors keep throwing.
+            if (!stall.signal.aborted) throw streamErr;
         }
 
         // SubagentStop hooks — informational for watchers, block is meaningless.
@@ -466,10 +624,32 @@ async function runSubagent(
             // aborted/errored before a final response — report stays empty
         }
 
+        // A tripped watchdog is never silent: the box shows why the run ended,
+        // and the parent model gets a report it can act on (the run persisted,
+        // so follow_up can resume from the partial work instead of restarting).
+        if (stalled) {
+            const note = `[aborted: provider streamed nothing for ${stallSeconds}s — stalled connection]`;
+            activity.push({ type: "text", text: `\n${note}\n` });
+            ctx.emitter.emit("subagent-delta", { toolCallId, agent: name, text: `\n${note}\n` });
+            if (!report) {
+                const tail = formatSubagentActivity(activity).slice(-3000);
+                report =
+                    `Subagent aborted after ${steps} completed step${steps === 1 ? "" : "s"}: the provider stream ` +
+                    `stalled (no output for ${stallSeconds}s). Partial activity:\n${tail}\n\n` +
+                    `Retry the task — pass follow_up with this call's id to continue from the partial work.`;
+            }
+        }
+
         // Persist for resume, same shape the events streamed: `activity` is
         // the full ordered run (what the box renders next time), `result` the
         // final report (what the model re-reads via toModelMessages).
         const runUsage = totalUsage ?? stepUsageSum;
+        const stats: SubagentStats = {
+            steps,
+            durationMs: Date.now() - startedAt,
+            usd: usdTotal,
+            model: modelId,
+        };
         const subagentEntry = {
             type: "subagent" as const,
             ts: Date.now(),
@@ -479,6 +659,11 @@ async function runSubagent(
             activity: activity.length ? activity : undefined,
             usage: runUsage ? stampUsageCost(modelId, runUsage) : undefined,
             model: modelId,
+            // The launch call's id — a later follow_up resumes this run by it.
+            toolCallId,
+            ...(followUpThread ? { followUpOf: followUp } : {}),
+            steps: stats.steps,
+            durationMs: stats.durationMs,
         };
         await ctx.session.append(subagentEntry);
         // A subagent run is many billed steps but one persisted entry —
@@ -488,9 +673,12 @@ async function runSubagent(
 
         // The history is the tool output (saved + rendered); toModelOutput
         // extracts the report for the model.
-        return { history: activity, report };
+        return { history: activity, report, stats };
     } catch (err) {
         const msg = `Subagent failed: ${err instanceof Error ? err.message : String(err)}`;
         return { history: [{ type: "text", text: msg }], report: msg };
+    } finally {
+        if (stallTimer) clearTimeout(stallTimer);
+        ctx.abortSignal?.removeEventListener("abort", onParentAbort);
     }
 }

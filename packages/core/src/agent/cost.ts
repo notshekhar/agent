@@ -91,6 +91,25 @@ function ctxFromUsage(u: UsageBlock | undefined): number {
 }
 
 /**
+ * Output-side USD for a usage block. Reasoning tokens ride INSIDE outputTokens
+ * (AI SDK v7 contract: outputTokens = total completion tokens); most models
+ * bill them at the plain output rate, but some (Qwen family) price reasoning
+ * separately — when the catalog carries `cost.reasoning`, the reasoning share
+ * bills at that rate and only the text share at the output rate. Pure +
+ * exported for tests (no catalog needed).
+ */
+export function outputUsd(cost: { output: number; reasoning?: number }, usage: UsageBlock): number {
+    const outTok = usage.outputTokens ?? 0;
+    const reasoningTok = usage.outputTokenDetails?.reasoningTokens ?? usage.reasoningTokens ?? 0;
+    if (cost.reasoning === undefined || reasoningTok <= 0) return (outTok / 1_000_000) * cost.output;
+    // Text share: provider-reported when present; else total minus reasoning
+    // (clamped — a provider that reports reasoning OUTSIDE outputTokens then
+    // bills output fully + reasoning fully, which is the correct reading).
+    const textTok = usage.outputTokenDetails?.textTokens ?? Math.max(0, outTok - reasoningTok);
+    return (textTok / 1_000_000) * cost.output + (reasoningTok / 1_000_000) * cost.reasoning;
+}
+
+/**
  * Price a usage block against the catalog, with the per-component split.
  * Returns undefined when the model is unknown — callers decide the fallback
  * (billing treats it as $0; stamping leaves the block unstamped so a later
@@ -108,7 +127,9 @@ export function priceUsage(
     const billedIn = usage.inputTokenDetails?.noCacheTokens ?? Math.max(0, inTok - cacheTok - cacheWriteTok);
     const details = {
         input: (billedIn / 1_000_000) * model.cost.input,
-        output: ((usage.outputTokens ?? 0) / 1_000_000) * model.cost.output,
+        // Reasoning-rate models fold the split into the output component —
+        // the ledger's 4-column price snapshot stays unchanged.
+        output: outputUsd(model.cost, usage),
         cacheRead: (cacheTok / 1_000_000) * model.cost.cacheRead,
         cacheWrite: (cacheWriteTok / 1_000_000) * model.cost.cacheWrite,
     };

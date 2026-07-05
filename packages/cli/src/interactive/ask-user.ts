@@ -15,6 +15,14 @@ import { getSelectListTheme } from "./ui/theme";
 
 const OTHER = "__other__";
 const DONE = "__done__";
+const NOTE = "__note__";
+
+/** Digit quick-pick: "1".."9" → option index, when within the option count. */
+function digitIndex(data: string, optionCount: number): number | null {
+    if (data.length !== 1 || data < "1" || data > "9") return null;
+    const i = data.charCodeAt(0) - "1".charCodeAt(0);
+    return i < optionCount ? i : null;
+}
 
 type TuiWithInput = {
     addInputListener?: (cb: (d: string) => { consume: boolean } | undefined) => () => void;
@@ -125,8 +133,47 @@ export function createAskUserBridge(deps: AskUserDeps): AskUserBridge {
                 ...q.options.map((o, i) => ({ value: String(i), label: o.label, description: o.description })),
                 { value: OTHER, label: "Other", description: "type a custom answer" },
             ];
-            const pick = await showList(q, progress, items, "↑↓ navigate · Enter select · Esc skip", signal);
+            // Tab picks the highlighted option AND opens a note prompt for it —
+            // the index rides outside the loop because finish() only carries an item.
+            let noteIndex = -1;
+            const pick = await showList(
+                q,
+                progress,
+                items,
+                "↑↓ navigate · Enter select · 1-9 quick pick · Tab select+note · Esc skip question",
+                signal,
+                (list, finish) => {
+                    let current: SelectItem = items[0];
+                    list.onSelectionChange = (item) => (current = item);
+                    const addInput = (host.tui as unknown as TuiWithInput).addInputListener;
+                    if (typeof addInput !== "function") return undefined;
+                    return addInput.call(host.tui, (data: string) => {
+                        const i = digitIndex(data, q.options.length);
+                        if (i !== null) {
+                            finish(items[i]);
+                            return { consume: true };
+                        }
+                        if (data === "\t" && current.value !== OTHER) {
+                            noteIndex = Number(current.value);
+                            finish({ value: NOTE, label: "" });
+                            return { consume: true };
+                        }
+                        return undefined;
+                    });
+                },
+            );
             if (!pick || signal?.aborted) return null;
+            if (pick.value === NOTE) {
+                const label = q.options[noteIndex].label;
+                const note = await promptText(
+                    { ...q, question: `${q.question} — note for "${label}"` },
+                    progress,
+                    signal,
+                );
+                if (signal?.aborted) return null;
+                if (!note) continue; // Esc/empty → back to the options
+                return { answers: [label], note };
+            }
             if (pick.value === OTHER) {
                 const text = await promptText(q, progress, signal);
                 if (signal?.aborted) return null;
@@ -154,8 +201,9 @@ export function createAskUserBridge(deps: AskUserDeps): AskUserBridge {
                 description: count() === 0 ? "pick at least one" : "confirm these answers",
             });
             const box = (on: boolean) => (on ? "[x]" : "[ ]");
+            // Options lead, "done" sits last — the cursor starts on the first
+            // real choice instead of an empty confirm row.
             const items: SelectItem[] = [
-                doneItem(),
                 ...q.options.map((o, i) => ({
                     value: String(i),
                     label: `${box(selected.has(i))} ${o.label}`,
@@ -167,14 +215,16 @@ export function createAskUserBridge(deps: AskUserDeps): AskUserBridge {
                     description: "custom answer — Enter/Space removes it",
                 })),
                 { value: OTHER, label: "Other", description: "type a custom answer" },
+                doneItem(),
             ];
+            const doneIdx = items.length - 1;
             // Enter/Space toggles in place (labels mutated so the cursor stays
             // put); Enter on "done"/"Other" falls through to the outer loop.
             const pick = await showList(
                 q,
                 progress,
                 items,
-                "↑↓ navigate · Enter/Space toggle · done confirms · Esc skip",
+                "↑↓ navigate · Enter/Space toggle · 1-9 toggle · done confirms · Esc skip question",
                 signal,
                 (list, finish) => {
                     let current: SelectItem = items[0];
@@ -191,7 +241,7 @@ export function createAskUserBridge(deps: AskUserDeps): AskUserBridge {
                         if (selected.has(i)) selected.delete(i);
                         else selected.add(i);
                         item.label = `${box(selected.has(i))} ${q.options[i].label}`;
-                        Object.assign(items[0], doneItem());
+                        Object.assign(items[doneIdx], doneItem());
                         host.tui.requestRender();
                         return true;
                     };
@@ -212,6 +262,11 @@ export function createAskUserBridge(deps: AskUserDeps): AskUserBridge {
                     return addInput.call(host.tui, (data: string) => {
                         if (data === " ") {
                             toggle(current);
+                            return { consume: true };
+                        }
+                        const i = digitIndex(data, q.options.length);
+                        if (i !== null) {
+                            toggle(items[i]);
                             return { consume: true };
                         }
                         return undefined;
@@ -244,9 +299,8 @@ export function createAskUserBridge(deps: AskUserDeps): AskUserBridge {
             const run = async (): Promise<AskAnswer[]> => {
                 const signal = opts?.signal;
                 const answers: AskAnswer[] = [];
-                let declined = false;
                 for (let i = 0; i < questions.length; i++) {
-                    if (declined || signal?.aborted) {
+                    if (signal?.aborted) {
                         answers.push({ answers: [], declined: true });
                         continue;
                     }
@@ -255,11 +309,9 @@ export function createAskUserBridge(deps: AskUserDeps): AskUserBridge {
                     const a = q.multiSelect
                         ? await askMulti(q, progress, signal)
                         : await askSingle(q, progress, signal);
-                    if (a) answers.push(a);
-                    else {
-                        answers.push({ answers: [], declined: true });
-                        declined = true; // Esc skips this and all remaining questions
-                    }
+                    // Esc skips only THIS question — the rest still show.
+                    // Abort-everything stays on the signal (interrupt the turn).
+                    answers.push(a ?? { answers: [], declined: true });
                 }
                 return answers;
             };

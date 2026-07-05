@@ -113,8 +113,10 @@ export function wireTurnEmitter(emitter: TurnEmitter, deps: TurnEmitterDeps): vo
     emitter.on("step-usage", (e: { usage?: UsageBlock }) => {
         refreshStatusLine(e.usage);
     });
-    emitter.on("subagent-step-usage", () => {
-        // Cost only — a subagent's context is not the main context.
+    emitter.on("subagent-step-usage", (e: { toolCallId: string; steps?: number; usd?: number }) => {
+        // Cost only — a subagent's context is not the main context. The
+        // step/cost ticker lands in the task box title.
+        subagentStream.onStepUsage(e.toolCallId, e.steps, e.usd);
         refreshStatusLine();
     });
     emitter.on("hook-message", (m: string) => {

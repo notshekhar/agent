@@ -89,6 +89,22 @@ describe("formatAskAnswers", () => {
         const out = formatAskAnswers([q()], [{ answers: [], declined: true }]);
         expect(out).toBe("The user declined to answer. Proceed with your best judgment.");
     });
+
+    test("a note attached to a picked option rides along", () => {
+        const out = formatAskAnswers([q()], [{ answers: ["OAuth2"], note: "but keep the session cookie flow" }]);
+        expect(out).toContain("→ OAuth2");
+        expect(out).toContain('→ user note: "but keep the session cookie flow"');
+    });
+
+    test("a skipped question in the middle still shows the others' answers", () => {
+        const out = formatAskAnswers(
+            [q(), q({ header: "Style" }), q({ header: "Scope" })],
+            [{ answers: [], declined: true }, { answers: ["OAuth2"] }, { answers: ["API key"] }],
+        );
+        expect(out).toContain("(no answer — user skipped this question)");
+        expect(out).toContain("→ OAuth2");
+        expect(out).toContain("→ API key");
+    });
 });
 
 describe("createAskTool execute", () => {

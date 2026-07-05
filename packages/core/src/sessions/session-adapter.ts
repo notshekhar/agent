@@ -80,6 +80,10 @@ export function adaptSessionEntry(raw: unknown): Entry | null {
                 activity: parseActivity(obj.activity),
                 usage: obj.usage as UsageBlock | undefined,
                 ...(typeof obj.model === "string" ? { model: obj.model } : {}),
+                ...(typeof obj.toolCallId === "string" ? { toolCallId: obj.toolCallId } : {}),
+                ...(typeof obj.followUpOf === "string" ? { followUpOf: obj.followUpOf } : {}),
+                ...(typeof obj.steps === "number" ? { steps: obj.steps } : {}),
+                ...(typeof obj.durationMs === "number" ? { durationMs: obj.durationMs } : {}),
                 ...tree,
             };
         case "model-change":

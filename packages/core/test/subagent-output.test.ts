@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { taskToolModelOutput, type SubagentOutput } from "../src/agent/subagent";
+import { buildFollowUpThread, taskToolModelOutput, type SubagentOutput } from "../src/agent/subagent";
 import { sumUsage } from "../src/agent/cost";
-import type { UsageBlock } from "../src/types";
+import type { Entry, UsageBlock } from "../src/types";
 
 const out = (report: string): SubagentOutput => ({ history: [{ type: "text", text: report }], report });
 
@@ -33,6 +33,92 @@ describe("taskToolModelOutput — what the parent model reads", () => {
         const r = taskToolModelOutput({ output: o });
         expect(r.value).toContain("done");
         expect(r.value).toContain("BLOCKED: nope");
+    });
+
+    test("run stats never leak into what the model reads", () => {
+        const o: SubagentOutput = {
+            ...out("clean report"),
+            stats: { steps: 7, durationMs: 4200, usd: 0.05, model: "anthropic/x" },
+        };
+        expect(taskToolModelOutput({ output: o }).value).toBe("clean report");
+    });
+});
+
+describe("buildFollowUpThread — resuming a prior subagent run", () => {
+    const run = (
+        toolCallId: string,
+        prompt: string,
+        result: string,
+        extra: Partial<Extract<Entry, { type: "subagent" }>> = {},
+    ): Entry => ({
+        type: "subagent",
+        ts: 1,
+        agent: "default",
+        prompt,
+        result,
+        toolCallId,
+        ...extra,
+    });
+
+    test("unknown id returns undefined (caller runs fresh with a warning)", () => {
+        expect(buildFollowUpThread([run("t1", "p", "r")], "nope")).toBeUndefined();
+    });
+
+    test("single run becomes a user/assistant pair with the run's agent", () => {
+        const thread = buildFollowUpThread(
+            [run("t1", "find the config", "it's in src/config.ts", { agent: "plan" })],
+            "t1",
+        );
+        expect(thread?.agent).toBe("plan");
+        expect(thread?.messages).toEqual([
+            { role: "user", content: "find the config" },
+            { role: "assistant", content: "it's in src/config.ts" },
+        ]);
+    });
+
+    test("transcript prefers the flattened activity over the bare report", () => {
+        const thread = buildFollowUpThread(
+            [
+                run("t1", "p", "report only", {
+                    activity: [
+                        { type: "tool", name: "grep", summary: " loadConfig" },
+                        { type: "text", text: "found 3 call sites" },
+                    ],
+                }),
+            ],
+            "t1",
+        );
+        const transcript = thread?.messages[1].content as string;
+        expect(transcript).toContain("> grep loadConfig");
+        expect(transcript).toContain("found 3 call sites");
+    });
+
+    test("followUpOf chains replay oldest-first", () => {
+        const entries = [
+            run("t1", "first prompt", "first answer"),
+            run("t2", "second prompt", "second answer", { followUpOf: "t1" }),
+        ];
+        const thread = buildFollowUpThread(entries, "t2");
+        expect(thread?.messages.map((m) => m.content)).toEqual([
+            "first prompt",
+            "first answer",
+            "second prompt",
+            "second answer",
+        ]);
+    });
+
+    test("a cyclic followUpOf chain terminates", () => {
+        const entries = [run("t1", "a", "ra", { followUpOf: "t2" }), run("t2", "b", "rb", { followUpOf: "t1" })];
+        const thread = buildFollowUpThread(entries, "t2");
+        expect(thread).toBeDefined();
+        expect(thread!.messages.length).toBeLessThanOrEqual(4);
+    });
+
+    test("oversized transcripts are tail-capped with a note", () => {
+        const thread = buildFollowUpThread([run("t1", "p", "x".repeat(20_000))], "t1");
+        const transcript = thread?.messages[1].content as string;
+        expect(transcript.length).toBeLessThan(20_000);
+        expect(transcript).toContain("[earlier activity truncated]");
     });
 });
 
