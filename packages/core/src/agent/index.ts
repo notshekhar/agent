@@ -1,6 +1,6 @@
 import { streamText, isStepCount } from "ai";
 import type { ModelMessage } from "ai";
-import type { TurnEmitter } from "./events";
+import { toolInputDeltaEvent, toolInputStartEvent, type TurnEmitter } from "./events";
 import { getModel, parseModelId } from "../providers";
 import { getCatalog } from "../catalog";
 import { getSetting } from "../settings";
@@ -718,16 +718,13 @@ Write complete prompts: the subagent knows nothing about this conversation — i
                 case "tool-input-start":
                     // Surface the pending tool box as soon as the call begins,
                     // before its (possibly large) input has finished streaming.
-                    emitter.emit("tool-input-start", {
-                        toolName: (part as { toolName?: string }).toolName,
-                        toolCallId: (part as { toolCallId?: string }).toolCallId,
-                    });
+                    // Field mapping lives in toolInputStartEvent — v7 renamed
+                    // toolCallId → id on these parts and the old cast silently
+                    // read undefined, suppressing the pending box entirely.
+                    emitter.emit("tool-input-start", toolInputStartEvent(part as { id?: string; toolName?: string }));
                     break;
                 case "tool-input-delta":
-                    emitter.emit("tool-input-delta", {
-                        toolCallId: (part as { toolCallId?: string }).toolCallId,
-                        delta: (part as { inputTextDelta?: string }).inputTextDelta ?? "",
-                    });
+                    emitter.emit("tool-input-delta", toolInputDeltaEvent(part as { id?: string; delta?: string }));
                     break;
                 case "tool-call":
                     if (part.toolName) toolsUsed.push(part.toolName);

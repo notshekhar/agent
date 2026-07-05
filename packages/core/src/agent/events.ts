@@ -88,6 +88,31 @@ type _MissingEvent = Exclude<keyof TurnEvents, (typeof TURN_EVENT_NAMES)[number]
 const _exhaustive: [_MissingEvent] extends [never] ? true : ["missing from TURN_EVENT_NAMES", _MissingEvent] = true;
 void _exhaustive;
 
+/**
+ * Map the SDK's tool-input stream parts to our event payloads. AI SDK v7
+ * renamed these parts' fields (toolCallId → id, inputTextDelta → delta); the
+ * old names kept being read through casts, so every tool-input-start event
+ * carried toolCallId: undefined and the UI never showed the pending tool box
+ * until the whole input had streamed (the write/edit live-preview regression).
+ * Read both shapes so either SDK naming works. Pure + exported for tests.
+ */
+export function toolInputStartEvent(part: {
+    id?: string;
+    toolCallId?: string;
+    toolName?: string;
+}): TurnEvents["tool-input-start"] {
+    return { toolName: part.toolName, toolCallId: part.id ?? part.toolCallId };
+}
+
+export function toolInputDeltaEvent(part: {
+    id?: string;
+    toolCallId?: string;
+    delta?: string;
+    inputTextDelta?: string;
+}): TurnEvents["tool-input-delta"] {
+    return { toolCallId: part.id ?? part.toolCallId, delta: part.delta ?? part.inputTextDelta ?? "" };
+}
+
 type Args<K extends keyof TurnEvents> = TurnEvents[K] extends void ? [] : [TurnEvents[K]];
 
 /** Structurally satisfied by node's EventEmitter — `new EventEmitter()` works. */
