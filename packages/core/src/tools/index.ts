@@ -73,6 +73,9 @@ export { ensureTool, getToolPath } from "./utils/tools-manager";
 // ask tool: not part of createTools/TOOL_NAMES — conditionally attached in
 // runTurn (like task), gated on the askUser setting + a live UI bridge.
 export { askInputSchema, createAskTool, formatAskAnswers, type AskToolContext } from "./ask";
+// websearch tool: also conditionally attached in runTurn, gated on the
+// webSearch setting (default off). No UI bridge — works in print mode too.
+export { createWebsearchTool, type WebsearchToolContext } from "./websearch";
 export {
     getAskUserBridge,
     isAskUserAvailable,

@@ -124,9 +124,10 @@ export function isValidAgentName(name: string): boolean {
     return /^[a-z0-9][a-z0-9_-]{0,31}$/i.test(name);
 }
 
-/** Names selectable as agent tools: the file tools plus "task" (subagents)
- * and "ask" (user questions; only active when the askUser setting is on). */
-export const AGENT_TOOL_NAMES = [...TOOL_NAMES, "task", "ask"] as const;
+/** Names selectable as agent tools: the file tools plus "task" (subagents),
+ * "ask" (user questions; only active when the askUser setting is on) and
+ * "websearch" (only active when the webSearch setting is on). */
+export const AGENT_TOOL_NAMES = [...TOOL_NAMES, "task", "ask", "websearch"] as const;
 
 /**
  * Tool names valid in an agent allowlist: the builtins/task plus any tools

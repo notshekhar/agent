@@ -5,7 +5,7 @@ import { getModel, parseModelId } from "../providers";
 import { getCatalog } from "../catalog";
 import { getSetting } from "../settings";
 import { effectiveSdkProvider } from "../auth";
-import { createAskTool, createTools, isAskUserAvailable } from "../tools";
+import { createAskTool, createTools, createWebsearchTool, isAskUserAvailable } from "../tools";
 import { buildSubagentNote, buildSystemPrompt } from "./system-prompt";
 import { getAgentPrompt, getAgentTools, isReadOnlyBashAgent, listAgents } from "./agents";
 import { loadWorkspaceContext } from "./context";
@@ -364,6 +364,14 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
     // access. Subagents never get task themselves (no nesting).
     const subagentsEnabled = getSetting("subagents") !== false;
     let toolsForTurn: Record<string, unknown> = { ...toolSet };
+
+    // Websearch: opt-in `webSearch` setting (default off) — DuckDuckGo HTML
+    // scraping, no API key, no UI bridge, so print mode gets it too. Added
+    // BEFORE the task tool so subagents inherit it via parentTools (unlike
+    // ask). Restricted agents opt in by naming "websearch".
+    if (getSetting("webSearch") === true && (!allowedTools?.length || allowedTools.includes("websearch"))) {
+        toolsForTurn.websearch = createWebsearchTool({ abortSignal });
+    }
 
     // MCP tools (already namespaced mcp__server__tool) join the turn for
     // unrestricted agents only — a restricted agent (e.g. plan) keeps its

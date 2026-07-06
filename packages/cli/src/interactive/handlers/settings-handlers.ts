@@ -34,6 +34,7 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
         subagents: true,
         recap: false,
         askUser: false,
+        webSearch: false,
         clock: false,
         reminders: true,
         mcp: true,
@@ -84,6 +85,11 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                         value: "askUser",
                         label: `ask user (questions tool): ${boolSetting("askUser") ? "on" : "off"}`,
                         description: "let the agent pause mid-turn to ask you multiple-choice questions",
+                    },
+                    {
+                        value: "webSearch",
+                        label: `websearch (DuckDuckGo): ${boolSetting("webSearch") ? "on" : "off"}`,
+                        description: "give the agent a websearch tool (scrapes DuckDuckGo — no API key, may rate-limit)",
                     },
                     {
                         value: "clock",

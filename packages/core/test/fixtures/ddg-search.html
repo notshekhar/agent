@@ -1,0 +1,688 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+
+<!--[if IE 6]><html class="ie6" xmlns="http://www.w3.org/1999/xhtml"><![endif]-->
+<!--[if IE 7]><html class="lt-ie8 lt-ie9" xmlns="http://www.w3.org/1999/xhtml"><![endif]-->
+<!--[if IE 8]><html class="lt-ie9" xmlns="http://www.w3.org/1999/xhtml"><![endif]-->
+<!--[if gt IE 8]><!--><html xmlns="http://www.w3.org/1999/xhtml"><!--<![endif]-->
+<head>
+  <meta http-equiv="content-type" content="text/html; charset=UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=3.0, user-scalable=1" />
+  <meta name="referrer" content="origin" />
+  <meta name="HandheldFriendly" content="true" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>bun ffi dlopen at DuckDuckGo</title>
+  <link title="DuckDuckGo (HTML)" type="application/opensearchdescription+xml" rel="search" href="//duckduckgo.com/opensearch_html_v2.xml" />
+  <link href="//duckduckgo.com/favicon.ico" rel="shortcut icon" />
+  <link rel="icon" href="//duckduckgo.com/favicon.ico" type="image/x-icon" />
+  <link id="icon60" rel="apple-touch-icon" href="//duckduckgo.com/assets/icons/meta/DDG-iOS-icon_60x60.png?v=2"/>
+  <link id="icon76" rel="apple-touch-icon" sizes="76x76" href="//duckduckgo.com/assets/icons/meta/DDG-iOS-icon_76x76.png?v=2"/>
+  <link id="icon120" rel="apple-touch-icon" sizes="120x120" href="//duckduckgo.com/assets/icons/meta/DDG-iOS-icon_120x120.png?v=2"/>
+  <link id="icon152" rel="apple-touch-icon" sizes="152x152" href="//duckduckgo.com/assets/icons/meta/DDG-iOS-icon_152x152.png?v=2"/>
+  <link rel="image_src" href="//duckduckgo.com/assets/icons/meta/DDG-icon_256x256.png">
+  <link rel="stylesheet" media="handheld, all" href="//duckduckgo.com/dist/h.238c80a7d9b754cfcdd5.css" type="text/css"/>
+</head>
+
+<body class="body--html">
+  <a name="top" id="top"></a>
+
+  <form action="/html/" method="post">
+    <input type="text" name="state_hidden" id="state_hidden" />
+  </form>
+
+  <div>
+    <div class="site-wrapper-border"></div>
+
+    <div id="header" class="header cw header--html">
+      <a title="DuckDuckGo" href="/html/" class="header__logo-wrap"></a>
+
+      <form name="x" class="header__form" action="/html/" method="post">
+        <div class="search search--header">
+          <input name="q" autocomplete="off" class="search__input" id="search_form_input_homepage" type="text" value="bun ffi dlopen" />
+          <input name="b" id="search_button_homepage" class="search__button search__button--html" value="" title="Search" alt="Search" type="submit" />
+        </div>
+
+        
+        
+        
+        
+
+        <div class="frm__select">
+          <select name="kl">
+            
+              <option value="" >All Regions</option>
+            
+              <option value="ar-es" >Argentina</option>
+            
+              <option value="au-en" >Australia</option>
+            
+              <option value="at-de" >Austria</option>
+            
+              <option value="be-fr" >Belgium (fr)</option>
+            
+              <option value="be-nl" >Belgium (nl)</option>
+            
+              <option value="br-pt" >Brazil</option>
+            
+              <option value="bg-bg" >Bulgaria</option>
+            
+              <option value="ca-en" >Canada (en)</option>
+            
+              <option value="ca-fr" >Canada (fr)</option>
+            
+              <option value="ct-ca" >Catalonia</option>
+            
+              <option value="cl-es" >Chile</option>
+            
+              <option value="cn-zh" >China</option>
+            
+              <option value="co-es" >Colombia</option>
+            
+              <option value="hr-hr" >Croatia</option>
+            
+              <option value="cz-cs" >Czech Republic</option>
+            
+              <option value="dk-da" >Denmark</option>
+            
+              <option value="ee-et" >Estonia</option>
+            
+              <option value="fi-fi" >Finland</option>
+            
+              <option value="fr-fr" >France</option>
+            
+              <option value="de-de" >Germany</option>
+            
+              <option value="gr-el" >Greece</option>
+            
+              <option value="hk-tzh" >Hong Kong</option>
+            
+              <option value="hu-hu" >Hungary</option>
+            
+              <option value="is-is" >Iceland</option>
+            
+              <option value="in-en" >India (en)</option>
+            
+              <option value="id-en" >Indonesia (en)</option>
+            
+              <option value="ie-en" >Ireland</option>
+            
+              <option value="il-en" >Israel (en)</option>
+            
+              <option value="it-it" >Italy</option>
+            
+              <option value="jp-jp" >Japan</option>
+            
+              <option value="kr-kr" >Korea</option>
+            
+              <option value="lv-lv" >Latvia</option>
+            
+              <option value="lt-lt" >Lithuania</option>
+            
+              <option value="my-en" >Malaysia (en)</option>
+            
+              <option value="mx-es" >Mexico</option>
+            
+              <option value="nl-nl" >Netherlands</option>
+            
+              <option value="nz-en" >New Zealand</option>
+            
+              <option value="no-no" >Norway</option>
+            
+              <option value="pk-en" >Pakistan (en)</option>
+            
+              <option value="pe-es" >Peru</option>
+            
+              <option value="ph-en" >Philippines (en)</option>
+            
+              <option value="pl-pl" >Poland</option>
+            
+              <option value="pt-pt" >Portugal</option>
+            
+              <option value="ro-ro" >Romania</option>
+            
+              <option value="ru-ru" >Russia</option>
+            
+              <option value="xa-ar" >Saudi Arabia</option>
+            
+              <option value="sg-en" >Singapore</option>
+            
+              <option value="sk-sk" >Slovakia</option>
+            
+              <option value="sl-sl" >Slovenia</option>
+            
+              <option value="za-en" >South Africa</option>
+            
+              <option value="es-ca" >Spain (ca)</option>
+            
+              <option value="es-es" >Spain (es)</option>
+            
+              <option value="se-sv" >Sweden</option>
+            
+              <option value="ch-de" >Switzerland (de)</option>
+            
+              <option value="ch-fr" >Switzerland (fr)</option>
+            
+              <option value="tw-tzh" >Taiwan</option>
+            
+              <option value="th-en" >Thailand (en)</option>
+            
+              <option value="tr-tr" >Turkey</option>
+            
+              <option value="us-en" >US (English)</option>
+            
+              <option value="us-es" >US (Spanish)</option>
+            
+              <option value="ua-uk" >Ukraine</option>
+            
+              <option value="uk-en" >United Kingdom</option>
+            
+              <option value="vn-en" >Vietnam (en)</option>
+            
+          </select>
+        </div>
+
+        <div class="frm__select frm__select--last">
+          <select class="" name="df">
+            
+              <option value="" selected>Any Time</option>
+            
+              <option value="d" >Past Day</option>
+            
+              <option value="w" >Past Week</option>
+            
+              <option value="m" >Past Month</option>
+            
+              <option value="y" >Past Year</option>
+            
+          </select>
+        </div>
+      </form>
+    </div>
+
+    
+
+    
+      <!-- Web results are present -->
+      <div>
+        <div class="serp__results">
+          <div id="links" class="results">
+            
+
+            
+              
+                
+                  <div class="result results_links results_links_deep result--ad ">
+                    <div class="links_main links_deep result__body"> <!-- This is the visible part -->
+                      <h2 class="result__title">
+                        
+                          <a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fduckduckgo.com%2Fy.js%3Fad_domain%3Dfirstcry.com%26ad_provider%3Dbingv7aa%26ad_type%3Dtxad%26click_metadata%3Dc2JbwMup%252D6xyhSkpvVtNQUHol_7rQF141_IXHAPElcyxJjvR9xPU0CKc2p_uaFFoJo_ezzAPPMA78zEj_RbCDtk7wHLfK2ftT0%252DN9UqE5h26dz%252D%252DVzIaS6YEc392ynFuL0g26rLq_GZwHv%252DcM7TnmumneChXb42SgX%252D0B2kywOU.NZsEPhklwaiAX73iBqss2g%26rut%3Dd7c16128edd13db1e222b77149c1b06b77449cb5278f9e4f2a8152cc6015c5b6%26u3%3Dhttps%253A%252F%252Fwww.bing.com%252Faclick%253Fld%253De8xX9wX5OCDB0SXgqtuaUInzVUCUw1d%252DQYaSkfRjiQbLdrAG9YoATeO1VyWHvSu_1XHu4M1h4nov_Zemckf4Uby8jY99BLDoCyPhM4lbcvbfpF7nj8oSQOZJNAl_gCbwJENhNxIKIh%252DPcnHElyQC9vgeufXkHD7e8OEPwvbvWaEtlK98Inj9joQDqutrahW4H2Bu3QMQsZtFBKKXBXZ9M61ONrqM0%2526u%253DaHR0cHMlM2ElMmYlMmZ3d3cuZmlyc3RjcnkuY29tJTJmYmFieS1nZWFyJTJmNyUyZjAlMmYwJTNmc29ydCUzZGJlc3RzZWxsZXIlMjZyZWYlM2RCU04hQlNOX0NBVF9CRy1BbGwhJTI2bXNjbGtpZCUzZDJjZjEzZmE2OGNjOTE2NWViYjlhNTVlZDNjYzlhYmIxJTI2dXRtX3NvdXJjZSUzZGJpbmclMjZ1dG1fbWVkaXVtJTNkY3BjJTI2dXRtX2NhbXBhaWduJTNkQlNOX0NBVF9CRy1BbGwlMjZ1dG1fdGVybSUzZHB1cmNoYXNlJTI1MjBidWdneSUyNTIwb25saW5lJTI2dXRtX2NvbnRlbnQlM2RCdWdneSUyNTIwT25saW5l%2526rlid%253D2cf13fa68cc9165ebb9a55ed3cc9abb1%26vqd%3D4%2D268737103348158789862907402557080391400%26iurl%3D%257B1%257DIG%253DA5B478CF88774EA08DFDCC777200C995%2526CID%253D2128B730D955688B2510A0BED8AD69A7%2526ID%253DDevEx%252C5039.1&amp;rut=79c1ec97000bfaa030e763b82b59b593a359fcc8f06dadbc3d7e3b28c96c3487">Top Brands Buggy Pram Online - Buy Buggy Online At Firstcry</a>
+                        
+                        <div class="result__badge-wrap">
+                          <button class="badge--ad">Ad</button>
+                          <div class="badge--ad__tooltip-wrap">
+                            <div class="tooltip tooltip--right">
+                              <div class="tooltip__triangle-outer"></div>
+                              <div class="tooltip__triangle-inner"></div>
+                              Viewing ads is privacy protected by DuckDuckGo. Ad clicks are managed by Microsoft's ad network (<a href="https://duckduckgo.com/duckduckgo-help-pages/company/ads-by-microsoft-on-duckduckgo-private-search" class="tooltip-link">more info</a>).
+                            </div>
+                          </div>
+                        </div>
+                      </h2>
+
+                      
+
+                      
+                        <div class="result__extras">
+                          <div class="result__extras__url">
+                            <!-- Disable Ad Favicon
+                            <span class="result__icon">
+                              
+                                <a rel="nofollow" class="result__icon__img" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fduckduckgo.com%2Fy.js%3Fad_domain%3Dfirstcry.com%26ad_provider%3Dbingv7aa%26ad_type%3Dtxad%26click_metadata%3Dc2JbwMup%252D6xyhSkpvVtNQUHol_7rQF141_IXHAPElcyxJjvR9xPU0CKc2p_uaFFoJo_ezzAPPMA78zEj_RbCDtk7wHLfK2ftT0%252DN9UqE5h26dz%252D%252DVzIaS6YEc392ynFuL0g26rLq_GZwHv%252DcM7TnmumneChXb42SgX%252D0B2kywOU.NZsEPhklwaiAX73iBqss2g%26rut%3Dd7c16128edd13db1e222b77149c1b06b77449cb5278f9e4f2a8152cc6015c5b6%26u3%3Dhttps%253A%252F%252Fwww.bing.com%252Faclick%253Fld%253De8xX9wX5OCDB0SXgqtuaUInzVUCUw1d%252DQYaSkfRjiQbLdrAG9YoATeO1VyWHvSu_1XHu4M1h4nov_Zemckf4Uby8jY99BLDoCyPhM4lbcvbfpF7nj8oSQOZJNAl_gCbwJENhNxIKIh%252DPcnHElyQC9vgeufXkHD7e8OEPwvbvWaEtlK98Inj9joQDqutrahW4H2Bu3QMQsZtFBKKXBXZ9M61ONrqM0%2526u%253DaHR0cHMlM2ElMmYlMmZ3d3cuZmlyc3RjcnkuY29tJTJmYmFieS1nZWFyJTJmNyUyZjAlMmYwJTNmc29ydCUzZGJlc3RzZWxsZXIlMjZyZWYlM2RCU04hQlNOX0NBVF9CRy1BbGwhJTI2bXNjbGtpZCUzZDJjZjEzZmE2OGNjOTE2NWViYjlhNTVlZDNjYzlhYmIxJTI2dXRtX3NvdXJjZSUzZGJpbmclMjZ1dG1fbWVkaXVtJTNkY3BjJTI2dXRtX2NhbXBhaWduJTNkQlNOX0NBVF9CRy1BbGwlMjZ1dG1fdGVybSUzZHB1cmNoYXNlJTI1MjBidWdneSUyNTIwb25saW5lJTI2dXRtX2NvbnRlbnQlM2RCdWdneSUyNTIwT25saW5l%2526rlid%253D2cf13fa68cc9165ebb9a55ed3cc9abb1%26vqd%3D4%2D268737103348158789862907402557080391400%26iurl%3D%257B1%257DIG%253DA5B478CF88774EA08DFDCC777200C995%2526CID%253D2128B730D955688B2510A0BED8AD69A7%2526ID%253DDevEx%252C5039.1&amp;rut=79c1ec97000bfaa030e763b82b59b593a359fcc8f06dadbc3d7e3b28c96c3487">
+                                  <img width="16" height="16" alt="" src="//external-content.duckduckgo.com/ip3/.ico" name="i15" />
+                                </a>
+                              
+                            </span>
+                            -->
+                            <a class="result__url" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fduckduckgo.com%2Fy.js%3Fad_domain%3Dfirstcry.com%26ad_provider%3Dbingv7aa%26ad_type%3Dtxad%26click_metadata%3Dc2JbwMup%252D6xyhSkpvVtNQUHol_7rQF141_IXHAPElcyxJjvR9xPU0CKc2p_uaFFoJo_ezzAPPMA78zEj_RbCDtk7wHLfK2ftT0%252DN9UqE5h26dz%252D%252DVzIaS6YEc392ynFuL0g26rLq_GZwHv%252DcM7TnmumneChXb42SgX%252D0B2kywOU.NZsEPhklwaiAX73iBqss2g%26rut%3Dd7c16128edd13db1e222b77149c1b06b77449cb5278f9e4f2a8152cc6015c5b6%26u3%3Dhttps%253A%252F%252Fwww.bing.com%252Faclick%253Fld%253De8xX9wX5OCDB0SXgqtuaUInzVUCUw1d%252DQYaSkfRjiQbLdrAG9YoATeO1VyWHvSu_1XHu4M1h4nov_Zemckf4Uby8jY99BLDoCyPhM4lbcvbfpF7nj8oSQOZJNAl_gCbwJENhNxIKIh%252DPcnHElyQC9vgeufXkHD7e8OEPwvbvWaEtlK98Inj9joQDqutrahW4H2Bu3QMQsZtFBKKXBXZ9M61ONrqM0%2526u%253DaHR0cHMlM2ElMmYlMmZ3d3cuZmlyc3RjcnkuY29tJTJmYmFieS1nZWFyJTJmNyUyZjAlMmYwJTNmc29ydCUzZGJlc3RzZWxsZXIlMjZyZWYlM2RCU04hQlNOX0NBVF9CRy1BbGwhJTI2bXNjbGtpZCUzZDJjZjEzZmE2OGNjOTE2NWViYjlhNTVlZDNjYzlhYmIxJTI2dXRtX3NvdXJjZSUzZGJpbmclMjZ1dG1fbWVkaXVtJTNkY3BjJTI2dXRtX2NhbXBhaWduJTNkQlNOX0NBVF9CRy1BbGwlMjZ1dG1fdGVybSUzZHB1cmNoYXNlJTI1MjBidWdneSUyNTIwb25saW5lJTI2dXRtX2NvbnRlbnQlM2RCdWdneSUyNTIwT25saW5l%2526rlid%253D2cf13fa68cc9165ebb9a55ed3cc9abb1%26vqd%3D4%2D268737103348158789862907402557080391400%26iurl%3D%257B1%257DIG%253DA5B478CF88774EA08DFDCC777200C995%2526CID%253D2128B730D955688B2510A0BED8AD69A7%2526ID%253DDevEx%252C5039.1&amp;rut=79c1ec97000bfaa030e763b82b59b593a359fcc8f06dadbc3d7e3b28c96c3487">firstcry.com</a>
+                            
+                          </div>
+                        </div>
+                      
+
+                      
+                        <a class="result__snippet" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fduckduckgo.com%2Fy.js%3Fad_domain%3Dfirstcry.com%26ad_provider%3Dbingv7aa%26ad_type%3Dtxad%26click_metadata%3Dc2JbwMup%252D6xyhSkpvVtNQUHol_7rQF141_IXHAPElcyxJjvR9xPU0CKc2p_uaFFoJo_ezzAPPMA78zEj_RbCDtk7wHLfK2ftT0%252DN9UqE5h26dz%252D%252DVzIaS6YEc392ynFuL0g26rLq_GZwHv%252DcM7TnmumneChXb42SgX%252D0B2kywOU.NZsEPhklwaiAX73iBqss2g%26rut%3Dd7c16128edd13db1e222b77149c1b06b77449cb5278f9e4f2a8152cc6015c5b6%26u3%3Dhttps%253A%252F%252Fwww.bing.com%252Faclick%253Fld%253De8xX9wX5OCDB0SXgqtuaUInzVUCUw1d%252DQYaSkfRjiQbLdrAG9YoATeO1VyWHvSu_1XHu4M1h4nov_Zemckf4Uby8jY99BLDoCyPhM4lbcvbfpF7nj8oSQOZJNAl_gCbwJENhNxIKIh%252DPcnHElyQC9vgeufXkHD7e8OEPwvbvWaEtlK98Inj9joQDqutrahW4H2Bu3QMQsZtFBKKXBXZ9M61ONrqM0%2526u%253DaHR0cHMlM2ElMmYlMmZ3d3cuZmlyc3RjcnkuY29tJTJmYmFieS1nZWFyJTJmNyUyZjAlMmYwJTNmc29ydCUzZGJlc3RzZWxsZXIlMjZyZWYlM2RCU04hQlNOX0NBVF9CRy1BbGwhJTI2bXNjbGtpZCUzZDJjZjEzZmE2OGNjOTE2NWViYjlhNTVlZDNjYzlhYmIxJTI2dXRtX3NvdXJjZSUzZGJpbmclMjZ1dG1fbWVkaXVtJTNkY3BjJTI2dXRtX2NhbXBhaWduJTNkQlNOX0NBVF9CRy1BbGwlMjZ1dG1fdGVybSUzZHB1cmNoYXNlJTI1MjBidWdneSUyNTIwb25saW5lJTI2dXRtX2NvbnRlbnQlM2RCdWdneSUyNTIwT25saW5l%2526rlid%253D2cf13fa68cc9165ebb9a55ed3cc9abb1%26vqd%3D4%2D268737103348158789862907402557080391400%26iurl%3D%257B1%257DIG%253DA5B478CF88774EA08DFDCC777200C995%2526CID%253D2128B730D955688B2510A0BED8AD69A7%2526ID%253DDevEx%252C5039.1&amp;rut=79c1ec97000bfaa030e763b82b59b593a359fcc8f06dadbc3d7e3b28c96c3487">Enjoy Effortless Strolls Lightweight Baby Buggies &amp; Explore Innovative Designs. Shop Now! Simple, Versatile, Lightweight, Comfortable &amp; Ergonomic Baby Carriers. Buy Now!</a>
+                      
+
+                      <div class="clear"></div>
+                    </div>
+                  </div>
+                
+              
+            
+              
+                <div class="result results_links results_links_deep web-result ">
+                  <div class="links_main links_deep result__body"> <!-- This is the visible part -->
+                    
+                      <h2 class="result__title">
+                        <a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fbun.com%2Freference%2Fbun%2Fffi%2Fdlopen&amp;rut=4be44937b27845591248f16b5e41ef3c0333439e691c1c952e14789062111ec7">bun:ffi dlopen function | API Reference | Bun</a>
+                      </h2>
+
+                    
+
+                    
+                      <div class="result__extras">
+                        <div class="result__extras__url">
+                          <span class="result__icon">
+                            <a rel="nofollow" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fbun.com%2Freference%2Fbun%2Fffi%2Fdlopen&amp;rut=4be44937b27845591248f16b5e41ef3c0333439e691c1c952e14789062111ec7">
+                              <img class="result__icon__img" width="16" height="16" alt="" src="//external-content.duckduckgo.com/ip3/bun.com.ico" name="i15" />
+                            </a>
+                          </span>
+                          <a class="result__url" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fbun.com%2Freference%2Fbun%2Fffi%2Fdlopen&amp;rut=4be44937b27845591248f16b5e41ef3c0333439e691c1c952e14789062111ec7">
+                            bun.com/reference/bun/ffi/dlopen
+                          </a>
+                          
+                        </div>
+                      </div>
+                    
+
+                    
+                      
+                        <a class="result__snippet" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fbun.com%2Freference%2Fbun%2Fffi%2Fdlopen&amp;rut=4be44937b27845591248f16b5e41ef3c0333439e691c1c952e14789062111ec7">This is powered by just-in-time compiling C wrappers that convert JavaScript types to C types and back. Internally, <b>bun</b> uses tinycc, so a big thanks goes to Fabrice Bellard and TinyCC maintainers for making this possible.</a>
+                      
+                    
+
+                    <div class="clear"></div>
+                  </div>
+                </div>
+              
+            
+              
+                <div class="result results_links results_links_deep web-result ">
+                  <div class="links_main links_deep result__body"> <!-- This is the visible part -->
+                    
+                      <h2 class="result__title">
+                        <a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fbun.com%2Fdocs%2Fruntime%2Fffi&amp;rut=020d76fed53e66327d811fc33882e5fa7b62bf2d22795bca38cec5dc872a8571">FFI - Bun</a>
+                      </h2>
+
+                    
+
+                    
+                      <div class="result__extras">
+                        <div class="result__extras__url">
+                          <span class="result__icon">
+                            <a rel="nofollow" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fbun.com%2Fdocs%2Fruntime%2Fffi&amp;rut=020d76fed53e66327d811fc33882e5fa7b62bf2d22795bca38cec5dc872a8571">
+                              <img class="result__icon__img" width="16" height="16" alt="" src="//external-content.duckduckgo.com/ip3/bun.com.ico" name="i15" />
+                            </a>
+                          </span>
+                          <a class="result__url" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fbun.com%2Fdocs%2Fruntime%2Fffi&amp;rut=020d76fed53e66327d811fc33882e5fa7b62bf2d22795bca38cec5dc872a8571">
+                            bun.com/docs/runtime/ffi
+                          </a>
+                          
+                        </div>
+                      </div>
+                    
+
+                    
+                      
+                        <a class="result__snippet" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fbun.com%2Fdocs%2Fruntime%2Fffi&amp;rut=020d76fed53e66327d811fc33882e5fa7b62bf2d22795bca38cec5dc872a8571">Use the built-in <b>bun:ffi</b> module to efficiently call native libraries from JavaScript. It works with any language that supports the C ABI, including Zig, Rust, C/C++, C#, Nim, and Kotlin.</a>
+                      
+                    
+
+                    <div class="clear"></div>
+                  </div>
+                </div>
+              
+            
+              
+                <div class="result results_links results_links_deep web-result ">
+                  <div class="links_main links_deep result__body"> <!-- This is the visible part -->
+                    
+                      <h2 class="result__title">
+                        <a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fgithub.com%2Fanomalyco%2Fopencode%2Fissues%2F19130&amp;rut=3f2e21bc550d01efa434d391c7c18625e8d281ee6103a1a947527addfc720551">Windows ARM64 native: OpenTUI fails to initialize with bun:ffi dlopen ...</a>
+                      </h2>
+
+                    
+
+                    
+                      <div class="result__extras">
+                        <div class="result__extras__url">
+                          <span class="result__icon">
+                            <a rel="nofollow" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fgithub.com%2Fanomalyco%2Fopencode%2Fissues%2F19130&amp;rut=3f2e21bc550d01efa434d391c7c18625e8d281ee6103a1a947527addfc720551">
+                              <img class="result__icon__img" width="16" height="16" alt="" src="//external-content.duckduckgo.com/ip3/github.com.ico" name="i15" />
+                            </a>
+                          </span>
+                          <a class="result__url" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fgithub.com%2Fanomalyco%2Fopencode%2Fissues%2F19130&amp;rut=3f2e21bc550d01efa434d391c7c18625e8d281ee6103a1a947527addfc720551">
+                            github.com/anomalyco/opencode/issues/19130
+                          </a>
+                          
+                            <span>&nbsp; &nbsp; 2026-03-25T00:00:00.0000000</span>
+                          
+                        </div>
+                      </div>
+                    
+
+                    
+                      
+                        <a class="result__snippet" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fgithub.com%2Fanomalyco%2Fopencode%2Fissues%2F19130&amp;rut=3f2e21bc550d01efa434d391c7c18625e8d281ee6103a1a947527addfc720551">Description On Windows 11 ARM64, the native ARM64 OpenCode binary works for non-interactive commands, but the TUI fails to initialize.</a>
+                      
+                    
+
+                    <div class="clear"></div>
+                  </div>
+                </div>
+              
+            
+              
+                <div class="result results_links results_links_deep web-result ">
+                  <div class="links_main links_deep result__body"> <!-- This is the visible part -->
+                    
+                      <h2 class="result__title">
+                        <a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fgithub.com%2Foven%2Dsh%2Fbun%2Fissues%2F30717&amp;rut=6cbf59b909f1f28a471b8c7c2863dfae62bad3d29b63fa6699777f20417bd56e">bun:ffi `dlopen()` of an embedded `with: { type: &quot;file&quot; }` native ...</a>
+                      </h2>
+
+                    
+
+                    
+                      <div class="result__extras">
+                        <div class="result__extras__url">
+                          <span class="result__icon">
+                            <a rel="nofollow" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fgithub.com%2Foven%2Dsh%2Fbun%2Fissues%2F30717&amp;rut=6cbf59b909f1f28a471b8c7c2863dfae62bad3d29b63fa6699777f20417bd56e">
+                              <img class="result__icon__img" width="16" height="16" alt="" src="//external-content.duckduckgo.com/ip3/github.com.ico" name="i15" />
+                            </a>
+                          </span>
+                          <a class="result__url" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fgithub.com%2Foven%2Dsh%2Fbun%2Fissues%2F30717&amp;rut=6cbf59b909f1f28a471b8c7c2863dfae62bad3d29b63fa6699777f20417bd56e">
+                            github.com/oven-sh/bun/issues/30717
+                          </a>
+                          
+                            <span>&nbsp; &nbsp; 2026-05-14T00:00:00.0000000</span>
+                          
+                        </div>
+                      </div>
+                    
+
+                    
+                      
+                        <a class="result__snippet" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fgithub.com%2Foven%2Dsh%2Fbun%2Fissues%2F30717&amp;rut=6cbf59b909f1f28a471b8c7c2863dfae62bad3d29b63fa6699777f20417bd56e"><b>bun:ffi</b> <b>dlopen</b>() of an embedded with: { type: &quot;file&quot; } native library fails in <b>bun</b> build --compile output (regression from Rust rewrite) #30717</a>
+                      
+                    
+
+                    <div class="clear"></div>
+                  </div>
+                </div>
+              
+            
+              
+                <div class="result results_links results_links_deep web-result ">
+                  <div class="links_main links_deep result__body"> <!-- This is the visible part -->
+                    
+                      <h2 class="result__title">
+                        <a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fjsr.io%2F%40gnome%2Fffi%2Fdoc%2Fbun%2Fffi%2F~%2Fdlopen&amp;rut=a8bcedb6e56f9b550b1fe6f035fba29a1fcbe173f8e97ac47173ad5d98b0c5c9">dlopen from bun/ffi - @gnome/ffi - JSR</a>
+                      </h2>
+
+                    
+
+                    
+                      <div class="result__extras">
+                        <div class="result__extras__url">
+                          <span class="result__icon">
+                            <a rel="nofollow" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fjsr.io%2F%40gnome%2Fffi%2Fdoc%2Fbun%2Fffi%2F~%2Fdlopen&amp;rut=a8bcedb6e56f9b550b1fe6f035fba29a1fcbe173f8e97ac47173ad5d98b0c5c9">
+                              <img class="result__icon__img" width="16" height="16" alt="" src="//external-content.duckduckgo.com/ip3/jsr.io.ico" name="i15" />
+                            </a>
+                          </span>
+                          <a class="result__url" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fjsr.io%2F%40gnome%2Fffi%2Fdoc%2Fbun%2Fffi%2F~%2Fdlopen&amp;rut=a8bcedb6e56f9b550b1fe6f035fba29a1fcbe173f8e97ac47173ad5d98b0c5c9">
+                            jsr.io/@gnome/ffi/doc/bun/ffi/~/dlopen
+                          </a>
+                          
+                            <span>&nbsp; &nbsp; 2026-02-23T16:16:00.0000000</span>
+                          
+                        </div>
+                      </div>
+                    
+
+                    
+                      
+                        <a class="result__snippet" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fjsr.io%2F%40gnome%2Fffi%2Fdoc%2Fbun%2Fffi%2F~%2Fdlopen&amp;rut=a8bcedb6e56f9b550b1fe6f035fba29a1fcbe173f8e97ac47173ad5d98b0c5c9">@gnome/<b>ffi</b> on JSR: provides some shared utils for working with foreign function interfaces in Deno and <b>Bun</b> and a shim for <b>bun</b>.</a>
+                      
+                    
+
+                    <div class="clear"></div>
+                  </div>
+                </div>
+              
+            
+              
+                <div class="result results_links results_links_deep web-result ">
+                  <div class="links_main links_deep result__body"> <!-- This is the visible part -->
+                    
+                      <h2 class="result__title">
+                        <a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fdev.to%2F1ce%2Fhow%2Dto%2Dand%2Dshould%2Dyou%2Duse%2Dbun%2Dffi%2D4c9k&amp;rut=7966ea04f19310e689e70788ccdd1d0432d19334a5db3d4f6179d4e8d04bae36">How to and Should you use Bun FFI - DEV Community</a>
+                      </h2>
+
+                    
+
+                    
+                      <div class="result__extras">
+                        <div class="result__extras__url">
+                          <span class="result__icon">
+                            <a rel="nofollow" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fdev.to%2F1ce%2Fhow%2Dto%2Dand%2Dshould%2Dyou%2Duse%2Dbun%2Dffi%2D4c9k&amp;rut=7966ea04f19310e689e70788ccdd1d0432d19334a5db3d4f6179d4e8d04bae36">
+                              <img class="result__icon__img" width="16" height="16" alt="" src="//external-content.duckduckgo.com/ip3/dev.to.ico" name="i15" />
+                            </a>
+                          </span>
+                          <a class="result__url" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fdev.to%2F1ce%2Fhow%2Dto%2Dand%2Dshould%2Dyou%2Duse%2Dbun%2Dffi%2D4c9k&amp;rut=7966ea04f19310e689e70788ccdd1d0432d19334a5db3d4f6179d4e8d04bae36">
+                            dev.to/1ce/how-to-and-should-you-use-bun-ffi-4c9k
+                          </a>
+                          
+                            <span>&nbsp; &nbsp; 2024-11-10T00:00:00.0000000</span>
+                          
+                        </div>
+                      </div>
+                    
+
+                    
+                      
+                        <a class="result__snippet" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fdev.to%2F1ce%2Fhow%2Dto%2Dand%2Dshould%2Dyou%2Duse%2Dbun%2Dffi%2D4c9k&amp;rut=7966ea04f19310e689e70788ccdd1d0432d19334a5db3d4f6179d4e8d04bae36"><b>Bun</b> exposes its <b>FFI</b> API through <b>bun:ffi</b> module. The entrypoint is a <b>dlopen</b> function. It takes a path that&#x27;s either absolute or relative to the current working directory to the library file (the build output with a .so extension for Linux, .dylib for macOS or .dll for Windows) and an object with the signatures of functions you want to import.</a>
+                      
+                    
+
+                    <div class="clear"></div>
+                  </div>
+                </div>
+              
+            
+              
+                <div class="result results_links results_links_deep web-result ">
+                  <div class="links_main links_deep result__body"> <!-- This is the visible part -->
+                    
+                      <h2 class="result__title">
+                        <a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fkenhuang.com%2Fen%2Fbun%2Fbun%2Dffi.html&amp;rut=1deeb8ba10cac1f3721b3d88a40835870fdc55dd817aea3cd1e731a6a664438c">Bun FFI (Foreign Function Interface) | 垦荒学园</a>
+                      </h2>
+
+                    
+
+                    
+                      <div class="result__extras">
+                        <div class="result__extras__url">
+                          <span class="result__icon">
+                            <a rel="nofollow" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fkenhuang.com%2Fen%2Fbun%2Fbun%2Dffi.html&amp;rut=1deeb8ba10cac1f3721b3d88a40835870fdc55dd817aea3cd1e731a6a664438c">
+                              <img class="result__icon__img" width="16" height="16" alt="" src="//external-content.duckduckgo.com/ip3/kenhuang.com.ico" name="i15" />
+                            </a>
+                          </span>
+                          <a class="result__url" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fkenhuang.com%2Fen%2Fbun%2Fbun%2Dffi.html&amp;rut=1deeb8ba10cac1f3721b3d88a40835870fdc55dd817aea3cd1e731a6a664438c">
+                            kenhuang.com/en/bun/bun-ffi.html
+                          </a>
+                          
+                        </div>
+                      </div>
+                    
+
+                    
+                      
+                        <a class="result__snippet" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fkenhuang.com%2Fen%2Fbun%2Fbun%2Dffi.html&amp;rut=1deeb8ba10cac1f3721b3d88a40835870fdc55dd817aea3cd1e731a6a664438c"><b>Bun</b> provides <b>FFI</b> (Foreign Function Interface) functionality that allows direct calling of native libraries written in C/C++/Rust. This chapter introduces <b>Bun</b> <b>FFI</b> usage.</a>
+                      
+                    
+
+                    <div class="clear"></div>
+                  </div>
+                </div>
+              
+            
+              
+                <div class="result results_links results_links_deep web-result ">
+                  <div class="links_main links_deep result__body"> <!-- This is the visible part -->
+                    
+                      <h2 class="result__title">
+                        <a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fdeepwiki.com%2Foven%2Dsh%2Fbun%2F9.6%2Dffi%2Dand%2Dnative%2Dbindings&amp;rut=71545929cbf0690bd158615a74949a3754e6dab00dedf3645d2586974be99737">FFI and Native Bindings | oven-sh/bun | DeepWiki</a>
+                      </h2>
+
+                    
+
+                    
+                      <div class="result__extras">
+                        <div class="result__extras__url">
+                          <span class="result__icon">
+                            <a rel="nofollow" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fdeepwiki.com%2Foven%2Dsh%2Fbun%2F9.6%2Dffi%2Dand%2Dnative%2Dbindings&amp;rut=71545929cbf0690bd158615a74949a3754e6dab00dedf3645d2586974be99737">
+                              <img class="result__icon__img" width="16" height="16" alt="" src="//external-content.duckduckgo.com/ip3/deepwiki.com.ico" name="i15" />
+                            </a>
+                          </span>
+                          <a class="result__url" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fdeepwiki.com%2Foven%2Dsh%2Fbun%2F9.6%2Dffi%2Dand%2Dnative%2Dbindings&amp;rut=71545929cbf0690bd158615a74949a3754e6dab00dedf3645d2586974be99737">
+                            deepwiki.com/oven-sh/bun/9.6-ffi-and-native-bindings
+                          </a>
+                          
+                            <span>&nbsp; &nbsp; 2026-06-20T00:00:00.0000000</span>
+                          
+                        </div>
+                      </div>
+                    
+
+                    
+                      
+                        <a class="result__snippet" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fdeepwiki.com%2Foven%2Dsh%2Fbun%2F9.6%2Dffi%2Dand%2Dnative%2Dbindings&amp;rut=71545929cbf0690bd158615a74949a3754e6dab00dedf3645d2586974be99737"><b>FFI</b> and Native Bindings Relevant source files <b>Bun</b> provides a high-performance Foreign Function Interface (<b>FFI</b>) via the <b>bun:ffi</b> module. It allows JavaScript to call native C functions directly by just-in-time (JIT) compiling C wrappers that handle type conversion between JavaScriptCore (JSC) types and the C Application Binary Interface (ABI) packages/<b>bun</b>-types/<b>ffi</b>.d.ts 1-15 Architecture and ...</a>
+                      
+                    
+
+                    <div class="clear"></div>
+                  </div>
+                </div>
+              
+            
+              
+                <div class="result results_links results_links_deep web-result ">
+                  <div class="links_main links_deep result__body"> <!-- This is the visible part -->
+                    
+                      <h2 class="result__title">
+                        <a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.bunjs.com.cn%2Fruntime%2Fffi.html&amp;rut=77da26bdea17517f6dd4c809992a3c61ff15d7a2745d0a7da158a3ace2bb5464">Bun JS FFI - Bun Documentation</a>
+                      </h2>
+
+                    
+
+                    
+                      <div class="result__extras">
+                        <div class="result__extras__url">
+                          <span class="result__icon">
+                            <a rel="nofollow" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.bunjs.com.cn%2Fruntime%2Fffi.html&amp;rut=77da26bdea17517f6dd4c809992a3c61ff15d7a2745d0a7da158a3ace2bb5464">
+                              <img class="result__icon__img" width="16" height="16" alt="" src="//external-content.duckduckgo.com/ip3/www.bunjs.com.cn.ico" name="i15" />
+                            </a>
+                          </span>
+                          <a class="result__url" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.bunjs.com.cn%2Fruntime%2Fffi.html&amp;rut=77da26bdea17517f6dd4c809992a3c61ff15d7a2745d0a7da158a3ace2bb5464">
+                            www.bunjs.com.cn/runtime/ffi.html
+                          </a>
+                          
+                        </div>
+                      </div>
+                    
+
+                    
+                      
+                        <a class="result__snippet" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.bunjs.com.cn%2Fruntime%2Fffi.html&amp;rut=77da26bdea17517f6dd4c809992a3c61ff15d7a2745d0a7da158a3ace2bb5464">`<b>bun:ffi</b>` is **experimental**, with known bugs and limitations, and should not be relied on in production. The most stable way to interact with native code from <b>Bun</b> is to write a [Node-API module] (/runtime/node-api). Use the built-in <b>bun:ffi</b> module to efficiently call native libraries from JavaScript. It works with languages that support the C ABI (Zig, Rust, C/C++, C#, Nim, Kotlin, etc).</a>
+                      
+                    
+
+                    <div class="clear"></div>
+                  </div>
+                </div>
+              
+            
+              
+                <div class="result results_links results_links_deep web-result ">
+                  <div class="links_main links_deep result__body"> <!-- This is the visible part -->
+                    
+                      <h2 class="result__title">
+                        <a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fdeepwiki.com%2Fanomalyco%2Frift%2F3.3%2Dbun%2Dffi%2Dbindings&amp;rut=1f380a5ac5a9732f007fbdf8305728695bdc7d5555a02efb16792b3900f68524">Bun FFI Bindings | anomalyco/rift | DeepWiki</a>
+                      </h2>
+
+                    
+
+                    
+                      <div class="result__extras">
+                        <div class="result__extras__url">
+                          <span class="result__icon">
+                            <a rel="nofollow" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fdeepwiki.com%2Fanomalyco%2Frift%2F3.3%2Dbun%2Dffi%2Dbindings&amp;rut=1f380a5ac5a9732f007fbdf8305728695bdc7d5555a02efb16792b3900f68524">
+                              <img class="result__icon__img" width="16" height="16" alt="" src="//external-content.duckduckgo.com/ip3/deepwiki.com.ico" name="i15" />
+                            </a>
+                          </span>
+                          <a class="result__url" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fdeepwiki.com%2Fanomalyco%2Frift%2F3.3%2Dbun%2Dffi%2Dbindings&amp;rut=1f380a5ac5a9732f007fbdf8305728695bdc7d5555a02efb16792b3900f68524">
+                            deepwiki.com/anomalyco/rift/3.3-bun-ffi-bindings
+                          </a>
+                          
+                            <span>&nbsp; &nbsp; 2026-06-01T00:00:00.0000000</span>
+                          
+                        </div>
+                      </div>
+                    
+
+                    
+                      
+                        <a class="result__snippet" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fdeepwiki.com%2Fanomalyco%2Frift%2F3.3%2Dbun%2Dffi%2Dbindings&amp;rut=1f380a5ac5a9732f007fbdf8305728695bdc7d5555a02efb16792b3900f68524">Overview The <b>Bun</b> bindings mirror the API surface of the Node.js implementation but leverage <b>Bun&#x27;s</b> <b>dlopen</b> and ptr utilities for lower overhead. The implementation handles platform-specific library resolution, memory allocation for C-compatible strings, and the serialization pipeline required to communicate with the Rust core via JSON.</a>
+                      
+                    
+
+                    <div class="clear"></div>
+                  </div>
+                </div>
+              
+            
+
+            
+              
+              
+                <div class="nav-link">
+                  <form action="/html/" method="post">
+                    <input type="submit" class='btn btn--alt' value="Next" />
+                    <input type="hidden" name="q" value="bun ffi dlopen" />
+                    <input type="hidden" name="s" value="10" />
+                    <input type="hidden" name="nextParams" value="" />
+                    <input type="hidden" name="v" value="l" />
+                    <input type="hidden" name="o" value="json" />
+                    <input type="hidden" name="dc" value="12" />
+                    <input type="hidden" name="api" value="d.js" />
+                    <input type="hidden" name="vqd" value="4-24127718478284243409145795200699081669" />
+
+                    
+                    
+                    
+                      <input name="kl" value="wt-wt" type="hidden" />
+                    
+                    
+                    
+                    
+                  </form>
+                </div>
+              
+            
+
+            <div class="feedback-btn">
+              <a rel="nofollow" href="//duckduckgo.com/feedback.html" target="_new">Feedback</a>
+            </div>
+            <div class="clear"></div>
+          </div>
+        </div>
+      </div> <!-- links wrapper //-->
+    
+  </div>
+
+  <div id="bottom_spacing2"></div>
+
+  
+    <img src="//duckduckgo.com/t/sl_h"/>
+  
+</body>
+</html>
