@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.9.10] - 2026-07-06
+
+### Added
+
+- **websearch tool** — web search via DuckDuckGo, no API key needed. Opt-in: flip `websearch` on in `/settings` (or `"webSearch": true` in settings.json). Returns the top results as title/URL/snippet — pass a result URL to the read tool to fetch the full page. Sponsored results are filtered out. Subagents inherit it, print mode gets it too, and custom agents can opt in by naming `websearch` in their tools list. Heads-up: it scrapes DuckDuckGo's HTML endpoint, which is unofficial and may rate-limit.
+
+### Fixed
+
+- **Streaming edit/write preview reads top-down.** While a file is being written, the content now streams above and the `… +N earlier lines (ctrl+e to expand)` hint sits below it — matching how the finished diff collapses.
+
 ## [0.9.9] - 2026-07-06
 
 ### Added
