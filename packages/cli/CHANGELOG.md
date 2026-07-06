@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.10.2] - 2026-07-07
+
+### Changed
+
+- **Goal notifications and summaries show only the final response.** A goal run's summary — the desktop notification body, `loop goals run` output, and the stored last-run summary — is now the model's closing response after its last tool call (like a subagent's report), instead of the tail of everything it streamed along the way. Failed runs summarize the error instead.
+
 ## [0.10.1] - 2026-07-07
 
 ### Changed

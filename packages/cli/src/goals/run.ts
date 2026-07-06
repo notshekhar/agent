@@ -65,12 +65,21 @@ export async function runGoal(goal: Goal): Promise<GoalRunResult> {
     const tracker = new CostTracker();
     const emitter = asTurnEmitter(new EventEmitter());
     const abort = new AbortController();
-    let output = "";
+    // Summary = the final response only, like a subagent's report (its
+    // report is result.text, not the turn's accumulated narration). Resetting
+    // on every tool call leaves exactly the text after the last tool — the
+    // model's closing summary. Errors are kept separately so a failed run's
+    // summary shows what broke, not a half-written response.
+    let finalText = "";
+    let errorText = "";
     emitter.on("text-delta", (text: string) => {
-        output += text;
+        finalText += text;
+    });
+    emitter.on("tool-call", () => {
+        finalText = "";
     });
     emitter.on("error", (err: unknown) => {
-        output += `\n[error] ${String(err)}`;
+        errorText += `${errorText ? "\n" : ""}${String(err)}`;
     });
 
     const startHooks = await runHooks(
@@ -109,7 +118,7 @@ export async function runGoal(goal: Goal): Promise<GoalRunResult> {
         });
     } catch (err) {
         status = "error";
-        output += `\n[error] ${String((err as Error)?.message ?? err)}`;
+        errorText += `${errorText ? "\n" : ""}${String((err as Error)?.message ?? err)}`;
     }
 
     if (mcpEnabled) await getMcpManager().close();
@@ -124,7 +133,12 @@ export async function runGoal(goal: Goal): Promise<GoalRunResult> {
         new Promise((r) => setTimeout(r, 3_000)),
     ]);
 
-    const summary = output.trim().slice(-SUMMARY_MAX) || (status === "ok" ? "(no output)" : "(failed with no output)");
+    // A recovered mid-turn error (event fired, turn still finished) keeps
+    // status ok and reports the final response; only a thrown turn is a
+    // failure, summarized by what broke.
+    const summary =
+        (status === "error" ? errorText.trim() || finalText.trim() : finalText.trim()).slice(0, SUMMARY_MAX) ||
+        (status === "ok" ? "(no response)" : "(failed with no output)");
     recordGoalRunEnd(goal.id, status, summary);
     notify(
         status === "ok" ? `${PRODUCT_NAME} goal done` : `${PRODUCT_NAME} goal needs attention`,
