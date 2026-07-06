@@ -27,7 +27,7 @@
         "clean": "rm -rf dist"
     },
     "dependencies": {
-        "@ai-sdk/amazon-bedrock": "^5.0.11",
+        "@ai-sdk/amazon-bedrock": "^5.0.12",
         "@ai-sdk/anthropic": "^4.0.4",
         "@ai-sdk/cerebras": "^3.0.5",
         "@ai-sdk/deepseek": "^3.0.5",
@@ -35,7 +35,7 @@
         "@ai-sdk/groq": "^4.0.5",
         "@ai-sdk/mcp": "^2.0.7",
         "@ai-sdk/mistral": "^4.0.5",
-        "@ai-sdk/openai": "^4.0.0",
+        "@ai-sdk/openai": "^4.0.8",
         "@ai-sdk/xai": "^4.0.6",
         "@aws-sdk/credential-providers": "^3.1079.0",
         "@notshekhar/loop-sandbox": "*",

@@ -3435,12 +3435,12 @@
     "id": "openrouter/z-ai/glm-5.2",
     "provider": "openrouter",
     "name": "GLM-5.2",
-    "contextWindow": 202752,
-    "maxOutput": 202752,
+    "contextWindow": 1048576,
+    "maxOutput": 131072,
     "cost": {
-      "input": 0.18,
-      "output": 2.95,
-      "cacheRead": 0.1,
+      "input": 0.686,
+      "output": 2.156,
+      "cacheRead": 0.1274,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -4654,7 +4654,7 @@
   "openrouter/openai/gpt-oss-20b": {
     "id": "openrouter/openai/gpt-oss-20b",
     "provider": "openrouter",
-    "name": "gpt-oss-20b",
+    "name": "GPT OSS 20B",
     "contextWindow": 131072,
     "maxOutput": 131072,
     "cost": {
