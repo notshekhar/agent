@@ -240,7 +240,7 @@ export class ToolExecutionComponent extends Container {
         const lines = lang ? highlightCode(shown.join("\n"), lang) : shown.map((l) => theme.fg("toolOutput", l));
         if (!truncated) return lines;
         const hint = this.expanded ? "streaming" : `${EXPAND_HINT} to expand`;
-        return [theme.fg("dim", `… +${raw.length - cap} earlier lines (${hint})`), ...lines];
+        return [...lines, theme.fg("dim", `… +${raw.length - cap} earlier lines (${hint})`)];
     }
 
     /** sql: the query, highlighted as a SQL block under the title. */
