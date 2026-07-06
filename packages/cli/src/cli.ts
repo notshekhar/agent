@@ -64,6 +64,9 @@ async function main(): Promise<void> {
         case "run":
             await (await commands()).cmdRun(args);
             return;
+        case "goals":
+            await (await import("./goals/commands")).cmdGoals(args);
+            return;
         case "models":
             await (await commands()).cmdModels();
             return;

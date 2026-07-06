@@ -58,11 +58,16 @@ describe("parseAgentFile", () => {
         expect(parsed.tools).toBeUndefined();
     });
 
-    test("full tool list (incl. task + ask + websearch) normalizes to undefined (= all)", () => {
+    test("full tool list (incl. task + ask + websearch + plan) normalizes to undefined (= all)", () => {
         const parsed = parseAgentFile(
-            "---\ntools: read, write, edit, bash, ls, grep, find, sql, task, ask, websearch\n---\n\nBody.",
+            "---\ntools: read, write, edit, bash, ls, grep, find, sql, task, ask, websearch, plan\n---\n\nBody.",
         );
         expect(parsed.tools).toBeUndefined();
+    });
+
+    test("plan is a valid agent tool", () => {
+        const parsed = parseAgentFile("---\ntools: read, grep, plan\n---\n\nBody.");
+        expect(parsed.tools).toEqual(["read", "grep", "plan"]);
     });
 
     test("ask is a valid agent tool", () => {

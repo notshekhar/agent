@@ -4,9 +4,18 @@ import { toolInputDeltaEvent, toolInputStartEvent, type TurnEmitter } from "./ev
 import { getModel, parseModelId } from "../providers";
 import { getCatalog } from "../catalog";
 import { getSetting } from "../settings";
+import { listGoals } from "../goals";
 import { effectiveSdkProvider } from "../auth";
-import { createAskTool, createTools, createWebsearchTool, isAskUserAvailable } from "../tools";
-import { buildSubagentNote, buildSystemPrompt } from "./system-prompt";
+import {
+    createAskTool,
+    createPlanTool,
+    createTools,
+    createWebsearchTool,
+    isAskUserAvailable,
+    planDeliveredThisStep,
+    PLAN_TOOL_NAME,
+} from "../tools";
+import { buildGoalsNote, buildSubagentNote, buildSystemPrompt } from "./system-prompt";
 import { getAgentPrompt, getAgentTools, isReadOnlyBashAgent, listAgents } from "./agents";
 import { loadWorkspaceContext } from "./context";
 import { loadProjectSkills } from "./skills";
@@ -44,6 +53,7 @@ export { CostTracker, stampUsageCost, type AddContext } from "./cost";
 export { buildSteakGrid, type SteakGrid, type SteakOptions } from "./steak";
 export { runCompact, CompactAbortedError } from "./compact";
 export { runRecap, isRecapPayload, RECAP_KIND, type RecapPayload } from "./recap";
+export { parseGoalInput, toGoalSchedule, type ParsedGoal } from "./goal-parse";
 export {
     runBranchSummary,
     BranchSummaryAbortedError,
@@ -82,6 +92,8 @@ export {
 export {
     DEFAULT_AGENT_NAME,
     DATA_ANALYST_AGENT_NAME,
+    PLAN_AGENT_NAME,
+    resolveSavedAgent,
     PLAN_BASE_PROMPT,
     ANALYST_BASE_PROMPT,
     listAgents,
@@ -426,6 +438,15 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
     if (askEnabled && (!allowedTools?.length || allowedTools.includes("ask"))) {
         toolsForTurn.ask = createAskTool({ abortSignal });
     }
+    // Plan-delivery tool: only for restricted agents that name it (the plan
+    // builtin does; custom agents opt in via frontmatter). Never for
+    // unrestricted agents — default handing itself a plan makes no sense.
+    // Added AFTER the task tool so subagents don't inherit it. Its presence
+    // also arms the hasToolCall stop condition below: calling plan ends the
+    // turn with the final plan as the tool input.
+    if (allowedTools?.length && allowedTools.includes(PLAN_TOOL_NAME)) {
+        toolsForTurn[PLAN_TOOL_NAME] = createPlanTool();
+    }
     // TurnContext carries which agent/model/tools are running. It's handed to
     // every turn-middleware seam (so an extension can scope by ctx.agent — e.g.
     // update one specific agent's system prompt) and to tool call/result
@@ -451,6 +472,17 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
     // System prompt is built AFTER the task tool decision so the model's tool
     // list matches reality, plus explicit delegation guidance when present.
     const subagentNote = "task" in toolsForTurn ? buildSubagentNote(listAgents().map((a) => a.name)) : "";
+    // Standing objectives from /goal for this directory. Only unscheduled
+    // ("none") goals are injected — scheduled goals run as their own daemon
+    // sessions, so a goal run never re-injects itself.
+    const goalsNote =
+        getSetting("goals") !== false
+            ? buildGoalsNote(
+                  listGoals(cwd)
+                      .filter((g) => g.kind === "none" && g.enabled)
+                      .map((g) => g.text),
+              )
+            : "";
     let system =
         buildSystemPrompt({
             cwd,
@@ -459,6 +491,7 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
             tools: Object.keys(toolsForTurn),
         }) +
         subagentNote +
+        goalsNote +
         (skills.promptBlock ?? "");
     // Extension turn middleware may transform the system prompt, scoped by
     // ctx.agent (update any specific agent's prompt). No-op when none.
@@ -656,7 +689,12 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
               }
             : { instructions: system, messages }),
         tools,
-        stopWhen: isStepCount(maxSteps),
+        // A plan-capable turn also stops once a substantial plan is delivered
+        // (stub deliveries keep the loop alive — see planDeliveredThisStep).
+        stopWhen:
+            PLAN_TOOL_NAME in toolsForTurn
+                ? [isStepCount(maxSteps), planDeliveredThisStep]
+                : isStepCount(maxSteps),
         abortSignal,
         // v7 portable reasoning effort for first-party providers (off → "none").
         // Undefined for community providers / non-reasoning models, which use

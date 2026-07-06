@@ -12,6 +12,7 @@ import { createContextHandlers } from "./handlers/context-handlers";
 import { createDoctorHandlers } from "./handlers/doctor-handlers";
 import { createDatasourceHandlers } from "./handlers/datasource-handlers";
 import { createExtensionHandlers } from "./handlers/extension-handlers";
+import { createGoalHandlers } from "./handlers/goal-handlers";
 import { createHookHandlers } from "./handlers/hook-handlers";
 import { createMcpHandlers } from "./handlers/mcp-handlers";
 import { createMiscHandlers } from "./handlers/misc-handlers";
@@ -40,5 +41,6 @@ export function createCommandContext(state: AppState, deps: AppDeps): CommandCon
         ...createDatasourceHandlers(state, deps),
         ...createSettingsHandlers(state, deps),
         ...createTimerHandlers(state, deps),
+        ...createGoalHandlers(state, deps),
     };
 }

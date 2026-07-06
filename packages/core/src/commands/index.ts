@@ -60,6 +60,8 @@ export interface CommandContext {
     setTimer(args: string): void;
     /** /reminder — open the reminder manager (create/edit/delete). */
     openReminders(): Promise<void>;
+    /** /goal — manager panel (no args) or quick-add a standing goal (`/goal <text>`). */
+    manageGoals(args: string): Promise<void> | void;
     /** /recap — generate the post-turn recap on demand (ignores the recap setting). */
     generateRecap(): Promise<void>;
     /** /memory — pick an AGENTS.md location and open it in $EDITOR. */
@@ -247,6 +249,16 @@ export async function registerBuiltins(reg: CommandRegistry, opts: { cwd?: strin
             name: "reminders",
             description: "Alias for /reminder",
             handler: (ctx) => ctx.openReminders(),
+        },
+        {
+            name: "goal",
+            description: "Manage goals: /goal opens the manager · /goal <text> adds a standing goal",
+            handler: (ctx, args) => ctx.manageGoals(args ?? ""),
+        },
+        {
+            name: "goals",
+            description: "Alias for /goal",
+            handler: (ctx, args) => ctx.manageGoals(args ?? ""),
         },
         {
             name: "cost",

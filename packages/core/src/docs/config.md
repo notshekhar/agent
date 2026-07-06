@@ -37,6 +37,11 @@ Other notable keys (all managed via `/settings` too):
 - `"bashAllow"` — the "always allow" list the approval prompt maintains
   (same `command` / `"command subcommand"` pattern shape as `bashDeny`). A
   command runs unprompted only when every segment matches an entry.
+- `"goals": false` — stop injecting /goal standing objectives into the system
+  prompt (default on). Goals themselves are managed with `/goal` in the TUI or
+  `{{name}} goals` on the CLI (add/list/rm/run/tick and
+  `{{name}} goals daemon install` for the background scheduler); they live in
+  {{name}}'s internal database, not in settings.json.
 
 ## Hard reload — REQUIRED after any config change
 
@@ -241,9 +246,11 @@ You are a meticulous code reviewer. You investigate and report; you never edit.
 ```
 
 - `tools:` — comma-separated subset of: `read, write, edit, bash, ls, grep,
-find, sql, task, ask, websearch`. Omit the frontmatter entirely to grant all
-tools. `ask` and `websearch` only activate when their settings toggles
-(`askUser` / `webSearch`) are on.
+find, sql, task, ask, websearch, plan`. Omit the frontmatter entirely to grant
+all tools. `ask` and `websearch` only activate when their settings toggles
+(`askUser` / `webSearch`) are on. `plan` is the plan-delivery tool: calling it
+ends the agent's turn with a finished plan the user can hand to an
+implementing agent — name it only for planner-style agents.
 - `model:` — full `provider/model` id this agent runs on when spawned as a
   subagent (task tool). Cross-provider is fine. Omit = inherit (the
   `subagentModel` setting if set, else the parent's model). If the id is

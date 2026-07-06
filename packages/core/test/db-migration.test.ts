@@ -74,10 +74,15 @@ describe("session db v1 → v2 migration", () => {
         expect(ledgerCols.map((c) => c.name)).toContain("entry_id");
         expect(ledgerCols.map((c) => c.name)).toContain("entry_pub");
         const version = db.query<{ value: string }, []>("SELECT value FROM meta WHERE key = 'schema_version'").get();
-        expect(version?.value).toBe("3");
+        expect(version?.value).toBe("5");
         // v2 → v3 rides the same pass
         const projCols = db.query<{ name: string }, []>("PRAGMA table_info(projects)").all();
         expect(projCols.map((c) => c.name)).toContain("provider_models");
+        // v3 → v4 is a new table (goals), created by the schema exec; v4 → v5
+        // adds goals.agent (a no-op ALTER here since the fresh table has it).
+        const goalCols = db.query<{ name: string }, []>("PRAGMA table_info(goals)").all();
+        expect(goalCols.map((c) => c.name)).toContain("last_run_session_id");
+        expect(goalCols.map((c) => c.name)).toContain("agent");
         // Pre-migration rows survive with a NULL stamp (no backfill).
         const row = db
             .query<{ usage_input: number; usage_usd: number | null }, []>(

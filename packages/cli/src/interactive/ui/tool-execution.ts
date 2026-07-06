@@ -4,8 +4,9 @@
  * collapses to a preview and expands with ctrl+e, diff coloring for edit/write,
  * syntax highlighting for read.
  */
-import { Box, Container, Spacer, Text, type TUI } from "@notshekhar/loop-tui";
-import { getLanguageFromPath, highlightCode, theme } from "./theme";
+import { Box, Container, Markdown, Spacer, Text, type TUI } from "@notshekhar/loop-tui";
+import { normalizePlanText } from "@notshekhar/loop-core";
+import { getLanguageFromPath, getMarkdownTheme, highlightCode, theme } from "./theme";
 import { formatToolArgs, readLineRangeText } from "./tool-summary";
 
 const COLLAPSED_LINES = 6;
@@ -82,7 +83,8 @@ export class ToolExecutionComponent extends Container {
      * growing tail under it. */
     updateStreamingInput(fields: Record<string, string>): void {
         if (fields.path && this.args.path !== fields.path) this.args = { ...this.args, path: fields.path };
-        this.streamingContent = fields.content ?? "";
+        // plan streams its text under "plan"; write/edit under "content".
+        this.streamingContent = fields.content ?? fields.plan ?? "";
         this.updateDisplay();
         this.tui.requestRender();
     }
@@ -135,6 +137,19 @@ export class ToolExecutionComponent extends Container {
         if (inputLines) {
             this.box.addChild(new Spacer(1));
             this.box.addChild(new Text(inputLines.join("\n"), 0, 0));
+        }
+
+        // plan: the input IS the deliverable — render it as full markdown (no
+        // collapse) so the user actually reads what they're approving, and drop
+        // the one-line ack output. While the input still streams the raw tail
+        // renders via streamingLines below, like write.
+        if (this.toolName === "plan" && !this.result?.isError) {
+            const plan = typeof this.args.plan === "string" ? normalizePlanText(this.args.plan.trim()) : "";
+            if (plan) {
+                this.box.addChild(new Spacer(1));
+                this.box.addChild(new Markdown(plan, 0, 0, getMarkdownTheme()));
+                return;
+            }
         }
 
         // Streaming write: the file content renders live (tail-capped) while

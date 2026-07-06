@@ -1,6 +1,15 @@
 # Changelog
 
-## [0.9.10] - 2026-07-06
+## [0.10.0] - 2026-07-07
+
+### Added
+
+- **Goals** — a goal is a stored objective tied to a directory. `/goal <text>` parses natural language with your current model (schedule words and agent mentions included: "check the deps every day at 9am with the plan agent") and confirms before saving; any parse failure just saves a standing goal. Standing goals are surfaced to the agent in the system prompt of every session in that directory (mute with the `goals` setting). Scheduled goals (once/cron) run **headless even when loop is closed** via `loop goals daemon install` — a launchd agent (macOS), systemd user timer (Linux), or Task Scheduler job (Windows, with desktop toasts) that ticks every minute. Each run is a normal, resumable session named `goal: …`, records status + summary on the goal, and fires a desktop notification. Every goal can pin its own model and agent (unset = your defaults at run time). Manage in the `/goal` panel (add, edit text/schedule/model/agent, run now, open last run, delete) or via `loop goals list|add|rm|run|tick|daemon`.
+- **Plan delivery** — the plan agent now ends its turn by calling a `plan` tool with the finished plan instead of trailing off in prose. The plan streams live and renders as full markdown (it's the deliverable — never collapsed), then you choose **implement it** (pick an agent; the plan is handed over as a one-shot) or **talk about it** (keep refining with the plan agent). Custom planner agents opt in by naming `plan` in their tools list.
+
+### Changed
+
+- Session database schema is now v5 (goals table). Older loop builds refuse a v5 database — upgrade all machines sharing a config dir.
 
 ### Added
 

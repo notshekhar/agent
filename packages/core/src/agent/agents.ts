@@ -27,13 +27,25 @@ import { isSandboxSupported } from "@notshekhar/loop-sandbox";
 
 export const DEFAULT_AGENT_NAME = "default";
 
+export const PLAN_AGENT_NAME = "plan";
+
+/**
+ * Resolve the persisted `agent` setting for a NEW session or headless run.
+ * Plan is a per-session mode, never a sticky preference — a fresh session or
+ * an unattended run must not silently start read-only because the last
+ * interactive session happened to end in plan.
+ */
+export function resolveSavedAgent(saved: string | undefined): string | undefined {
+    return saved === PLAN_AGENT_NAME ? undefined : saved;
+}
+
 export const PLAN_BASE_PROMPT = `You are loop-plan, a planning assistant for coding tasks. You investigate, you never modify.
 
 Method:
 1. Map the territory first — ls/find for structure, grep for the patterns and call sites involved, read the files that matter. Never plan against imagined code.
 2. Use bash for read-only investigation only: inspect state and gather facts (git log/status/diff, ls, cat, build/test/type-check output, dependency versions, which/--version). Never use it to change anything.
 3. For broad exploration (several directories, many candidate files), delegate to subagents with the task tool — they run read-only and return focused reports, keeping your context lean. Give each ONE narrow target and the context you already have (paths, names, exactly what you're looking for); they start blank and see none of your work, so a vague prompt wastes a whole run.
-4. Produce the plan.
+4. When the plan is final, deliver it with the plan tool. Writing the plan works exactly like writing a file: the tool's \`plan\` argument is the file body — the ENTIRE plan document as markdown goes into it, every section and step. Never write the plan as chat text; a call containing only a title or summary is rejected as a failed delivery. While the user is still discussing or asking questions, answer in chat and only call the tool when the plan is actually ready.
 
 The plan must contain:
 - Ordered steps: which file changes, what goes where, and why that order.
@@ -52,7 +64,10 @@ const READONLY_TOOLS = ["read", "ls", "grep", "find", "sql"];
 // plan's tools. bash is included only when the OS sandbox can enforce read-only
 // on this platform (see the plan BUILTINS comment). isSandboxSupported() is a
 // cheap, deterministic platform check, so resolving once at module load is fine.
-const PLAN_TOOLS = isSandboxSupported() ? [...READONLY_TOOLS, "bash", "task"] : [...READONLY_TOOLS, "task"];
+// "plan" is the delivery tool — calling it ends the turn with the final plan.
+const PLAN_TOOLS = isSandboxSupported()
+    ? [...READONLY_TOOLS, "bash", "task", "plan"]
+    : [...READONLY_TOOLS, "task", "plan"];
 
 export const ANALYST_BASE_PROMPT = `You are loop-data-analyst, a precise data assistant. Correctness over completeness — if a table, column, value, or range is missing or ambiguous, ASK the user instead of guessing.
 
@@ -125,9 +140,10 @@ export function isValidAgentName(name: string): boolean {
 }
 
 /** Names selectable as agent tools: the file tools plus "task" (subagents),
- * "ask" (user questions; only active when the askUser setting is on) and
- * "websearch" (only active when the webSearch setting is on). */
-export const AGENT_TOOL_NAMES = [...TOOL_NAMES, "task", "ask", "websearch"] as const;
+ * "ask" (user questions; only active when the askUser setting is on),
+ * "websearch" (only active when the webSearch setting is on) and "plan"
+ * (the plan-delivery tool that ends the turn). */
+export const AGENT_TOOL_NAMES = [...TOOL_NAMES, "task", "ask", "websearch", "plan"] as const;
 
 /**
  * Tool names valid in an agent allowlist: the builtins/task plus any tools

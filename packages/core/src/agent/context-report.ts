@@ -8,6 +8,7 @@
  */
 import { getCatalog } from "../catalog";
 import { getSetting } from "../settings";
+import { listGoals } from "../goals";
 import { getMcpManager, isMcpEnabled } from "../mcp";
 import { getExtensionHost } from "../extensions";
 import { createTools } from "../tools";
@@ -16,7 +17,7 @@ import { getAgentPrompt, getAgentTools, listAgents } from "./agents";
 import { loadWorkspaceContext } from "./context";
 import { loadProjectSkills } from "./skills";
 import { isTrusted } from "./trust";
-import { buildSubagentNote, buildSystemPrompt } from "./system-prompt";
+import { buildGoalsNote, buildSubagentNote, buildSystemPrompt } from "./system-prompt";
 import { latestCompactEntry } from "./compact";
 
 export interface ContextCategory {
@@ -101,8 +102,17 @@ export async function buildContextReport(opts: {
 
     // System prompt measured WITHOUT workspace context / skills — those are
     // separate categories below.
+    const goalsNote =
+        getSetting("goals") !== false
+            ? buildGoalsNote(
+                  listGoals(cwd)
+                      .filter((g) => g.kind === "none" && g.enabled)
+                      .map((g) => g.text),
+              )
+            : "";
+
     const toolNames = [...Object.keys(toolSet), ...Object.keys(mcpTools), ...(subagentsEnabled ? ["task"] : [])];
-    const systemBase = buildSystemPrompt({ cwd, basePrompt: agentPrompt, tools: toolNames }) + subagentNote;
+    const systemBase = buildSystemPrompt({ cwd, basePrompt: agentPrompt, tools: toolNames }) + subagentNote + goalsNote;
 
     let systemToolTokens = toolTokens(toolSet);
     if (subagentsEnabled) systemToolTokens += TASK_TOOL_EST_TOKENS;

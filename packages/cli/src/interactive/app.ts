@@ -40,6 +40,7 @@ import {
     isBuiltinAgent,
     isHiddenAgent,
     DEFAULT_AGENT_NAME,
+    resolveSavedAgent,
     getProjectModel,
     setAskUserBridge,
     setBashApprovalBridge,
@@ -184,8 +185,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
 
     // Plan is a per-session mode, not a sticky preference: a new loop always
     // boots in the default agent even if the last session ended in plan.
-    const savedAgentRaw = (settingsStore.get("agent") as string | undefined) ?? DEFAULT_AGENT_NAME;
-    const savedAgent = savedAgentRaw === "plan" ? DEFAULT_AGENT_NAME : savedAgentRaw;
+    const savedAgent = resolveSavedAgent(settingsStore.get("agent") as string | undefined) ?? DEFAULT_AGENT_NAME;
     const state: AppState = {
         cwd: opts.cwd,
         modelId: initialModelId,
@@ -202,6 +202,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         pendingInjection: null,
         lastCtrlCAt: 0,
         startupHooksDone: null,
+        pendingPlan: null,
         timerEndsAt: null,
         timerLabel: "",
     };

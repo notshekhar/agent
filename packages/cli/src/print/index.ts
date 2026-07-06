@@ -13,6 +13,7 @@ import {
     isMcpEnabled,
     isTrusted,
     parseModelId,
+    resolveSavedAgent,
     settingsStore,
     PRODUCT_NAME,
 } from "@notshekhar/loop-core";
@@ -101,7 +102,8 @@ export async function runPrint(opts: PrintOptions): Promise<void> {
         abortSignal: abort.signal,
         tracker,
         emitter,
-        agent: (settingsStore.get("agent") as string | undefined) ?? undefined,
+        // Plan is a per-session TUI mode — a one-shot run never starts in it.
+        agent: resolveSavedAgent(settingsStore.get("agent") as string | undefined),
         // One-shot mode prints nothing after the response — skip the recap pass.
         recap: false,
     });

@@ -47,6 +47,8 @@ export interface AppSettings {
     clock?: boolean;
     /** Fire /reminder alerts. Default on; set false to mute reminders entirely. */
     reminders?: boolean;
+    /** Surface /goal objectives in the system prompt. Default on; set false to hide them. */
+    goals?: boolean;
     autoCompactThreshold?: number;
     workspaceContext?: boolean;
     skills?: boolean;

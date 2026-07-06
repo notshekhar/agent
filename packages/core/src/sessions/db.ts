@@ -18,7 +18,7 @@ import { migrateProjectStores } from "./projects";
  * fails with SQLITE_CANTOPEN.
  */
 
-const SCHEMA_VERSION = 3;
+const SCHEMA_VERSION = 5;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -114,6 +114,24 @@ CREATE TABLE IF NOT EXISTS reminders (
     expr       TEXT,
     created_at INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS goals (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    pub_id              TEXT NOT NULL UNIQUE,
+    text                TEXT NOT NULL,
+    cwd                 TEXT NOT NULL,
+    model               TEXT,
+    agent               TEXT,
+    kind                TEXT NOT NULL,
+    at                  INTEGER,
+    expr                TEXT,
+    enabled             INTEGER NOT NULL DEFAULT 1,
+    created_at          INTEGER NOT NULL,
+    last_run_at         INTEGER,
+    last_run_session_id TEXT,
+    last_run_status     TEXT,
+    last_run_summary    TEXT
+);
 `;
 
 let db: Database | null = null;
@@ -186,6 +204,11 @@ function openDb(path: string, recovered = false): Database {
                 // no attributable entry, e.g. pre-migration spend).
                 // v2 → v3: projects.provider_models (JSON provider→model map,
                 // was settings.projectProviderModels).
+                // v3 → v4: goals table — new table only, created by the
+                // SCHEMA exec above, so no ALTERs; the version stamp is the
+                // whole migration.
+                // v4 → v5: goals.agent (which agent runs the goal; NULL =
+                // the global agent setting at run time).
                 // Two processes can race an ALTER — the loser's
                 // duplicate-column error is the success case, everything else
                 // still throws.
@@ -198,6 +221,7 @@ function openDb(path: string, recovered = false): Database {
                           ]
                         : []),
                     ...(version < 3 ? ["ALTER TABLE projects ADD COLUMN provider_models TEXT"] : []),
+                    ...(version < 5 ? ["ALTER TABLE goals ADD COLUMN agent TEXT"] : []),
                 ];
                 for (const alter of alters) {
                     try {
@@ -295,7 +319,7 @@ function salvageCorruptDb(corruptPath: string, fresh: Database): void {
     let damaged: Database | null = null;
     try {
         damaged = new Database(corruptPath);
-        for (const table of ["sessions", "entries", "cost_ledger", "projects", "reminders"]) {
+        for (const table of ["sessions", "entries", "cost_ledger", "projects", "reminders", "goals"]) {
             try {
                 const select = damaged.query(`SELECT * FROM ${table}`);
                 const cols = select.columnNames;

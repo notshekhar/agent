@@ -76,6 +76,16 @@ export { askInputSchema, createAskTool, formatAskAnswers, type AskToolContext } 
 // websearch tool: also conditionally attached in runTurn, gated on the
 // webSearch setting (default off). No UI bridge — works in print mode too.
 export { createWebsearchTool, type WebsearchToolContext } from "./websearch";
+// plan tool: conditionally attached in runTurn for agents whose tool list
+// names it (the plan builtin does). A substantial delivery stops the turn.
+export {
+    createPlanTool,
+    isDeliveredPlan,
+    normalizePlanText,
+    PLAN_MIN_CHARS,
+    PLAN_TOOL_NAME,
+    planDeliveredThisStep,
+} from "./plan";
 export {
     getAskUserBridge,
     isAskUserAvailable,

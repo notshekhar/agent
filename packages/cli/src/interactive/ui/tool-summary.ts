@@ -40,6 +40,13 @@ export function formatToolArgs(toolName: string, args: Record<string, unknown>, 
             const qShort = q.length > 60 ? `${q.slice(0, 57)}…` : q;
             return [conn, qShort].filter(Boolean).join(" · ");
         }
+        case "plan": {
+            // The plan body renders as markdown below the title — the summary
+            // is its first heading, never the raw JSON blob.
+            const plan = typeof a.plan === "string" ? a.plan : "";
+            const heading = (plan.split("\n")[0] ?? "").replace(/^#+\s*/, "").trim();
+            return heading.length > 80 ? `${heading.slice(0, 77)}…` : heading;
+        }
         default: {
             const json = JSON.stringify(a);
             return json.length > 80 ? `${json.slice(0, 77)}…` : json;

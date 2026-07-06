@@ -1,5 +1,15 @@
 import { EventEmitter } from "node:events";
-import { asTurnEmitter, type CommandContext, parseModelId, runTurn } from "@notshekhar/loop-core";
+import chalk from "chalk";
+import {
+    asTurnEmitter,
+    isDeliveredPlan,
+    listAgents,
+    normalizePlanText,
+    PLAN_TOOL_NAME,
+    type CommandContext,
+    parseModelId,
+    runTurn,
+} from "@notshekhar/loop-core";
 import { wrapSessionHookContext } from "@notshekhar/loop-core";
 import type { AppDeps } from "./deps";
 import type { AppState } from "./state";
@@ -31,7 +41,37 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
         hideWorking,
         ensureSession,
         tracker,
+        selectOnce,
     } = deps;
+
+    /**
+     * The plan tool ended the turn with a finished plan: offer to hand it to
+     * an implementing agent, or keep discussing with the plan agent. Esc at
+     * any point = keep discussing (the plan stays in the session either way).
+     */
+    const offerPlanFollowUp = async (plan: string): Promise<void> => {
+        // The plan itself is already on screen: the plan tool's box renders
+        // its input as full markdown (streaming and done alike).
+        const choice = await selectOnce(
+            [
+                { value: "implement", label: "implement it", description: "hand the plan to an implementing agent" },
+                { value: "talk", label: "talk about it", description: "keep refining it with the plan agent" },
+            ],
+            "Plan ready",
+        );
+        if (!choice || choice.value === "talk") {
+            history.addSystem(chalk.dim("keep chatting to refine the plan — deliver again with the plan tool"));
+            tui.requestRender();
+            return;
+        }
+        const candidates = listAgents().filter((a) => a.name !== "plan" && !a.hidden);
+        const pick = await selectOnce(
+            candidates.map((a) => ({ value: a.name, label: a.name })),
+            "Implement with",
+        );
+        if (!pick) return;
+        void ctx.useAgent(pick.value, `Implement this plan. It is complete — follow it rather than re-planning:\n\n${plan}`);
+    };
 
     // Pull the next queued input and resubmit it, whatever its type (chat or
     // command). Called after every item finishes so the FIFO queue keeps
@@ -131,6 +171,16 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
             showWorking,
             refreshStatusLine,
         });
+        // Plan delivery: stash the plan tool's input so the follow-up flow
+        // (implement / talk) can run once the turn has fully wound down.
+        emitter.on("tool-call", (part: { toolName?: string; input?: unknown }) => {
+            if (part.toolName !== PLAN_TOOL_NAME) return;
+            // Stub deliveries are rejected by the tool and retried — only a
+            // substantial plan arms the implement/talk follow-up.
+            if (isDeliveredPlan(part.input)) {
+                state.pendingPlan = normalizePlanText((part.input as { plan: string }).plan);
+            }
+        });
 
         const turnSignal = state.abort.signal;
         traceEvent("turn", `start "${text}" abortedAtStart=${turnSignal.aborted} agent=${turnAgent}`);
@@ -155,6 +205,11 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
             history.finishAssistant();
             hideWorking();
             tui.requestRender();
+            // Plan follow-up runs before the queue drains so the selector
+            // isn't fighting a queued message's turn.
+            const plan = state.pendingPlan;
+            state.pendingPlan = null;
+            if (plan && !turnSignal.aborted) await offerPlanFollowUp(plan);
             // Drain the next queued input (FIFO), whatever its type. Each fresh
             // turn/command re-reads state.
             drainNext();

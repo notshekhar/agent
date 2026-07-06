@@ -37,6 +37,42 @@ type SessionHandlers = Pick<
     | "shareSession"
 >;
 
+/**
+ * Open a session by id or transcript path and swap it in as the live session
+ * (model, status line, cost tracker, replayed history). Shared by /resume and
+ * the /goal manager's "open last run".
+ */
+export async function resumeSessionById(state: AppState, deps: AppDeps, idOrPath: string): Promise<void> {
+    const { tui, history, statusLine, tracker, manager, refreshStatusLine } = deps;
+    try {
+        state.session = await manager.open(idOrPath);
+        const resumedModel = state.session.lastModel();
+        if (resumedModel) {
+            state.modelId = resumedModel;
+            settingsStore.set("defaultModel", state.modelId);
+            setProjectModel(state.cwd, state.modelId);
+            statusLine.setModel(state.modelId);
+        }
+        statusLine.setSession(state.session.id);
+        // Restore cost/usage/ctx from the resumed transcript.
+        state.latestContextTokens = tracker.seedFromSession(state.session).ctxTokens;
+        refreshStatusLine();
+        history.reset();
+        if (idOrPath.endsWith(".jsonl") && state.session.path !== idOrPath) {
+            history.addSystem(`resumed fork ${state.session.id}`);
+            history.addSystem(
+                chalk.dim("selected legacy session was forked; new messages and compactions save to this session"),
+            );
+        } else {
+            history.addSystem(`resumed session ${state.session.id}`);
+        }
+        renderSessionBranch(state.session, history, state.modelId);
+    } catch (err) {
+        history.addError(`open failed: ${(err as Error).message}`);
+    }
+    tui.requestRender();
+}
+
 export function createSessionHandlers(state: AppState, deps: AppDeps): SessionHandlers {
     const {
         tui,
@@ -203,36 +239,7 @@ export function createSessionHandlers(state: AppState, deps: AppDeps): SessionHa
                 }
                 break;
             }
-            try {
-                const selectedPath = pick.value;
-                state.session = await manager.open(pick.value);
-                const resumedModel = state.session.lastModel();
-                if (resumedModel) {
-                    state.modelId = resumedModel;
-                    settingsStore.set("defaultModel", state.modelId);
-                    setProjectModel(state.cwd, state.modelId);
-                    statusLine.setModel(state.modelId);
-                }
-                statusLine.setSession(state.session.id);
-                // Restore cost/usage/ctx from the resumed transcript.
-                state.latestContextTokens = tracker.seedFromSession(state.session).ctxTokens;
-                refreshStatusLine();
-                history.reset();
-                if (state.session.path !== selectedPath) {
-                    history.addSystem(`resumed fork ${state.session.id}`);
-                    history.addSystem(
-                        chalk.dim(
-                            "selected legacy session was forked; new messages and compactions save to this session",
-                        ),
-                    );
-                } else {
-                    history.addSystem(`resumed session ${state.session.id}`);
-                }
-                renderSessionBranch(state.session, history, state.modelId);
-            } catch (err) {
-                history.addError(`open failed: ${(err as Error).message}`);
-            }
-            tui.requestRender();
+            await resumeSessionById(state, deps, pick.value);
         },
         showSessionInfo() {
             const s = tracker.sessionBreakdown();

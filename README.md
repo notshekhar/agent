@@ -43,22 +43,26 @@ Prebuilt binaries — no Node required. Targets: `darwin-x64`, `darwin-arm64`, `
 - Renders streaming text, reasoning, tool calls, and diffs inline.
 - Sessions are append-only **trees**: `/tree` navigates branches, `/fork` branches from any earlier message, abandoned branches can be summarized back into context.
 - Subagents: the `task` tool runs a named agent in its own context window and reports back.
+- **Goals**: standing objectives the agent carries in every session, plus scheduled goals that run headless on an OS timer (launchd / systemd / Task Scheduler) even when loop is closed — `/goal check the deps every day at 9am` just works.
+- MCP servers (stdio + http/sse, OAuth included) and a JS **extension system** (custom tools, providers, middleware).
 - Claude Code-compatible lifecycle hooks — your existing `~/.claude` hooks and plugins load as-is.
 - Works from a one-shot prompt (`loop run "..."`) or interactively.
 - Exposes a JSON-RPC server for programmatic use.
 
 ## Providers
 
-| Provider       | Auth                         | Notes                                          |
-| -------------- | ---------------------------- | ---------------------------------------------- |
-| xAI (Grok)     | OAuth (SuperGrok) or API key | Default: `xai/grok-build-0.1`                  |
-| Anthropic      | API key                      | Claude 4.x — Opus / Sonnet / Haiku             |
-| OpenAI         | API key                      | GPT-5 family                                   |
-| Google         | API key                      | Gemini 3.1 Pro / Flash / Flash-Lite            |
-| OpenRouter     | API key                      | 100+ models, searchable picker                 |
-| GitHub Copilot | OAuth (device flow)          | Subscription-billed                            |
-| Ollama         | none (local daemon)          | Auto-detected; `LOOP_OLLAMA_BASE_URL` to point |
-| Custom         | API key                      | Any OpenAI/Anthropic/Google-compatible gateway |
+| Provider                                        | Auth                         | Notes                                          |
+| ----------------------------------------------- | ---------------------------- | ---------------------------------------------- |
+| xAI (Grok)                                      | OAuth (SuperGrok) or API key | Default: `xai/grok-build-0.1`                  |
+| Anthropic                                       | API key                      | Claude 4.x — Opus / Sonnet / Haiku             |
+| OpenAI                                          | API key                      | GPT-5 family                                   |
+| Google                                          | API key                      | Gemini 3.1 Pro / Flash / Flash-Lite            |
+| OpenRouter                                      | API key                      | 100+ models, searchable picker                 |
+| GitHub Copilot                                  | OAuth (device flow)          | Subscription-billed                            |
+| AWS Bedrock                                     | none (AWS creds/SSO)         | Auto-detected from the aws CLI / env           |
+| DeepSeek / Mistral / GLM / Z.AI / Groq / Cerebras / ZenMux | API key           | Built-in                                       |
+| Ollama                                          | none (local daemon)          | Auto-detected; `LOOP_OLLAMA_BASE_URL` to point |
+| Custom                                          | API key                      | Any OpenAI/Anthropic/Google-compatible gateway |
 
 Custom providers (`/login custom`): name + base URL + key + model list, saved to `~/.loop/` and usable like any built-in — handy for gateways like Bifrost or LiteLLM.
 
@@ -72,8 +76,12 @@ loop run "explain this repo"      # one-shot
 loop login [provider]             # auth (xai, anthropic, openai, google, openrouter, github-copilot, ollama, custom)
 loop logout [provider]            # remove auth
 loop sessions                     # list sessions in cwd
+loop goals <cmd>                  # goals: list, add, rm, run, tick, daemon install|uninstall|status
+loop mcp <cmd>                    # MCP servers: add, list, remove, login, …
+loop install / extensions         # install / list JS extensions
 loop models                       # list catalog
 loop whoami                       # active provider + auth status
+loop cost audit                   # verify the cost ledger reconciles
 loop upgrade                      # self-update
 loop rpc [--socket]               # JSON-RPC over stdio or Unix socket
 loop help                         # full usage
@@ -83,14 +91,15 @@ Flags: `--model <provider/id>`, `--provider <id>`, `--cwd <path>`, `--session <i
 
 ### Slash commands
 
-| Group    | Commands                                                                                |
-| -------- | --------------------------------------------------------------------------------------- |
-| Sessions | `/new` `/clear` `/resume` `/sessions` `/session` `/name` `/export` `/import` `/compact` |
-| Tree     | `/tree` `/fork` `/clone`                                                                |
-| Models   | `/model` `/provider` `/thinking`                                                        |
-| Agents   | `/agents` `/<agent> <message>` (one-shot)                                               |
-| Setup    | `/login` `/logout` `/settings` `/hooks` `/reload` `/update`                             |
-| Misc     | `/help` `/cost` `/attach` `/paste` `/copy` `/cwd` `/hotkeys` `/changelog` `/quit`       |
+| Group      | Commands                                                                                 |
+| ---------- | ---------------------------------------------------------------------------------------- |
+| Sessions   | `/new` `/clear` `/resume` `/sessions` `/session` `/name` `/export` `/import` `/share` `/compact` `/context` |
+| Tree       | `/tree` `/fork` `/clone`                                                                 |
+| Models     | `/model` `/provider` `/thinking` `/scoped-models` (+ Ctrl+P cycle)                       |
+| Agents     | `/agents` `/<agent> <message>` (one-shot)                                                |
+| Automation | `/goal` `/reminder` `/timer` `/recap`                                                    |
+| Setup      | `/login` `/logout` `/settings` `/mcp` `/extensions` `/hooks` `/bashdeny` `/doctor` `/reload` `/update` |
+| Misc       | `/help` `/cost` `/memory` `/init` `/attach` `/paste` `/copy` `/cd` `/hotkeys` `/changelog` `/quit` |
 
 `/clear` starts a fresh session (and clears the screen). Messages and slash commands typed while the agent is generating queue up and run after the turn.
 
@@ -106,13 +115,33 @@ Existing flat sessions migrate automatically on first open.
 
 ### Agents & subagents
 
-- Built-ins: `default` (full toolset) and `plan` (read-only investigator). Create your own with `/agents` — custom system prompt + tool allowlist, registered as `/<name>` for one-shot use.
+- Built-ins: `default` (full toolset), `plan` (read-only investigator), and `data-analyst` (SQL-first, activated via `/datasource`). Create your own with `/agents` — custom system prompt + tool allowlist + optional pinned model, registered as `/<name>` for one-shot use.
 - Tab (empty prompt) or Shift+Tab cycles agents.
+- The **plan agent delivers plans as a deliverable**: when its plan is final it calls the `plan` tool, which ends the turn and renders the full plan as markdown. You then choose **implement it** (pick an agent — the plan is handed over as a one-shot) or **talk about it** (keep refining with the plan agent).
 - The `task` tool spawns a **subagent**: a fork of the current agent (same prompt, same tools minus `task`, fresh context). Activity streams live in the task box; only the final report enters the main context. Toggle via `/settings → subagents`.
+
+### Goals
+
+A **goal** is a stored objective tied to a directory. `/goal <text>` parses natural language with your current model — schedule words and agent mentions included — then confirms before saving:
+
+```
+/goal keep the README under 100 lines                      → standing goal
+/goal remind me to rebase in 45 minutes                    → runs once
+/goal check outdated deps every day at 9am with plan agent → cron, pinned to the plan agent
+```
+
+- **Standing goals** (no schedule) are injected into the system prompt of every session in that directory — the agent keeps them in mind while it works.
+- **Scheduled goals** (once / cron) run **headless** via `loop goals daemon install` — a launchd agent (macOS), systemd user timer (Linux), or Task Scheduler job (Windows) ticks every minute and runs due goals even when loop is closed. Each run is a normal session (named `goal: …`, resumable), finishes with a desktop notification, and records status + summary on the goal.
+- Every goal can pin its own **model** and **agent** (otherwise it inherits your defaults at run time). Manage everything in the `/goal` panel or with `loop goals` on the CLI.
 
 ### Tools
 
-`read` · `bash` · `edit` · `write` · `grep` · `find` · `ls` · `task` — colored diffs, syntax-highlighted output, file previews. `read` also fetches `http(s)://` URLs as readable text (and takes `offset`/`limit` for large files). `edit`/`write` enforce read-before-modify per session.
+`read` · `bash` · `edit` · `write` · `grep` · `find` · `ls` · `sql` · `task` — colored diffs, syntax-highlighted output, file previews. `read` also fetches `http(s)://` URLs as readable text (and takes `offset`/`limit` for large files). `edit`/`write` enforce read-before-modify per session. Opt-in extras: `websearch` (DuckDuckGo, no API key — `/settings → websearch`) and `ask` (the agent pauses to ask you multiple-choice questions — `/settings → askUser`). The `plan` tool belongs to planner agents (see Agents above).
+
+### MCP & extensions
+
+- **MCP servers** — `loop mcp add` (or `/mcp`): stdio and http/sse transports, OAuth login flows, `${env:VAR}` secrets, per-project servers in `.loop/mcp.json`. Server tools join the agent's toolset automatically.
+- **Extensions** — `loop install <spec>` / `/extensions`: JS extensions can add tools, slash commands, providers, status-line segments, and tool/turn middleware. `loop link` develops one from a local folder.
 
 ### Bash sandbox
 
@@ -214,13 +243,13 @@ Everything under `~/.loop/`:
 ```
 ~/.loop/
 ├── auth.json                           # provider tokens + custom gateways (mode 600)
-├── settings.json                       # defaultModel, thinkingLevel, hooks, …
+├── settings.json                       # defaultModel, thinkingLevel, hooks, mcpServers, …
 ├── models.json                         # user-added models / catalog overrides
-├── cost.json                           # cost tracking buckets
 ├── catalog.json                        # model catalog cache
+├── agent.db                            # SQLite: session trees, cost ledger, per-project memory, reminders, goals
 ├── agents/*.md                         # custom agents (and built-in prompt overrides)
+├── extensions/                         # installed JS extensions
 └── agent/
-    ├── sessions/<cwd-slug>/<id>.jsonl  # session trees, per cwd
     ├── prompts/*.md                    # custom slash commands
     ├── skills/*.md                     # auto-registered skills
     └── themes/*.json                   # custom themes
@@ -255,9 +284,9 @@ Keys are full `provider/model-id` ids; entries merge over the built-in catalog, 
 ## Stack
 
 - TypeScript (strict, ESM). Runtime: bun-compiled single binary (no Node required for users). Dev: bun ≥ 1.2
-- [Vercel AI SDK v6](https://sdk.vercel.ai/) — agent loop, streaming, tool use, reasoning, subagents
+- [Vercel AI SDK v7](https://sdk.vercel.ai/) — agent loop, streaming, tool use, reasoning, subagents
 - `@notshekhar/loop-tui` — the TUI core, **forked from [earendil-works/pi](https://github.com/earendil-works/pi)** (`pi-tui`): differential terminal rendering, editor, markdown, select lists
-- [`zod`](https://zod.dev/) v4 schemas, [`configstore`](https://github.com/yeoman/configstore) for config, JSONL for sessions
+- [`zod`](https://zod.dev/) v4 schemas, [`configstore`](https://github.com/yeoman/configstore) for config, SQLite (WAL, via `bun:sqlite`) for sessions/cost/goals
 - Distributed as GitHub Release tarballs
 
 ### Layout
@@ -273,11 +302,9 @@ packages/
 
 ## Not (yet) here
 
-- No MCP servers.
-- No background / cloud agents.
+- No cloud agents — the goals daemon runs on your machine only.
 - No multi-device sync.
 - No web / desktop UI — terminal only.
-- No package-manager distribution (Homebrew, Scoop, winget) yet.
 
 ---
 
@@ -304,11 +331,9 @@ CI runs **build** (version sync, install, build, typecheck, smoke test, tar+sha2
 
 ## Roadmap
 
-- MCP server support.
-- Package-manager distribution: Homebrew tap, Scoop bucket, winget.
-- More providers — Bedrock, Azure OpenAI, Mistral.
+- Package-manager distribution: Scoop bucket, winget (Homebrew tap exists).
+- More providers — Azure OpenAI.
 - Web / desktop client over JSON-RPC.
-- Background / async jobs.
 
 PRs welcome.
 

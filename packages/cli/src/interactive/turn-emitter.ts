@@ -65,7 +65,7 @@ export function wireTurnEmitter(emitter: TurnEmitter, deps: TurnEmitterDeps): vo
     // complete. The full `tool-call` below fills in the args on the same box.
     emitter.on("tool-input-start", (part: { toolName?: string; toolCallId?: string }) => {
         if (!part.toolCallId) return;
-        if (part.toolName === "write" || part.toolName === "edit") {
+        if (part.toolName === "write" || part.toolName === "edit" || part.toolName === "plan") {
             writeInputBuffers.set(part.toolCallId, { tool: part.toolName, buf: "", dirty: false });
         }
         history.addToolCall(part.toolName ?? "tool", part.toolCallId, {});

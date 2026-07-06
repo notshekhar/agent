@@ -24,6 +24,7 @@ export * from "./commands";
 export * from "./rpc";
 export * from "./settings";
 export * from "./reminders";
+export * from "./goals";
 export * from "./mcp";
 export * from "./datasources";
 export * from "./extensions";

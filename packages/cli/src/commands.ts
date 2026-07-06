@@ -96,6 +96,7 @@ Usage:
   ${PRODUCT_NAME} login [provider]    Configure provider auth
   ${PRODUCT_NAME} logout [provider]   Remove auth
   ${PRODUCT_NAME} sessions            List sessions in current cwd
+  ${PRODUCT_NAME} goals <cmd>         Manage goals (list, add, rm, run, tick, daemon…)
   ${PRODUCT_NAME} models              List available models
   ${PRODUCT_NAME} whoami              Show active provider + auth status
   ${PRODUCT_NAME} cost audit          Verify the cost ledger reconciles (self-audit)

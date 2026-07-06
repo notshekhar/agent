@@ -2327,7 +2327,7 @@
     "cost": {
       "input": 0.375,
       "output": 2.025,
-      "cacheRead": 0,
+      "cacheRead": 0.203,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -3438,9 +3438,9 @@
     "contextWindow": 1048576,
     "maxOutput": 131072,
     "cost": {
-      "input": 0.686,
-      "output": 2.156,
-      "cacheRead": 0.1274,
+      "input": 0.9086,
+      "output": 2.8556,
+      "cacheRead": 0.16874,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -5642,7 +5642,7 @@
     "cost": {
       "input": 0.105,
       "output": 0.28,
-      "cacheRead": 0,
+      "cacheRead": 0.028,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -5986,6 +5986,42 @@
       "text",
       "image",
       "pdf"
+    ],
+    "available": true
+  },
+  "openrouter/tencent/hy3:free": {
+    "id": "openrouter/tencent/hy3:free",
+    "provider": "openrouter",
+    "name": "Hy3 (free)",
+    "contextWindow": 262144,
+    "maxOutput": 262144,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "openrouter/tencent/hy3": {
+    "id": "openrouter/tencent/hy3",
+    "provider": "openrouter",
+    "name": "Hy3",
+    "contextWindow": 202752,
+    "maxOutput": 131072,
+    "cost": {
+      "input": 0.14,
+      "output": 0.58,
+      "cacheRead": 0.035,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text"
     ],
     "available": true
   },
@@ -7372,7 +7408,7 @@
     "cost": {
       "input": 0.385,
       "output": 2.45,
-      "cacheRead": 0,
+      "cacheRead": 0.111,
       "cacheWrite": 0
     },
     "reasoning": true,

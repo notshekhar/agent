@@ -18,7 +18,7 @@ import { normalizeUsage } from "./usage";
  * this otherwise append-only table sees.
  */
 
-export type LedgerSource = "turn" | "subagent" | "recap" | "compact" | "branch-summary";
+export type LedgerSource = "turn" | "subagent" | "recap" | "compact" | "branch-summary" | "goal-parse";
 
 export interface LedgerContext {
     source: LedgerSource;
