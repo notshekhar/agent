@@ -1,14 +1,14 @@
 /**
  * Persistent goals — the `goals` table in the session DB. A goal is a stored
- * objective tied to a directory. Unscheduled goals ("none") are surfaced to
- * the agent in every session for that cwd; scheduled goals ("once" absolute
- * timestamp, "cron" expression stored verbatim) are executed headless by the
- * goals daemon (`loop goals tick`). Scheduling/firing is the CLI's job; this
- * module only persists — cron math is injected into isGoalDue so core stays
- * croner-free, same split as reminders.
+ * background task tied to a directory. Unscheduled goals ("none") run
+ * on demand (the TUI fires them immediately on quick-add); scheduled goals
+ * ("once" absolute timestamp, "cron" expression stored verbatim) are executed
+ * headless by the goals daemon (`loop goals tick`). Scheduling/firing is the
+ * CLI's job; this module only persists — cron math is injected into isGoalDue
+ * so core stays croner-free, same split as reminders.
  *
- * Unlike reminders, goals carry run history (last_run_*): the daemon records
- * each run's session so the manager can show status and resume the transcript.
+ * Unlike reminders, goals carry run history (last_run_*): each run records
+ * its session so the manager can show status and resume the transcript.
  */
 import { ulid } from "ulid";
 import { getDb } from "./sessions/db";

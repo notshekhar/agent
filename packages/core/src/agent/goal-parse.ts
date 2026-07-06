@@ -18,7 +18,7 @@ const goalParseSchema = z.object({
         .describe("The objective itself, with schedule words and agent mentions stripped. Imperative, concise."),
     kind: z
         .enum(["none", "once", "cron"])
-        .describe("none = no time expression (standing goal); once = a single future moment; cron = recurring."),
+        .describe("none = no time expression (run in the background now); once = a single future moment; cron = recurring."),
     // nullish, not nullable: models routinely omit irrelevant fields rather
     // than emitting explicit nulls, and either must validate.
     onceInMinutes: z

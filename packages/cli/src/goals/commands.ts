@@ -23,7 +23,7 @@ import { runTick } from "./tick";
 function describeSchedule(goal: Goal): string {
     if (goal.kind === "cron") return `cron ${goal.expr}`;
     if (goal.kind === "once") return `once ${new Date(goal.at).toLocaleString()}`;
-    return "standing";
+    return "on demand";
 }
 
 function describeLastRun(goal: Goal): string {
@@ -48,8 +48,8 @@ function usage(): void {
   daemon install|uninstall|status
                                 manage the background scheduler (launchd/systemd)
 
-Goals without a schedule are standing objectives: they are surfaced to the
-agent in every session started in their directory.`);
+Goals without a schedule run on demand: fire one with \`goals run <id>\`
+(the TUI's /goal quick-add runs them immediately).`);
 }
 
 function findByPrefix(idPrefix: string): Goal | undefined {

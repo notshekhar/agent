@@ -29,15 +29,6 @@ Do NOT use task when: the job is one or two tool calls, needs back-and-forth wit
 Write complete prompts: the subagent knows nothing about this conversation — include paths, goals, constraints, and the exact output you expect. Call task alone in its step, never alongside other tool calls. By default the subagent is a fork of you (same prompt and tools, minus task); pass agent to run a named agent instead. Available agents: ${agentNames.join(", ")}.`;
 }
 
-/** Standing objectives from /goal, appended to the system prompt for their
- * directory. Lives here (not inline in runTurn) so context-report can measure
- * the same text. Callers pass only enabled, unscheduled goals. */
-export function buildGoalsNote(goalTexts: string[]): string {
-    if (goalTexts.length === 0) return "";
-    const shown = goalTexts.slice(0, 5);
-    return `\n\nActive goals (standing objectives the user set with /goal — keep them in mind and move them forward when the current task touches them):\n${shown.map((t) => `- ${t}`).join("\n")}`;
-}
-
 export function buildSystemPrompt(opts: {
     cwd: string;
     workspaceContext?: string;

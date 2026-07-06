@@ -4,7 +4,6 @@ import { toolInputDeltaEvent, toolInputStartEvent, type TurnEmitter } from "./ev
 import { getModel, parseModelId } from "../providers";
 import { getCatalog } from "../catalog";
 import { getSetting } from "../settings";
-import { listGoals } from "../goals";
 import { effectiveSdkProvider } from "../auth";
 import {
     createAskTool,
@@ -15,7 +14,7 @@ import {
     planDeliveredThisStep,
     PLAN_TOOL_NAME,
 } from "../tools";
-import { buildGoalsNote, buildSubagentNote, buildSystemPrompt } from "./system-prompt";
+import { buildSubagentNote, buildSystemPrompt } from "./system-prompt";
 import { getAgentPrompt, getAgentTools, isReadOnlyBashAgent, listAgents } from "./agents";
 import { loadWorkspaceContext } from "./context";
 import { loadProjectSkills } from "./skills";
@@ -472,17 +471,6 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
     // System prompt is built AFTER the task tool decision so the model's tool
     // list matches reality, plus explicit delegation guidance when present.
     const subagentNote = "task" in toolsForTurn ? buildSubagentNote(listAgents().map((a) => a.name)) : "";
-    // Standing objectives from /goal for this directory. Only unscheduled
-    // ("none") goals are injected — scheduled goals run as their own daemon
-    // sessions, so a goal run never re-injects itself.
-    const goalsNote =
-        getSetting("goals") !== false
-            ? buildGoalsNote(
-                  listGoals(cwd)
-                      .filter((g) => g.kind === "none" && g.enabled)
-                      .map((g) => g.text),
-              )
-            : "";
     let system =
         buildSystemPrompt({
             cwd,
@@ -491,7 +479,6 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
             tools: Object.keys(toolsForTurn),
         }) +
         subagentNote +
-        goalsNote +
         (skills.promptBlock ?? "");
     // Extension turn middleware may transform the system prompt, scoped by
     // ctx.agent (update any specific agent's prompt). No-op when none.

@@ -43,7 +43,7 @@ Prebuilt binaries — no Node required. Targets: `darwin-x64`, `darwin-arm64`, `
 - Renders streaming text, reasoning, tool calls, and diffs inline.
 - Sessions are append-only **trees**: `/tree` navigates branches, `/fork` branches from any earlier message, abandoned branches can be summarized back into context.
 - Subagents: the `task` tool runs a named agent in its own context window and reports back.
-- **Goals**: standing objectives the agent carries in every session, plus scheduled goals that run headless on an OS timer (launchd / systemd / Task Scheduler) even when loop is closed — `/goal check the deps every day at 9am` just works.
+- **Goals**: background tasks — `/goal convert utils.js to ts` runs it detached right now; `/goal check the deps every day at 9am` runs headless on an OS timer (launchd / systemd / Task Scheduler) even when loop is closed.
 - MCP servers (stdio + http/sse, OAuth included) and a JS **extension system** (custom tools, providers, middleware).
 - Claude Code-compatible lifecycle hooks — your existing `~/.claude` hooks and plugins load as-is.
 - Works from a one-shot prompt (`loop run "..."`) or interactively.
@@ -122,16 +122,17 @@ Existing flat sessions migrate automatically on first open.
 
 ### Goals
 
-A **goal** is a stored objective tied to a directory. `/goal <text>` parses natural language with your current model — schedule words and agent mentions included — then confirms before saving:
+A **goal** is a background task tied to a directory. `/goal <text>` parses natural language with your current model — schedule words and agent mentions included — then confirms before acting:
 
 ```
-/goal keep the README under 100 lines                      → standing goal
-/goal remind me to rebase in 45 minutes                    → runs once
+/goal convert utils.js to typescript                       → runs NOW, in the background
+/goal remind me to rebase in 45 minutes                    → runs once, in 45 min
 /goal check outdated deps every day at 9am with plan agent → cron, pinned to the plan agent
 ```
 
-- **Standing goals** (no schedule) are injected into the system prompt of every session in that directory — the agent keeps them in mind while it works.
-- **Scheduled goals** (once / cron) run **headless** via `loop goals daemon install` — a launchd agent (macOS), systemd user timer (Linux), or Task Scheduler job (Windows) ticks every minute and runs due goals even when loop is closed. Each run is a normal session (named `goal: …`, resumable), finishes with a desktop notification, and records status + summary on the goal.
+- **No time mentioned** = run immediately in the background (detached, headless) — like background tasks in other coding agents. You get a desktop notification when it finishes.
+- **Scheduled goals** (once / cron) run **headless** via `loop goals daemon install` — a launchd agent (macOS), systemd user timer (Linux), or Task Scheduler job (Windows) ticks every minute and runs due goals even when loop is closed.
+- Every run is a normal session (named `goal: …`, resumable from `/resume` or the `/goal` panel's "open last run"), records status + summary on the goal, and notifies on completion.
 - Every goal can pin its own **model** and **agent** (otherwise it inherits your defaults at run time). Manage everything in the `/goal` panel or with `loop goals` on the CLI.
 
 ### Tools

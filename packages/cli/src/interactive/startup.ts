@@ -12,7 +12,6 @@ import {
     getTrustOptions,
     hasProjectTrustInputs,
     isTrusted,
-    listGoals,
     loadHooksConfig,
     loadMcpServers,
     loadProjectSkills,
@@ -90,19 +89,6 @@ export async function showWorkspaceBanners(history: ChatHistory, cwd: string): P
             for (const s of sk.skills) {
                 history.addSystem(chalk.dim(`  • ${s.name} — ${s.description.slice(0, 80)}`));
             }
-        }
-    }
-    // Standing goals for this directory (the ones injected into the system
-    // prompt) — one dim line so the user remembers what the agent is carrying.
-    if ((settingsStore.get("goals") as boolean) !== false) {
-        const standing = listGoals(cwd).filter((g) => g.kind === "none" && g.enabled);
-        if (standing.length > 0) {
-            const shown = standing
-                .slice(0, 3)
-                .map((g) => g.text.slice(0, 60))
-                .join(" · ");
-            const extra = standing.length > 3 ? ` · +${standing.length - 3} more` : "";
-            history.addSystem(chalk.dim(`goals: ${shown}${extra}`));
         }
     }
     // Active extensions, grouped with the other startup status lines. Capped so a

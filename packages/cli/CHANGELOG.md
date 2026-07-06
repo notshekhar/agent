@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.1] - 2026-07-07
+
+### Changed
+
+- **Unscheduled goals now run immediately in the background.** `/goal convert utils.js to ts` (no time mentioned) fires a detached headless run right away — matching how background tasks work in other coding agents — instead of becoming a "standing objective". System-prompt injection of goals is removed entirely (use AGENTS.md for persistent instructions); the `goals` setting is gone with it. On-demand goals stay in the `/goal` panel for re-running.
+- `loop sessions` shows the session name (e.g. `goal: …`) instead of the first prompt line when one is set, so goal runs are recognizable at a glance.
+
 ## [0.10.0] - 2026-07-07
 
 ### Added

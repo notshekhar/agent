@@ -1,9 +1,10 @@
 /**
- * /goal — standing objectives and scheduled runs. Bare /goal opens the
- * manager (same selector CRUD flow as /reminder); `/goal <text>` quick-adds a
- * standing goal for the current cwd. Scheduled goals are executed by the
- * goals daemon (`<product> goals daemon install`); "run now" spawns a
- * detached headless run so the TUI never blocks on it.
+ * /goal — background tasks and scheduled runs. Bare /goal opens the manager
+ * (same selector CRUD flow as /reminder); `/goal <text>` parses the text and
+ * either runs it immediately in the background (no time mentioned) or
+ * schedules it (once/cron, executed by the goals daemon —
+ * `<product> goals daemon install`). Background runs are detached headless
+ * processes so the TUI never blocks on them.
  */
 import { spawn } from "node:child_process";
 import { basename } from "node:path";
@@ -45,11 +46,11 @@ export function createGoalHandlers(state: AppState, deps: AppDeps): GoalHandlers
         tui.requestRender();
     };
 
-    /** Prompt for a schedule: standing (none), once, or cron. Null = cancelled. */
+    /** Prompt for a schedule: on-demand (none), once, or cron. Null = cancelled. */
     async function promptSchedule(initial?: Goal): Promise<GoalSchedule | null> {
         const kind = await selectOnce(
             [
-                { value: "none", label: "standing", description: "no schedule — surfaced to the agent every session" },
+                { value: "none", label: "on demand", description: "no schedule — run in the background when you say so" },
                 { value: "once", label: "once", description: "10m · 18:30 · 2026-06-15 09:00" },
                 { value: "cron", label: "cron", description: "e.g. 0 9 * * 1-5 (weekdays 9:00)" },
             ],
@@ -80,7 +81,7 @@ export function createGoalHandlers(state: AppState, deps: AppDeps): GoalHandlers
     }
 
     function scheduleLabel(g: Goal): string {
-        const when = g.kind === "once" ? `once ${formatWhen(g.at)}` : g.kind === "cron" ? `cron ${g.expr}` : "standing";
+        const when = g.kind === "once" ? `once ${formatWhen(g.at)}` : g.kind === "cron" ? `cron ${g.expr}` : "on demand";
         return `${when}${g.enabled ? "" : "  (off)"}`;
     }
 
@@ -90,7 +91,7 @@ export function createGoalHandlers(state: AppState, deps: AppDeps): GoalHandlers
             const next = nextCronRun(schedule.expr, Date.now());
             return `cron ${schedule.expr}${next ? ` · next ${formatWhen(next)}` : ""}`;
         }
-        return "standing — surfaced to the agent every session here";
+        return "run now in the background";
     }
 
     /** The session's agent unless the parse pinned a valid one. */
@@ -101,8 +102,11 @@ export function createGoalHandlers(state: AppState, deps: AppDeps): GoalHandlers
 
     /**
      * AI quick-add: parse the raw text into objective + schedule + agent,
-     * confirm before saving. Any failure falls back to a plain standing goal
-     * — /goal <text> must never error out.
+     * confirm before acting. No time mentioned = run in the background NOW
+     * (matching how background tasks work everywhere else); a time makes it a
+     * scheduled goal for the daemon. On parse failure the goal is saved
+     * without running — a garbled schedule must not trigger unattended work —
+     * and /goal <text> never errors out.
      */
     async function quickAdd(raw: string): Promise<void> {
         if (listGoals().length >= MAX_GOALS) {
@@ -111,7 +115,7 @@ export function createGoalHandlers(state: AppState, deps: AppDeps): GoalHandlers
         }
         const fallback = (note: string) => {
             const goal = addGoal(raw, state.cwd, { kind: "none" }, { agent: resolveAgent(null) });
-            say(`${chalk.dim(note)}\ngoal added — ${goal.text} (standing${goal.agent ? ` · agent ${goal.agent}` : ""})`);
+            say(`${chalk.dim(note)}\nsaved — run or schedule it in /goal: ${goal.text}`);
         };
 
         showWorking("Parsing goal");
@@ -145,14 +149,18 @@ export function createGoalHandlers(state: AppState, deps: AppDeps): GoalHandlers
             hideWorking();
         }
         if (!schedule) {
-            fallback("couldn't parse a schedule — saved as standing (edit in /goal)");
+            fallback("couldn't parse that");
             return;
         }
 
         const detail = [describeSchedule(schedule), agent ? `agent ${agent}` : ""].filter(Boolean).join("  ·  ");
         const choice = await selectOnce(
             [
-                { value: "save", label: "save", description: detail },
+                {
+                    value: "save",
+                    label: schedule.kind === "none" ? "run in background" : "save",
+                    description: detail,
+                },
                 { value: "schedule", label: "edit schedule", description: describeSchedule(schedule) },
                 { value: "cancel", label: "cancel" },
             ],
@@ -165,8 +173,12 @@ export function createGoalHandlers(state: AppState, deps: AppDeps): GoalHandlers
             schedule = edited;
         }
         const goal = addGoal(text, state.cwd, schedule, { agent });
+        if (schedule.kind === "none") {
+            runNowDetached(goal);
+            return;
+        }
         say(`goal added — ${goal.text}  ·  ${describeSchedule(schedule)}${goal.agent ? `  ·  agent ${goal.agent}` : ""}`);
-        if (schedule.kind !== "none" && !isDaemonInstalled()) {
+        if (!isDaemonInstalled()) {
             say(
                 chalk.yellow(
                     `the goals daemon is not installed — this goal will NOT run on its own. Run: ${PRODUCT_NAME} goals daemon install`,
@@ -212,7 +224,7 @@ export function createGoalHandlers(state: AppState, deps: AppDeps): GoalHandlers
             refreshGoals(); // a daemon tick may have updated run status since the last look
             const goals = listGoals();
             const items: SelectItem[] = [
-                { value: ADD, label: "+ add goal…", description: "standing, once, or cron-scheduled" },
+                { value: ADD, label: "+ add goal…", description: "on demand, once, or cron-scheduled" },
                 ...goals.map((g) => ({
                     value: g.id,
                     label: g.text,

@@ -185,7 +185,10 @@ export async function cmdSessions(): Promise<void> {
         return;
     }
     for (const s of sessions) {
-        console.log(`${s.id}  ${s.model}  ${new Date(s.mtime).toISOString()}  ${s.firstUserMessage ?? ""}`);
+        // Named sessions (goal runs are always "goal: <text>") show the name —
+        // it identifies the session far better than the first prompt line.
+        const preview = s.name ?? s.firstUserMessage?.split("\n")[0] ?? "";
+        console.log(`${s.id}  ${s.model}  ${new Date(s.mtime).toISOString()}  ${preview}`);
     }
 }
 
