@@ -54,12 +54,19 @@ const widthCache = new Map<string, number>();
 // clusters) and overrides these when the terminal disagrees.
 let spacingMarkCellWidth: 0 | 1 = 1;
 let shapedClusterTerminal = false;
+let clampClusterCells = false;
 
 export interface WidthCalibration {
     /** Cells a spacing combining mark (Mc, e.g. Devanagari matra ी) occupies. */
     spacingMarkWidth: 0 | 1;
     /** True when the terminal shapes whole clusters into one cell (प्रे = 1 cell). */
     shapedClusters: boolean;
+    /**
+     * True when the terminal attaches a cluster to a single cell pair, capping
+     * it at 2 cells no matter how many spacing codepoints it holds (र्मा = 2
+     * cells, not 3) — Ghostty's unicode width mode does this.
+     */
+    clampClusters: boolean;
 }
 
 /**
@@ -68,11 +75,16 @@ export interface WidthCalibration {
  * discard anything laid out with the old widths).
  */
 export function setWidthCalibration(calibration: WidthCalibration): boolean {
-    if (calibration.spacingMarkWidth === spacingMarkCellWidth && calibration.shapedClusters === shapedClusterTerminal) {
+    if (
+        calibration.spacingMarkWidth === spacingMarkCellWidth &&
+        calibration.shapedClusters === shapedClusterTerminal &&
+        calibration.clampClusters === clampClusterCells
+    ) {
         return false;
     }
     spacingMarkCellWidth = calibration.spacingMarkWidth;
     shapedClusterTerminal = calibration.shapedClusters;
+    clampClusterCells = calibration.clampClusters;
     widthCache.clear();
     return true;
 }
@@ -241,6 +253,11 @@ function graphemeWidth(segment: string): number {
             continue;
         }
         width += spacingMarkRegex.test(char) ? spacingMarkCellWidth : eastAsianWidth(cp);
+    }
+
+    // Cluster-attaching terminals cap a grapheme at one cell pair.
+    if (clampClusterCells && width > 2) {
+        return 2;
     }
 
     return width;

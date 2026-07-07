@@ -16,6 +16,9 @@ describe("visibleWidth", () => {
         ["की", 2, "Devanagari ka + spacing matra ी (Mc takes a cell)"],
         ["जू", 1, "Devanagari ja + nonspacing matra ू (Mn takes none)"],
         ["कनपटी चिपकी, गालों की हड्डियाँ उभरी, पर मूँछें", 39, "Devanagari sentence from the streaming-smear bug report"],
+        ["र्मा", 3, "conjunct + matra र्मा (sum 3, uncapped by default)"],
+        ["स्त्र", 3, "three-consonant conjunct स्त्र"],
+        ["हड्डियाँ", 6, "हड्डियाँ (uncapped by default)"],
         ["বাংলা", 5, "Bengali বাংলা"],
         ["தமிழ்", 4, "Tamil தமிழ்"],
         // Lone marks (streaming can split a cluster at a chunk boundary)
@@ -54,7 +57,7 @@ describe("visibleWidth", () => {
 });
 
 describe("setWidthCalibration", () => {
-    const defaults = { spacingMarkWidth: 1 as const, shapedClusters: false };
+    const defaults = { spacingMarkWidth: 1 as const, shapedClusters: false, clampClusters: false };
 
     test("reports no change when set to the defaults", () => {
         expect(setWidthCalibration(defaults)).toBe(false);
@@ -63,7 +66,7 @@ describe("setWidthCalibration", () => {
     test("spacingMarkWidth 0 drops matra cells (and invalidates the cache)", () => {
         expect(visibleWidth("की")).toBe(2);
         try {
-            expect(setWidthCalibration({ spacingMarkWidth: 0, shapedClusters: false })).toBe(true);
+            expect(setWidthCalibration({ spacingMarkWidth: 0, shapedClusters: false, clampClusters: false })).toBe(true);
             expect(visibleWidth("की")).toBe(1);
             expect(visibleWidth("प्रे")).toBe(2);
         } finally {
@@ -74,9 +77,24 @@ describe("setWidthCalibration", () => {
 
     test("shapedClusters collapses a conjunct to its base cell", () => {
         try {
-            expect(setWidthCalibration({ spacingMarkWidth: 0, shapedClusters: true })).toBe(true);
+            expect(setWidthCalibration({ spacingMarkWidth: 0, shapedClusters: true, clampClusters: false })).toBe(true);
             expect(visibleWidth("प्रे")).toBe(1);
             expect(visibleWidth("プ")).toBe(2);
+        } finally {
+            setWidthCalibration(defaults);
+        }
+    });
+
+    test("clampClusters caps a cluster at one cell pair (Ghostty 1.3.1 measurements)", () => {
+        try {
+            expect(setWidthCalibration({ spacingMarkWidth: 1, shapedClusters: false, clampClusters: true })).toBe(true);
+            expect(visibleWidth("र्मा")).toBe(2);
+            expect(visibleWidth("स्त्र")).toBe(2);
+            expect(visibleWidth("हड्डियाँ")).toBe(5);
+            expect(visibleWidth("प्रेमचंद")).toBe(5);
+            expect(visibleWidth("की")).toBe(2);
+            expect(visibleWidth("\u{1F468}‍\u{1F469}‍\u{1F467}‍\u{1F466}")).toBe(2);
+            expect(visibleWidth("中文")).toBe(4);
         } finally {
             setWidthCalibration(defaults);
         }
