@@ -14,13 +14,22 @@ import { createTools } from "../tools";
 import type { Session } from "../sessions";
 import { getAgentPrompt, getAgentTools, listAgents } from "./agents";
 import { loadWorkspaceContext } from "./context";
+import { loadMemoryContext } from "./memory";
 import { loadProjectSkills } from "./skills";
 import { isTrusted } from "./trust";
 import { buildSubagentNote, buildSystemPrompt } from "./system-prompt";
 import { latestCompactEntry } from "./compact";
 
 export interface ContextCategory {
-    key: "systemPrompt" | "systemTools" | "mcpTools" | "workspaceContext" | "skills" | "messages" | "compactSummary";
+    key:
+        | "systemPrompt"
+        | "systemTools"
+        | "mcpTools"
+        | "workspaceContext"
+        | "memory"
+        | "skills"
+        | "messages"
+        | "compactSummary";
     label: string;
     tokens: number;
 }
@@ -75,6 +84,7 @@ export async function buildContextReport(opts: {
     const autoCompactThreshold = getSetting("autoCompactThreshold") ?? 0.8;
 
     const workspace = getSetting("workspaceContext") !== false ? loadWorkspaceContext(cwd) : { text: "", files: [] };
+    const memoryText = getSetting("memory") !== false ? loadMemoryContext(cwd).text : "";
     const skillsEnabled = getSetting("skills") !== false && isTrusted(cwd);
     const skills = skillsEnabled ? await loadProjectSkills(cwd) : { skills: [], diagnostics: [], promptBlock: "" };
 
@@ -142,6 +152,9 @@ export async function buildContextReport(opts: {
                       tokens: chars4(workspace.text.length),
                   } as ContextCategory,
               ]
+            : []),
+        ...(memoryText
+            ? [{ key: "memory", label: "Memory", tokens: chars4(memoryText.length) } as ContextCategory]
             : []),
         ...(skills.promptBlock
             ? [{ key: "skills", label: "Skills", tokens: chars4(skills.promptBlock.length) } as ContextCategory]

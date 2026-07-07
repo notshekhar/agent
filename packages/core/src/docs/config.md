@@ -28,10 +28,19 @@ Other notable keys (all managed via `/settings` too):
 - `"webSearch": true` — enables the `websearch` tool, DuckDuckGo search with
   no API key (scrapes the HTML endpoint; unofficial, may rate-limit). Default
   off. Works in print mode too; subagents inherit it.
+- `"memory": false` — disables agent memory. Default on: the agent saves
+  durable per-project facts (preferences, decisions, gotchas) as markdown
+  files under `~/{{dir}}/agent/memory/<project>/`, keyed by repo root, and
+  recalls them via a small index injected each turn. Files are plain
+  markdown — edit or delete them freely (`/memory` → "Agent memory (auto)"
+  opens the index).
 - `"subagentModel"` — default model for subagents (full `provider/model` id,
   cross-provider allowed). An agent file's own `model:` wins over it; unset =
   subagents inherit the parent's model. Invalid/unavailable picks fall back to
   the parent model with a visible warning.
+- `"subagentMaxParallel"` — how many subagents may stream at once when the
+  model launches several task calls in one step (parallel fan-out). Excess
+  tasks queue visibly and start as slots free. Default 4; 0 = unlimited.
 - `"bashApprove": true` — ask before every bash command (deny / allow once /
   always allow), like a permission prompt. Default off; interactive TUI only.
 - `"bashAllow"` — the "always allow" list the approval prompt maintains
@@ -246,10 +255,10 @@ You are a meticulous code reviewer. You investigate and report; you never edit.
 
 - `tools:` — comma-separated subset of: `read, write, edit, bash, ls, grep,
 find, sql, task, ask, websearch, plan`. Omit the frontmatter entirely to grant
-all tools. `ask` and `websearch` only activate when their settings toggles
-(`askUser` / `webSearch`) are on. `plan` is the plan-delivery tool: calling it
-ends the agent's turn with a finished plan the user can hand to an
-implementing agent — name it only for planner-style agents.
+  all tools. `ask` and `websearch` only activate when their settings toggles
+  (`askUser` / `webSearch`) are on. `plan` is the plan-delivery tool: calling it
+  ends the agent's turn with a finished plan the user can hand to an
+  implementing agent — name it only for planner-style agents.
 - `model:` — full `provider/model` id this agent runs on when spawned as a
   subagent (task tool). Cross-provider is fine. Omit = inherit (the
   `subagentModel` setting if set, else the parent's model). If the id is

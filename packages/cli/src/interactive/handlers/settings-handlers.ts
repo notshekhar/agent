@@ -32,6 +32,7 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
     // Boolean settings toggle in place; unset falls back to the default here.
     const BOOLEAN_DEFAULTS: Record<string, boolean> = {
         subagents: true,
+        memory: true,
         recap: false,
         askUser: false,
         webSearch: false,
@@ -77,6 +78,16 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                             "default model for subagents (an agent's own model: wins) — inherit = parent's model",
                     },
                     {
+                        value: "subagentMaxParallel",
+                        label: `subagentMaxParallel: ${(settingsStore.get("subagentMaxParallel") as number) ?? 4}`,
+                        description: "concurrent subagent streams when tasks fan out (0 = unlimited)",
+                    },
+                    {
+                        value: "memory",
+                        label: `memory: ${boolSetting("memory") ? "on" : "off"}`,
+                        description: `agent saves per-project facts across sessions (~/${CONFIG_DIR_NAME}/agent/memory)`,
+                    },
+                    {
                         value: "recap",
                         label: `recap: ${boolSetting("recap") ? "on" : "off"}`,
                         description: "short AI-generated recap under responses that changed files",
@@ -89,7 +100,8 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                     {
                         value: "webSearch",
                         label: `websearch (DuckDuckGo): ${boolSetting("webSearch") ? "on" : "off"}`,
-                        description: "give the agent a websearch tool (scrapes DuckDuckGo — no API key, may rate-limit)",
+                        description:
+                            "give the agent a websearch tool (scrapes DuckDuckGo — no API key, may rate-limit)",
                     },
                     {
                         value: "clock",
@@ -215,7 +227,15 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                 if (!v) continue;
                 const key = pick.value;
                 const cur = settingsStore.get(key);
-                const parsed = typeof cur === "number" ? Number(v) : typeof cur === "boolean" ? v === "true" : v;
+                // Numeric settings stay numeric even when currently unset
+                // (typeof undefined check alone would store the string).
+                const NUMERIC_KEYS = new Set(["maxSteps", "autoCompactThreshold", "subagentMaxParallel"]);
+                const parsed =
+                    typeof cur === "number" || NUMERIC_KEYS.has(key)
+                        ? Number(v)
+                        : typeof cur === "boolean"
+                          ? v === "true"
+                          : v;
                 settingsStore.set(key, parsed);
                 history.addSystem(`${key} → ${parsed}`);
                 tui.requestRender();

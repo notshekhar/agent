@@ -15,7 +15,7 @@ export interface WorkspaceContext {
     files: string[];
 }
 
-function findRepoRoot(start: string): string {
+export function findRepoRoot(start: string): string {
     let dir = start;
     for (;;) {
         if (existsSync(join(dir, ".git"))) return dir;

@@ -8,7 +8,14 @@ import { existsSync, mkdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import chalk from "chalk";
-import { buildSteakGrid, getCatalog, listMemoryFiles, runRecap, type CommandContext } from "@notshekhar/loop-core";
+import {
+    buildSteakGrid,
+    getCatalog,
+    listMemoryFiles,
+    loadMemoryContext,
+    runRecap,
+    type CommandContext,
+} from "@notshekhar/loop-core";
 import type { AppDeps } from "../deps";
 import type { AppState } from "../state";
 import { readClipboardImageToFile } from "../clipboard-image";
@@ -286,6 +293,10 @@ export function createMiscHandlers(state: AppState, deps: AppDeps): MiscHandlers
                 return;
             }
             const candidates = listMemoryFiles(state.cwd);
+            // Agent memory index (auto-saved facts) edits alongside the
+            // instruction files — same picker, same editor flow.
+            const memIndex = loadMemoryContext(state.cwd).indexPath;
+            candidates.push({ label: "Agent memory (auto)", path: memIndex, exists: existsSync(memIndex) });
             const items = candidates.map((c) => ({
                 value: c.path,
                 label: `${c.label.padEnd(24)} ${c.path.replace(process.env.HOME ?? "", "~")}${c.exists ? "" : chalk.dim(" (create)")}`,

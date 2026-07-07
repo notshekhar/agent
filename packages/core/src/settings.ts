@@ -35,6 +35,12 @@ export interface AppSettings {
      * model (with a visible warning) if unknown or unavailable.
      */
     subagentModel?: string;
+    /**
+     * How many subagents may stream from the provider at once when the model
+     * fans out several task calls in one step. Excess runs queue (visibly) and
+     * start as slots free up. Default 4; 0 = unlimited.
+     */
+    subagentMaxParallel?: number;
     /** Post-turn recap under responses that wrote/edited files. Default off. */
     recap?: boolean;
     /** Let the agent pause mid-turn to ask multiple-choice questions (ask
@@ -49,14 +55,18 @@ export interface AppSettings {
     reminders?: boolean;
     autoCompactThreshold?: number;
     workspaceContext?: boolean;
+    /** Agent memory: per-project markdown facts under ~/.loop/agent/memory/,
+     * saved by the agent with its normal write tool and recalled via an
+     * index-only prompt block. Default ON; set false to disable entirely. */
+    memory?: boolean;
     skills?: boolean;
     agent?: string;
     /** User-defined command aliases: name → expansion ("/model gpt …"). Managed via /alias. */
     aliases?: Record<string, string>;
     lastChangelogVersion?: string;
     // projectModels / projectProviderModels moved to the projects table
-    // (sessions/projects.ts); the keys are deleted from settings.json by the
-    // one-time store migration.
+    // (sessions/projects.ts); the retired v0.9.0 store migration deleted the
+    // keys from settings.json.
     /** Pull in hooks from ~/.claude (settings + plugins) and project .claude.
      * Default OFF — set true to opt in. */
     importClaudeHooks?: boolean;

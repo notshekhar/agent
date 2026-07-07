@@ -17,6 +17,7 @@ import {
 import { buildSubagentNote, buildSystemPrompt } from "./system-prompt";
 import { getAgentPrompt, getAgentTools, isReadOnlyBashAgent, listAgents } from "./agents";
 import { loadWorkspaceContext } from "./context";
+import { loadMemoryContext } from "./memory";
 import { loadProjectSkills } from "./skills";
 import { extractImagesFromInput } from "./images";
 import { CostTracker, stampUsageCost, sumUsage } from "./cost";
@@ -74,6 +75,7 @@ export {
     type ThinkingLevel,
 } from "./thinking";
 export { loadWorkspaceContext, watchWorkspaceContext, listMemoryFiles, type MemoryFileCandidate } from "./context";
+export { loadMemoryContext, memoryDir, type MemoryContext } from "./memory";
 export { loadProjectSkills, type Skill } from "./skills";
 export {
     runHooks,
@@ -351,6 +353,10 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
 
     const workspaceContext =
         getSetting("workspaceContext") !== false ? loadWorkspaceContext(cwd) : { text: "", files: [] };
+    // Agent memory (default on): policy + MEMORY.md index for this project.
+    // Main agent only — subagents don't get the write policy, so fan-out work
+    // can't race duplicate memory writes.
+    const memoryContext = getSetting("memory") !== false ? loadMemoryContext(cwd).text : "";
     // Project skills inject instructions into the prompt — gate on trust too.
     const skillsEnabled = getSetting("skills") !== false && isTrusted(cwd);
     const skills = skillsEnabled ? await loadProjectSkills(cwd) : { skills: [], diagnostics: [], promptBlock: "" };
@@ -475,6 +481,7 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
         buildSystemPrompt({
             cwd,
             workspaceContext: workspaceContext.text,
+            memoryContext,
             basePrompt: agentPrompt,
             tools: Object.keys(toolsForTurn),
         }) +
