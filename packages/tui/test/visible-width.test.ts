@@ -15,7 +15,11 @@ describe("visibleWidth", () => {
         ["प्रेमचंद", 5, "Devanagari word प्रेमचंद"],
         ["की", 2, "Devanagari ka + spacing matra ी (Mc takes a cell)"],
         ["जू", 1, "Devanagari ja + nonspacing matra ू (Mn takes none)"],
-        ["कनपटी चिपकी, गालों की हड्डियाँ उभरी, पर मूँछें", 39, "Devanagari sentence from the streaming-smear bug report"],
+        [
+            "कनपटी चिपकी, गालों की हड्डियाँ उभरी, पर मूँछें",
+            39,
+            "Devanagari sentence from the streaming-smear bug report",
+        ],
         ["र्मा", 3, "conjunct + matra र्मा (sum 3, uncapped by default)"],
         ["स्त्र", 3, "three-consonant conjunct स्त्र"],
         ["हड्डियाँ", 6, "हड्डियाँ (uncapped by default)"],
@@ -66,7 +70,9 @@ describe("setWidthCalibration", () => {
     test("spacingMarkWidth 0 drops matra cells (and invalidates the cache)", () => {
         expect(visibleWidth("की")).toBe(2);
         try {
-            expect(setWidthCalibration({ spacingMarkWidth: 0, shapedClusters: false, clampClusters: false })).toBe(true);
+            expect(setWidthCalibration({ spacingMarkWidth: 0, shapedClusters: false, clampClusters: false })).toBe(
+                true,
+            );
             expect(visibleWidth("की")).toBe(1);
             expect(visibleWidth("प्रे")).toBe(2);
         } finally {
