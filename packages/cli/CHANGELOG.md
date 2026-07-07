@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.10.6] - 2026-07-08
+
+### Added
+
+- **loop now remembers.** The agent saves durable per-project facts — your preferences, project decisions, hard-won gotchas — as plain markdown files under `~/.loop/agent/memory/`, and recalls them in every later session through a small always-loaded index (full memories are read only when relevant, so your context stays lean). No hidden machinery: saves happen with the normal write tool, visible in the transcript like any file change, and the files are yours to edit or delete — `/memory` → "Agent memory (auto)" opens the index, `/context` shows what memory costs you. Toggle with `memory` in `/settings` (default on).
+- **Parallel subagents.** When the model fans out several task calls in one step they now stream concurrently instead of one after another. `subagentMaxParallel` in `/settings` caps the concurrent provider streams (default 4, 0 = unlimited); excess tasks queue visibly and start as slots free up.
+
+### Removed
+
+- **Legacy one-time migrations retired.** The `~/.pi` → `~/.loop` config-dir move and the pre-v0.9 JSONL-session / cost.json / trust.json migrations are gone — every install has long since moved. If you're somehow upgrading from a pre-0.9 version, go through 0.10.5 first; database corruption recovery itself stays.
+
 ## [0.10.5] - 2026-07-07
 
 ### Fixed

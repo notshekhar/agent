@@ -3436,11 +3436,11 @@
     "provider": "openrouter",
     "name": "GLM-5.2",
     "contextWindow": 1048576,
-    "maxOutput": 131072,
+    "maxOutput": 32768,
     "cost": {
-      "input": 0.9086,
-      "output": 2.8556,
-      "cacheRead": 0.16874,
+      "input": 0.93,
+      "output": 3,
+      "cacheRead": 0.18,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -6014,9 +6014,9 @@
     "contextWindow": 202752,
     "maxOutput": 131072,
     "cost": {
-      "input": 0.14,
-      "output": 0.58,
-      "cacheRead": 0.035,
+      "input": 0.2,
+      "output": 0.8,
+      "cacheRead": 0.5,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -7720,24 +7720,6 @@
     ],
     "available": true
   },
-  "openrouter/aion-labs/aion-1.0-mini": {
-    "id": "openrouter/aion-labs/aion-1.0-mini",
-    "provider": "openrouter",
-    "name": "Aion-1.0-Mini",
-    "contextWindow": 131072,
-    "maxOutput": 32768,
-    "cost": {
-      "input": 0.7,
-      "output": 1.4,
-      "cacheRead": 0,
-      "cacheWrite": 0
-    },
-    "reasoning": true,
-    "modalities": [
-      "text"
-    ],
-    "available": true
-  },
   "openrouter/aion-labs/aion-2.0": {
     "id": "openrouter/aion-labs/aion-2.0",
     "provider": "openrouter",
@@ -7748,24 +7730,6 @@
       "input": 0.8,
       "output": 1.6,
       "cacheRead": 0.2,
-      "cacheWrite": 0
-    },
-    "reasoning": true,
-    "modalities": [
-      "text"
-    ],
-    "available": true
-  },
-  "openrouter/aion-labs/aion-1.0": {
-    "id": "openrouter/aion-labs/aion-1.0",
-    "provider": "openrouter",
-    "name": "Aion-1.0",
-    "contextWindow": 131072,
-    "maxOutput": 32768,
-    "cost": {
-      "input": 4,
-      "output": 8,
-      "cacheRead": 0,
       "cacheWrite": 0
     },
     "reasoning": true,
