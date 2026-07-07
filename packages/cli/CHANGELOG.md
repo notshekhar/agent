@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.10.5] - 2026-07-07
+
+### Fixed
+
+- **Tool-box background colors now reach the right edge on Hindi and other Indic text.** Terminals like Ghostty attach a whole grapheme cluster to one cell pair (capped at 2 cells), so clusters like र्मा render narrower there than the per-codepoint sum loop used — the padding came up short and the colored fill stopped before the box edge. The startup width probe gained a third canary that detects this layout and calibrates cluster widths to match, verified cell-exact against Ghostty across Devanagari, Bengali, Malayalam, Tamil, and CJK.
+
 ## [0.10.4] - 2026-07-07
 
 ### Fixed
