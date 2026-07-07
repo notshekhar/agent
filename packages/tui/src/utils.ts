@@ -36,14 +36,46 @@ function couldBeEmoji(segment: string): boolean {
     );
 }
 
-// Regexes for character classification (same as string-width library)
-const zeroWidthRegex = /^(?:\p{Default_Ignorable_Code_Point}|\p{Control}|\p{Mark}|\p{Surrogate})+$/v;
-const leadingNonPrintingRegex = /^[\p{Default_Ignorable_Code_Point}\p{Control}\p{Format}\p{Mark}\p{Surrogate}]+/v;
+// Regexes for character classification.
+// zeroWidthRegex deliberately excludes spacing combining marks (Mc): a lone
+// matra like ी occupies a cell in terminals, unlike nonspacing marks.
+const zeroWidthRegex = /^(?:\p{Default_Ignorable_Code_Point}|\p{Control}|\p{Mn}|\p{Me}|\p{Surrogate})+$/v;
 const rgiEmojiRegex = /^\p{RGI_Emoji}$/v;
+const zeroCellRegex = /^[\p{Default_Ignorable_Code_Point}\p{Control}\p{Cf}\p{Mn}\p{Me}\p{Surrogate}]$/v;
+const spacingMarkRegex = /^\p{Mc}$/v;
 
 // Cache for non-ASCII strings
 const WIDTH_CACHE_SIZE = 512;
 const widthCache = new Map<string, number>();
+
+// Width calibration: the wcwidth-style defaults match most terminals, but
+// Devanagari-style cluster layout is genuinely unstandardized. The TUI probes
+// the real terminal at startup (cursor-position report after printing canary
+// clusters) and overrides these when the terminal disagrees.
+let spacingMarkCellWidth: 0 | 1 = 1;
+let shapedClusterTerminal = false;
+
+export interface WidthCalibration {
+    /** Cells a spacing combining mark (Mc, e.g. Devanagari matra ी) occupies. */
+    spacingMarkWidth: 0 | 1;
+    /** True when the terminal shapes whole clusters into one cell (प्रे = 1 cell). */
+    shapedClusters: boolean;
+}
+
+/**
+ * Override the width model with what a startup probe measured on the live
+ * terminal. Returns true when the calibration changed (callers must then
+ * discard anything laid out with the old widths).
+ */
+export function setWidthCalibration(calibration: WidthCalibration): boolean {
+    if (calibration.spacingMarkWidth === spacingMarkCellWidth && calibration.shapedClusters === shapedClusterTerminal) {
+        return false;
+    }
+    spacingMarkCellWidth = calibration.spacingMarkWidth;
+    shapedClusterTerminal = calibration.shapedClusters;
+    widthCache.clear();
+    return true;
+}
 
 export const cjkBreakRegex =
     /[\p{Script_Extensions=Han}\p{Script_Extensions=Hiragana}\p{Script_Extensions=Katakana}\p{Script_Extensions=Hangul}\p{Script_Extensions=Bopomofo}]/u;
@@ -179,32 +211,36 @@ function graphemeWidth(segment: string): number {
         return 2;
     }
 
-    // Get base visible codepoint
-    const base = segment.replace(leadingNonPrintingRegex, "");
-    const cp = base.codePointAt(0);
-    if (cp === undefined) {
-        return 0;
-    }
-
     // Regional indicator symbols (U+1F1E6..U+1F1FF) are often rendered as
     // full-width emoji in terminals, even when isolated during streaming.
     // Keep width conservative (2) to avoid terminal auto-wrap drift artifacts.
-    if (cp >= 0x1f1e6 && cp <= 0x1f1ff) {
+    const first = segment.codePointAt(0)!;
+    if (first >= 0x1f1e6 && first <= 0x1f1ff) {
         return 2;
     }
 
-    let width = eastAsianWidth(cp);
+    // Shaping terminals (per the startup probe) fit a whole cluster in the
+    // base codepoint's cells.
+    if (shapedClusterTerminal) {
+        return eastAsianWidth(first);
+    }
 
-    // Trailing halfwidth/fullwidth forms and AM vowels that segment with a base.
-    if (segment.length > 1) {
-        for (const char of segment.slice(1)) {
-            const c = char.codePointAt(0)!;
-            if (c >= 0xff00 && c <= 0xffef) {
-                width += eastAsianWidth(c);
-            } else if (c === 0x0e33 || c === 0x0eb3) {
-                width += 1;
-            }
+    // Fallback: wcwidth-style per-codepoint sum. Terminals without complex
+    // text shaping lay out each spacing codepoint in its own cell, so a
+    // single grapheme cluster like Devanagari प्रे spans several cells:
+    // nonspacing/enclosing marks and format chars take no cell, Hangul V/T
+    // jamo compose into the preceding leading jamo's cell, and spacing
+    // combining marks (Mc, e.g. matras ा ी ो) take one.
+    let width = 0;
+    for (const char of segment) {
+        const cp = char.codePointAt(0)!;
+        if (zeroCellRegex.test(char)) {
+            continue;
         }
+        if ((cp >= 0x1160 && cp <= 0x11ff) || (cp >= 0xd7b0 && cp <= 0xd7ff)) {
+            continue;
+        }
+        width += spacingMarkRegex.test(char) ? spacingMarkCellWidth : eastAsianWidth(cp);
     }
 
     return width;

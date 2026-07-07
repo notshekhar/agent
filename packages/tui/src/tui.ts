@@ -17,7 +17,14 @@ import {
     type TerminalColorScheme,
 } from "./terminal-colors";
 import { deleteKittyImage, getCapabilities, isImageLine, setCellDimensions } from "./terminal-image";
-import { extractSegments, normalizeTerminalOutput, sliceByColumn, sliceWithWidth, visibleWidth } from "./utils";
+import {
+    extractSegments,
+    normalizeTerminalOutput,
+    setWidthCalibration,
+    sliceByColumn,
+    sliceWithWidth,
+    visibleWidth,
+} from "./utils";
 
 const KITTY_SEQUENCE_PREFIX = "\x1b_G";
 
@@ -324,6 +331,9 @@ export class TUI extends Container {
     private reqSeq = 0;
     private pendingOsc11BackgroundReplies = 0;
     private pendingOsc11BackgroundQueries: PendingOsc11BackgroundQuery[] = [];
+    private pendingWidthProbeReplies = 0;
+    private widthProbeCols: number[] = [];
+    private widthProbeTimer: NodeJS.Timeout | undefined;
     private terminalColorSchemeListeners = new Set<(scheme: TerminalColorScheme) => void>();
     private terminalColorSchemeNotificationsEnabled = false;
 
@@ -650,6 +660,7 @@ export class TUI extends Container {
             this.terminal.write("\x1b[?2031h");
         }
         this.queryCellSize();
+        this.queryWidthCalibration();
         this.requestRender();
     }
 
@@ -691,11 +702,83 @@ export class TUI extends Container {
         this.terminal.write("\x1b[16t");
     }
 
+    /**
+     * Probe how the terminal actually lays out complex-script clusters, since
+     * Devanagari-style cluster widths are unstandardized across terminals.
+     * Prints two canaries — की (base + spacing matra) and प्रे (conjunct with
+     * virama) — and reads the cursor column back with DSR (`CSI 6 n`), which
+     * tells us whether spacing marks get their own cell and whether conjunct
+     * clusters are shaped into one. visibleWidth() is then calibrated to
+     * match, keeping the one-logical-line-per-row rendering invariant intact.
+     * The canaries are printed and erased in the same write, wrapped in
+     * synchronized output so they are never presented.
+     */
+    private queryWidthCalibration(): void {
+        if (!process.stdout.isTTY) {
+            return;
+        }
+        this.pendingWidthProbeReplies = 2;
+        this.widthProbeCols = [];
+        this.terminal.write("\x1b[?2026h\x1b7\rकी\x1b[6n\r\x1b[2Kप्रे\x1b[6n\r\x1b[2K\x1b8\x1b[?2026l");
+        // If the terminal never answers, stop intercepting CPR-shaped input
+        // (it collides with modified-F3 key reports) and keep the defaults.
+        this.widthProbeTimer = setTimeout(() => {
+            this.pendingWidthProbeReplies = 0;
+            this.widthProbeCols = [];
+            this.widthProbeTimer = undefined;
+        }, 2000);
+    }
+
+    /**
+     * Consume cursor-position reports (`CSI row ; col R`) belonging to the
+     * width-calibration probe. Returns the input with consumed reports
+     * stripped; both reports may arrive in one chunk.
+     */
+    private consumeWidthProbeReports(data: string): string {
+        let rest = data;
+        while (this.pendingWidthProbeReplies > 0) {
+            const match = rest.match(/^\x1b\[(\d+);(\d+)R/);
+            if (!match) {
+                break;
+            }
+            this.widthProbeCols.push(parseInt(match[2], 10));
+            this.pendingWidthProbeReplies -= 1;
+            rest = rest.slice(match[0].length);
+        }
+        if (this.pendingWidthProbeReplies === 0 && this.widthProbeCols.length === 2) {
+            if (this.widthProbeTimer) {
+                clearTimeout(this.widthProbeTimer);
+                this.widthProbeTimer = undefined;
+            }
+            // Columns are 1-based and the canary starts at column 1, so
+            // rendered width = reported column - 1. की → 3 means the matra
+            // took a cell; प्रे → 2 means the whole conjunct was shaped into
+            // the base cell.
+            const [matraCol, conjunctCol] = this.widthProbeCols;
+            this.widthProbeCols = [];
+            const changed = setWidthCalibration({
+                spacingMarkWidth: matraCol >= 3 ? 1 : 0,
+                shapedClusters: conjunctCol <= 2,
+            });
+            if (changed) {
+                // Everything measured so far used the wrong widths; force a
+                // full repaint (same path as a terminal resize).
+                this.requestRender(true);
+            }
+        }
+        return rest;
+    }
+
     stop(): void {
         this.stopped = true;
         if (this.renderTimer) {
             clearTimeout(this.renderTimer);
             this.renderTimer = undefined;
+        }
+        if (this.widthProbeTimer) {
+            clearTimeout(this.widthProbeTimer);
+            this.widthProbeTimer = undefined;
+            this.pendingWidthProbeReplies = 0;
         }
         if (this.terminalColorSchemeNotificationsEnabled) {
             this.terminal.write("\x1b[?2031l");
@@ -822,6 +905,12 @@ export class TUI extends Container {
         }
         if (this.consumeTerminalColorSchemeReport(data)) {
             return;
+        }
+        if (this.pendingWidthProbeReplies > 0) {
+            data = this.consumeWidthProbeReports(data);
+            if (data.length === 0) {
+                return;
+            }
         }
 
         if (this.inputListeners.size > 0) {
