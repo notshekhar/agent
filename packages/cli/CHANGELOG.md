@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.10.3] - 2026-07-07
+
+### Added
+
+- **/daemon** — toggle the goals background scheduler from inside the TUI. Bare `/daemon` opens a panel showing whether it's on and offers the flip (install/uninstall the launchd agent / systemd user timer / Task Scheduler job); `/daemon on|off|status` skips the panel. `loop goals daemon install|uninstall|status` still works on the CLI. In-session daemon hints now point at `/daemon` instead of the CLI command.
+
 ## [0.10.2] - 2026-07-07
 
 ### Changed

@@ -97,7 +97,7 @@ Flags: `--model <provider/id>`, `--provider <id>`, `--cwd <path>`, `--session <i
 | Tree       | `/tree` `/fork` `/clone`                                                                 |
 | Models     | `/model` `/provider` `/thinking` `/scoped-models` (+ Ctrl+P cycle)                       |
 | Agents     | `/agents` `/<agent> <message>` (one-shot)                                                |
-| Automation | `/goal` `/reminder` `/timer` `/recap`                                                    |
+| Automation | `/goal` `/daemon` `/reminder` `/timer` `/recap`                                          |
 | Setup      | `/login` `/logout` `/settings` `/mcp` `/extensions` `/hooks` `/bashdeny` `/doctor` `/reload` `/update` |
 | Misc       | `/help` `/cost` `/memory` `/init` `/attach` `/paste` `/copy` `/cd` `/hotkeys` `/changelog` `/quit` |
 
@@ -131,7 +131,7 @@ A **goal** is a background task tied to a directory. `/goal <text>` parses natur
 ```
 
 - **No time mentioned** = run immediately in the background (detached, headless) — like background tasks in other coding agents. You get a desktop notification when it finishes.
-- **Scheduled goals** (once / cron) run **headless** via `loop goals daemon install` — a launchd agent (macOS), systemd user timer (Linux), or Task Scheduler job (Windows) ticks every minute and runs due goals even when loop is closed.
+- **Scheduled goals** (once / cron) run **headless** via the goals daemon — toggle it with `/daemon` (or `loop goals daemon install`): a launchd agent (macOS), systemd user timer (Linux), or Task Scheduler job (Windows) ticks every minute and runs due goals even when loop is closed.
 - Every run is a normal session (named `goal: …`, resumable from `/resume` or the `/goal` panel's "open last run"), records status + summary on the goal, and notifies on completion.
 - Every goal can pin its own **model** and **agent** (otherwise it inherits your defaults at run time). Manage everything in the `/goal` panel or with `loop goals` on the CLI.
 

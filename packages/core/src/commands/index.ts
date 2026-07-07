@@ -62,6 +62,8 @@ export interface CommandContext {
     openReminders(): Promise<void>;
     /** /goal — manager panel (no args) or quick-add a standing goal (`/goal <text>`). */
     manageGoals(args: string): Promise<void> | void;
+    /** /daemon — goals background scheduler: toggle panel (no args) or on|off|status. */
+    manageDaemon(args: string): Promise<void> | void;
     /** /recap — generate the post-turn recap on demand (ignores the recap setting). */
     generateRecap(): Promise<void>;
     /** /memory — pick an AGENTS.md location and open it in $EDITOR. */
@@ -259,6 +261,11 @@ export async function registerBuiltins(reg: CommandRegistry, opts: { cwd?: strin
             name: "goals",
             description: "Alias for /goal",
             handler: (ctx, args) => ctx.manageGoals(args ?? ""),
+        },
+        {
+            name: "daemon",
+            description: "Background scheduler for goals: /daemon toggles it · /daemon on|off|status",
+            handler: (ctx, args) => ctx.manageDaemon(args ?? ""),
         },
         {
             name: "cost",

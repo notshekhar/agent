@@ -38,9 +38,9 @@ Other notable keys (all managed via `/settings` too):
   (same `command` / `"command subcommand"` pattern shape as `bashDeny`). A
   command runs unprompted only when every segment matches an entry.
 - Goals (background/scheduled tasks) are managed with `/goal` in the TUI or
-  `{{name}} goals` on the CLI (add/list/rm/run/tick and
-  `{{name}} goals daemon install` for the background scheduler); they live in
-  {{name}}'s internal database, not in settings.json.
+  `{{name}} goals` on the CLI (add/list/rm/run/tick); the background scheduler
+  toggles with `/daemon` (or `{{name}} goals daemon install|uninstall|status`).
+  Goals live in {{name}}'s internal database, not in settings.json.
 
 ## Hard reload — REQUIRED after any config change
 

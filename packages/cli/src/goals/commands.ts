@@ -155,9 +155,9 @@ export async function cmdGoals(args: Args): Promise<void> {
             }
             case "daemon": {
                 const action = rest[0];
-                if (action === "install") daemonInstall();
-                else if (action === "uninstall") daemonUninstall();
-                else if (action === "status") daemonStatus();
+                if (action === "install") console.log(daemonInstall());
+                else if (action === "uninstall") console.log(daemonUninstall());
+                else if (action === "status") console.log(daemonStatus());
                 else {
                     console.error(`usage: ${PRODUCT_NAME} goals daemon install|uninstall|status`);
                     process.exitCode = 1;

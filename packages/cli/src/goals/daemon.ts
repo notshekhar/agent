@@ -131,7 +131,9 @@ export function isDaemonInstalled(): boolean {
     return false;
 }
 
-export function daemonInstall(): void {
+/** Install the OS scheduler entry. Returns the human-readable result (the
+ * caller decides where it goes: stdout for the CLI, history for the TUI). */
+export function daemonInstall(): string {
     const argv = tickArgv();
     if (process.platform === "darwin") {
         const plist = plistPath();
@@ -145,8 +147,7 @@ export function daemonInstall(): void {
             const load = sh("launchctl", ["load", "-w", plist]);
             if (!load.ok) throw new Error(`launchctl failed: ${boot.out || load.out}`);
         }
-        console.log(`installed launchd agent ${LAUNCHD_LABEL} (ticks every 60s)\nplist: ${plist}\nlog: ${logPath()}`);
-        return;
+        return `installed launchd agent ${LAUNCHD_LABEL} (ticks every 60s)\nplist: ${plist}\nlog: ${logPath()}`;
     }
     if (process.platform === "linux") {
         const dir = systemdDir();
@@ -157,8 +158,7 @@ export function daemonInstall(): void {
         sh("systemctl", ["--user", "daemon-reload"]);
         const enable = sh("systemctl", ["--user", "enable", "--now", `${SYSTEMD_NAME}.timer`]);
         if (!enable.ok) throw new Error(`systemctl failed: ${enable.out}`);
-        console.log(`installed systemd user timer ${SYSTEMD_NAME}.timer (ticks every minute)\nlog: journalctl --user -u ${SYSTEMD_NAME}`);
-        return;
+        return `installed systemd user timer ${SYSTEMD_NAME}.timer (ticks every minute)\nlog: journalctl --user -u ${SYSTEMD_NAME}`;
     }
     if (process.platform === "win32") {
         const vbs = vbsLauncherPath();
@@ -168,55 +168,45 @@ export function daemonInstall(): void {
             rmSync(vbs, { force: true }); // keep the installed-probe truthful
             throw new Error(`schtasks failed: ${create.out}`);
         }
-        console.log(
-            `installed Task Scheduler job ${WINDOWS_TASK_NAME} (ticks every minute)\nlauncher: ${vbs}\nlog: ${logPath()}`,
-        );
-        return;
+        return `installed Task Scheduler job ${WINDOWS_TASK_NAME} (ticks every minute)\nlauncher: ${vbs}\nlog: ${logPath()}`;
     }
     throw new Error(`goals daemon install is not supported on ${process.platform}`);
 }
 
-export function daemonUninstall(): void {
+export function daemonUninstall(): string {
     if (process.platform === "darwin") {
         sh("launchctl", ["bootout", `gui/${process.getuid?.() ?? 501}/${LAUNCHD_LABEL}`]);
         rmSync(plistPath(), { force: true });
-        console.log(`removed launchd agent ${LAUNCHD_LABEL}`);
-        return;
+        return `removed launchd agent ${LAUNCHD_LABEL}`;
     }
     if (process.platform === "linux") {
         sh("systemctl", ["--user", "disable", "--now", `${SYSTEMD_NAME}.timer`]);
         rmSync(join(systemdDir(), `${SYSTEMD_NAME}.service`), { force: true });
         rmSync(join(systemdDir(), `${SYSTEMD_NAME}.timer`), { force: true });
         sh("systemctl", ["--user", "daemon-reload"]);
-        console.log(`removed systemd user timer ${SYSTEMD_NAME}.timer`);
-        return;
+        return `removed systemd user timer ${SYSTEMD_NAME}.timer`;
     }
     if (process.platform === "win32") {
         sh("schtasks", ["/Delete", "/TN", WINDOWS_TASK_NAME, "/F"]);
         rmSync(vbsLauncherPath(), { force: true });
-        console.log(`removed Task Scheduler job ${WINDOWS_TASK_NAME}`);
-        return;
+        return `removed Task Scheduler job ${WINDOWS_TASK_NAME}`;
     }
     throw new Error(`goals daemon is not supported on ${process.platform}`);
 }
 
-export function daemonStatus(): void {
+export function daemonStatus(): string {
     if (process.platform === "darwin") {
         const installed = existsSync(plistPath());
         const print = sh("launchctl", ["print", `gui/${process.getuid?.() ?? 501}/${LAUNCHD_LABEL}`]);
-        console.log(installed ? `plist: ${plistPath()}` : "not installed");
-        console.log(print.ok ? "launchd: loaded" : "launchd: not loaded");
-        return;
+        return `${installed ? `plist: ${plistPath()}` : "not installed"}\n${print.ok ? "launchd: loaded" : "launchd: not loaded"}`;
     }
     if (process.platform === "linux") {
         const status = sh("systemctl", ["--user", "is-active", `${SYSTEMD_NAME}.timer`]);
-        console.log(`systemd timer: ${status.out || "not installed"}`);
-        return;
+        return `systemd timer: ${status.out || "not installed"}`;
     }
     if (process.platform === "win32") {
         const query = sh("schtasks", ["/Query", "/TN", WINDOWS_TASK_NAME]);
-        console.log(query.ok ? `Task Scheduler job ${WINDOWS_TASK_NAME}: installed` : "not installed");
-        return;
+        return query.ok ? `Task Scheduler job ${WINDOWS_TASK_NAME}: installed` : "not installed";
     }
-    console.log(`goals daemon is not supported on ${process.platform}`);
+    return `goals daemon is not supported on ${process.platform}`;
 }

@@ -30,11 +30,11 @@ import { Cron } from "croner";
 import type { AppDeps } from "../deps";
 import type { AppState } from "../state";
 import { formatWhen, parseOnceWhen } from "../time";
-import { isDaemonInstalled } from "../../goals/daemon";
+import { daemonInstall, daemonStatus, daemonUninstall, isDaemonInstalled } from "../../goals/daemon";
 import { nextCronRun } from "../../goals/schedule";
 import { resumeSessionById } from "./session-handlers";
 
-type GoalHandlers = Pick<CommandContext, "manageGoals">;
+type GoalHandlers = Pick<CommandContext, "manageGoals" | "manageDaemon">;
 
 const ADD = "\x00add";
 
@@ -179,11 +179,7 @@ export function createGoalHandlers(state: AppState, deps: AppDeps): GoalHandlers
         }
         say(`goal added — ${goal.text}  ·  ${describeSchedule(schedule)}${goal.agent ? `  ·  agent ${goal.agent}` : ""}`);
         if (!isDaemonInstalled()) {
-            say(
-                chalk.yellow(
-                    `the goals daemon is not installed — this goal will NOT run on its own. Run: ${PRODUCT_NAME} goals daemon install`,
-                ),
-            );
+            say(chalk.yellow("the goals daemon is off — this goal will NOT run on its own. Turn it on with /daemon"));
         }
     }
 
@@ -215,7 +211,7 @@ export function createGoalHandlers(state: AppState, deps: AppDeps): GoalHandlers
         ) {
             say(
                 chalk.yellow(
-                    `scheduled goals exist but the daemon is not installed — they will not run on their own. Run: ${PRODUCT_NAME} goals daemon install`,
+                    "scheduled goals exist but the daemon is off — they will not run on their own. Turn it on with /daemon",
                 ),
             );
         }
@@ -256,8 +252,8 @@ export function createGoalHandlers(state: AppState, deps: AppDeps): GoalHandlers
                 if (!schedule) continue;
                 addGoal(text, state.cwd, schedule);
                 say(`goal added — ${text}`);
-                if (schedule.kind !== "none") {
-                    say(chalk.dim(`scheduled goals need the daemon: ${PRODUCT_NAME} goals daemon install`));
+                if (schedule.kind !== "none" && !isDaemonInstalled()) {
+                    say(chalk.dim("scheduled goals need the daemon — turn it on with /daemon"));
                 }
                 continue;
             }
@@ -326,6 +322,44 @@ export function createGoalHandlers(state: AppState, deps: AppDeps): GoalHandlers
         }
     }
 
+    /**
+     * /daemon — install/uninstall the OS scheduler that runs scheduled goals.
+     * Bare /daemon opens a toggle panel; on|off|status skip it. install is
+     * safe to repeat (it re-bootstraps, picking up a moved binary).
+     */
+    async function manageDaemon(args: string): Promise<void> {
+        const arg = args.trim().toLowerCase();
+        const installed = isDaemonInstalled();
+        let action: string | undefined;
+        if (arg === "on" || arg === "install") action = "on";
+        else if (arg === "off" || arg === "uninstall") action = "off";
+        else if (arg === "status") action = "status";
+        else if (arg) {
+            say(chalk.red("usage: /daemon [on|off|status]"));
+            return;
+        } else {
+            const pick = await selectOnce(
+                [
+                    installed
+                        ? { value: "off", label: "turn off", description: "uninstall — scheduled goals stop running on their own" }
+                        : { value: "on", label: "turn on", description: "install — runs scheduled goals in the background (ticks every minute)" },
+                    { value: "status", label: "status", description: "show the OS scheduler state" },
+                    { value: "cancel", label: "cancel" },
+                ],
+                `Goals daemon · ${installed ? "on" : "off"}`,
+            );
+            if (!pick || pick.value === "cancel") return;
+            action = pick.value;
+        }
+        try {
+            if (action === "on") say(daemonInstall());
+            else if (action === "off") say(installed ? daemonUninstall() : "goals daemon is not installed");
+            else say(daemonStatus());
+        } catch (err) {
+            say(chalk.red((err as Error).message));
+        }
+    }
+
     return {
         async manageGoals(args: string) {
             const text = args.trim();
@@ -340,5 +374,6 @@ export function createGoalHandlers(state: AppState, deps: AppDeps): GoalHandlers
                 else throw err;
             }
         },
+        manageDaemon,
     };
 }
