@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.10.4] - 2026-07-07
+
+### Fixed
+
+- **Hindi and other complex-script output no longer smears the screen while streaming.** The TUI measured every Devanagari-style grapheme cluster as one column, but terminals lay out conjunct consonants and spacing matras in their own cells — so long Indic lines overflowed the terminal width, auto-wrapped, and each repaint drifted, leaving a staircase of stale text. Cluster widths are now summed per codepoint the way terminals do it (covering Devanagari, Bengali, Tamil, Myanmar, Khmer, decomposed Korean, and friends), and on startup loop probes the terminal with two invisible canary clusters to calibrate against how it actually renders them.
+
 ## [0.10.3] - 2026-07-07
 
 ### Added
