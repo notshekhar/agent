@@ -45,6 +45,61 @@ You are a subagent launched by a main agent. Rules of the run:
 - Only your final message returns to the main agent — it is their only window into your work. Write like the main agent would: lead with the outcome, then the insight needed to understand and act (exact paths, names, key findings, conclusions, evidence, surprises). Be precise and concise for what was asked — complete enough that the main agent need not redo your investigation, but no padding and no play-by-play of what you tried.
 - If you cannot finish, report exactly how far you got and what blocked you; a precise partial report beats a vague complete-sounding one.`;
 
+/**
+ * Concurrency gate for parallel task calls. The AI SDK executes every tool
+ * call of a step concurrently, so a model that fans out N tasks opens N
+ * provider streams at once — the semaphore caps how many actually run;
+ * the rest wait their turn (announced in their task box). FIFO so a queued
+ * task can't starve.
+ */
+export class Semaphore {
+    private running = 0;
+    private waiters: Array<() => void> = [];
+    /** limit <= 0 = unlimited. */
+    constructor(private readonly limit: number) {}
+
+    /** Take a slot if one is free right now. */
+    tryAcquire(): boolean {
+        if (this.limit <= 0 || this.running < this.limit) {
+            this.running++;
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Wait for a slot. An abort resolves the wait immediately (the caller
+     * checks the signal and unwinds through its own release), so a queued
+     * task never outlives an Esc.
+     */
+    async acquire(signal?: AbortSignal): Promise<void> {
+        if (this.tryAcquire()) return;
+        await new Promise<void>((resolve) => {
+            const waiter = () => {
+                signal?.removeEventListener("abort", onAbort);
+                resolve();
+            };
+            const onAbort = () => {
+                const i = this.waiters.indexOf(waiter);
+                if (i >= 0) this.waiters.splice(i, 1);
+                resolve();
+            };
+            this.waiters.push(waiter);
+            signal?.addEventListener("abort", onAbort, { once: true });
+        });
+        this.running++;
+    }
+
+    release(): void {
+        this.running = Math.max(0, this.running - 1);
+        this.waiters.shift()?.();
+    }
+
+    get queued(): number {
+        return this.waiters.length;
+    }
+}
+
 /** One-line summary of a tool call's input for the activity log (` arg`, capped). */
 export function subagentArgSummary(input: unknown): string {
     if (!input || typeof input !== "object") return "";
@@ -81,6 +136,9 @@ export function createTaskTool(ctx: SubagentCtx) {
     const agentNames = listAgents()
         .map((a) => a.name)
         .join(", ");
+    // One gate per turn: fan-out within a step shares it, so at most
+    // subagentMaxParallel provider streams run at once (default 4).
+    const gate = new Semaphore(getSetting("subagentMaxParallel") ?? 4);
     return tool({
         description:
             "Launch a subagent to handle a self-contained task and return its final report. " +
@@ -95,8 +153,10 @@ export function createTaskTool(ctx: SubagentCtx) {
             "If an earlier task's report is missing a detail, don't relaunch from scratch: pass follow_up with " +
             "that task call's tool call id — the subagent continues with the earlier run's context intact, so the " +
             "prompt need only contain the new question. " +
-            "Call task on its own: do not combine it with other tool calls in the same step — the subagent " +
-            "covers the exploration itself.",
+            "INDEPENDENT tasks can and should be launched in parallel: emit several task calls in the same step " +
+            "(e.g. one per area to investigate) and they run concurrently — much faster than one at a time. " +
+            "Keep tasks that depend on each other's results sequential, and don't mix task with other tool " +
+            "calls in the same step — the subagents cover the exploration themselves.",
         inputSchema: z.object({
             agent: z
                 .string()
@@ -128,6 +188,7 @@ export function createTaskTool(ctx: SubagentCtx) {
                 input.prompt,
                 (options as { toolCallId?: string })?.toolCallId ?? "task",
                 input.follow_up,
+                gate,
             ),
         // Anti-bloat (AI SDK subagents pattern): the parent model receives only
         // the subagent's final report, bounded — never the full history of
@@ -314,6 +375,7 @@ async function runSubagent(
     prompt: string,
     toolCallId: string,
     followUp?: string,
+    gate?: Semaphore,
 ): Promise<SubagentOutput> {
     // No override → fork of the turn's agent (session agent or one-shot
     // /<agent> for this message): same prompt, same tools, fresh context.
@@ -334,7 +396,25 @@ async function runSubagent(
     let stallTimer: ReturnType<typeof setTimeout> | null = null;
     let stalled = false;
     const onParentAbort = () => stall.abort();
+    let slotHeld = false;
     try {
+        // Parallel fan-out shares the turn's stream-slot gate: over-limit
+        // tasks wait here (visibly, and abort-aware — Esc unwinds a queued
+        // task without it ever opening a stream).
+        if (gate) {
+            if (!gate.tryAcquire()) {
+                ctx.emitter.emit("subagent-delta", {
+                    toolCallId,
+                    agent: name,
+                    text: "[queued — waiting for a free subagent slot]\n",
+                });
+                await gate.acquire(ctx.abortSignal);
+            }
+            slotHeld = true;
+        }
+        if (ctx.abortSignal?.aborted) {
+            return { history: [], report: "Subagent aborted before it started (turn interrupted)." };
+        }
         // Which model this subagent runs on: the agent file's `model:` >
         // the subagentModel setting > the parent's model. Everything below
         // (provider, catalog caps, caching, cost stamping) derives from this
@@ -678,6 +758,7 @@ async function runSubagent(
         const msg = `Subagent failed: ${err instanceof Error ? err.message : String(err)}`;
         return { history: [{ type: "text", text: msg }], report: msg };
     } finally {
+        if (slotHeld) gate?.release();
         if (stallTimer) clearTimeout(stallTimer);
         ctx.abortSignal?.removeEventListener("abort", onParentAbort);
     }
