@@ -14,9 +14,7 @@ export function generateEntryId(has: (id: string) => boolean): string {
 
 /**
  * Upgrade legacy flat entries (no id/parentId) to a linear chain, in place.
- * Shared by Session's constructor and the JSONL migration path — both must
- * normalize the same way so a file migrated at startup and a file loaded the
- * old way produce identical trees. Returns true if anything changed.
+ * Returns true if anything changed.
  */
 export function ensureTreeFields(entries: Entry[]): boolean {
     const ids = new Set<string>();

@@ -299,6 +299,12 @@ refresh/NaN defenses die with cost.json.
 
 ## 3. Migrating existing JSONL sessions
 
+> **Retired 2026-07-07**: the one-time migration below shipped in v0.9.0 and
+> was removed once every install had moved (along with the ~/.pi config-dir
+> move and the import-on-open straggler fallback). `meta.cost_baseline` is
+> still read; corruption recovery is salvage-only now. Kept for historical
+> context.
+
 Trigger: first `db.ts` open with no `meta.migrated_at`.
 
 1. Walk the sessions dir exactly as `list()` does today.

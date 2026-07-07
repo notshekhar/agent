@@ -1,12 +1,8 @@
-import { getConfigDir, LEGACY_CONFIG_DIR_NAMES, PRODUCT_NAME } from "../brand";
+import { getConfigDir, PRODUCT_NAME } from "../brand";
 import { Database } from "bun:sqlite";
-import { existsSync, mkdirSync, renameSync } from "node:fs";
+import { mkdirSync, renameSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { costStore } from "../auth/storage";
 import { debugLog } from "../debug";
-import { migrateCostLedger } from "./cost-ledger";
-import { migrateLegacySessions } from "./migrate";
-import { migrateProjectStores } from "./projects";
 
 /**
  * The one place that opens the session database. Everything session-adjacent
@@ -141,26 +137,7 @@ let overridePath: string | null = null;
 export const DB_FILE_NAME = "agent.db";
 
 function defaultDbPath(): string {
-    const path = join(getConfigDir(), DB_FILE_NAME);
-    // Installs from before the filename went generic hold the db under a
-    // brand-derived name (loop.db / pi.db) — adopt it (with its WAL/SHM
-    // sidecars) so history survives. One-time: a no-op once agent.db exists.
-    if (!existsSync(path)) {
-        const brandNames = [PRODUCT_NAME, ...LEGACY_CONFIG_DIR_NAMES.map((d) => d.replace(/^\./, ""))];
-        for (const brand of brandNames) {
-            const oldBase = join(getConfigDir(), `${brand}.db`);
-            if (!existsSync(oldBase)) continue;
-            try {
-                for (const suffix of ["", "-wal", "-shm"]) {
-                    if (existsSync(oldBase + suffix)) renameSync(oldBase + suffix, path + suffix);
-                }
-            } catch {
-                // Best-effort: fall through and start a fresh db rather than crash.
-            }
-            break;
-        }
-    }
-    return path;
+    return join(getConfigDir(), DB_FILE_NAME);
 }
 
 /**
@@ -245,8 +222,7 @@ function openDb(path: string, recovered = false): Database {
                 if (check && check.quick_check !== "ok") {
                     debugLog("session-db", `quick_check failed for ${path}: ${check.quick_check}`);
                     // Recover once per open: set the corrupt file aside, start
-                    // fresh, salvage what's readable, and let getDb()'s
-                    // migrations re-import the retained JSONL for the rest.
+                    // fresh, and salvage what's readable.
                     // A corrupt :memory: db or a second corruption falls
                     // through and continues on the damaged handle.
                     if (!recovered && path !== ":memory:") {
@@ -277,10 +253,7 @@ function openDb(path: string, recovered = false): Database {
 /**
  * Corruption recovery: move the damaged file (and its WAL sidecars — they must
  * never attach to the replacement) aside, open a fresh db, then copy every
- * readable row over. The fresh db carries no migration markers, so getDb()'s
- * JSONL re-import fills whatever the salvage couldn't read (originals are
- * retained exactly for this). Post-migration data lives only in the db, so the
- * salvage runs first and INSERT OR IGNORE makes its rows win over re-imports.
+ * readable row over.
  *
  * Best-effort by design: a row that can't be read or re-inserted is skipped,
  * never fatal. The damaged file is kept beside the fresh one for forensics.
@@ -349,12 +322,11 @@ function salvageCorruptDb(corruptPath: string, fresh: Database): void {
                 })();
                 debugLog("session-db", `salvaged ${copied} rows from ${table}`);
             } catch (err) {
-                debugLog("session-db", `salvage: ${table} unreadable, relying on JSONL re-import:`, err as Error);
+                debugLog("session-db", `salvage: ${table} unreadable, its rows are lost:`, err as Error);
             }
         }
         // cost_baseline is the frozen pre-ledger spend — unrecoverable from
-        // anywhere else once cost.json is stale. Other meta keys deliberately
-        // stay unset so getDb()'s migrations re-run and fill salvage gaps.
+        // anywhere else.
         try {
             const baseline = damaged
                 .query<{ value: string }, []>("SELECT value FROM meta WHERE key = 'cost_baseline'")
@@ -375,33 +347,6 @@ function salvageCorruptDb(corruptPath: string, fresh: Database): void {
 export function getDb(): Database {
     if (!db) {
         db = openDb(overridePath ?? defaultDbPath());
-        // One-time JSONL migration, only for the real store: an injected test
-        // path must never scan (or import) the user's actual sessions dir.
-        // Tests drive migrateLegacySessions directly with a fixture root.
-        if (!overridePath) {
-            try {
-                migrateLegacySessions(db);
-            } catch (err) {
-                debugLog("session-db", "legacy session migration failed:", err as Error);
-            }
-            // Cost cutover: freeze cost.json into meta.cost_baseline and
-            // backfill ledger rows for pre-ledger sessions. Same gate as
-            // above: a test-injected path must never read the user's real
-            // cost.json — ledger tests drive migrateCostLedger directly.
-            try {
-                costStore.refresh();
-                migrateCostLedger(costStore.all);
-            } catch (err) {
-                debugLog("session-db", "cost ledger migration failed:", err as Error);
-            }
-            // Small stores: trust.json + settings.projectModels/
-            // projectProviderModels → projects; reminders.json → reminders.
-            try {
-                migrateProjectStores();
-            } catch (err) {
-                debugLog("session-db", "project store migration failed:", err as Error);
-            }
-        }
     }
     return db;
 }

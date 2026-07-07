@@ -5,7 +5,6 @@ import {
     attachLedgerEntry,
     auditLedger,
     getCostBaseline,
-    migrateCostLedger,
     sumLedgerForSession,
 } from "../src/sessions/cost-ledger";
 import { getDb } from "../src/sessions/db";
@@ -28,6 +27,11 @@ const usage = (input: number, output: number, extra: Partial<UsageBlock> = {}): 
 async function makeSession(cwd = "/proj") {
     const mgr = new SessionManager();
     return mgr.create({ cwd, provider: "xai", model: MODEL });
+}
+
+/** Freeze a baseline the way the retired v0.9.0 cutover did — straight into meta. */
+function setBaseline(snapshot: unknown) {
+    getDb().run("INSERT OR REPLACE INTO meta (key, value) VALUES ('cost_baseline', ?)", [JSON.stringify(snapshot)]);
 }
 
 describe("cost ledger invariants (DESIGN.md §1b)", () => {
@@ -83,7 +87,7 @@ describe("cost ledger invariants (DESIGN.md §1b)", () => {
     });
 
     test("invariant 2: lifetime = baseline + SUM(estimated=0, backfilled=0)", async () => {
-        migrateCostLedger({
+        setBaseline({
             lifetime: { usd: 10, byProvider: { anthropic: 10 } },
             daily: { "2026-01-01": 10 },
             byCwd: { "/old": 10 },
@@ -105,7 +109,7 @@ describe("cost ledger invariants (DESIGN.md §1b)", () => {
 
     test("baseline daily buckets merge into today/7d/month views", async () => {
         const today = new Date().toLocaleDateString("sv");
-        migrateCostLedger({ lifetime: { usd: 5, byProvider: {} }, daily: { [today]: 5 }, byCwd: {} });
+        setBaseline({ lifetime: { usd: 5, byProvider: {} }, daily: { [today]: 5 }, byCwd: {} });
         const session = await makeSession();
         const tracker = new CostTracker();
         tracker.add(MODEL, usage(1_000_000, 0), { cwd: "/proj", sessionPub: session.info.id, source: "turn" });
@@ -216,66 +220,9 @@ describe("cost ledger invariants (DESIGN.md §1b)", () => {
     });
 });
 
-describe("ledger backfill migration", () => {
-    test("pre-ledger sessions get backfilled rows; stamps win over catalog pricing", async () => {
-        const session = await makeSession();
-        // A stamped entry (true historical cost, $9.99 regardless of catalog)
-        // and an unstamped one (priced at today's rates: 1M × $1 = $1).
-        await session.append({
-            type: "message",
-            ts: 100,
-            role: "assistant",
-            content: "old-stamped",
-            usage: { ...usage(1_000_000, 0), usd: 9.99 },
-            model: MODEL,
-        });
-        await session.append({
-            type: "message",
-            ts: 200,
-            role: "assistant",
-            content: "old-unstamped",
-            usage: usage(1_000_000, 0),
-            model: MODEL,
-        });
-        migrateCostLedger({ lifetime: { usd: 0, byProvider: {} } });
-
-        const sums = sumLedgerForSession(session.info.id);
-        expect(sums.rows).toBe(2);
-        expect(sums.usd).toBeCloseTo(9.99 + 1, 6);
-
-        // Backfilled rows never bill: lifetime views stay at the baseline.
-        const tracker = new CostTracker();
-        expect(tracker.stats().lifetimeUsd).toBeCloseTo(0, 9);
-
-        // …and the reopened session shows the recorded figure (invariant 1).
-        const fresh = new CostTracker();
-        const mgr = new SessionManager();
-        fresh.seedFromSession(await mgr.open(session.info.id));
-        expect(fresh.sessionBreakdown().usd).toBeCloseTo(10.99, 6);
-    });
-
-    test("backfill is one-time and skips sessions that already have rows", async () => {
-        const session = await makeSession();
-        const tracker = new CostTracker();
-        const u = usage(1_000, 100);
-        tracker.add(MODEL, u, { sessionPub: session.info.id, source: "turn" });
-        await session.append({
-            type: "message",
-            ts: Date.now(),
-            role: "assistant",
-            content: "x",
-            usage: stampUsageCost(MODEL, u),
-        });
-        migrateCostLedger({});
-        // The real row is the only one — no backfilled duplicate.
-        expect(sumLedgerForSession(session.info.id).rows).toBe(1);
-        // Re-running is gated off.
-        migrateCostLedger({});
-        expect(sumLedgerForSession(session.info.id).rows).toBe(1);
-    });
-
-    test("a corrupt cost.json snapshot degrades to a zero baseline", () => {
-        migrateCostLedger({ lifetime: { usd: Number.NaN, byProvider: { xai: "junk" } } });
+describe("cost baseline (frozen at the retired v0.9.0 cutover)", () => {
+    test("a corrupt stored snapshot degrades to a zero baseline", () => {
+        setBaseline({ lifetime: { usd: Number.NaN, byProvider: { xai: "junk" } } });
         const b = getCostBaseline();
         expect(b.lifetime.usd).toBe(0);
         expect(b.lifetime.byProvider.xai).toBe(0);

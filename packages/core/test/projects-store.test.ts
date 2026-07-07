@@ -1,14 +1,6 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { afterEach, describe, expect, test } from "bun:test";
 import { getDb } from "../src/sessions/db";
-import {
-    getProjectModel,
-    getProjectProviderModel,
-    migrateProjectStores,
-    setProjectModel,
-} from "../src/sessions/projects";
+import { getProjectModel, getProjectProviderModel, setProjectModel } from "../src/sessions/projects";
 import { getTrustDecision, isTrusted, setTrust, trustForSession } from "../src/agent/trust";
 import {
     addReminder,
@@ -86,71 +78,5 @@ describe("reminders table", () => {
     test("MAX_REMINDERS is enforced", () => {
         for (let i = 0; i < MAX_REMINDERS; i++) addReminder(`r${i}`, { kind: "once", at: i });
         expect(() => addReminder("overflow", { kind: "once", at: 0 })).toThrow(ReminderLimitError);
-    });
-});
-
-describe("store migration (trust.json + settings keys + reminders.json)", () => {
-    // Injected sources: a temp loop dir + a mock settings store, so the
-    // user's real ~/.loop files are never read or written.
-    let configDir: string;
-    beforeEach(() => {
-        configDir = mkdtempSync(join(tmpdir(), "loop-stores-"));
-        mkdirSync(configDir, { recursive: true });
-    });
-    afterEach(() => rmSync(configDir, { recursive: true, force: true }));
-
-    const mockSettings = (data: Record<string, unknown>) => ({
-        get: (key: string) => data[key],
-        delete: (key: string) => {
-            delete data[key];
-        },
-        data,
-    });
-
-    test("copies all three stores once, then gates", () => {
-        writeFileSync(`${configDir}/trust.json`, JSON.stringify({ "/repo/a": true, "/repo/b": false, "/bad": "junk" }));
-        writeFileSync(
-            `${configDir}/reminders.json`,
-            JSON.stringify({
-                reminders: [
-                    { id: "R1", text: "hi", enabled: true, kind: "once", at: 123 },
-                    { id: "R2", text: "cronny", enabled: false, kind: "cron", expr: "* * * * *" },
-                    { id: "", text: "invalid" },
-                ],
-            }),
-        );
-        const settings = mockSettings({
-            projectModels: { "/repo/a": "xai/grok-build-0.1" },
-            projectProviderModels: { "/repo/a": { xai: "xai/grok-build-0.1" } },
-        });
-
-        migrateProjectStores({ configDir, settings });
-
-        expect(getTrustDecision("/repo/a")).toBe(true);
-        expect(getTrustDecision("/repo/b")).toBe(false);
-        expect(getTrustDecision("/bad")).toBeNull(); // junk value skipped
-        expect(getProjectModel("/repo/a")).toBe("xai/grok-build-0.1");
-        expect(getProjectProviderModel("/repo/a", "xai")).toBe("xai/grok-build-0.1");
-        refreshReminders();
-        const rems = listReminders();
-        expect(rems).toHaveLength(2);
-        expect(rems.find((r) => r.id === "R2")).toMatchObject({ kind: "cron", enabled: false });
-        // the settings keys are retired
-        expect(settings.data.projectModels).toBeUndefined();
-        expect(settings.data.projectProviderModels).toBeUndefined();
-
-        // re-run is a no-op (gate set) — existing rows keep their values
-        setTrust("/repo/a", false);
-        migrateProjectStores({ configDir, settings });
-        expect(getTrustDecision("/repo/a")).toBe(false);
-    });
-
-    test("corrupt files are skipped, migration still gates", () => {
-        writeFileSync(`${configDir}/trust.json`, "{not json");
-        migrateProjectStores({ configDir, settings: mockSettings({}) });
-        const gate = getDb()
-            .query<{ value: string }, []>("SELECT value FROM meta WHERE key = 'stores_migrated_at'")
-            .get();
-        expect(gate).not.toBeNull();
     });
 });

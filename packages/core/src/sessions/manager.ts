@@ -1,15 +1,13 @@
 import { getConfigDir } from "../brand";
-import { existsSync, mkdirSync, readdirSync, renameSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { basename, join } from "node:path";
 import { ulid } from "ulid";
 import { debugLog } from "../debug";
 import type { Entry, ProviderId, SessionInfoData } from "../types";
 import { Session, generateEntryId } from "./session";
 import { stripSessionHookContext } from "./hook-context";
-import { importSessionFile, legacySessionsRoot } from "./migrate";
 import { getSessionStore, type SessionRecord } from "./sqlite-store";
 
-function slugCwd(cwd: string): string {
+export function slugCwd(cwd: string): string {
     // slug convention: "--Users-notshekhar-Documents-foo--"
     const stripped = cwd.replace(/^\/+|\/+$/g, "").replace(/\//g, "-");
     return `--${stripped}--`;
@@ -92,50 +90,22 @@ export class SessionManager {
     }
 
     /**
-     * /cd — move a session to a new working directory: DB row, in-memory
-     * info/path, and a legacy JSONL transcript if one exists on disk. The DB
-     * is the source of truth; the file move is best-effort.
+     * /cd — move a session to a new working directory: DB row plus in-memory
+     * info/path. The DB is the source of truth; the path is just the
+     * session's public name under the new cwd.
      */
     moveSession(session: Session, newCwd: string): void {
-        const newPath = transcriptPath(newCwd, session.id);
         getSessionStore().updateSessionCwd(session.id, newCwd);
-        if (session.path !== newPath && existsSync(session.path)) {
-            try {
-                mkdirSync(dirname(newPath), { recursive: true });
-                renameSync(session.path, newPath);
-            } catch (err) {
-                debugLog("sessions", `transcript move failed for ${session.id}:`, err as Error);
-            }
-        }
-        session.rehome(newCwd, newPath);
+        session.rehome(newCwd, transcriptPath(newCwd, session.id));
     }
 
     async open(idOrPath: string): Promise<Session> {
-        const isPath = idOrPath.endsWith(".jsonl");
-        const id = isPath ? basename(idOrPath).replace(/\.jsonl$/, "") : idOrPath;
-        let record = getSessionStore().getSession(id);
-        if (!record) {
-            // Straggler transcript (restored from backup, or a direct path to
-            // a file that was never migrated): import it, then open normally.
-            const file = isPath ? idOrPath : this.findLegacyFile(id);
-            if (file && existsSync(file)) {
-                const importedId = importSessionFile(getSessionStore(), file, basename(dirname(file)));
-                if (importedId) record = getSessionStore().getSession(importedId);
-            }
-        }
+        // Accept both the bare id and the .jsonl-shaped public path (picker
+        // values, hooks' transcript_path, parentSession links).
+        const id = idOrPath.endsWith(".jsonl") ? basename(idOrPath).replace(/\.jsonl$/, "") : idOrPath;
+        const record = getSessionStore().getSession(id);
         if (!record) throw new Error(`Session not found: ${idOrPath}`);
         return Session.load(transcriptPath(record.info.cwd, record.info.id), record.info);
-    }
-
-    /** The old findById dir scan — kept only as the import-on-open fallback. */
-    private findLegacyFile(id: string): string | null {
-        const root = legacySessionsRoot();
-        if (!existsSync(root)) return null;
-        for (const slug of readdirSync(root)) {
-            const candidate = join(root, slug, `${id}.jsonl`);
-            if (existsSync(candidate)) return candidate;
-        }
-        return null;
     }
 
     /**

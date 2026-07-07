@@ -194,7 +194,8 @@ export function ledgerCwdUsd(cwd: string): number {
 }
 
 // ---------------------------------------------------------------------------
-// Baseline (the frozen cost.json snapshot) + backfill migration
+// Baseline (pre-ledger spend, frozen into meta.cost_baseline at the v0.9.0
+// cutover — read-only ever since)
 // ---------------------------------------------------------------------------
 
 export interface CostBaseline {
@@ -225,141 +226,6 @@ export function getCostBaseline(): CostBaseline {
         return { lifetime: { usd: num(raw.lifetime?.usd), byProvider }, daily, byCwd };
     } catch {
         return EMPTY_BASELINE;
-    }
-}
-
-/**
- * One-time cutover from cost.json to the ledger:
- * 1. Freeze the entire cost.json (lifetime + daily + byCwd) into
- *    `meta.cost_baseline` — every pre-ledger dollar the user has ever seen
- *    keeps appearing in /cost, attributed exactly as before.
- * 2. Backfill per-session ledger rows (`backfilled=1`) from usage-bearing
- *    entries of sessions that have no ledger rows yet, so reopening an old
- *    session sums the same source new sessions do. USD prefers the per-entry
- *    stamp (`usage_usd` — true historical cost); the catalog-priced fallback
- *    leaves the honesty flag to say the rate is today's.
- * Gated on `meta.ledger_migrated_at`; idempotent to re-run after a crash
- * (the gate is set last, and re-inserting skips sessions that got rows).
- */
-export function migrateCostLedger(costJson: unknown): void {
-    const db = getDb();
-    const done = db.query<{ value: string }, []>("SELECT value FROM meta WHERE key = 'ledger_migrated_at'").get();
-    if (done) return;
-
-    // 1. Baseline snapshot — only if one isn't already frozen (crash re-run).
-    const existing = db.query<{ value: string }, []>("SELECT value FROM meta WHERE key = 'cost_baseline'").get();
-    if (!existing) {
-        const raw = (costJson ?? {}) as Partial<CostBaseline>;
-        const baseline: CostBaseline = {
-            lifetime: {
-                usd: num(raw.lifetime?.usd),
-                byProvider: Object.fromEntries(
-                    Object.entries(raw.lifetime?.byProvider ?? {}).map(([k, v]) => [k, num(v)]),
-                ),
-            },
-            daily: Object.fromEntries(Object.entries(raw.daily ?? {}).map(([k, v]) => [k, num(v)])),
-            byCwd: Object.fromEntries(Object.entries(raw.byCwd ?? {}).map(([k, v]) => [k, num(v)])),
-        };
-        db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('cost_baseline', ?)", [JSON.stringify(baseline)]);
-    }
-
-    // 2. Backfill: usage-bearing entries of sessions with no ledger rows.
-    const entries = db
-        .query<
-            {
-                entry_id: number;
-                entry_pub: string;
-                session_id: number;
-                session_pub: string;
-                cwd: string;
-                ts: number;
-                type: string;
-                model: string | null;
-                session_model: string;
-                usage_input: number | null;
-                usage_output: number | null;
-                usage_no_cache: number | null;
-                usage_cache_read: number | null;
-                usage_cache_write: number | null;
-                usage_reasoning: number | null;
-                usage_estimated: number | null;
-                usage_usd: number | null;
-            },
-            []
-        >(
-            `SELECT e.id AS entry_id, e.pub_id AS entry_pub, s.id AS session_id,
-                    s.pub_id AS session_pub, s.cwd, e.ts, e.type, e.model,
-                    s.model AS session_model,
-                    e.usage_input, e.usage_output, e.usage_no_cache,
-                    e.usage_cache_read, e.usage_cache_write, e.usage_reasoning,
-                    e.usage_estimated, e.usage_usd
-             FROM entries e JOIN sessions s ON s.id = e.session_id
-             WHERE e.usage_input IS NOT NULL
-               AND NOT EXISTS (SELECT 1 FROM cost_ledger l WHERE l.session_pub = s.pub_id)
-             ORDER BY e.id`,
-        )
-        .all();
-
-    const insert = db.query(
-        `INSERT INTO cost_ledger (
-            ts, day, session_id, session_pub, entry_id, entry_pub, source, cwd, provider, model,
-            input_tokens, no_cache_tokens, cache_read_tokens, cache_write_tokens,
-            output_tokens, reasoning_tokens,
-            price_input, price_output, price_cache_read, price_cache_write,
-            usd, provider_cost, estimated, backfilled
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
-    );
-    const runAll = db.transaction(() => {
-        for (const e of entries) {
-            const modelId = e.model ?? e.session_model;
-            const provider = modelId.includes("/") ? modelId.slice(0, modelId.indexOf("/")) : modelId;
-            // Stamped usd is the true historical cost; otherwise price the
-            // stored quantities at today's rates (flagged by backfilled=1).
-            let usd = e.usage_usd;
-            let prices: PriceSnapshot = {};
-            if (usd === null) {
-                prices = priceSnapshot(modelId);
-                const noCache =
-                    e.usage_no_cache ??
-                    Math.max(0, (e.usage_input ?? 0) - (e.usage_cache_read ?? 0) - (e.usage_cache_write ?? 0));
-                usd =
-                    (noCache / 1e6) * (prices.input ?? 0) +
-                    ((e.usage_output ?? 0) / 1e6) * (prices.output ?? 0) +
-                    ((e.usage_cache_read ?? 0) / 1e6) * (prices.cacheRead ?? 0) +
-                    ((e.usage_cache_write ?? 0) / 1e6) * (prices.cacheWrite ?? 0);
-            }
-            insert.run(
-                e.ts,
-                dayKey(new Date(e.ts)),
-                e.session_id,
-                e.session_pub,
-                e.entry_id,
-                e.entry_pub,
-                e.type === "subagent" || e.type === "compact" || e.type === "branch-summary" ? e.type : "turn",
-                e.cwd,
-                provider,
-                modelId,
-                e.usage_input ?? 0,
-                e.usage_no_cache ?? null,
-                e.usage_cache_read ?? null,
-                e.usage_cache_write ?? null,
-                e.usage_output ?? 0,
-                e.usage_reasoning ?? null,
-                prices.input ?? null,
-                prices.output ?? null,
-                prices.cacheRead ?? null,
-                prices.cacheWrite ?? null,
-                usd,
-                null,
-                e.usage_estimated === 1 ? 1 : 0,
-            );
-        }
-        db.run("INSERT OR REPLACE INTO meta (key, value) VALUES ('ledger_migrated_at', ?)", [String(Date.now())]);
-    });
-    try {
-        runAll();
-    } catch (err) {
-        debugLog("cost-ledger", "ledger backfill failed:", err as Error);
     }
 }
 

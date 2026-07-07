@@ -28,10 +28,11 @@ async function main(): Promise<void> {
         return;
     }
 
-    // Lossless one-time migration of the pre-rename ~/.pi config dir → ~/.loop.
-    // Runs after the instant --version/--help paths so they stay disk-free, and
-    // before any command reads settings/auth/sessions. Dynamically imported so
-    // it doesn't pull core into the fast paths above.
+    // Lossless one-time move of a pre-rename config dir (no-op unless a
+    // product rename lists one in LEGACY_CONFIG_DIR_NAMES). Runs after the
+    // instant --version/--help paths so they stay disk-free, and before any
+    // command reads settings/auth/sessions. Dynamically imported so it
+    // doesn't pull core into the fast paths above.
     (await import("@notshekhar/loop-core")).migrateLegacyConfig();
 
     switch (args.cmd) {

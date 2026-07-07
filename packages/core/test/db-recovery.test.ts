@@ -9,8 +9,7 @@ import { getSessionStore } from "../src/sessions/sqlite-store";
 /**
  * Corruption recovery: a db that fails quick_check on open is set aside as
  * agent.db.corrupt-<ts>, a fresh db takes its path, and every readable row is
- * salvaged into it. The test db is an injected path, so getDb()'s JSONL
- * re-import never runs — everything asserted here came through the salvage.
+ * salvaged into it.
  */
 describe("session db corruption recovery", () => {
     let dir: string | null = null;
@@ -77,12 +76,9 @@ describe("session db corruption recovery", () => {
         const entryCount = db.query<{ n: number }, []>("SELECT COUNT(*) AS n FROM entries").get()!.n;
         expect(entryCount).toBeGreaterThan(0);
 
-        // The frozen pre-ledger baseline is carried over; migration markers are
-        // NOT, so the real store would re-import retained JSONL to fill gaps.
+        // The frozen pre-ledger baseline is carried over.
         const baseline = db.query<{ value: string }, []>("SELECT value FROM meta WHERE key = 'cost_baseline'").get();
         expect(baseline?.value).toContain("42");
-        const migrated = db.query<{ value: string }, []>("SELECT value FROM meta WHERE key = 'migrated_at'").get();
-        expect(migrated).toBeNull();
 
         // The recovered store keeps working.
         const rowId = getSessionStore().ensureSession({

@@ -116,12 +116,6 @@ export const settingsStore = new CachedStore(
     { configPath: join(CONFIG_DIR, "settings.json") },
 );
 
-export const costStore = new CachedStore(
-    `${PRODUCT_NAME}-agent-cost`,
-    { lifetime: { usd: 0, byProvider: {} } },
-    { configPath: join(CONFIG_DIR, "cost.json") },
-);
-
 // Datasources for the data-analyst agent's `sql` tool. Kept in its own file
 // (not settings.json) so connection configs stay isolated from app settings.
 export const datasourcesStore = new CachedStore(

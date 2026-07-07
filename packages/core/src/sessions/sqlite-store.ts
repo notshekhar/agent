@@ -61,13 +61,13 @@ export class SessionStore {
     constructor(private db: Database) {}
 
     /** Insert the session row if it doesn't exist yet; return the internal id. */
-    ensureSession(info: SessionInfoData, updatedAt = Date.now()): number {
+    ensureSession(info: SessionInfoData): number {
         this.db
             .query(
                 `INSERT OR IGNORE INTO sessions (pub_id, cwd, provider, model, parent_pub, created_at, updated_at)
                  VALUES (?, ?, ?, ?, ?, ?, ?)`,
             )
-            .run(info.id, info.cwd, info.provider, info.model, info.parentSession ?? null, info.createdAt, updatedAt);
+            .run(info.id, info.cwd, info.provider, info.model, info.parentSession ?? null, info.createdAt, Date.now());
         const row = this.db.query<{ id: number }, [string]>("SELECT id FROM sessions WHERE pub_id = ?").get(info.id);
         if (!row) throw new Error(`session row vanished for ${info.id}`);
         return row.id;
@@ -136,22 +136,6 @@ export class SessionStore {
     }
 
     /**
-     * The migration/import path: INSERT OR IGNORE end to end, so re-running
-     * after a crash (or hitting duplicate pub_ids across files) skips whatever
-     * already landed instead of failing. updated_at is the source file's mtime
-     * so /resume ordering survives the move.
-     */
-    importSession(info: SessionInfoData, entries: Entry[], updatedAt = Date.now()): number {
-        const tx = this.db.transaction(() => {
-            const rowId = this.ensureSession(info, updatedAt);
-            for (const e of entries) this.insertEntry(rowId, e, true);
-            this.applyNameChanges(rowId, entries);
-            return rowId;
-        });
-        return tx() as number;
-    }
-
-    /**
      * input+output tokens per local calendar day, across all sessions — the
      * /steak heatmap. date(…,'localtime') matches toLocaleDateString("sv").
      */
@@ -173,11 +157,11 @@ export class SessionStore {
         return new Map(rows.map((r) => [r.day, r.toks]));
     }
 
-    private insertEntry(sessionRowId: number, e: Entry, orIgnore = false): void {
+    private insertEntry(sessionRowId: number, e: Entry): void {
         const usage = "usage" in e && e.usage ? normalizeUsage(e.usage) : null;
         this.db
             .query(
-                `INSERT ${orIgnore ? "OR IGNORE " : ""}INTO entries (
+                `INSERT INTO entries (
                     session_id, pub_id, parent_pub_id, ts, type, role, payload,
                     usage_input, usage_output, usage_total, usage_no_cache,
                     usage_cache_read, usage_cache_write, usage_text,
