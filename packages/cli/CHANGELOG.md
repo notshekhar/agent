@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.10.7] - 2026-07-08
+
+### Added
+
+- **Custom-provider OAuth setup no longer dead-ends.** The `/login custom` OAuth wizard now checks for `.well-known` metadata up front — when the server exposes none it asks for the authorization/token endpoint URLs, and when dynamic client registration is missing it asks for your client id, instead of failing mid-login with an error about config fields the wizard never offered.
+- **Key-helper credentials survive restarts and can carry a real expiry.** The custom-provider "Command (key helper)" auth method now persists minted keys in `~/.loop/auth.json` until they expire, so interactive helpers (a vendor login that opens a browser) stop re-prompting on every launch. Helper stdout may also be JSON — `{"key": "…", "expiresAt": <epoch-ms or ISO>}` (`apiKey`/`token` and `expiresInMs` accepted too) — so the key's actual lifetime drives re-runs instead of the blind 5-minute TTL. A 401 still forces a fresh mint.
+
+### Fixed
+
+- **Hooks can read the transcript again.** Since sessions moved to SQLite, the `transcript_path` in hook payloads pointed at a JSONL file that was never written. The transcript is now materialized on demand right before a matching hook runs — hooks that read it (a common Claude Code pattern) see the real, current conversation, and configurations with no hooks write nothing.
+- **/cd (and /cwd) now finds the target directory's sessions.** Session storage keys on the canonical path, but /cd stored the path as you typed it — so `/cd /tmp/x` (really `/private/tmp/x` on macOS) or a differently-cased path left `/resume` claiming the directory had no sessions.
+
+### Changed
+
+- The `/da` shortcut is gone; use `/data` for the data-analyst agent.
+- Internal: the machinery the main turn loop and subagent runs share (request shaping, per-step billing, stream yielding) is now one module used by both, so fixes land in both loops by construction.
+
 ## [0.10.6] - 2026-07-08
 
 ### Added

@@ -4823,8 +4823,8 @@
     "id": "openrouter/thedrummer/rocinante-12b",
     "provider": "openrouter",
     "name": "Rocinante 12B",
-    "contextWindow": 32768,
-    "maxOutput": 32768,
+    "contextWindow": 65536,
+    "maxOutput": 65536,
     "cost": {
       "input": 0.25,
       "output": 0.5,
@@ -7702,6 +7702,24 @@
     ],
     "available": true
   },
+  "openrouter/aion-labs/aion-3.0-mini": {
+    "id": "openrouter/aion-labs/aion-3.0-mini",
+    "provider": "openrouter",
+    "name": "Aion-3.0-Mini",
+    "contextWindow": 131072,
+    "maxOutput": 32768,
+    "cost": {
+      "input": 0.7,
+      "output": 1.4,
+      "cacheRead": 0.18,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
   "openrouter/aion-labs/aion-rp-llama-3.1-8b": {
     "id": "openrouter/aion-labs/aion-rp-llama-3.1-8b",
     "provider": "openrouter",
@@ -7715,6 +7733,24 @@
       "cacheWrite": 0
     },
     "reasoning": false,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "openrouter/aion-labs/aion-3.0": {
+    "id": "openrouter/aion-labs/aion-3.0",
+    "provider": "openrouter",
+    "name": "Aion-3.0",
+    "contextWindow": 131072,
+    "maxOutput": 32768,
+    "cost": {
+      "input": 3,
+      "output": 6,
+      "cacheRead": 0.75,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
     "modalities": [
       "text"
     ],
