@@ -182,7 +182,8 @@ jobs:
             - name: Float major tag
               run: |
                   tag="${{ needs.prepare.outputs.tag }}"
-                  major="v${tag#v}"; major="v${major%%.*}"
+                  ver="${tag#v}"
+                  major="v${ver%%.*}"
                   git fetch origin "refs/tags/$tag:refs/tags/$tag" --no-tags
                   git tag -f "$major" "refs/tags/$tag"
                   git push -f origin "refs/tags/$major"
