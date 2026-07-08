@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.10.8] - 2026-07-08
+
+### Added
+
+- **Todo checklists.** A new `todo` tool lets the agent keep a visible checklist during multi-step work, rendered as a pinned panel between the loader and the editor — `[>]` marks the step in progress, and a fully-completed list retires into the scrollback as one line. Lists persist with the session, so `/resume`, `/fork`, and `/tree` restore the branch's latest checklist. Opt-in: toggle `todos` in `/settings` (default off).
+- **loop as a GitHub Action.** `uses: notshekhar/loop@v0` installs the released binary and runs a prompt headlessly in CI — the response lands in a step output, the job summary, and (with `post-comment: "true"`) a PR comment that updates in place on later pushes. Auth rides the caller's env (`ANTHROPIC_API_KEY` etc.), no config files. This repo now dogfoods it: loop reviews its own pull requests.
+- **`loop run` grew CI manners.** `loop run -` (or piping with no prompt argument) reads the prompt from stdin — no shell-quoting a PR diff — and `--max-steps <n>` caps the turn.
+
+### Fixed
+
+- **Headless runs no longer exit 0 after a failed turn.** A turn-level stream error in `loop run` (bad key, dead endpoint) now sets exit code 1 instead of burying an `[error]` line in stderr — tool-level errors the agent recovers from still exit clean.
+- **/context stopped ignoring extension prompt injections.** System prompt text added by extension `onSystemPrompt` middleware (the caveman/ponytail builtins, or any extension persona) now shows up as its own "Extension prompt" bucket instead of silently missing from the breakdown. The report also counts the conditional websearch/ask/todo tools when their settings enable them.
+
 ## [0.10.7] - 2026-07-08
 
 ### Added
