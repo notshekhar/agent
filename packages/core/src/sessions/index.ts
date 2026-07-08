@@ -6,6 +6,7 @@ export { getDb, closeDb, setDbPathForTests } from "./db";
 export { SessionStore, getSessionStore, type SessionRecord } from "./sqlite-store";
 export { normalizeUsage, type NormalizedUsage } from "./usage";
 export { sessionToMarkdown } from "./export-markdown";
+export { sessionToJsonl, materializeTranscript, resetTranscriptCache } from "./transcript-file";
 export {
     addLedgerRow,
     attachLedgerEntry,

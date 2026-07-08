@@ -29,6 +29,7 @@ import { EventEmitter } from "node:events";
 import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { getSetting, setSetting } from "../settings";
+import { materializeTranscript } from "../sessions/transcript-file";
 import { isTrusted } from "./trust";
 
 export type HookEvent =
@@ -624,16 +625,27 @@ export async function runHooks(
 
         const fullPayload: HookPayload = { ...payload, cwd, hook_event_name: event };
 
+        const fireAndForget: HookCommand[] = [];
         const sync: HookCommand[] = [];
         for (const group of groups) {
             if (!matcherTest(group.matcher, matcherValue)) continue;
             for (const cmd of group.hooks ?? []) {
                 if (!cmd || typeof cmd.command !== "string" || !cmd.command.trim()) continue;
                 if (cmd.type && cmd.type !== "command") continue; // v1: command hooks only
-                if (cmd.async) void runCommand(cmd, fullPayload, cwd);
+                if (cmd.async) fireAndForget.push(cmd);
                 else sync.push(cmd);
             }
         }
+        if (fireAndForget.length === 0 && sync.length === 0) return outcome;
+
+        // A hook is really about to run — make its transcript_path readable.
+        // Entries live in SQLite; this lazily writes the JSONL the payload
+        // has been promising. No matching hooks (the common case) → no write.
+        if (typeof fullPayload.transcript_path === "string") {
+            materializeTranscript(fullPayload.transcript_path);
+        }
+
+        for (const cmd of fireAndForget) void runCommand(cmd, fullPayload, cwd);
         if (sync.length === 0) return outcome;
 
         const results = await Promise.all(sync.map((cmd) => runCommand(cmd, fullPayload, cwd)));

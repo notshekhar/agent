@@ -13,6 +13,7 @@ import {
     clearReadRegistry,
     runCompact,
     runHooks,
+    sessionToJsonl,
     sessionToMarkdown,
     setProjectModel,
     settingsStore,
@@ -277,8 +278,7 @@ export function createSessionHandlers(state: AppState, deps: AppDeps): SessionHa
                 return;
             }
             const out = target ?? `${state.session.id}.jsonl`;
-            const entries = state.session.entries();
-            const content = entries.map((e) => JSON.stringify(e)).join("\n");
+            const content = sessionToJsonl(state.session.entries());
             writeFileSync(out, content);
             history.addSystem(`exported to ${out}`);
             tui.requestRender();
@@ -296,10 +296,7 @@ export function createSessionHandlers(state: AppState, deps: AppDeps): SessionHa
                 return;
             }
             const md = sessionToMarkdown(session);
-            const jsonl = session
-                .entries()
-                .map((e) => JSON.stringify(e))
-                .join("\n");
+            const jsonl = sessionToJsonl(session.entries());
             const confirm = await selectOnce(
                 [
                     { value: "yes", label: `create secret gist (transcript.md ${md.length} chars + raw .jsonl)` },
