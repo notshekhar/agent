@@ -4,7 +4,7 @@
  * /login, /logout, /quit, and the not-implemented stub.
  */
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import chalk from "chalk";
@@ -231,10 +231,15 @@ export function createMiscHandlers(state: AppState, deps: AppDeps): MiscHandlers
             const input = p.trim();
             const expanded =
                 input === "~" ? homedir() : input.startsWith("~/") ? join(homedir(), input.slice(2)) : input;
-            const target = resolve(state.cwd, expanded);
+            let target = resolve(state.cwd, expanded);
             let isDir = false;
             try {
                 isDir = statSync(target).isDirectory();
+                // Sessions are keyed by the canonical cwd (process.cwd()
+                // resolves symlinks and on-disk case). A typed path like
+                // /tmp/x or ~/documents must land on the same key, or
+                // /resume in the new directory comes up empty.
+                target = realpathSync.native(target);
             } catch {}
             if (!isDir) {
                 history.addError(`couldn't find a directory at ${target}`);

@@ -527,12 +527,11 @@ export async function registerBuiltins(reg: CommandRegistry, opts: { cwd?: strin
         registerAgentCommand(reg, agent.name);
     }
 
-    // Short aliases for the data-analyst agent: /da and /data.
-    for (const alias of ["da", "data"]) {
-        if (reg.has(alias)) continue;
+    // Short alias for the data-analyst agent.
+    if (!reg.has("data")) {
         reg.register({
-            name: alias,
-            description: `Run one message with the data-analyst agent: /${alias} <message>`,
+            name: "data",
+            description: "Run one message with the data-analyst agent: /data <message>",
             handler: (ctx, args) => ctx.useAgent(DATA_ANALYST_AGENT_NAME, args || undefined),
         });
     }
