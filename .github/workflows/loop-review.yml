@@ -19,6 +19,10 @@ jobs:
     review:
         runs-on: ubuntu-latest
         if: github.event.pull_request.head.repo.full_name == github.repository
+        # `secrets` isn't allowed in `if` conditions — the key rides job env
+        # and the review step gates on env (skips when unconfigured/forked).
+        env:
+            ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         steps:
             - uses: actions/checkout@v4
               with:
@@ -40,7 +44,7 @@ jobs:
                   wc -c "$RUNNER_TEMP/pr.diff"
 
             - name: Review with loop
-              if: ${{ secrets.ANTHROPIC_API_KEY != '' }}
+              if: env.ANTHROPIC_API_KEY != ''
               uses: ./
               with:
                   prompt: >-
@@ -54,5 +58,3 @@ jobs:
                   model: anthropic/claude-sonnet-4-6
                   max-steps: "25"
                   post-comment: "true"
-              env:
-                  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
