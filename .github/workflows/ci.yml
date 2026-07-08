@@ -24,3 +24,30 @@ jobs:
             - run: bun run build
             - name: Smoke test built CLI
               run: node packages/cli/dist/cli.js --help || node packages/cli/dist/cli.js help || true
+
+    # Exercises action.yml end-to-end (install latest release binary, run a
+    # trivial prompt, read back the output). Gated at STEP level on the API-key
+    # secret — `secrets` isn't available in job-level `if`, and forked PRs skip
+    # automatically because they don't get secrets. Note: this runs the latest
+    # RELEASED loop, not this branch's source — it tests the action packaging.
+    action-selftest:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - name: Run the action
+              id: run-action
+              if: ${{ secrets.ANTHROPIC_API_KEY != '' }}
+              uses: ./
+              with:
+                  prompt: "Reply with the single word OK. Do not use any tools."
+                  model: anthropic/claude-haiku-4-5
+                  max-steps: "2"
+              env:
+                  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+            - name: Assert a non-empty response
+              if: ${{ steps.run-action.conclusion == 'success' }}
+              env:
+                  RESPONSE: ${{ steps.run-action.outputs.response }}
+              run: |
+                  test -n "$RESPONSE"
+                  echo "response: $RESPONSE"

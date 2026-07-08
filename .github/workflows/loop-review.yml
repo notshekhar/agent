@@ -1,0 +1,58 @@
+# Dogfood: loop reviews this repo's own pull requests via the action in
+# this checkout (uses: ./). Skips forked PRs (no secrets there) and skips
+# silently when the ANTHROPIC_API_KEY secret isn't configured.
+name: loop-review
+
+on:
+    pull_request:
+        types: [opened, synchronize]
+
+permissions:
+    contents: read
+    pull-requests: write
+
+concurrency:
+    group: loop-review-${{ github.event.pull_request.number }}
+    cancel-in-progress: true
+
+jobs:
+    review:
+        runs-on: ubuntu-latest
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+
+            # The diff lands in a file the agent reads with its own read tool —
+            # a giant string input would blow action-input limits and pollute
+            # the prompt; capped at ~60k chars for context sanity.
+            - name: Capture the PR diff
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              # Two steps (not a pipe): the workflow shell runs with pipefail,
+              # and `head -c` closing the pipe early would SIGPIPE-fail gh on
+              # any diff larger than the cap.
+              run: |
+                  gh pr diff "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" \
+                    > "$RUNNER_TEMP/pr-full.diff"
+                  head -c 60000 "$RUNNER_TEMP/pr-full.diff" > "$RUNNER_TEMP/pr.diff"
+                  wc -c "$RUNNER_TEMP/pr.diff"
+
+            - name: Review with loop
+              if: ${{ secrets.ANTHROPIC_API_KEY != '' }}
+              uses: ./
+              with:
+                  prompt: >-
+                      You are reviewing a pull request against the repository checked out in
+                      the working directory. Read the diff at ${{ runner.temp }}/pr.diff with
+                      your read tool (it may be truncated at 60k chars), consult surrounding
+                      source files when the diff alone is ambiguous, and write a concise
+                      review: real bugs, risky changes, and missing tests — with file:line
+                      references. No praise padding; if the change looks correct, say so in
+                      one line. PR title: ${{ github.event.pull_request.title }}
+                  model: anthropic/claude-sonnet-4-6
+                  max-steps: "25"
+                  post-comment: "true"
+              env:
+                  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}

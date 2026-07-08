@@ -79,7 +79,7 @@ Custom providers (`/login custom`): name + base URL + auth + model list, saved t
 
 ```bash
 loop                              # interactive TUI
-loop run "explain this repo"      # one-shot
+loop run "explain this repo"      # one-shot (also: echo "prompt" | loop run -)
 loop login [provider]             # auth (xai, anthropic, openai, google, openrouter, github-copilot, ollama, custom)
 loop logout [provider]            # remove auth
 loop sessions                     # list sessions in cwd
@@ -94,7 +94,7 @@ loop rpc [--socket]               # JSON-RPC over stdio or Unix socket
 loop help                         # full usage
 ```
 
-Flags: `--model <provider/id>`, `--provider <id>`, `--cwd <path>`, `--session <id>`.
+Flags: `--model <provider/id>`, `--provider <id>`, `--cwd <path>`, `--session <id>`, `--max-steps <n>` (run mode).
 
 ### Slash commands
 
@@ -195,6 +195,44 @@ The footer shows live cost/usage/context per step (subagents included). `/cost` 
 ### Themes
 
 `dark` and `light` built in; drop pi-mono-format JSON themes in `~/.loop/agent/themes/` and pick via `/settings → theme` (applies live).
+
+### GitHub Action
+
+Run loop headlessly in CI — review PRs, answer questions about a diff, or automate anything a one-shot prompt covers:
+
+```yaml
+on:
+    pull_request:
+
+permissions:
+    contents: read
+    pull-requests: write
+
+jobs:
+    review:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: notshekhar/loop@v0
+              with:
+                  prompt: "Review the changes in this checkout and summarize bugs and risks."
+                  model: anthropic/claude-sonnet-4-6
+                  post-comment: "true"
+              env:
+                  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+```
+
+| Input               | Default          | What it does                                                             |
+| ------------------- | ---------------- | ------------------------------------------------------------------------ |
+| `prompt`            | (required)       | The prompt to run                                                        |
+| `model`             | (required)       | Fully-qualified `provider/model` id                                      |
+| `version`           | action's own tag | loop release to install (`vX.Y.Z`); falls back to latest                 |
+| `working-directory` | `.`              | Directory loop runs in                                                   |
+| `max-steps`         | `40`             | Step cap for the turn                                                    |
+| `post-comment`      | `false`          | On PRs: post the response as a comment, updated in place on later pushes |
+| `github-token`      | `github.token`   | Token for release lookup + comment posting                               |
+
+The agent's response is exposed as the `response` output and appended to the job summary. Auth rides the caller's env (`<PROVIDER>_API_KEY`, same fallback as the CLI) — no config files. `post-comment: "true"` needs `pull-requests: write` permission. Linux/macOS runners.
 
 ---
 

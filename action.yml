@@ -1,0 +1,135 @@
+# loop as a GitHub Action — runs the loop coding agent headlessly in CI.
+#
+#   - uses: notshekhar/loop@v0          # or @vX.Y.Z to pin
+#     with:
+#       prompt: "Review the changes in this checkout"
+#       model: anthropic/claude-sonnet-4-6
+#     env:
+#       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+#
+# Provider auth comes from the caller's env (<PROVIDER>_API_KEY — the same
+# fallback the CLI uses), so no config files are needed. The model input must
+# be fully qualified (provider/model) for the same reason. Requires a prior
+# actions/checkout when the prompt refers to the repo. Linux and macOS
+# runners only (the installer is bash + published binaries).
+name: loop
+description: Run the loop coding agent headlessly — one prompt in, its response out, optionally posted as a PR comment.
+
+inputs:
+    prompt:
+        description: The prompt to run.
+        required: true
+    model:
+        description: Fully-qualified model id (provider/model, e.g. anthropic/claude-sonnet-4-6).
+        required: true
+    version:
+        description: "loop release tag to install (vX.Y.Z). Default: the action's own tag when pinned to one, else the latest release."
+        required: false
+        default: ""
+    working-directory:
+        description: Directory loop runs in.
+        required: false
+        default: "."
+    max-steps:
+        description: Step cap for the agent turn — CI runs should never be unbounded.
+        required: false
+        default: "40"
+    post-comment:
+        description: On pull_request events, post the response as a PR comment (updated in place on subsequent runs).
+        required: false
+        default: "false"
+    github-token:
+        description: Token used to resolve releases and post the PR comment.
+        required: false
+        default: ${{ github.token }}
+
+outputs:
+    response:
+        description: The agent's final response text.
+        value: ${{ steps.run.outputs.response }}
+
+runs:
+    using: composite
+    steps:
+        - name: Resolve loop version
+          shell: bash
+          env:
+              GH_TOKEN: ${{ inputs.github-token }}
+              INPUT_VERSION: ${{ inputs.version }}
+              ACTION_REF: ${{ github.action_ref }}
+          run: |
+              v="$INPUT_VERSION"
+              # A release-tag action ref self-consistently runs that binary; a
+              # branch or major ref (v0, main) falls through to latest.
+              if [ -z "$v" ] && printf '%s' "$ACTION_REF" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+                v="$ACTION_REF"
+              fi
+              if [ -z "$v" ]; then
+                v="$(gh api "repos/${GITHUB_ACTION_REPOSITORY:-notshekhar/loop}/releases/latest" --jq .tag_name)"
+              fi
+              echo "LOOP_VERSION=$v" >> "$GITHUB_ENV"
+              echo "resolved loop $v"
+
+        - name: Install loop
+          shell: bash
+          # The action repo IS the loop repo, so the checked-out installer runs
+          # directly (sha256-verified binary download, no extra curl|bash hop).
+          run: |
+              LOOP_HOME="$HOME/.loop-bin" LOOP_BIN_DIR="$HOME/.local/bin" \
+                bash "$GITHUB_ACTION_PATH/install.sh"
+              echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+        - name: Run loop
+          id: run
+          shell: bash
+          working-directory: ${{ inputs.working-directory }}
+          env:
+              # The prompt rides an env var — never interpolated into the
+              # script — so prompt content can't inject shell.
+              PROMPT: ${{ inputs.prompt }}
+              MODEL: ${{ inputs.model }}
+              MAX_STEPS: ${{ inputs.max-steps }}
+          run: |
+              out="$RUNNER_TEMP/loop-response.txt"
+              printf '%s' "$PROMPT" | loop run - --model "$MODEL" --max-steps "$MAX_STEPS" > "$out"
+              delim="LOOP_EOF_$(od -An -N8 -tx1 /dev/urandom | tr -d ' \n')"
+              {
+                echo "response<<$delim"
+                printf '%s\n' "$(cat "$out")"
+                echo "$delim"
+              } >> "$GITHUB_OUTPUT"
+
+        - name: Add job summary
+          shell: bash
+          run: |
+              {
+                echo "## loop response"
+                echo ""
+                cat "$RUNNER_TEMP/loop-response.txt"
+                echo ""
+              } >> "$GITHUB_STEP_SUMMARY"
+
+        - name: Post PR comment
+          if: inputs.post-comment == 'true' && github.event_name == 'pull_request'
+          shell: bash
+          env:
+              GH_TOKEN: ${{ inputs.github-token }}
+              REPO: ${{ github.repository }}
+              PR: ${{ github.event.pull_request.number }}
+          run: |
+              marker="<!-- loop-action-comment -->"
+              # Update the previous loop comment in place (marker match) so a
+              # PR accumulates one comment, not one per push. Comment bodies
+              # cap at 65536 chars — truncate with a notice.
+              response="$(head -c 60000 "$RUNNER_TEMP/loop-response.txt")"
+              if [ "$(wc -c < "$RUNNER_TEMP/loop-response.txt")" -gt 60000 ]; then
+                response="$response"$'\n\n'"_(truncated — full response in the job summary)_"
+              fi
+              body="$(printf '%s\n\n%s\n' "$marker" "$response")"
+              existing="$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
+                --jq '[.[] | select(.body | startswith("<!-- loop-action-comment -->")) | .id] | first // empty')"
+              if [ -n "$existing" ]; then
+                gh api -X PATCH "repos/$REPO/issues/comments/$existing" -f body="$body" > /dev/null
+              else
+                gh api -X POST "repos/$REPO/issues/$PR/comments" -f body="$body" > /dev/null
+              fi
