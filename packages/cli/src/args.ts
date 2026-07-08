@@ -41,6 +41,14 @@ export function parseArgs(argv: string[]): Args {
     return out;
 }
 
+/** Read stdin to EOF — `loop run -` takes its prompt piped (CI, long diffs). */
+export async function readStdinAll(): Promise<string> {
+    let data = "";
+    process.stdin.setEncoding("utf8");
+    for await (const chunk of process.stdin) data += chunk;
+    return data;
+}
+
 export async function readStdinLine(prompt: string): Promise<string> {
     process.stdout.write(prompt);
     return new Promise((resolve) => {

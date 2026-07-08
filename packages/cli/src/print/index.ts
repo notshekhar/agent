@@ -24,6 +24,8 @@ export interface PrintOptions {
     prompt: string;
     modelId?: string;
     cwd: string;
+    /** Step cap for the turn (`--max-steps`); unset = maxSteps setting / unlimited. */
+    maxSteps?: number;
 }
 
 export async function runPrint(opts: PrintOptions): Promise<void> {
@@ -64,7 +66,12 @@ export async function runPrint(opts: PrintOptions): Promise<void> {
     emitter.on("hook-terminal-sequence", (s: string) => {
         process.stdout.write(s);
     });
+    // Turn-level stream errors are emitted, not thrown (the turn winds down
+    // normally after one) — track them so CI gets a nonzero exit instead of a
+    // clean 0 with an [error] line buried in stderr.
+    let turnErrored = false;
     emitter.on("error", (err: unknown) => {
+        turnErrored = true;
         process.stderr.write(`\n[error] ${String(err)}\n`);
     });
     emitter.on("finish", () => process.stdout.write("\n"));
@@ -106,6 +113,7 @@ export async function runPrint(opts: PrintOptions): Promise<void> {
         agent: resolveSavedAgent(settingsStore.get("agent") as string | undefined),
         // One-shot mode prints nothing after the response — skip the recap pass.
         recap: false,
+        maxSteps: opts.maxSteps,
     });
 
     if (mcpEnabled) await getMcpManager().close();
@@ -125,4 +133,6 @@ export async function runPrint(opts: PrintOptions): Promise<void> {
     process.stderr.write(`\n${tracker.format()}\n`);
     // Checkpoint + close the session DB so the -wal file doesn't linger.
     closeDb();
+    // exitCode (not process.exit) so the streams flush before the process ends.
+    if (turnErrored) process.exitCode = 1;
 }

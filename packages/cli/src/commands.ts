@@ -15,7 +15,7 @@ import {
     stopSocketServer,
 } from "@notshekhar/loop-core";
 import type { ProviderId } from "@notshekhar/loop-core";
-import { readStdinLine, type Args } from "./args";
+import { readStdinAll, readStdinLine, type Args } from "./args";
 import { runPrint } from "./print";
 import { openBrowser } from "./open-browser";
 
@@ -92,7 +92,7 @@ export function printHelp(version: string): void {
 
 Usage:
   ${PRODUCT_NAME}                     Start interactive TUI
-  ${PRODUCT_NAME} run <prompt>        Run a single prompt and exit
+  ${PRODUCT_NAME} run <prompt|->      Run a single prompt and exit (- reads the prompt from stdin)
   ${PRODUCT_NAME} login [provider]    Configure provider auth
   ${PRODUCT_NAME} logout [provider]   Remove auth
   ${PRODUCT_NAME} sessions            List sessions in current cwd
@@ -109,7 +109,8 @@ Flags:
   --model <provider/id>    Override default model
   --provider <id>          Override active provider
   --cwd <path>             Working directory
-  --session <id>           Resume session by id`);
+  --session <id>           Resume session by id
+  --max-steps <n>          Cap agent steps in run mode (default: maxSteps setting)`);
 }
 
 export async function runUpgrade(version: string, opts: { force?: boolean } = {}): Promise<void> {
@@ -213,11 +214,23 @@ export function cmdRpc(args: Args): void {
 }
 
 export async function cmdRun(args: Args): Promise<void> {
-    const prompt = args.positional.join(" ");
+    let prompt = args.positional.join(" ");
+    // `loop run -` (or piped stdin with no prompt argument) reads the prompt
+    // from stdin — CI callers pipe long prompts instead of shell-quoting them.
+    if (prompt === "-" || (!prompt && !process.stdin.isTTY)) {
+        prompt = (await readStdinAll()).trim();
+    }
+    if (!prompt) {
+        console.error(`Usage: ${PRODUCT_NAME} run "<prompt>"   (or: echo "<prompt>" | ${PRODUCT_NAME} run -)`);
+        process.exitCode = 1;
+        return;
+    }
+    const maxSteps = Number(args.flags["max-steps"]) || undefined;
     await runPrint({
         prompt,
         modelId: (args.flags.model as string) || undefined,
         cwd: (args.flags.cwd as string) || process.cwd(),
+        maxSteps,
     });
 }
 
