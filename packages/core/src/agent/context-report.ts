@@ -10,19 +10,22 @@ import { getCatalog } from "../catalog";
 import { getSetting } from "../settings";
 import { getMcpManager, isMcpEnabled } from "../mcp";
 import { getExtensionHost } from "../extensions";
-import { createTools } from "../tools";
+import { parseModelId } from "../providers";
+import { createAskTool, createTools, createWebsearchTool, isAskUserAvailable, TODO_TOOL_NAME } from "../tools";
 import type { Session } from "../sessions";
 import { getAgentPrompt, getAgentTools, listAgents } from "./agents";
 import { loadWorkspaceContext } from "./context";
 import { loadMemoryContext } from "./memory";
 import { loadProjectSkills } from "./skills";
 import { isTrusted } from "./trust";
-import { buildSubagentNote, buildSystemPrompt } from "./system-prompt";
+import { buildSubagentNote, buildSystemPrompt, buildTodoNote } from "./system-prompt";
+import { applySystemPrompt } from "./turn-middleware";
 import { latestCompactEntry } from "./compact";
 
 export interface ContextCategory {
     key:
         | "systemPrompt"
+        | "extensionPrompt"
         | "systemTools"
         | "mcpTools"
         | "workspaceContext"
@@ -72,6 +75,9 @@ function toolTokens(tools: Record<string, unknown>): number {
  * here — count its prompt surface (description + schema) as a flat estimate. */
 const TASK_TOOL_EST_TOKENS = 400;
 
+/** Same story for the todo tool (needs a live session + emitter). */
+const TODO_TOOL_EST_TOKENS = 250;
+
 export async function buildContextReport(opts: {
     session: Session | null;
     modelId: string;
@@ -101,6 +107,15 @@ export async function buildContextReport(opts: {
         for (const [name, tool] of ext.add) toolSet[name] = tool;
         for (const name of ext.remove) delete toolSet[name];
     }
+    // Conditional tools, same gates as assembleTurnTools. websearch/ask build
+    // for real (construction is pure); todo needs live wiring → flat estimate.
+    if (getSetting("webSearch") === true && (!allowedTools?.length || allowedTools.includes("websearch"))) {
+        toolSet.websearch = createWebsearchTool({});
+    }
+    if (getSetting("askUser") === true && isAskUserAvailable() && (!allowedTools?.length || allowedTools.includes("ask"))) {
+        toolSet.ask = createAskTool({});
+    }
+    const todosEnabled = getSetting("todos") === true && (!allowedTools?.length || allowedTools.includes(TODO_TOOL_NAME));
 
     const mcpTools = isMcpEnabled() && isTrusted(cwd) && !allowedTools?.length ? getMcpManager().getTools() : {};
     const mcpToolCount = Object.keys(mcpTools).length;
@@ -111,11 +126,40 @@ export async function buildContextReport(opts: {
 
     // System prompt measured WITHOUT workspace context / skills — those are
     // separate categories below.
-    const toolNames = [...Object.keys(toolSet), ...Object.keys(mcpTools), ...(subagentsEnabled ? ["task"] : [])];
-    const systemBase = buildSystemPrompt({ cwd, basePrompt: agentPrompt, tools: toolNames }) + subagentNote;
+    const toolNames = [
+        ...Object.keys(toolSet),
+        ...Object.keys(mcpTools),
+        ...(subagentsEnabled ? ["task"] : []),
+        ...(todosEnabled ? [TODO_TOOL_NAME] : []),
+    ];
+    const todoNote = todosEnabled ? buildTodoNote() : "";
+    const systemBase = buildSystemPrompt({ cwd, basePrompt: agentPrompt, tools: toolNames }) + subagentNote + todoNote;
+    // Extension turn middleware (onSystemPrompt — e.g. the caveman/ponytail
+    // builtins) reshapes the prompt in runTurn; run the same transform here so
+    // injected text is billed context /context actually shows. The middleware
+    // chain is fail-soft and read-only over a synthetic TurnContext.
+    const { provider, model } = parseModelId(modelId);
+    const systemFinal = await applySystemPrompt(systemBase, {
+        sessionId: session?.id ?? "context-report",
+        transcriptPath: session?.path ?? "",
+        cwd,
+        agent: opts.agent ?? "default",
+        modelId,
+        provider,
+        model,
+        tools: toolNames,
+        isSubagent: false,
+    });
+    const systemBaseTokens = chars4(systemBase.length);
+    const systemFinalTokens = chars4(systemFinal.length);
+    // Extensions may also shrink the prompt — then the smaller number IS the
+    // system prompt; a separate category only exists for net injection.
+    const extensionPromptTokens = Math.max(0, systemFinalTokens - systemBaseTokens);
+    const systemPromptTokens = Math.min(systemBaseTokens, systemFinalTokens);
 
     let systemToolTokens = toolTokens(toolSet);
     if (subagentsEnabled) systemToolTokens += TASK_TOOL_EST_TOKENS;
+    if (todosEnabled) systemToolTokens += TODO_TOOL_EST_TOKENS;
 
     // Transcript walk — same branch/compaction rules as estimateContextTokens,
     // split into the compact summary vs live messages.
@@ -139,7 +183,10 @@ export async function buildContextReport(opts: {
     }
 
     const categories: ContextCategory[] = [
-        { key: "systemPrompt", label: "System prompt", tokens: chars4(systemBase.length) },
+        { key: "systemPrompt", label: "System prompt", tokens: systemPromptTokens },
+        ...(extensionPromptTokens > 0
+            ? [{ key: "extensionPrompt", label: "Extension prompt", tokens: extensionPromptTokens } as ContextCategory]
+            : []),
         { key: "systemTools", label: "System tools", tokens: systemToolTokens },
         ...(mcpToolCount > 0
             ? [{ key: "mcpTools", label: "MCP tools", tokens: toolTokens(mcpTools) } as ContextCategory]
@@ -181,7 +228,7 @@ export async function buildContextReport(opts: {
         totalTokens,
         freeTokens: Math.max(0, contextWindow - totalTokens),
         skills: skillEstimates,
-        toolCount: Object.keys(toolSet).length + (subagentsEnabled ? 1 : 0),
+        toolCount: Object.keys(toolSet).length + (subagentsEnabled ? 1 : 0) + (todosEnabled ? 1 : 0),
         mcpToolCount,
     };
 }

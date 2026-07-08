@@ -3,6 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildContextReport } from "../src/agent/context-report";
+import { getExtensionHost } from "../src/extensions";
 import { Session } from "../src/sessions";
 import type { Entry } from "../src/types";
 import { useTempSessionDb } from "./helpers/temp-db";
@@ -92,5 +93,31 @@ describe("buildContextReport", () => {
         const report = await buildContextReport({ session: null, modelId: "nope/does-not-exist", cwd });
         expect(report.contextWindow).toBe(0);
         expect(report.freeTokens).toBe(0);
+    });
+
+    test("extension onSystemPrompt injection shows up as an extensionPrompt bucket", async () => {
+        const cwd = emptyDir();
+        const host = getExtensionHost();
+        const orig = host.getTurnMiddleware.bind(host);
+        // ~4000 injected chars ⇒ ~1000 estimated tokens (chars/4 heuristic).
+        (host as { getTurnMiddleware: () => unknown[] }).getTurnMiddleware = () => [
+            { onSystemPrompt: (p: string) => p + "X".repeat(4000) },
+        ];
+        try {
+            const report = await buildContextReport({ session: null, modelId: MODEL, cwd });
+            const ext = report.categories.find((c) => c.key === "extensionPrompt");
+            expect(ext).toBeDefined();
+            expect(ext!.tokens).toBe(1000);
+            // The base prompt bucket stays what buildSystemPrompt produced.
+            const clean = await (async () => {
+                (host as { getTurnMiddleware: () => unknown[] }).getTurnMiddleware = orig;
+                return buildContextReport({ session: null, modelId: MODEL, cwd });
+            })();
+            const sys = (r: typeof report) => r.categories.find((c) => c.key === "systemPrompt")!.tokens;
+            expect(sys(report)).toBe(sys(clean));
+            expect(clean.categories.some((c) => c.key === "extensionPrompt")).toBe(false);
+        } finally {
+            (host as { getTurnMiddleware: () => unknown[] }).getTurnMiddleware = orig;
+        }
     });
 });
