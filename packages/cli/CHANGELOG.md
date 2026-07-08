@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.10.9] - 2026-07-08
+
+### Added
+
+- **Todo items can be cancelled.** A step that turned out unnecessary gets `status: "cancelled"` instead of being deleted or fake-completed — the panel renders it as a struck-through `[-]` row, and a list whose items are all completed or cancelled retires into the scrollback as before.
+
+### Changed
+
+- **The agent no longer loses track of its own checklist.** Three fixes borrowed from the best of opencode, gemini-cli, and Claude Code: every todo write now echoes the full numbered list back as the tool result, so the current state lives where the model actually re-reads it; when auto-compaction summarizes away the last todo write, the active list is re-injected right after the summary instead of silently orphaning the pinned panel; and a gentle, never-persisted reminder nudges the agent when an active list has gone ten tool calls without an update — or, once per turn, when a long multi-step job never made one. The `todos` setting is still opt-in (default off).
+- The todo tool's guidance grew the rules that make checklists trustworthy: completions are marked only after the work is verified, blocked steps stay in progress with a follow-up todo naming the blocker, and follow-ups discovered mid-job get captured instead of dropped.
+
 ## [0.10.8] - 2026-07-08
 
 ### Added
