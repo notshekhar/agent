@@ -36,6 +36,7 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
         recap: false,
         askUser: false,
         webSearch: false,
+        todos: false,
         clock: false,
         reminders: true,
         mcp: true,
@@ -102,6 +103,11 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                         label: `websearch (DuckDuckGo): ${boolSetting("webSearch") ? "on" : "off"}`,
                         description:
                             "give the agent a websearch tool (scrapes DuckDuckGo — no API key, may rate-limit)",
+                    },
+                    {
+                        value: "todos",
+                        label: `todos: ${boolSetting("todos") ? "on" : "off"}`,
+                        description: "pinned checklist the agent maintains during multi-step tasks",
                     },
                     {
                         value: "clock",

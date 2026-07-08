@@ -26,5 +26,5 @@ export function rejectWhileBusy(state: AppState, deps: AppDeps): boolean {
 /** Re-render the chat from the session's current branch path. */
 export function replayCurrentBranch(state: AppState, deps: AppDeps): void {
     deps.history.reset();
-    if (state.session) renderSessionBranch(state.session, deps.history, state.modelId);
+    if (state.session) renderSessionBranch(state.session, deps.history, state.modelId, deps.todoPanel);
 }

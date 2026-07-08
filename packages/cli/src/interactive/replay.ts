@@ -1,5 +1,6 @@
-import { isRecapPayload, parseModelId, type Entry, type Session } from "@notshekhar/loop-core";
+import { isRecapPayload, latestTodos, parseModelId, type Entry, type Session } from "@notshekhar/loop-core";
 import type { ChatHistory } from "./components/chat-history";
+import type { TodoPanel } from "./components/todo-panel";
 
 /** AI-SDK content part shapes we replay from persisted assistant/tool messages. */
 interface ReplayPart {
@@ -16,8 +17,16 @@ interface ReplayPart {
  * Shared by /resume, /fork, and /tree navigation so all three replay the
  * same way. Path-based: abandoned branches don't render.
  */
-export function renderSessionBranch(session: Session, history: ChatHistory, modelId: string): void {
+export function renderSessionBranch(
+    session: Session,
+    history: ChatHistory,
+    modelId: string,
+    todoPanel?: TodoPanel,
+): void {
     const path = session.getBranch();
+    // Branch navigation restores the branch's own latest checklist (or clears
+    // the panel on a branch that never had one).
+    todoPanel?.setItems(latestTodos(path) ?? []);
 
     let latestCompact: Extract<Entry, { type: "compact" }> | undefined;
     for (const e of path) {

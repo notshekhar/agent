@@ -5,6 +5,7 @@
  */
 import type { EventEmitter } from "node:events";
 import type { CostBreakdown, UsageBlock } from "../types";
+import type { TodoItem } from "../tools/todo";
 
 export interface TurnEvents {
     "text-delta": string;
@@ -34,6 +35,8 @@ export interface TurnEvents {
     "step-usage": { usage: UsageBlock; breakdown: CostBreakdown };
     /** Post-turn one-line recap (AI SDK data-* part convention). Arrives after finish. */
     "data-recap": { text: string };
+    /** The todo tool replaced the checklist — the complete current list. */
+    "todo-update": { items: TodoItem[] };
     finish: { usage?: UsageBlock; lastStepUsage?: UsageBlock };
     error: unknown;
     "subagent-delta": { toolCallId: string; agent: string; text: string };
@@ -75,6 +78,7 @@ export const TURN_EVENT_NAMES = [
     "compact-end",
     "step-usage",
     "data-recap",
+    "todo-update",
     "finish",
     "error",
     "subagent-delta",

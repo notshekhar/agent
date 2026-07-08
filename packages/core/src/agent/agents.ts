@@ -141,9 +141,10 @@ export function isValidAgentName(name: string): boolean {
 
 /** Names selectable as agent tools: the file tools plus "task" (subagents),
  * "ask" (user questions; only active when the askUser setting is on),
- * "websearch" (only active when the webSearch setting is on) and "plan"
- * (the plan-delivery tool that ends the turn). */
-export const AGENT_TOOL_NAMES = [...TOOL_NAMES, "task", "ask", "websearch", "plan"] as const;
+ * "websearch" (only active when the webSearch setting is on), "plan"
+ * (the plan-delivery tool that ends the turn) and "todo" (the visible
+ * checklist; only active when the todos setting is on). */
+export const AGENT_TOOL_NAMES = [...TOOL_NAMES, "task", "ask", "websearch", "plan", "todo"] as const;
 
 /**
  * Tool names valid in an agent allowlist: the builtins/task plus any tools

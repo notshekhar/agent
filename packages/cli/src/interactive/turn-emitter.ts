@@ -1,6 +1,7 @@
 import type { TUI } from "@notshekhar/loop-tui";
-import { asTurnEmitter, type UsageBlock } from "@notshekhar/loop-core";
+import { asTurnEmitter, type TodoItem, type UsageBlock } from "@notshekhar/loop-core";
 import type { ChatHistory } from "./components/chat-history";
+import type { TodoPanel } from "./components/todo-panel";
 import type { AppState } from "./state";
 import type { SubagentStream } from "./subagent-stream";
 import { formatError } from "./format-error";
@@ -19,6 +20,7 @@ export interface TurnEmitterDeps {
     /** Provider parsed once from the turn's model id (model can't change mid-turn). */
     turnProvider: string;
     subagentStream: SubagentStream;
+    todoPanel: TodoPanel;
     showWorking: (message?: string) => void;
     refreshStatusLine: (usage?: UsageBlock) => void;
 }
@@ -31,7 +33,7 @@ export interface TurnEmitterDeps {
  * wiring it replaces.
  */
 export function wireTurnEmitter(emitter: TurnEmitter, deps: TurnEmitterDeps): void {
-    const { history, tui, state, turnProvider, subagentStream, showWorking, refreshStatusLine } = deps;
+    const { history, tui, state, turnProvider, subagentStream, todoPanel, showWorking, refreshStatusLine } = deps;
 
     emitter.on("text-delta", (t: string) => {
         history.appendAssistantDelta(t, turnProvider, state.modelId);
@@ -158,8 +160,19 @@ export function wireTurnEmitter(emitter: TurnEmitter, deps: TurnEmitterDeps): vo
             tui.requestRender();
         },
     );
+    // Pinned checklist mirrors every todo-tool write live.
+    emitter.on("todo-update", (e: { items: TodoItem[] }) => {
+        todoPanel.setItems(e.items);
+        tui.requestRender();
+    });
     emitter.on("finish", (event: { usage?: UsageBlock; lastStepUsage?: UsageBlock }) => {
         history.finishAssistant();
+        // A fully-completed checklist retires into the scrollback as one dim
+        // line, freeing the pinned rows for the next job.
+        if (todoPanel.allCompleted()) {
+            history.addSystem(`todos: all ${todoPanel.count()} completed`);
+            todoPanel.clear();
+        }
         refreshStatusLine(pickContextUsage(event));
         tui.requestRender();
     });

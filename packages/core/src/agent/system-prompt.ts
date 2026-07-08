@@ -30,6 +30,11 @@ Do NOT use task when: the job is one or two tool calls, needs back-and-forth wit
 Write complete prompts: the subagent knows nothing about this conversation — include paths, goals, constraints, and the exact output you expect. INDEPENDENT tasks belong in the same step: emit several task calls at once and they run in parallel (one per area to investigate) — sequential launches waste time. Only chain tasks when one needs another's report, and never mix task with other tool calls in a step. By default the subagent is a fork of you (same prompt and tools, minus task); pass agent to run a named agent instead. Available agents: ${agentNames.join(", ")}.`;
 }
 
+/** Checklist guidance appended when the todo tool is in this turn's toolset. */
+export function buildTodoNote(): string {
+    return `\n\nTodos (todo tool): for any job with 3+ distinct steps, keep a visible checklist the user can watch. Create it when you start, keep exactly one item in_progress (with an activeForm label), and mark each step completed the moment it's done — never batch completions at the end. Each call replaces the whole list, so resend every item. Skip the tool entirely for trivial or single-step requests.`;
+}
+
 export function buildSystemPrompt(opts: {
     cwd: string;
     workspaceContext?: string;

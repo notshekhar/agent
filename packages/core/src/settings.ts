@@ -49,6 +49,9 @@ export interface AppSettings {
     /** Websearch tool backed by DuckDuckGo's HTML endpoint — no API key, but
      * unofficial: may rate-limit or break on markup changes. Default OFF. */
     webSearch?: boolean;
+    /** Todo tool: a visible checklist the agent maintains during multi-step
+     * turns, pinned above the editor. Default OFF. */
+    todos?: boolean;
     /** Live date + hh:mm:ss clock in the footer. Default off. */
     clock?: boolean;
     /** Fire /reminder alerts. Default on; set false to mute reminders entirely. */

@@ -168,6 +168,7 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
             state,
             turnProvider,
             subagentStream,
+            todoPanel: deps.todoPanel,
             showWorking,
             refreshStatusLine,
         });

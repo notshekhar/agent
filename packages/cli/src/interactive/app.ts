@@ -42,6 +42,7 @@ import {
     DEFAULT_AGENT_NAME,
     resolveSavedAgent,
     getProjectModel,
+    latestTodos,
     setAskUserBridge,
     setBashApprovalBridge,
     type ThinkingLevel,
@@ -52,6 +53,7 @@ import {
 import { getSelectListTheme, initTheme } from "./ui/theme";
 import { ChatHistory } from "./components/chat-history";
 import { StatusLine } from "./components/status-line";
+import { TodoPanel } from "./components/todo-panel";
 import {
     selectOnce as selectOnceShared,
     searchSelectOnce as searchSelectOnceShared,
@@ -175,6 +177,9 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
 
     const history = new ChatHistory(tui, opts.cwd);
     const statusLine = new StatusLine();
+    const todoPanel = new TodoPanel();
+    // A resumed session restores its branch's latest checklist immediately.
+    if (initialSession) todoPanel.setItems(latestTodos(initialSession.getBranch()) ?? []);
     statusLine.setModel(initialModelId);
     statusLine.setSession(initialSession?.id ?? "unsaved");
     statusLine.setCost(tracker.format());
@@ -258,6 +263,8 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     const root = new Container();
     root.addChild(history);
     root.addChild(statusContainer);
+    // Pinned checklist: below the loader slot, above queued messages + editor.
+    root.addChild(todoPanel);
     root.addChild(pendingContainer);
     root.addChild(editorContainer);
     root.addChild(statusLine);
@@ -439,6 +446,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         tui,
         history,
         statusLine,
+        todoPanel,
         tracker,
         editor,
         commands,

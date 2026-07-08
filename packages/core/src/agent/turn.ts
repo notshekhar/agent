@@ -11,13 +11,15 @@ import { getSetting } from "../settings";
 import {
     createAskTool,
     createPlanTool,
+    createTodoTool,
     createTools,
     createWebsearchTool,
     isAskUserAvailable,
     planDeliveredThisStep,
     PLAN_TOOL_NAME,
+    TODO_TOOL_NAME,
 } from "../tools";
-import { buildSubagentNote, buildSystemPrompt } from "./system-prompt";
+import { buildSubagentNote, buildSystemPrompt, buildTodoNote } from "./system-prompt";
 import { getAgentPrompt, getAgentTools, isReadOnlyBashAgent, listAgents } from "./agents";
 import { loadWorkspaceContext } from "./context";
 import { loadMemoryContext } from "./memory";
@@ -272,6 +274,13 @@ async function assembleTurnTools(
             skillsPrompt: extra.skillsPrompt,
         });
     }
+    // Todo tool: opt-in visible checklist for multi-step turns (todos setting,
+    // default OFF). No UI bridge needed — in print mode the update just logs as
+    // a tool call. Added AFTER the task tool so subagents never inherit it:
+    // parallel subagents rewriting one pinned panel would fight the parent.
+    if (getSetting("todos") === true && (!allowedTools?.length || allowedTools.includes(TODO_TOOL_NAME))) {
+        toolsForTurn[TODO_TOOL_NAME] = createTodoTool({ sessionId: session.id, session, emitter });
+    }
     // Ask tool: opt-in `askUser` setting (default off) AND a live interactive
     // UI bridge (registered by the CLI at startup; absent in print mode, so
     // the tool is never offered there). Restricted agents opt in by naming
@@ -393,6 +402,7 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
     // System prompt is built AFTER the task tool decision so the model's tool
     // list matches reality, plus explicit delegation guidance when present.
     const subagentNote = "task" in toolsForTurn ? buildSubagentNote(listAgents().map((a) => a.name)) : "";
+    const todoNote = TODO_TOOL_NAME in toolsForTurn ? buildTodoNote() : "";
     let system =
         buildSystemPrompt({
             cwd,
@@ -402,6 +412,7 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
             tools: Object.keys(toolsForTurn),
         }) +
         subagentNote +
+        todoNote +
         (skills.promptBlock ?? "");
     // Extension turn middleware may transform the system prompt, scoped by
     // ctx.agent (update any specific agent's prompt). No-op when none.

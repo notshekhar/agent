@@ -67,7 +67,7 @@ export async function resumeSessionById(state: AppState, deps: AppDeps, idOrPath
         } else {
             history.addSystem(`resumed session ${state.session.id}`);
         }
-        renderSessionBranch(state.session, history, state.modelId);
+        renderSessionBranch(state.session, history, state.modelId, deps.todoPanel);
     } catch (err) {
         history.addError(`open failed: ${(err as Error).message}`);
     }
@@ -119,6 +119,7 @@ export function createSessionHandlers(state: AppState, deps: AppDeps): SessionHa
             abortActiveTurn();
             state.session = null;
             statusLine.setSession("unsaved");
+            deps.todoPanel.clear();
             tracker.reset();
             clearReadRegistry();
             state.latestContextTokens = 0;

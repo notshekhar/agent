@@ -86,6 +86,21 @@ export {
     PLAN_TOOL_NAME,
     planDeliveredThisStep,
 } from "./plan";
+// todo tool: conditionally attached in runTurn (todos setting, default OFF),
+// after the task tool so subagents never inherit it. Works in print mode.
+export {
+    clearSessionTodos,
+    createTodoTool,
+    getSessionTodos,
+    isTodosPayload,
+    latestTodos,
+    TODO_TOOL_NAME,
+    TODOS_KIND,
+    validateTodos,
+    type TodoItem,
+    type TodosPayload,
+    type TodoStatus,
+} from "./todo";
 export {
     getAskUserBridge,
     isAskUserAvailable,

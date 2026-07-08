@@ -2,6 +2,7 @@ import type { Container, Editor, SelectItem, SelectList, TUI } from "@notshekhar
 import type { CommandRegistry, CostTracker, Session, SessionManager, UsageBlock } from "@notshekhar/loop-core";
 import type { ChatHistory } from "./components/chat-history";
 import type { StatusLine } from "./components/status-line";
+import type { TodoPanel } from "./components/todo-panel";
 
 /**
  * Stable references for handlers. Functions and objects here don't change
@@ -11,6 +12,8 @@ export interface AppDeps {
     tui: TUI;
     history: ChatHistory;
     statusLine: StatusLine;
+    /** Pinned checklist the todo tool maintains (below the loader, above the editor). */
+    todoPanel: TodoPanel;
     tracker: CostTracker;
     editor: Editor;
     commands: CommandRegistry;
