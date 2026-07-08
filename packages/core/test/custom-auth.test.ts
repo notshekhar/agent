@@ -1,7 +1,24 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+// In-memory helper-key store so tests never touch the real ~/.loop/auth.json
+// (same pattern as custom-oauth.test.ts for the oauth store).
+const helperDisk = new Map<string, { key: string; expires: number }>();
+mock.module("../src/auth/custom-helper-store", () => ({
+    getHelperKey: (name: string) => helperDisk.get(name),
+    saveHelperKey: (name: string, entry: { key: string; expires: number }) => {
+        helperDisk.set(name, entry);
+    },
+    clearHelperKey: (name: string) => {
+        helperDisk.delete(name);
+    },
+    clearAllHelperKeys: () => {
+        helperDisk.clear();
+    },
+}));
+
 import {
     authHeaderForSdk,
     clearHelperCache,
@@ -53,7 +70,10 @@ function stubFetch(statuses: number[]): {
     };
 }
 
-afterEach(() => clearHelperCache());
+afterEach(() => {
+    clearHelperCache();
+    helperDisk.clear();
+});
 
 describe("normalizeCustomAuth", () => {
     test("legacy flat key becomes apikey; empty becomes none; explicit auth wins", () => {
@@ -131,6 +151,49 @@ describe("resolveCustomCredential", () => {
         await expect(resolveCustomCredential(cfg({ auth: { kind: "helper", command: "echo" } }))).rejects.toThrow(
             "printed nothing",
         );
+    });
+
+    test("helper JSON stdout: key + expiry variants, malformed JSON stays a bare key", async () => {
+        const json = (obj: string) => cfg({ auth: { kind: "helper", command: `echo '${obj}'` } });
+        expect(await resolveCustomCredential(json('{"key":"jk","expiresInMs":60000}'))).toBe("jk");
+        expect(await resolveCustomCredential(json('{"apiKey":"ak","expiresAt":9999999999999}'))).toBe("ak");
+        expect(await resolveCustomCredential(json('{"token":"tk","expiresAt":"2999-01-01T00:00:00Z"}'))).toBe("tk");
+        // Unparseable or keyless JSON-ish output is a vault secret, not a contract.
+        expect(await resolveCustomCredential(json("{not json"))).toBe("{not json");
+        expect(await resolveCustomCredential(json('{"other":"x"}'))).toBe('{"other":"x"}');
+    });
+
+    test("helper key persists: a fresh process (empty memory cache) reads disk, not the command", async () => {
+        const name = `t-persist-${Math.random().toString(36).slice(2)}`;
+        const h = countingHelper();
+        try {
+            const c = cfg({ name, auth: { kind: "helper", command: h.command, ttlMs: 60_000 } });
+            expect(await resolveCustomCredential(c)).toBe("1");
+            expect(helperDisk.get(name)?.key).toBe("1");
+            // Restart simulation: memory gone, disk intact — a failing command
+            // proves the disk hit (running it would throw).
+            const { clearHelperCache: realClear } = await import("../src/auth/custom-auth");
+            const saved = helperDisk.get(name)!;
+            realClear(name);
+            helperDisk.set(name, saved);
+            const reborn = cfg({ name, auth: { kind: "helper", command: "exit 3", ttlMs: 60_000 } });
+            expect(await resolveCustomCredential(reborn)).toBe("1");
+            // force bypasses disk too.
+            await expect(resolveCustomCredential(reborn, { force: true })).rejects.toThrow("auth helper failed");
+        } finally {
+            h.cleanup();
+        }
+    });
+
+    test("declared JSON expiry overrides ttlMs", async () => {
+        const c = cfg({
+            // Expired the moment it was minted (past expiresAt) despite a huge ttl.
+            auth: { kind: "helper", command: `echo '{"key":"stale","expiresAt":1}'`, ttlMs: 999_999 },
+        });
+        expect(await resolveCustomCredential(c)).toBe("stale");
+        // Next call re-runs the helper instead of serving the expired key —
+        // observable because the echo mints the same key, so assert via disk state.
+        expect(helperDisk.get(c.name)!.expires).toBeLessThan(Date.now());
     });
 });
 

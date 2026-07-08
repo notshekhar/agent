@@ -3,12 +3,14 @@
  * CustomProviderConfig's `auth` and the requests that need a credential
  * (model calls via the fetch wrapper, model discovery). Static kinds resolve
  * to a constant; `env` re-reads the environment each time; `helper` runs the
- * configured command and caches its stdout for a TTL (Claude Code apiKeyHelper
- * semantics: default 5 minutes, bypassed after a 401).
+ * configured command and caches its key in memory AND auth.json until it
+ * expires (Claude Code apiKeyHelper semantics: default 5-minute TTL, or the
+ * expiry the helper declares in JSON output; bypassed after a 401).
  */
 import { execFile } from "node:child_process";
 import type { CustomProviderAuth, CustomProviderConfig, CustomProviderSdk } from "../types";
 import { customOAuthRefresh } from "./oauth/custom";
+import { clearAllHelperKeys, clearHelperKey, getHelperKey, saveHelperKey, type HelperKey } from "./custom-helper-store";
 import { getCustomOAuthCreds, saveCustomOAuthCreds } from "./custom-oauth-store";
 
 /** The subset of CustomProviderConfig that credential resolution reads. */
@@ -56,15 +58,54 @@ export function authHeaderForSdk(sdk: CustomProviderSdk, key: string): [name: st
 
 const HELPER_TTL_DEFAULT_MS = 5 * 60 * 1000;
 const HELPER_TIMEOUT_MS = 10_000;
-const helperCache = new Map<string, { key: string; at: number }>();
+const HELPER_EXPIRY_SKEW_MS = 60_000;
+const helperCache = new Map<string, HelperKey>();
 
-/** Test hook / logout hygiene: drop cached helper output. */
+/** Test hook / logout hygiene: drop cached helper output (memory + disk). */
 export function clearHelperCache(name?: string): void {
-    if (name) helperCache.delete(name);
-    else helperCache.clear();
+    if (name) {
+        helperCache.delete(name);
+        clearHelperKey(name);
+    } else {
+        helperCache.clear();
+        clearAllHelperKeys();
+    }
 }
 
-function runHelper(command: string): Promise<string> {
+/**
+ * Helper stdout is either the bare key, or a JSON object carrying the key and
+ * its real expiry — `{ "key": …, "expiresAt": epoch-ms | ISO-8601 }` (also
+ * accepted: apiKey/token for the key, expiresInMs for a relative lifetime).
+ * A declared expiry replaces the blind ttlMs guess; it lands with a 60s skew
+ * so a key is never used in its final second. Anything unparseable stays a
+ * bare key — a vault secret that happens to start with "{" must not break.
+ */
+function parseHelperOutput(stdout: string, ttlMs: number): HelperKey {
+    const raw = stdout.trim();
+    const fallback: HelperKey = { key: raw, expires: Date.now() + ttlMs };
+    if (!raw.startsWith("{")) return fallback;
+    try {
+        const data = JSON.parse(raw) as Record<string, unknown>;
+        const key = [data.key, data.apiKey, data.token].find((v) => typeof v === "string" && v !== "") as
+            string | undefined;
+        if (!key) return fallback;
+        let expires: number | undefined;
+        if (typeof data.expiresInMs === "number") expires = Date.now() + data.expiresInMs;
+        else if (typeof data.expiresAt === "number") expires = data.expiresAt;
+        else if (typeof data.expiresAt === "string") {
+            const t = Date.parse(data.expiresAt);
+            if (!Number.isNaN(t)) expires = t;
+        }
+        return {
+            key,
+            expires: expires !== undefined ? expires - HELPER_EXPIRY_SKEW_MS : Date.now() + ttlMs,
+        };
+    } catch {
+        return fallback;
+    }
+}
+
+function runHelper(command: string, ttlMs: number): Promise<HelperKey> {
     return new Promise((resolve, reject) => {
         // Through the shell, like Claude Code's apiKeyHelper — helpers are
         // things like `op read op://vault/key` or a token-minting script.
@@ -73,12 +114,11 @@ function runHelper(command: string): Promise<string> {
                 reject(new Error(`auth helper failed: ${err.message}`));
                 return;
             }
-            const key = stdout.trim();
-            if (!key) {
+            if (!stdout.trim()) {
                 reject(new Error(`auth helper printed nothing: ${command}`));
                 return;
             }
-            resolve(key);
+            resolve(parseHelperOutput(stdout, ttlMs));
         });
     });
 }
@@ -108,11 +148,21 @@ export async function resolveCustomCredential(
         }
         case "helper": {
             const ttl = auth.ttlMs ?? HELPER_TTL_DEFAULT_MS;
-            const hit = helperCache.get(cfg.name);
-            if (!opts.force && hit && Date.now() - hit.at < ttl) return hit.key;
-            const key = await runHelper(auth.command);
-            helperCache.set(cfg.name, { key, at: Date.now() });
-            return key;
+            if (!opts.force) {
+                const hit = helperCache.get(cfg.name);
+                if (hit && Date.now() < hit.expires) return hit.key;
+                // Disk survives restarts — an interactive helper (vendor login
+                // that opens a browser) shouldn't re-prompt inside its expiry.
+                const stored = getHelperKey(cfg.name);
+                if (stored && Date.now() < stored.expires) {
+                    helperCache.set(cfg.name, stored);
+                    return stored.key;
+                }
+            }
+            const minted = await runHelper(auth.command, ttl);
+            helperCache.set(cfg.name, minted);
+            saveHelperKey(cfg.name, minted);
+            return minted.key;
         }
         case "oauth": {
             const creds = getCustomOAuthCreds(cfg.name);

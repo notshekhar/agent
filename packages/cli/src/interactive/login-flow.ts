@@ -5,6 +5,7 @@ import {
     envName,
     bustCatalogCache,
     deleteCustomProvider,
+    discoverOAuthEndpoints,
     fetchCustomProviderModels,
     getActiveProvider,
     listAuthorizedProviders,
@@ -24,6 +25,7 @@ import {
     setActiveProvider,
     type CustomProviderAuth,
     type CustomProviderConfig,
+    type OAuthEndpoints,
     type ProviderId,
 } from "@notshekhar/loop-core";
 import type { ChatHistory } from "./components/chat-history";
@@ -148,7 +150,8 @@ async function pickCustomAuth(deps: LoginDeps, name: string, baseURL: string): P
         }
         case "helper": {
             history.addSystem(
-                "Command whose stdout is the key (runs through your shell, e.g. `op read op://vault/key`).",
+                "Command whose stdout is the key (runs through your shell, e.g. `op read op://vault/key`).\n" +
+                    'Stdout may also be JSON: {"key": "…", "expiresAt": epoch-ms or ISO} — the key persists across restarts until it expires.',
             );
             tui.requestRender();
             const command = (await promptOnce("command: ")).trim();
@@ -163,7 +166,7 @@ async function pickCustomAuth(deps: LoginDeps, name: string, baseURL: string): P
             const issuer = (await promptOnce("issuer (optional): ")).trim();
             history.addSystem("Client ID — Enter to auto-register (needs dynamic client registration support).");
             tui.requestRender();
-            const clientId = (await promptOnce("clientId (optional): ")).trim();
+            let clientId = (await promptOnce("clientId (optional): ")).trim();
             let clientSecret = "";
             if (clientId) clientSecret = (await promptOnce("clientSecret (optional): ")).trim();
             history.addSystem(
@@ -171,8 +174,42 @@ async function pickCustomAuth(deps: LoginDeps, name: string, baseURL: string): P
             );
             tui.requestRender();
             const scopes = (await promptOnce("scopes (optional): ")).trim().split(/\s+/).filter(Boolean);
+
+            // Pre-flight discovery here in the wizard, where the fix is a
+            // prompt away — customOAuthLogin would otherwise throw mid-login
+            // telling the user to set fields this wizard never offered.
+            let authorizationEndpoint = "";
+            let tokenEndpoint = "";
+            let discovered: OAuthEndpoints | null = null;
+            history.addSystem(chalk.dim(`checking ${issuer || baseURL} for OAuth endpoint metadata…`));
+            tui.requestRender();
+            try {
+                discovered = await discoverOAuthEndpoints(issuer || baseURL);
+            } catch {
+                history.addSystem(
+                    `${chalk.yellow("no .well-known OAuth metadata found")} at ${issuer || baseURL} — enter the endpoints from the provider's docs.`,
+                );
+                tui.requestRender();
+                authorizationEndpoint = (await promptOnce("authorization endpoint URL: ")).trim();
+                if (!authorizationEndpoint) return null;
+                tokenEndpoint = (await promptOnce("token endpoint URL: ")).trim();
+                if (!tokenEndpoint) return null;
+            }
+            // Same up-front treatment for client registration: no clientId and
+            // no registration endpoint means the login is guaranteed to fail.
+            if (!clientId && (authorizationEndpoint || !discovered?.registration_endpoint)) {
+                history.addSystem(
+                    `${chalk.yellow("the server supports no dynamic client registration")} — register an OAuth app with the provider and enter its client id.`,
+                );
+                tui.requestRender();
+                clientId = (await promptOnce("clientId: ")).trim();
+                if (!clientId) return null;
+                clientSecret = (await promptOnce("clientSecret (optional): ")).trim();
+            }
             const oauth = {
                 ...(issuer ? { issuer } : {}),
+                ...(authorizationEndpoint ? { authorizationEndpoint } : {}),
+                ...(tokenEndpoint ? { tokenEndpoint } : {}),
                 ...(clientId ? { clientId } : {}),
                 ...(clientSecret ? { clientSecret } : {}),
                 ...(scopes.length ? { scopes } : {}),

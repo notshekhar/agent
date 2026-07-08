@@ -62,9 +62,16 @@ Prebuilt binaries — no Node required. Targets: `darwin-x64`, `darwin-arm64`, `
 | AWS Bedrock                                     | none (AWS creds/SSO)         | Auto-detected from the aws CLI / env           |
 | DeepSeek / Mistral / GLM / Z.AI / Groq / Cerebras / ZenMux | API key           | Built-in                                       |
 | Ollama                                          | none (local daemon)          | Auto-detected; `LOOP_OLLAMA_BASE_URL` to point |
-| Custom                                          | API key                      | Any OpenAI/Anthropic/Google-compatible gateway |
+| Custom                                          | 6 auth methods (below)       | Any OpenAI/Anthropic/Google-compatible gateway |
 
-Custom providers (`/login custom`): name + base URL + key + model list, saved to `~/.loop/` and usable like any built-in — handy for gateways like Bifrost or LiteLLM.
+Custom providers (`/login custom`): name + base URL + auth + model list, saved to `~/.loop/` and usable like any built-in — handy for gateways like Bifrost or LiteLLM. Six auth methods:
+
+- **API key** — stored key, sent in the vendor header (`x-api-key` / `Bearer` / `x-goog-api-key`).
+- **Bearer token** — always `Authorization: Bearer`, for gateways with their own tokens.
+- **OAuth / SSO** — browser sign-in. Endpoints auto-discover from `.well-known` metadata; when the server exposes none, the wizard asks for the authorization/token endpoint URLs (and a client id if the server doesn't support dynamic registration). Tokens refresh automatically; add the `offline_access` scope if the server needs it for refresh tokens.
+- **Environment variable** — read at request time, nothing stored.
+- **Command (key helper)** — a shell command whose stdout is the key (a vault read, or a vendor login command that mints a short-lived key). Stdout can also be JSON — `{"key": "…", "expiresAt": <epoch-ms or ISO-8601>}` (`apiKey`/`token` and `expiresInMs` also accepted) — so the key's real expiry drives re-runs instead of the default 5-minute TTL. Keys persist in `~/.loop/auth.json` across restarts until they expire, and a 401 always forces a fresh mint.
+- **None / headers only** — for mTLS, custom headers, or open endpoints.
 
 ---
 
