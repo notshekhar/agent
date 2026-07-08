@@ -1,0 +1,829 @@
+/**
+ * runTurn — the main agent loop: one user input driven to completion through
+ * streaming, tools, hooks, persistence, and billing. The provider-shaping and
+ * per-step accrual it shares with runSubagent live in model-call.ts.
+ */
+import { streamText, isStepCount } from "ai";
+import { toolInputDeltaEvent, toolInputStartEvent, type TurnEmitter } from "./events";
+import { getModel, parseModelId } from "../providers";
+import { getCatalog } from "../catalog";
+import { getSetting } from "../settings";
+import {
+    createAskTool,
+    createPlanTool,
+    createTools,
+    createWebsearchTool,
+    isAskUserAvailable,
+    planDeliveredThisStep,
+    PLAN_TOOL_NAME,
+} from "../tools";
+import { buildSubagentNote, buildSystemPrompt } from "./system-prompt";
+import { getAgentPrompt, getAgentTools, isReadOnlyBashAgent, listAgents } from "./agents";
+import { loadWorkspaceContext } from "./context";
+import { loadMemoryContext } from "./memory";
+import { loadProjectSkills } from "./skills";
+import { extractImagesFromInput } from "./images";
+import { CostTracker, stampUsageCost } from "./cost";
+import { runCompact } from "./compact";
+import { runRecap, turnDeservesRecap } from "./recap";
+import { runHooks, type HookOutcome } from "./hooks";
+import { isTrusted } from "./trust";
+import type { ThinkingLevel } from "./thinking";
+import { estimateContextTokens, estimateOverheadTokens, toModelMessages, withAnthropicCaching } from "./model-messages";
+import { buildAgentCallConfig, createStepBilling, createYieldGate } from "./model-call";
+import { withToolHooks } from "./tool-hooks";
+import { createTaskTool } from "./subagent";
+import { isAbortError } from "./abort";
+import { debugLog } from "../debug";
+import { getMcpManager, isMcpEnabled } from "../mcp";
+import { getExtensionHost } from "../extensions";
+import {
+    applyAssembleTools,
+    applyProviderOptions,
+    applySystemPrompt,
+    runAfterTurn,
+    runBeforeTurn,
+} from "./turn-middleware";
+import { attachLedgerEntry, type Session } from "../sessions";
+import type { UsageBlock } from "../types";
+
+export interface RunTurnOptions {
+    session: Session;
+    modelId: string;
+    userInput: string;
+    cwd: string;
+    abortSignal?: AbortSignal;
+    tracker: CostTracker;
+    emitter: TurnEmitter;
+    maxSteps?: number;
+    thinkingLevel?: ThinkingLevel;
+    /** Named agent whose prompt replaces the built-in persona ("default" = built-in). */
+    agent?: string;
+    /** Post-turn data-recap generation. Defaults to the `recap` setting (off). */
+    recap?: boolean;
+    /** internal: recursion depth for Stop-hook continuations */
+    hookDepth?: number;
+}
+
+// AI SDK prints advisory warnings (e.g. about system messages inside the
+// messages array — our deliberate Anthropic prompt-caching pattern) straight
+// to the console, which tears the TUI's differential rendering. Silence them.
+(globalThis as Record<string, unknown>).AI_SDK_LOG_WARNINGS = false;
+
+interface PersistedTurnMessage {
+    role: "assistant" | "tool";
+    content: unknown;
+    usage?: UsageBlock;
+}
+
+/**
+ * Turn one completed step's messages into session entries — assistant text +
+ * tool calls, and the tool results — in canonical AI-SDK shape (so they replay
+ * and feed straight back to the model). mirrors the reference: one entry per message,
+ * persisted as the step finishes (abort-safe — completed steps survive).
+ *
+ * Task (subagent) tool calls/results are filtered out: they persist separately
+ * as `subagent` entries (with their activity log), and keeping them here too
+ * would double them on resume and in the model context.
+ *
+ * Per-step usage rides the step's assistant message: resume seeding sums
+ * assistant usages (= turn total) and reads the last for context size.
+ */
+export function stepMessagesToEntries(
+    messages: ReadonlyArray<{ role: string; content: unknown }>,
+    stepUsage: UsageBlock | undefined,
+): PersistedTurnMessage[] {
+    // The ONLY thing held back is the `task` (subagent) call/result — and not
+    // to drop data: the subagent is persisted MORE completely as its own
+    // `subagent` entry (prompt + full internal activity log + report), so
+    // letting it through here too would duplicate the box on resume. Every
+    // other part — text, reasoning, tool calls, tool results — is persisted
+    // exactly as it streamed.
+    const taskCallIds = new Set<string>();
+    const out: PersistedTurnMessage[] = [];
+    // Resume-time cost seeding sums every usage-bearing assistant entry, so a
+    // step's usage must ride exactly ONE of its messages — stamping each would
+    // double-bill the step if the SDK ever emits two assistant messages per step.
+    let usageToStamp = stepUsage;
+    for (const m of messages) {
+        if (m.role === "assistant") {
+            const parts = Array.isArray(m.content) ? m.content : [{ type: "text", text: String(m.content) }];
+            const kept = parts.filter((p: { type?: string; toolName?: string; toolCallId?: string }) => {
+                if (p?.type === "tool-call" && p.toolName === "task") {
+                    if (p.toolCallId) taskCallIds.add(p.toolCallId);
+                    return false;
+                }
+                return true;
+            });
+            if (kept.length > 0) {
+                out.push({ role: "assistant", content: kept, usage: usageToStamp });
+                usageToStamp = undefined;
+            }
+        } else if (m.role === "tool") {
+            const parts = Array.isArray(m.content) ? m.content : [];
+            const kept = parts.filter(
+                (p: { toolCallId?: string }) => !(p?.toolCallId && taskCallIds.has(p.toolCallId)),
+            );
+            if (kept.length > 0) out.push({ role: "tool", content: kept });
+        }
+    }
+    // A step whose assistant message was ONLY the task tool-call filters to
+    // nothing — but its usage is still real billed tokens. Carry it on an
+    // empty assistant entry: toModelMessages drops empty content, so it never
+    // reaches the model, while resume cost seeding and /steak still count it.
+    if (usageToStamp) out.push({ role: "assistant", content: [], usage: usageToStamp });
+    return out;
+}
+
+/** Most recent provider-reported (non-estimated) usage in the transcript — the
+ * input/cache profile to anchor an interrupted-step estimate to when the
+ * current turn has no finished step yet (an interrupt on the very first step). */
+function lastUsageInSession(session: Session): UsageBlock | undefined {
+    const all = session.entries();
+    for (let i = all.length - 1; i >= 0; i--) {
+        const e = all[i];
+        if (e.type === "message" && e.role === "assistant" && e.usage && !e.usage.estimated) return e.usage;
+        if (e.type === "subagent" && e.usage && !e.usage.estimated) return e.usage;
+    }
+    return undefined;
+}
+
+/**
+ * Estimate usage for the in-flight request of an interrupted turn. The AI SDK
+ * records a step only on its `finish-step` chunk and reports no usage on abort
+ * (vercel/ai#7805), so the cut-off round-trip has no provider numbers — yet the
+ * provider billed it (input + the output streamed before the cut).
+ *
+ * Output is the only estimated part: the partial text + reasoning at chars/4
+ * (loop's house heuristic; small, since an interrupt lands early). Input — the
+ * expensive, cache-split-sensitive part — is NOT guessed: it's taken from the
+ * adjacent real step (`basis`), since the interrupted request resent
+ * essentially the same context, so its input count and cache-read/write split
+ * match within a few hundred tokens. Marked `estimated` → session total only,
+ * rendered with a leading `~`.
+ */
+function estimateInterruptedUsage(
+    tailText: string,
+    tailReasoning: string,
+    basis: UsageBlock | undefined,
+    session: Session,
+    overheadTokens: number,
+): UsageBlock | undefined {
+    const textTokens = Math.ceil(tailText.length / 4);
+    const reasoningTokens = Math.ceil(tailReasoning.length / 4);
+    const outputTokens = textTokens + reasoningTokens;
+    // No output streamed and no real basis to anchor to → fabricate nothing.
+    if (outputTokens === 0 && !basis) return undefined;
+    const inputTokens = basis?.inputTokens ?? estimateContextTokens(session, overheadTokens);
+    const inputTokenDetails = basis?.inputTokenDetails ? { ...basis.inputTokenDetails } : undefined;
+    const cachedInputTokens = basis?.inputTokenDetails?.cacheReadTokens ?? basis?.cachedInputTokens;
+    return {
+        inputTokens,
+        outputTokens,
+        totalTokens: inputTokens + outputTokens,
+        cachedInputTokens,
+        inputTokenDetails,
+        outputTokenDetails: { textTokens, reasoningTokens },
+        estimated: true,
+    };
+}
+
+/**
+ * The turn's tool-assembly matrix: per-agent restriction, websearch/MCP/
+ * extension/task/ask/plan gating (order matters — see each block), the
+ * TurnContext handed to every middleware seam, and the extension
+ * onAssembleTools pass. Returns the final toolset the model will see.
+ */
+async function assembleTurnTools(
+    opts: RunTurnOptions,
+    extra: { provider: string; modelShortId: string; workspaceContext: string; skillsPrompt: string },
+) {
+    const { session, modelId, cwd, abortSignal, tracker, emitter } = opts;
+    const agentPrompt = opts.agent ? getAgentPrompt(opts.agent) : undefined;
+    // Per-agent tool restriction (e.g. plan = read-only). undefined = all tools.
+    const allowedTools = opts.agent ? getAgentTools(opts.agent) : undefined;
+    // An agent allowed bash but NOT write/edit (e.g. plan) gets bash forced into
+    // a fail-closed read-only sandbox, so the kernel guarantees no mutation.
+    const readOnlyFs = isReadOnlyBashAgent(allowedTools);
+    const fullToolSet = createTools({ cwd, abortSignal, readOnlyFs, sessionId: session.id });
+    const toolSet = (
+        allowedTools?.length
+            ? Object.fromEntries(Object.entries(fullToolSet).filter(([name]) => allowedTools.includes(name)))
+            : fullToolSet
+    ) as typeof fullToolSet;
+    // Subagents: master `subagents` setting gates the task tool entirely (off
+    // → no agent gets it). Otherwise unrestricted agents always get it;
+    // restricted agents get it only when their tool list opts in ("task").
+    // A subagent is a fork of this turn's agent by default; either way its
+    // tools are capped to this turn's file tools, so delegation never widens
+    // access. Subagents never get task themselves (no nesting).
+    const subagentsEnabled = getSetting("subagents") !== false;
+    let toolsForTurn: Record<string, unknown> = { ...toolSet };
+
+    // Websearch: opt-in `webSearch` setting (default off) — DuckDuckGo HTML
+    // scraping, no API key, no UI bridge, so print mode gets it too. Added
+    // BEFORE the task tool so subagents inherit it via parentTools (unlike
+    // ask). Restricted agents opt in by naming "websearch".
+    if (getSetting("webSearch") === true && (!allowedTools?.length || allowedTools.includes("websearch"))) {
+        toolsForTurn.websearch = createWebsearchTool({ abortSignal });
+    }
+
+    // MCP tools (already namespaced mcp__server__tool) join the turn for
+    // unrestricted agents only — a restricted agent (e.g. plan) keeps its
+    // explicit allowlist. Gated by the master `mcp` setting (default on) +
+    // project trust, mirroring skills/subagents. The manager was connected once
+    // at startup; here we just read its aggregated tool set.
+    //
+    // Added BEFORE the task tool so MCP names land in `parentTools` — a subagent
+    // fork then inherits the same MCP tools, while the resolver's cap still lets
+    // a named subagent only narrow, never widen.
+    const mcpEnabled = isMcpEnabled() && isTrusted(cwd);
+    if (mcpEnabled && !allowedTools?.length) {
+        Object.assign(toolsForTurn, getMcpManager().getTools());
+    }
+
+    // Extension tools — same gating as MCP: unrestricted agents only (a
+    // restricted agent like plan keeps its explicit allowlist), trust-gated.
+    // With no extensions loaded both maps are empty, so this is a no-op and the
+    // turn's toolset is byte-for-byte the builtin set. `default` (unrestricted)
+    // therefore gets every extension tool automatically; removals drop builtins
+    // an extension explicitly overrode.
+    if (!allowedTools?.length && isTrusted(cwd)) {
+        const ext = getExtensionHost().getTools();
+        for (const [name, tool] of ext.add) toolsForTurn[name] = tool as never;
+        for (const name of ext.remove) delete toolsForTurn[name];
+    }
+
+    if (subagentsEnabled && (!allowedTools?.length || allowedTools.includes("task"))) {
+        toolsForTurn.task = createTaskTool({
+            modelId,
+            cwd,
+            tracker,
+            emitter,
+            abortSignal,
+            session,
+            sessionId: session.id,
+            transcriptPath: session.path,
+            turnAgent: opts.agent,
+            // Everything the parent can call (incl. MCP); task isn't added yet,
+            // so it can't recurse into itself.
+            parentTools: Object.keys(toolsForTurn),
+            workspaceContext: extra.workspaceContext,
+            skillsPrompt: extra.skillsPrompt,
+        });
+    }
+    // Ask tool: opt-in `askUser` setting (default off) AND a live interactive
+    // UI bridge (registered by the CLI at startup; absent in print mode, so
+    // the tool is never offered there). Restricted agents opt in by naming
+    // "ask" in their tool list. Added AFTER the task tool so subagents never
+    // inherit it via parentTools.
+    const askEnabled = getSetting("askUser") === true && isAskUserAvailable();
+    if (askEnabled && (!allowedTools?.length || allowedTools.includes("ask"))) {
+        toolsForTurn.ask = createAskTool({ abortSignal });
+    }
+    // Plan-delivery tool: only for restricted agents that name it (the plan
+    // builtin does; custom agents opt in via frontmatter). Never for
+    // unrestricted agents — default handing itself a plan makes no sense.
+    // Added AFTER the task tool so subagents don't inherit it. Its presence
+    // also arms the hasToolCall stop condition below: calling plan ends the
+    // turn with the final plan as the tool input.
+    if (allowedTools?.length && allowedTools.includes(PLAN_TOOL_NAME)) {
+        toolsForTurn[PLAN_TOOL_NAME] = createPlanTool();
+    }
+    // TurnContext carries which agent/model/tools are running. It's handed to
+    // every turn-middleware seam (so an extension can scope by ctx.agent — e.g.
+    // update one specific agent's system prompt) and to tool call/result
+    // middleware. Built here, then refreshed after onAssembleTools so its tool
+    // list reflects any additions/removals.
+    let turnContext = {
+        sessionId: session.id,
+        transcriptPath: session.path,
+        cwd,
+        agent: opts.agent ?? "default",
+        modelId,
+        provider: extra.provider,
+        model: extra.modelShortId,
+        tools: Object.keys(toolsForTurn),
+        isSubagent: false,
+    };
+    // Extension turn middleware may add/remove/wrap tools before the prompt is
+    // built (so the tool list the model sees reflects any changes). No-op when no
+    // extensions are loaded.
+    toolsForTurn = await applyAssembleTools(toolsForTurn, turnContext);
+    turnContext = { ...turnContext, tools: Object.keys(toolsForTurn) };
+    return { toolsForTurn, fullToolSet, turnContext, agentPrompt };
+}
+
+export async function runTurn(opts: RunTurnOptions): Promise<void> {
+    const { session, modelId, userInput, cwd, abortSignal, tracker, emitter } = opts;
+    // Step cap is only an upper safety bound — the loop ends naturally when the
+    // model returns no tool call. 0 / unset means "run until the model decides".
+    const configuredSteps = opts.maxSteps ?? getSetting("maxSteps") ?? 0;
+    const maxSteps = configuredSteps > 0 ? configuredSteps : Number.MAX_SAFE_INTEGER;
+
+    // Extract any image paths from the user input → ai-sdk image parts
+    const { textWithoutPaths, images } = extractImagesFromInput(userInput, cwd);
+    if (images.length > 0) {
+        emitter.emit(
+            "attached-images",
+            images.map((i) => i.path),
+        );
+    }
+    // UserPromptSubmit hooks: may block the turn or inject context for the
+    // model. Skipped for Stop-hook continuations (hookDepth > 0) — those are
+    // synthetic turns, and Claude Code doesn't fire UserPromptSubmit for them.
+    const hookDepth = opts.hookDepth ?? 0;
+    let promptHooks: HookOutcome = { block: false, messages: [], terminalSequences: [] };
+    if (hookDepth === 0) {
+        promptHooks = await runHooks(
+            "UserPromptSubmit",
+            undefined,
+            { session_id: session.id, transcript_path: session.path, prompt: userInput },
+            cwd,
+        );
+    }
+    for (const m of promptHooks.messages) emitter.emit("hook-message", m);
+    for (const s of promptHooks.terminalSequences) emitter.emit("hook-terminal-sequence", s);
+    if (promptHooks.block) {
+        emitter.emit("error", `prompt blocked by hook: ${promptHooks.reason}`);
+        emitter.emit("finish", { usage: undefined });
+        return;
+    }
+
+    // Extension turn middleware (onBeforeTurn) may block the turn. No-op when no
+    // extensions are loaded.
+    if (
+        !(await runBeforeTurn({
+            input: userInput,
+            cwd,
+            sessionId: session.id,
+            agent: opts.agent ?? "default",
+            modelId,
+        }))
+    ) {
+        emitter.emit("error", "turn blocked by extension");
+        emitter.emit("finish", { usage: undefined });
+        return;
+    }
+
+    // Persist user message verbatim (paths intact for reference in transcripts)
+    await session.append({ type: "message", ts: Date.now(), role: "user", content: userInput });
+
+    const { provider, model: modelShortId } = parseModelId(modelId);
+
+    const catalog = await getCatalog();
+    const modelInfo = catalog[modelId];
+
+    const workspaceContext =
+        getSetting("workspaceContext") !== false ? loadWorkspaceContext(cwd) : { text: "", files: [] };
+    // Agent memory (default on): policy + MEMORY.md index for this project.
+    // Main agent only — subagents don't get the write policy, so fan-out work
+    // can't race duplicate memory writes.
+    const memoryContext = getSetting("memory") !== false ? loadMemoryContext(cwd).text : "";
+    // Project skills inject instructions into the prompt — gate on trust too.
+    const skillsEnabled = getSetting("skills") !== false && isTrusted(cwd);
+    const skills = skillsEnabled ? await loadProjectSkills(cwd) : { skills: [], diagnostics: [], promptBlock: "" };
+
+    const { toolsForTurn, fullToolSet, turnContext, agentPrompt } = await assembleTurnTools(opts, {
+        provider,
+        modelShortId,
+        workspaceContext: workspaceContext.text,
+        skillsPrompt: skills.promptBlock,
+    });
+    // System prompt is built AFTER the task tool decision so the model's tool
+    // list matches reality, plus explicit delegation guidance when present.
+    const subagentNote = "task" in toolsForTurn ? buildSubagentNote(listAgents().map((a) => a.name)) : "";
+    let system =
+        buildSystemPrompt({
+            cwd,
+            workspaceContext: workspaceContext.text,
+            memoryContext,
+            basePrompt: agentPrompt,
+            tools: Object.keys(toolsForTurn),
+        }) +
+        subagentNote +
+        (skills.promptBlock ?? "");
+    // Extension turn middleware may transform the system prompt, scoped by
+    // ctx.agent (update any specific agent's prompt). No-op when none.
+    system = await applySystemPrompt(system, turnContext);
+    const tools = withToolHooks(toolsForTurn as typeof fullToolSet, {
+        cwd,
+        sessionId: session.id,
+        transcriptPath: session.path,
+        emitter,
+        turnContext,
+        // Empty when no extensions are loaded → withToolHooks is a pass-through.
+        callMiddleware: getExtensionHost().getToolCallMiddleware(),
+        resultMiddleware: getExtensionHost().getToolResultMiddleware(),
+    });
+    const model = await getModel(modelId);
+
+    // Auto-compact check — runs here (not at turn start) so the estimate can
+    // count the actual system prompt + tool definitions of THIS turn, which
+    // never appear in the session but are billed context all the same.
+    // Compaction only needs to land before toModelMessages() below; nothing
+    // above reads the transcript.
+    const contextOverheadTokens = estimateOverheadTokens(system, toolsForTurn);
+    const threshold = getSetting("autoCompactThreshold") ?? 0.8;
+    if (modelInfo) {
+        const tokens = estimateContextTokens(session, contextOverheadTokens);
+        if (tokens > modelInfo.contextWindow * threshold) {
+            emitter.emit("compact-start", { reason: "auto" });
+            // PreCompact is informational for watchers — block is ignored.
+            await runHooks(
+                "PreCompact",
+                "auto",
+                { session_id: session.id, transcript_path: session.path, trigger: "auto" },
+                cwd,
+            );
+            try {
+                const result = await runCompact({ session, modelId, abortSignal, tracker, cwd });
+                emitter.emit("compact-end", result);
+            } catch (err) {
+                if (abortSignal?.aborted) {
+                    emitter.emit("compact-end", {
+                        summary: "",
+                        cutAt: 0,
+                        tokensBefore: 0,
+                        tokensAfter: 0,
+                        aborted: true,
+                    });
+                    return;
+                }
+                throw err;
+            }
+        }
+    }
+
+    // If we extracted image paths, override the last user message with a multipart
+    // content array (text + image parts) so vision models actually see the image.
+    const messages = toModelMessages(session);
+    if (images.length > 0) {
+        const lastUserIdx = (() => {
+            for (let i = messages.length - 1; i >= 0; i--) if (messages[i].role === "user") return i;
+            return -1;
+        })();
+        if (lastUserIdx >= 0) {
+            // AI SDK v6 user-content attachment shape: a `file` part with the
+            // bytes as `data` and an IANA `mediaType`. (The older `image` part is
+            // deprecated in favor of this for all attachment kinds.)
+            const parts: Array<{ type: "text"; text: string } | { type: "file"; data: Buffer; mediaType: string }> = [];
+            if (textWithoutPaths) parts.push({ type: "text", text: textWithoutPaths });
+            for (const img of images) parts.push({ type: "file", data: img.data, mediaType: img.mediaType });
+            messages[lastUserIdx] = { role: "user", content: parts as never };
+        }
+    }
+
+    // Hook-injected context rides only the model-bound copy, not the transcript.
+    // Must target the *last* user message even when image extraction already
+    // turned it into a parts array — falling through to an earlier message would
+    // rewrite history and bust the prompt-cache prefix.
+    if (promptHooks.additionalContext) {
+        const ctxBlock = `<hook-context>\n${promptHooks.additionalContext}\n</hook-context>`;
+        for (let i = messages.length - 1; i >= 0; i--) {
+            const m = messages[i];
+            if (m.role !== "user") continue;
+            if (typeof m.content === "string") {
+                messages[i] = { role: "user", content: `${m.content}\n\n${ctxBlock}` };
+            } else if (Array.isArray(m.content)) {
+                messages[i] = { role: "user", content: [...m.content, { type: "text", text: ctxBlock }] as never };
+            }
+            break;
+        }
+    }
+
+    const thinkingLevel: ThinkingLevel = opts.thinkingLevel ?? getSetting("thinkingLevel") ?? "off";
+    // Shared provider shaping (see model-call.ts): effective sdk mapping for
+    // custom gateways, reasoning params, Anthropic caching + output-cap pin —
+    // matching runSubagent by construction.
+    const call = buildAgentCallConfig({ provider, modelShortId, thinkingLevel, modelInfo });
+    let providerOptions = call.providerOptions;
+
+    // Ollama defaults num_ctx to ~4096 regardless of the model's real context,
+    // which truncates long agent loops and makes the model stop early. Pin it to
+    // the model's actual context window so history isn't silently dropped.
+    if (provider === "ollama") {
+        const numCtx = modelInfo?.contextWindow ?? 8192;
+        const existing = (providerOptions?.ollama as Record<string, unknown> | undefined) ?? {};
+        const existingOpts = (existing.options as Record<string, unknown> | undefined) ?? {};
+        providerOptions = {
+            ...providerOptions,
+            ollama: { ...existing, options: { ...existingOpts, num_ctx: numCtx } },
+        };
+    }
+
+    // Extension turn middleware may tweak provider options (thinking/caching).
+    // No-op when no extensions are loaded.
+    providerOptions = applyProviderOptions(providerOptions, turnContext) as typeof providerOptions;
+
+    // Incremental persistence: each completed step's messages are written as it
+    // finishes, so tool calls/results AND the final answer survive turn
+    // boundaries and aborts. `step.response.messages` holds only THIS step's new
+    // messages — the AI SDK resets its per-step content buffer on every
+    // `start-step`, so it is NOT cumulative. Persist all of them; there is no
+    // overlap across steps to dedupe. (Slicing against a running count, on the
+    // mistaken assumption it was cumulative, dropped every step after the first
+    // — losing the final answer and its usage on reopen.)
+    let persistedAnyMessage = false;
+    // Per-step accrual (see model-call.ts): running sum for abort estimation,
+    // and ledger rows billed at finish-step waiting for their entry's id so
+    // the row can be attributed. One pending id per usage-bearing step;
+    // persist and billing race per step, so an empty shift just skips
+    // attribution (the money row itself is already safe).
+    const billing = createStepBilling(tracker, modelId, { cwd, sessionPub: session.info.id, source: "turn" });
+    // Serialize appends so each step's messages land in order even if onStepEnd
+    // callbacks overlap.
+    let persistChain: Promise<void> = Promise.resolve();
+    const persistStep = (step: {
+        response: { messages: ReadonlyArray<{ role: string; content: unknown }> };
+        usage?: UsageBlock;
+    }): Promise<void> => {
+        const entries = stepMessagesToEntries(step.response.messages, step.usage);
+        if (entries.length > 0) persistedAnyMessage = true;
+        persistChain = persistChain
+            .then(async () => {
+                const rows = entries.map((entry) => ({
+                    type: "message" as const,
+                    ts: Date.now(),
+                    role: entry.role,
+                    content: entry.content,
+                    // Stamp the model AND the billed USD on usage-bearing
+                    // (assistant) entries so cost seeding reads the true
+                    // historical cost after a model switch or catalog drift.
+                    ...(entry.usage ? { usage: stampUsageCost(modelId, entry.usage), model: modelId } : {}),
+                }));
+                // One batch = one transaction for the whole step's messages.
+                await session.appendAll(rows);
+                // appendAll assigned ids in place — attribute this step's
+                // ledger row to the entry that carries its usage.
+                const usageEntry = rows.find((r) => "usage" in r && r.usage) as { id?: string } | undefined;
+                if (usageEntry?.id) {
+                    const rowId = billing.rowIds.shift();
+                    if (rowId !== undefined) attachLedgerEntry(rowId, usageEntry.id);
+                }
+            })
+            // Persistence must never break a turn — but a failed transcript
+            // write is data loss, so leave a breadcrumb (LOOP_DEBUG=1).
+            .catch((err) => debugLog("persist", `step persistence failed for session ${session.id}:`, err));
+        return persistChain;
+    };
+    const result = streamText({
+        model,
+        ...(call.maxOutputTokens ? { maxOutputTokens: call.maxOutputTokens } : {}),
+        ...(call.anthropicCaching
+            ? // system inside messages is our deliberate Anthropic prompt-caching
+              // pattern — allowSystemInMessages opts out of the AI SDK warning.
+              {
+                  messages: withAnthropicCaching(system, messages),
+                  allowSystemInMessages: true,
+                  prepareStep: call.prepareStep,
+              }
+            : { instructions: system, messages }),
+        tools,
+        // A plan-capable turn also stops once a substantial plan is delivered
+        // (stub deliveries keep the loop alive — see planDeliveredThisStep).
+        stopWhen:
+            PLAN_TOOL_NAME in toolsForTurn ? [isStepCount(maxSteps), planDeliveredThisStep] : isStepCount(maxSteps),
+        abortSignal,
+        // v7 portable reasoning effort for first-party providers (off → "none").
+        // Undefined for community providers / non-reasoning models, which use
+        // providerOptions (or nothing) instead.
+        ...(call.reasoning ? { reasoning: call.reasoning } : {}),
+        // Persist each step's messages as it finishes (mirrors the reference's
+        // per-message persistence). Errors here must not break the turn.
+        onStepEnd: (step) => {
+            void persistStep(step as never);
+        },
+        // The SDK's default onError does console.error(error) with the whole
+        // APICallError (request body, tool defs — a wall of noise). We already
+        // surface stream errors cleanly via the stream "error" part below,
+        // so swallow this duplicate to keep the console clean.
+        onError: () => {},
+        // smoothStream removed: it re-buffers tokens and releases them on its
+        // own 20ms timers, coupling stream delivery to the timer phase — the
+        // same phase that starves during a turn, which can deadlock delivery
+        // and freeze the TUI. the reference doesn't use it; we stream parts raw.
+        ...(providerOptions ? { providerOptions: providerOptions as never } : {}),
+    });
+
+    let assistantText = "";
+    const toolsUsed: string[] = [];
+    let lastUsage: UsageBlock | undefined;
+    let lastStepUsage: UsageBlock | undefined;
+    // Text/reasoning streamed since the last FINISHED step (reset on each
+    // finish-step). On abort this is the un-persisted tail of the interrupted
+    // step — the only part not already saved/billed — used to recover its
+    // partial output and estimate its cost.
+    let textSinceStep = "";
+    let reasoningSinceStep = "";
+
+    const maybeYield = createYieldGate();
+    // The interrupt can land between parts (caught by the `break` below) or while
+    // awaiting the next part. A real fetch-backed provider rejects its body
+    // stream on abort, which can throw straight out of `for await`; without this
+    // guard that throw would skip the persistence below, losing the partial
+    // reply. Swallow only aborts; any other error still propagates.
+    try {
+        for await (const part of result.stream) {
+            if (abortSignal?.aborted) break;
+            switch (part.type) {
+                case "text-delta":
+                    assistantText += part.text;
+                    textSinceStep += part.text;
+                    emitter.emit("text-delta", part.text);
+                    break;
+                case "reasoning-delta": {
+                    const rt = (part as { text: string }).text;
+                    reasoningSinceStep += rt;
+                    emitter.emit("reasoning-delta", rt);
+                    break;
+                }
+                case "reasoning-start":
+                    emitter.emit("reasoning-start");
+                    break;
+                case "reasoning-end":
+                    emitter.emit("reasoning-end");
+                    break;
+                case "tool-input-start":
+                    // Surface the pending tool box as soon as the call begins,
+                    // before its (possibly large) input has finished streaming.
+                    // Field mapping lives in toolInputStartEvent — v7 renamed
+                    // toolCallId → id on these parts and the old cast silently
+                    // read undefined, suppressing the pending box entirely.
+                    emitter.emit("tool-input-start", toolInputStartEvent(part as { id?: string; toolName?: string }));
+                    break;
+                case "tool-input-delta":
+                    emitter.emit("tool-input-delta", toolInputDeltaEvent(part as { id?: string; delta?: string }));
+                    break;
+                case "tool-call":
+                    if (part.toolName) toolsUsed.push(part.toolName);
+                    emitter.emit("tool-call", part);
+                    break;
+                case "tool-result":
+                    emitter.emit("tool-result", part);
+                    break;
+                case "tool-error": {
+                    // A tool's execute threw (MCP transport failure, timeout, bad
+                    // args…). The AI SDK still feeds the error back to the model as
+                    // the tool result, so the loop continues and the model can try
+                    // another approach — we just surface it in the UI (red) instead
+                    // of leaving the tool box spinning forever.
+                    const e = part as { toolCallId?: string; toolName?: string; error?: unknown };
+                    emitter.emit("tool-error", { toolCallId: e.toolCallId, toolName: e.toolName, error: e.error });
+                    break;
+                }
+                case "finish-step": {
+                    // Cost accrues per step (one API round-trip each), not at turn
+                    // end — the footer updates live, and an aborted turn keeps the
+                    // cost of the steps that already ran. Step usages sum to the
+                    // turn total, so nothing is added again on finish.
+                    const u = (part as { usage?: UsageBlock }).usage;
+                    if (u) {
+                        lastStepUsage = u;
+                        // Attribution handoff: persistStep attaches the queued
+                        // row to the entry that carries the same usage once the
+                        // entry has its id (persist and billing race per step;
+                        // the queue tolerates either order).
+                        const { breakdown } = billing.onStepUsage(u);
+                        emitter.emit("step-usage", { usage: u, breakdown });
+                    }
+                    // This step's text/reasoning is now persisted via onStepEnd
+                    // and billed via the usage above — reset the tail so it
+                    // tracks only what streams in the NEXT (possibly aborted)
+                    // step. Keeps multi-step aborts from re-persisting or
+                    // double-counting finished text.
+                    textSinceStep = "";
+                    reasoningSinceStep = "";
+                    break;
+                }
+                case "finish": {
+                    const u = (part as { totalUsage?: UsageBlock }).totalUsage;
+                    lastUsage = u;
+                    emitter.emit("finish", { usage: u, lastStepUsage });
+                    break;
+                }
+                case "error": {
+                    const msg = String((part as { error?: unknown }).error ?? "");
+                    if (/^(reasoning|text) part .* not found$/.test(msg)) break;
+                    emitter.emit("error", part.error);
+                    break;
+                }
+            }
+            // Let the TUI's render timers fire between bursts of buffered
+            // parts — see model-call.ts for the starvation rationale.
+            await maybeYield();
+        }
+    } catch (err) {
+        if (!isAbortError(err) && !abortSignal?.aborted) throw err;
+    }
+
+    // Flush any in-flight step persistence before deciding on the fallback /
+    // returning, so the session file is complete and ordered.
+    await persistChain;
+
+    const aborted = abortSignal?.aborted === true;
+
+    // The un-persisted tail: reasoning + text streamed since the last FINISHED
+    // step. Finished steps already persisted (onStepEnd) and billed (finish-step
+    // usage) their own content, so this is exactly the interrupted step's
+    // partial output — nothing finished is lost or duplicated. Reasoning is kept
+    // (an interrupt during the thinking phase still records what it produced)
+    // and the answer text after it; both also count toward the cost estimate.
+    const tailParts: Array<{ type: "reasoning"; text: string } | { type: "text"; text: string }> = [];
+    if (reasoningSinceStep.trim() !== "") tailParts.push({ type: "reasoning", text: reasoningSinceStep });
+    if (textSinceStep.trim() !== "") tailParts.push({ type: "text", text: textSinceStep });
+    const streamedTail = tailParts.length > 0;
+
+    if (aborted) {
+        // Estimate the interrupted in-flight request's usage — the SDK reports
+        // none on abort (vercel/ai#7805). Only when output actually streamed in
+        // an unfinished step: a clean step-boundary interrupt left every
+        // finished step already billed via finish-step, so there's nothing to
+        // add. Input is anchored to the adjacent real step (this turn's last, or
+        // the previous turn's); only the small output tail is approximated.
+        // Session total only (never the persistent cost store), shown with `~`.
+        let est: UsageBlock | undefined;
+        if (streamedTail) {
+            est = estimateInterruptedUsage(
+                textSinceStep,
+                reasoningSinceStep,
+                lastStepUsage ?? lastUsageInSession(session),
+                session,
+                contextOverheadTokens,
+            );
+            if (est) {
+                tracker.addEstimated(modelId, est, { cwd, sessionPub: session.info.id, source: "turn" });
+                emitter.emit("step-usage", { usage: est, breakdown: tracker.sessionBreakdown() });
+            }
+        }
+        // Persist the interrupted turn so the transcript AND the next turn's
+        // context both reflect it. `interrupted: true` makes toModelMessages
+        // append a note (and never silently drop an empty aborted turn). Only
+        // text/usage here — never tool-call parts (those persist on finished
+        // steps only), so there's no orphaned tool_use to break the next turn.
+        if (streamedTail || !persistedAnyMessage) {
+            const interruptedEntry = {
+                type: "message" as const,
+                ts: Date.now(),
+                role: "assistant" as const,
+                content: tailParts.length > 0 ? tailParts : "",
+                interrupted: true,
+                ...(est ? { usage: stampUsageCost(modelId, est), model: modelId } : {}),
+            };
+            await session.append(interruptedEntry);
+            const estRowId = tracker.takeLastLedgerRowId();
+            if (est && estRowId !== undefined && (interruptedEntry as { id?: string }).id) {
+                attachLedgerEntry(estRowId, (interruptedEntry as { id?: string }).id!);
+            }
+        }
+    } else if (!persistedAnyMessage && (tailParts.length > 0 || lastUsage || billing.sum)) {
+        // Non-abort edge: the stream ended without any step persisting (e.g. a
+        // provider error after partial output). Keep what streamed, with the
+        // real usage we did capture.
+        const edgeUsage = lastUsage ?? billing.sum;
+        await session.append({
+            type: "message",
+            ts: Date.now(),
+            role: "assistant",
+            content: tailParts.length > 0 ? tailParts : "",
+            usage: edgeUsage ? stampUsageCost(modelId, edgeUsage) : undefined,
+            model: modelId,
+        });
+    }
+
+    // Post-turn recap: only for turns that wrote/edited files, detached so the
+    // prompt frees immediately — the data-recap event lands in the UI whenever
+    // generation finishes. Skipped for hook continuations (the final
+    // continuation recaps the whole turn).
+    const recapEnabled = opts.recap ?? getSetting("recap") === true;
+    const recapWorthy = turnDeservesRecap(toolsUsed) && assistantText.trim() !== "";
+    if (recapEnabled && recapWorthy && hookDepth === 0 && !abortSignal?.aborted) {
+        void runRecap({ session, modelId, userInput, assistantText, toolsUsed, tracker, cwd, abortSignal })
+            .then((text) => text && emitter.emit("data-recap", { text }))
+            .catch(() => {}); // best-effort — a failed recap never fails the turn
+    }
+
+    // Stop hooks: a block sends the reason back as a follow-up turn so the
+    // agent keeps working (Claude Code parity, e.g. "tests must pass"). Depth
+    // capped to avoid infinite hook loops.
+    if (!abortSignal?.aborted) {
+        // stop_hook_active mirrors Claude Code: true when this turn is already a
+        // stop-hook continuation, so ported hooks can use it as their loop guard.
+        const stopHooks = await runHooks(
+            "Stop",
+            undefined,
+            { session_id: session.id, transcript_path: session.path, stop_hook_active: hookDepth > 0 },
+            cwd,
+        );
+        for (const m of stopHooks.messages) emitter.emit("hook-message", m);
+        for (const s of stopHooks.terminalSequences) emitter.emit("hook-terminal-sequence", s);
+        if (stopHooks.block && hookDepth < 3) {
+            emitter.emit("hook-message", `stop hook requested continuation: ${stopHooks.reason}`);
+            await runTurn({ ...opts, userInput: `[stop hook] ${stopHooks.reason}`, hookDepth: hookDepth + 1 });
+        }
+    }
+
+    // Extension turn middleware (onAfterTurn) — best-effort, never fails a turn.
+    // No-op when no extensions are loaded.
+    await runAfterTurn(turnContext);
+}

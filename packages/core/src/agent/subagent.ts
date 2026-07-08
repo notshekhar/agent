@@ -10,11 +10,10 @@ import { isStepCount, tool, ToolLoopAgent } from "ai";
 import type { ModelMessage } from "ai";
 import { z } from "zod";
 import type { TurnEmitter } from "./events";
-import { effectiveSdkProvider } from "../auth";
 import { getModel, parseModelId } from "../providers";
 import { getCatalog } from "../catalog";
-import { buildReasoningParams } from "./thinking";
-import { anthropicCachedSystem, moveAnthropicCacheTail } from "./model-messages";
+import { anthropicCachedSystem } from "./model-messages";
+import { buildAgentCallConfig, createStepBilling, createYieldGate } from "./model-call";
 import { getSetting } from "../settings";
 import { createTools } from "../tools";
 import { getMcpManager } from "../mcp";
@@ -33,7 +32,7 @@ import {
 } from "./agents";
 import { runHooks } from "./hooks";
 import { withToolHooks } from "./tool-hooks";
-import { stampUsageCost, sumUsage, type CostTracker } from "./cost";
+import { stampUsageCost, type CostTracker } from "./cost";
 
 const SUBAGENT_SYSTEM_SUFFIX = `
 
@@ -496,46 +495,28 @@ async function runSubagent(
             }) +
             (ctx.skillsPrompt ?? "") +
             SUBAGENT_SYSTEM_SUFFIX;
-        // Anthropic-shaped providers only cache up to explicit cache_control
-        // breakpoints. runTurn sets them, but this loop didn't — so every
-        // subagent step re-billed its whole accumulated context at full input
-        // price (a single long run burned millions of uncached tokens). Anchor
-        // the system prompt once and move a tail breakpoint every step, same
-        // as runTurn.
-        const effSubProvider = effectiveSdkProvider(subProvider);
-        const anthropicCaching = effSubProvider === "anthropic";
-        // Honor the session thinking level for subagents too (matches runTurn):
-        // portable reasoning effort for first-party providers, providerOptions
-        // for community/edge ones. Guarded by the model's reasoning capability.
-        const subThinking = getSetting("thinkingLevel") ?? "off";
-        const subModelInfo = catalog[modelId];
-        const { reasoning: subReasoning, providerOptions: subProviderOptions } = buildReasoningParams(
-            effSubProvider,
-            subModel,
-            subThinking,
-            subModelInfo?.reasoning !== false,
-        );
+        // Shared provider shaping (see model-call.ts): Anthropic caching —
+        // anchored system + per-step moving tail breakpoint, without which
+        // every subagent step re-billed its whole accumulated context at full
+        // input price — plus the session thinking level and output-cap pin,
+        // all matching runTurn by construction.
+        const call = buildAgentCallConfig({
+            provider: subProvider,
+            modelShortId: subModel,
+            thinkingLevel: getSetting("thinkingLevel") ?? "off",
+            modelInfo: catalog[modelId],
+        });
         // AI SDK's native agent loop — same streamText core runTurn uses, with
         // the loop/stop handling owned by the SDK.
         const agent = new ToolLoopAgent({
             model: await getModel(modelId),
-            instructions: anthropicCaching ? anthropicCachedSystem(system) : system,
+            instructions: call.anthropicCaching ? anthropicCachedSystem(system) : system,
             tools: hooked,
             stopWhen: isStepCount(maxSteps),
-            // See runTurn: the AI SDK caps unrecognized Anthropic ids at 4096
-            // output tokens; pin the catalog max so newer models aren't truncated.
-            ...(effSubProvider === "anthropic" && subModelInfo?.maxOutput
-                ? { maxOutputTokens: subModelInfo.maxOutput }
-                : {}),
-            ...(subReasoning ? { reasoning: subReasoning } : {}),
-            ...(subProviderOptions ? { providerOptions: subProviderOptions as never } : {}),
-            ...(anthropicCaching
-                ? {
-                      prepareStep: ({ messages }: { messages: ModelMessage[] }) => ({
-                          messages: moveAnthropicCacheTail(messages),
-                      }),
-                  }
-                : {}),
+            ...(call.maxOutputTokens ? { maxOutputTokens: call.maxOutputTokens } : {}),
+            ...(call.reasoning ? { reasoning: call.reasoning } : {}),
+            ...(call.providerOptions ? { providerOptions: call.providerOptions as never } : {}),
+            ...(call.prepareStep ? { prepareStep: call.prepareStep } : {}),
         });
         const stallSeconds = getSetting("subagentStallSeconds") ?? 180;
         if (ctx.abortSignal?.aborted) stall.abort();
@@ -571,13 +552,13 @@ async function runSubagent(
         // model → stays undefined (never a misleading $0.00).
         let usdTotal: number | undefined;
         let totalUsage: UsageBlock | undefined;
-        // Running per-step sum — when the run is aborted mid-flight `finish`
-        // never arrives, but the completed steps were already billed; persist
-        // their sum so a resumed session seeds the real cost instead of 0.
-        let stepUsageSum: UsageBlock | undefined;
-        // Ledger rows billed per step, attributed to the single subagent
-        // entry once it's persisted (money first, attribution second).
-        const ledgerRowIds: number[] = [];
+        // Per-step accrual (running sum for abort-safe cost seeding + ledger
+        // rows awaiting attribution to the single subagent entry).
+        const billing = createStepBilling(ctx.tracker, modelId, {
+            cwd: ctx.cwd,
+            sessionPub: ctx.sessionId,
+            source: "subagent",
+        });
         // One ordered activity log: text, reasoning, and tool parts appended in
         // stream order so the subagent's real flow (text → tool → text → …) is
         // preserved — structured, so renderers can style each kind on its own.
@@ -601,7 +582,7 @@ async function runSubagent(
             if (last && last.type === type) last.text += text;
             else activity.push({ type, text });
         };
-        let lastYieldAt = Date.now();
+        const maybeYield = createYieldGate();
         rearmStall();
         try {
             for await (const part of result.stream) {
@@ -635,14 +616,7 @@ async function runSubagent(
                         steps++;
                         const u = (part as { usage?: UsageBlock }).usage;
                         if (u) {
-                            stepUsageSum = sumUsage(stepUsageSum, u);
-                            ctx.tracker.add(modelId, u, {
-                                cwd: ctx.cwd,
-                                sessionPub: ctx.sessionId,
-                                source: "subagent",
-                            });
-                            const rowId = ctx.tracker.takeLastLedgerRowId();
-                            if (rowId !== undefined) ledgerRowIds.push(rowId);
+                            billing.onStepUsage(u);
                             const stepUsd = stampUsageCost(modelId, u).usd;
                             if (stepUsd !== undefined) usdTotal = (usdTotal ?? 0) + stepUsd;
                             ctx.emitter.emit("subagent-step-usage", {
@@ -661,13 +635,9 @@ async function runSubagent(
                         break;
                     }
                 }
-                // Yield to the event loop between buffered parts so the parent TUI's
-                // render timers fire — same starvation fix as the main loop in
-                // index.ts (see yieldToEventLoop there for the full rationale).
-                if (Date.now() - lastYieldAt >= 16) {
-                    await new Promise((resolve) => setImmediate(resolve));
-                    lastYieldAt = Date.now();
-                }
+                // Yield to the event loop between buffered parts so the parent
+                // TUI's render timers fire — see model-call.ts for the rationale.
+                await maybeYield();
             }
         } catch (streamErr) {
             // An aborted stream may end by throwing (SDK/provider dependent).
@@ -723,7 +693,7 @@ async function runSubagent(
         // Persist for resume, same shape the events streamed: `activity` is
         // the full ordered run (what the box renders next time), `result` the
         // final report (what the model re-reads via toModelMessages).
-        const runUsage = totalUsage ?? stepUsageSum;
+        const runUsage = totalUsage ?? billing.sum;
         const stats: SubagentStats = {
             steps,
             durationMs: Date.now() - startedAt,
@@ -749,7 +719,7 @@ async function runSubagent(
         // A subagent run is many billed steps but one persisted entry —
         // attribute every step's ledger row to it.
         const entryId = (subagentEntry as { id?: string }).id;
-        if (entryId) for (const rowId of ledgerRowIds) attachLedgerEntry(rowId, entryId);
+        if (entryId) for (const rowId of billing.rowIds) attachLedgerEntry(rowId, entryId);
 
         // The history is the tool output (saved + rendered); toModelOutput
         // extracts the report for the model.
