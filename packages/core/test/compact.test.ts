@@ -25,6 +25,60 @@ describe("compactedContextEntries", () => {
         expect(out.map((e) => e.kind)).toEqual(["message", "subagent", "message"]);
     });
 
+    test("an active todo list written before the cut is re-injected after the summary", () => {
+        const items = [
+            { content: "read code", status: "completed" },
+            { content: "wire handler", status: "in_progress" },
+        ];
+        const out = compactedContextEntries(
+            fakeSession([
+                msg("user", "old-1"),
+                { type: "custom", ts: 0, payload: { kind: "todos", items } } as Entry,
+                msg("assistant", "old-2"),
+                { type: "compact", summary: "SUMMARY", cutAt: 2, ts: 0, tokensBefore: 0, tokensAfter: 0 },
+                msg("user", "new-1"),
+            ]),
+        );
+        expect(String((out[0] as { content: unknown }).content)).toContain("SUMMARY");
+        const todoMsg = String((out[1] as { content: unknown }).content);
+        expect(todoMsg).toContain("todo checklist was active before the compaction");
+        expect(todoMsg).toContain("2. [in_progress] wire handler");
+        expect(out[2]).toMatchObject({ kind: "message", content: "new-1" });
+    });
+
+    test("a post-cut todo write supersedes the pre-cut list — no re-injection", () => {
+        const pre = [{ content: "old", status: "in_progress" }];
+        const post = [{ content: "new", status: "in_progress" }];
+        const out = compactedContextEntries(
+            fakeSession([
+                { type: "custom", ts: 0, payload: { kind: "todos", items: pre } } as Entry,
+                msg("user", "old-1"),
+                msg("assistant", "old-2"),
+                { type: "compact", summary: "SUMMARY", cutAt: 2, ts: 0, tokensBefore: 0, tokensAfter: 0 },
+                msg("user", "new-1"),
+                { type: "custom", ts: 0, payload: { kind: "todos", items: post } } as Entry,
+            ]),
+        );
+        expect(out.some((e) => String((e as { content?: unknown }).content ?? "").includes("checklist"))).toBe(false);
+    });
+
+    test("an all-terminal pre-cut list is not re-injected", () => {
+        const items = [
+            { content: "a", status: "completed" },
+            { content: "b", status: "cancelled" },
+        ];
+        const out = compactedContextEntries(
+            fakeSession([
+                { type: "custom", ts: 0, payload: { kind: "todos", items } } as Entry,
+                msg("user", "old-1"),
+                msg("assistant", "old-2"),
+                { type: "compact", summary: "SUMMARY", cutAt: 2, ts: 0, tokensBefore: 0, tokensAfter: 0 },
+                msg("user", "new-1"),
+            ]),
+        );
+        expect(out.some((e) => String((e as { content?: unknown }).content ?? "").includes("checklist"))).toBe(false);
+    });
+
     test("compact cut drops earlier messages and their subagents", () => {
         const out = compactedContextEntries(
             fakeSession([

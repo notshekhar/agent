@@ -24,10 +24,18 @@ describe("formatTodoPanel", () => {
     });
 
     test("status markers: [ ] pending, [>] in_progress, [x] completed", () => {
-        const lines = plain(formatTodoPanel([item("read", "completed"), item("wire", "in_progress"), item("test")], 60));
+        const lines = plain(
+            formatTodoPanel([item("read", "completed"), item("wire", "in_progress"), item("test")], 60),
+        );
         expect(lines[1]).toBe("[x] read");
         expect(lines[2]).toBe("[>] wire");
         expect(lines[3]).toBe("[ ] test");
+    });
+
+    test("cancelled renders as a [-] row", () => {
+        const lines = plain(formatTodoPanel([item("dropped", "cancelled"), item("next")], 60));
+        expect(lines[1]).toBe("[-] dropped");
+        expect(lines[2]).toBe("[ ] next");
     });
 
     test("in_progress shows activeForm when present", () => {
@@ -63,6 +71,14 @@ describe("formatTodoPanel", () => {
 });
 
 describe("TodoPanel", () => {
+    test("allCompleted treats cancelled as terminal", () => {
+        const p = new TodoPanel();
+        p.setItems([item("a", "completed"), item("b", "cancelled")]);
+        expect(p.allCompleted()).toBe(true);
+        p.setItems([item("a", "completed"), item("b", "cancelled"), item("c")]);
+        expect(p.allCompleted()).toBe(false);
+    });
+
     test("setItems/clear drive render and allCompleted", () => {
         const p = new TodoPanel();
         expect(p.render(80)).toEqual([]);

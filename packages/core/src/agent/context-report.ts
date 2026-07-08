@@ -76,7 +76,7 @@ function toolTokens(tools: Record<string, unknown>): number {
 const TASK_TOOL_EST_TOKENS = 400;
 
 /** Same story for the todo tool (needs a live session + emitter). */
-const TODO_TOOL_EST_TOKENS = 250;
+const TODO_TOOL_EST_TOKENS = 420;
 
 export async function buildContextReport(opts: {
     session: Session | null;

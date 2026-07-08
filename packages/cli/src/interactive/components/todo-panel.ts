@@ -21,8 +21,14 @@ function clip(s: string, width: number): string {
 
 function row(item: TodoItem): string {
     if (item.status === "completed") return chalk.dim(`[x] ${item.content}`);
+    if (item.status === "cancelled") return chalk.dim.strikethrough(`[-] ${item.content}`);
     if (item.status === "in_progress") return chalk.cyan.bold(`[>] ${item.activeForm?.trim() || item.content}`);
     return chalk.dim(`[ ] ${item.content}`);
+}
+
+/** Completed and cancelled are both terminal — no work left on the item. */
+function isTerminal(item: TodoItem): boolean {
+    return item.status === "completed" || item.status === "cancelled";
 }
 
 /**
@@ -36,7 +42,7 @@ function visibleSubset(items: TodoItem[], maxItems: number): { shown: TodoItem[]
     const byPriority = [
         ...items.filter((t) => t.status === "in_progress"),
         ...items.filter((t) => t.status === "pending"),
-        ...items.filter((t) => t.status === "completed").reverse(),
+        ...items.filter(isTerminal).reverse(),
     ];
     for (const t of byPriority) {
         if (keep.size >= maxItems) break;
@@ -75,7 +81,7 @@ export class TodoPanel implements Component {
     }
 
     allCompleted(): boolean {
-        return this.items.length > 0 && this.items.every((t) => t.status === "completed");
+        return this.items.length > 0 && this.items.every(isTerminal);
     }
 
     count(): number {

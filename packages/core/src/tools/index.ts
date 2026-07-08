@@ -90,8 +90,11 @@ export {
 // after the task tool so subagents never inherit it. Works in print mode.
 export {
     clearSessionTodos,
+    createTodoNudger,
     createTodoTool,
+    formatTodoList,
     getSessionTodos,
+    hasActiveTodos,
     isTodosPayload,
     latestTodos,
     TODO_TOOL_NAME,

@@ -32,7 +32,7 @@ Write complete prompts: the subagent knows nothing about this conversation — i
 
 /** Checklist guidance appended when the todo tool is in this turn's toolset. */
 export function buildTodoNote(): string {
-    return `\n\nTodos (todo tool): for any job with 3+ distinct steps, keep a visible checklist the user can watch. Create it when you start, keep exactly one item in_progress (with an activeForm label), and mark each step completed the moment it's done — never batch completions at the end. Each call replaces the whole list, so resend every item. Skip the tool entirely for trivial or single-step requests.`;
+    return `\n\nTodos (todo tool): for any job with 3+ distinct steps, keep a visible checklist the user can watch. Create it when you start, keep exactly one item in_progress (with an activeForm label), and mark each step completed the moment it's done and verified — never batch completions at the end. Capture newly discovered follow-ups as todos; mark abandoned steps cancelled. Each call replaces the whole list, so resend every item. Skip the tool entirely for trivial or single-step requests — when in doubt, use it.`;
 }
 
 export function buildSystemPrompt(opts: {

@@ -1,6 +1,7 @@
 import { generateText } from "ai";
 import { getModel } from "../providers";
 import { attachLedgerEntry, type Session } from "../sessions";
+import { formatTodoList, hasActiveTodos, isTodosPayload, type TodoItem } from "../tools/todo";
 import { isAbortError } from "./abort";
 import { BRANCH_SUMMARY_PREAMBLE } from "./branch-summary";
 import { stampUsageCost, type CostTracker } from "./cost";
@@ -80,6 +81,12 @@ export function compactedContextEntries(session: Session): ContextEntry[] {
     const compact = latestCompact(session);
     const out: ContextEntry[] = [];
     let messageIndex = 0;
+    // Todo survival: a checklist whose last write fell into the summarized
+    // region would otherwise vanish from the model's context (the panel keeps
+    // showing it, but the model no longer knows it exists). Track the latest
+    // pre-cut list; a post-cut write supersedes it (its tool call/result
+    // survives in the kept messages, so no re-injection needed).
+    let preCutTodos: TodoItem[] | null = null;
     for (const e of session.getBranch()) {
         if (e.type === "message") {
             const idx = messageIndex++;
@@ -91,9 +98,21 @@ export function compactedContextEntries(session: Session): ContextEntry[] {
         } else if (e.type === "branch-summary" && e.summary) {
             if (compact && messageIndex < compact.cutAt) continue;
             out.push({ kind: "message", role: "user", content: `${BRANCH_SUMMARY_PREAMBLE}${e.summary}` });
+        } else if (e.type === "custom" && compact && isTodosPayload(e.payload)) {
+            preCutTodos = messageIndex < compact.cutAt ? e.payload.items : null;
         }
     }
     if (compact) {
+        if (preCutTodos && hasActiveTodos(preCutTodos)) {
+            out.unshift({
+                kind: "message",
+                role: "user",
+                content:
+                    "Your todo checklist was active before the compaction above. Current list:\n" +
+                    `${formatTodoList(preCutTodos)}\n` +
+                    "Keep maintaining it with the todo tool — resend the full list, updated, as you make progress.",
+            });
+        }
         const summary = `${COMPACTION_SUMMARY_PREFIX}${compact.summary}${COMPACTION_SUMMARY_SUFFIX}`;
         out.unshift({ kind: "message", role: "user", content: summary });
     }

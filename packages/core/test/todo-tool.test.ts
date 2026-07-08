@@ -1,5 +1,16 @@
 import { describe, expect, test } from "bun:test";
-import { isTodosPayload, latestTodos, validateTodos, type TodoItem } from "../src/tools/todo";
+import {
+    createTodoNudger,
+    formatTodoList,
+    hasActiveTodos,
+    isTodosPayload,
+    latestTodos,
+    TODO_NUDGE_STALE_AFTER,
+    TODO_NUDGE_START_AFTER,
+    TODO_TOOL_NAME,
+    validateTodos,
+    type TodoItem,
+} from "../src/tools/todo";
 
 const item = (content: string, status: TodoItem["status"] = "pending", activeForm?: string): TodoItem => ({
     content,
@@ -36,6 +47,69 @@ describe("validateTodos", () => {
         const many = Array.from({ length: 51 }, (_, i) => item(`step ${i}`));
         expect(validateTodos(many)).toStartWith("REJECTED:");
     });
+
+    test("accepts cancelled items", () => {
+        expect(validateTodos([item("a", "cancelled"), item("b", "in_progress")])).toBeNull();
+    });
+});
+
+describe("formatTodoList", () => {
+    test("numbers items with their status", () => {
+        expect(formatTodoList([item("read code", "completed"), item("wire handler", "in_progress")])).toBe(
+            "1. [completed] read code\n2. [in_progress] wire handler",
+        );
+    });
+});
+
+describe("hasActiveTodos", () => {
+    test("true when any item is pending or in_progress", () => {
+        expect(hasActiveTodos([item("a", "completed"), item("b")])).toBe(true);
+        expect(hasActiveTodos([item("a", "in_progress")])).toBe(true);
+    });
+
+    test("false for empty and all-terminal lists", () => {
+        expect(hasActiveTodos([])).toBe(false);
+        expect(hasActiveTodos([item("a", "completed"), item("b", "cancelled")])).toBe(false);
+    });
+});
+
+describe("createTodoNudger", () => {
+    const calls = (n: number, name = "bash") => Array.from({ length: n }, () => name);
+
+    test("stale active list nudges after the threshold, then backs off", () => {
+        const items = [item("a", "in_progress")];
+        const nudge = createTodoNudger(() => items);
+        expect(nudge(calls(TODO_NUDGE_STALE_AFTER - 1))).toBeNull();
+        expect(nudge(calls(TODO_NUDGE_STALE_AFTER))).toContain("todo list has not been updated");
+        // Immediately after a nudge: quiet until another threshold's worth of calls.
+        expect(nudge(calls(TODO_NUDGE_STALE_AFTER + 3))).toBeNull();
+        expect(nudge(calls(TODO_NUDGE_STALE_AFTER * 2))).toContain("todo list has not been updated");
+    });
+
+    test("a todo write resets the staleness counter", () => {
+        const items = [item("a", "in_progress")];
+        const nudge = createTodoNudger(() => items);
+        const history = [...calls(TODO_NUDGE_STALE_AFTER - 1), TODO_TOOL_NAME, ...calls(3)];
+        expect(nudge(history)).toBeNull();
+    });
+
+    test("listless long turns get exactly one create-a-list nudge", () => {
+        const nudge = createTodoNudger(() => []);
+        expect(nudge(calls(TODO_NUDGE_START_AFTER - 1))).toBeNull();
+        expect(nudge(calls(TODO_NUDGE_START_AFTER))).toContain("without a todo list");
+        expect(nudge(calls(TODO_NUDGE_START_AFTER * 3))).toBeNull();
+    });
+
+    test("no start nudge once a todo write happened, even if the list emptied", () => {
+        const nudge = createTodoNudger(() => []);
+        expect(nudge([TODO_TOOL_NAME, ...calls(TODO_NUDGE_START_AFTER + 5)])).toBeNull();
+    });
+
+    test("all-terminal list neither stale-nudges nor start-nudges after a write", () => {
+        const items = [item("a", "completed"), item("b", "cancelled")];
+        const nudge = createTodoNudger(() => items);
+        expect(nudge([TODO_TOOL_NAME, ...calls(TODO_NUDGE_START_AFTER * 2)])).toBeNull();
+    });
 });
 
 describe("isTodosPayload", () => {
@@ -55,7 +129,9 @@ describe("isTodosPayload", () => {
 
 describe("latestTodos", () => {
     test("null when the branch never had a list", () => {
-        expect(latestTodos([{ type: "message" }, { type: "custom", payload: { kind: "recap", text: "x" } }])).toBeNull();
+        expect(
+            latestTodos([{ type: "message" }, { type: "custom", payload: { kind: "recap", text: "x" } }]),
+        ).toBeNull();
     });
 
     test("returns the most recent todos payload, skipping later non-todo customs", () => {

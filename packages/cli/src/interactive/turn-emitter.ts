@@ -170,7 +170,7 @@ export function wireTurnEmitter(emitter: TurnEmitter, deps: TurnEmitterDeps): vo
         // A fully-completed checklist retires into the scrollback as one dim
         // line, freeing the pinned rows for the next job.
         if (todoPanel.allCompleted()) {
-            history.addSystem(`todos: all ${todoPanel.count()} completed`);
+            history.addSystem(`todos: all ${todoPanel.count()} done`);
             todoPanel.clear();
         }
         refreshStatusLine(pickContextUsage(event));

@@ -3,7 +3,7 @@
  * streaming, tools, hooks, persistence, and billing. The provider-shaping and
  * per-step accrual it shares with runSubagent live in model-call.ts.
  */
-import { streamText, isStepCount } from "ai";
+import { streamText, isStepCount, type ModelMessage } from "ai";
 import { toolInputDeltaEvent, toolInputStartEvent, type TurnEmitter } from "./events";
 import { getModel, parseModelId } from "../providers";
 import { getCatalog } from "../catalog";
@@ -11,9 +11,11 @@ import { getSetting } from "../settings";
 import {
     createAskTool,
     createPlanTool,
+    createTodoNudger,
     createTodoTool,
     createTools,
     createWebsearchTool,
+    getSessionTodos,
     isAskUserAvailable,
     planDeliveredThisStep,
     PLAN_TOOL_NAME,
@@ -527,6 +529,37 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
     // No-op when no extensions are loaded.
     providerOptions = applyProviderOptions(providerOptions, turnContext) as typeof providerOptions;
 
+    // Todo staleness nudge (prepareStep seam): when the checklist has gone
+    // unmaintained for many tool calls, append an ephemeral system-reminder to
+    // the next request only — never persisted, so the prompt-cache prefix and
+    // the transcript stay clean. Layered AFTER the caching prepareStep so the
+    // cache breakpoint lands on stable history, with the nudge as uncached tail.
+    const todoNudger = TODO_TOOL_NAME in toolsForTurn ? createTodoNudger(() => getSessionTodos(session.id)) : null;
+    const basePrepareStep = call.prepareStep;
+    const prepareStep =
+        todoNudger || basePrepareStep
+            ? (opts: {
+                  messages: ModelMessage[];
+                  steps?: ReadonlyArray<{ toolCalls?: ReadonlyArray<{ toolName?: string }> }>;
+              }) => {
+                  let stepMessages = basePrepareStep
+                      ? basePrepareStep({ messages: opts.messages }).messages
+                      : opts.messages;
+                  if (todoNudger) {
+                      const calls: string[] = [];
+                      for (const s of opts.steps ?? []) {
+                          for (const c of s.toolCalls ?? []) if (c.toolName) calls.push(c.toolName);
+                      }
+                      const nudge = todoNudger(calls);
+                      if (nudge) {
+                          debugLog("todo", `nudge injected after ${calls.length} tool calls (session ${session.id})`);
+                          stepMessages = [...stepMessages, { role: "user", content: nudge }];
+                      }
+                  }
+                  return { messages: stepMessages };
+              }
+            : undefined;
+
     // Incremental persistence: each completed step's messages are written as it
     // finishes, so tool calls/results AND the final answer survive turn
     // boundaries and aborts. `step.response.messages` holds only THIS step's new
@@ -587,9 +620,10 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
               {
                   messages: withAnthropicCaching(system, messages),
                   allowSystemInMessages: true,
-                  prepareStep: call.prepareStep,
               }
             : { instructions: system, messages }),
+        // Caching tail-move and/or todo nudge — undefined when neither applies.
+        ...(prepareStep ? { prepareStep } : {}),
         tools,
         // A plan-capable turn also stops once a substantial plan is delivered
         // (stub deliveries keep the loop alive — see planDeliveredThisStep).
