@@ -58,6 +58,18 @@ export interface ThemeColors {
     thinkingHigh: string | number;
     thinkingXhigh: string | number;
     bashMode: string | number;
+    /** UI-mode slots — optional ("" = terminal default). Modes that wash the
+     * canvas or draw per-block accents define these in their own themes; the
+     * loop themes carry neutral values so any renderer can reference them. */
+    bgBase?: string | number;
+    bgRaised?: string | number;
+    accentUser?: string | number;
+    accentAssistant?: string | number;
+    accentThinking?: string | number;
+    accentTool?: string | number;
+    timestamp?: string | number;
+    selectionBorder?: string | number;
+    turnSummary?: string | number;
 }
 
 export interface ThemeJson {
@@ -139,6 +151,15 @@ export const DARK_THEME: ThemeJson = {
         thinkingHigh: "#b294bb",
         thinkingXhigh: "#d183e8",
         bashMode: "green",
+        bgBase: "",
+        bgRaised: "userMsgBg",
+        accentUser: "accent",
+        accentAssistant: "text",
+        accentThinking: "gray",
+        accentTool: "gray",
+        timestamp: "dimGray",
+        selectionBorder: "blue",
+        turnSummary: "dimGray",
     },
 };
 
@@ -214,5 +235,14 @@ export const LIGHT_THEME: ThemeJson = {
         thinkingHigh: "#875f87",
         thinkingXhigh: "#8b008b",
         bashMode: "green",
+        bgBase: "",
+        bgRaised: "userMsgBg",
+        accentUser: "teal",
+        accentAssistant: "text",
+        accentThinking: "mediumGray",
+        accentTool: "mediumGray",
+        timestamp: "dimGray",
+        selectionBorder: "blue",
+        turnSummary: "dimGray",
     },
 };

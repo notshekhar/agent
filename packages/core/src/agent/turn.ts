@@ -578,24 +578,41 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
     // Serialize appends so each step's messages land in order even if onStepEnd
     // callbacks overlap.
     let persistChain: Promise<void> = Promise.resolve();
+    // Filled by the stream loop's reasoning-start/end events; drained here in
+    // the same order the parts appear in the step's messages.
+    const reasoningDurations: number[] = [];
     const persistStep = (step: {
         response: { messages: ReadonlyArray<{ role: string; content: unknown }> };
         usage?: UsageBlock;
     }): Promise<void> => {
         const entries = stepMessagesToEntries(step.response.messages, step.usage);
         if (entries.length > 0) persistedAnyMessage = true;
+        // Snapshot the durations for THIS step now (the queue keeps filling
+        // while the async append below waits its turn in the chain).
+        const stepReasoningMs = reasoningDurations.splice(0, reasoningDurations.length);
         persistChain = persistChain
             .then(async () => {
-                const rows = entries.map((entry) => ({
-                    type: "message" as const,
-                    ts: Date.now(),
-                    role: entry.role,
-                    content: entry.content,
-                    // Stamp the model AND the billed USD on usage-bearing
-                    // (assistant) entries so cost seeding reads the true
-                    // historical cost after a model switch or catalog drift.
-                    ...(entry.usage ? { usage: stampUsageCost(modelId, entry.usage), model: modelId } : {}),
-                }));
+                const rows = entries.map((entry) => {
+                    // Display metadata: this entry's reasoning-part durations,
+                    // in part order (see the Entry type for why not in content).
+                    const reasoningMs = Array.isArray(entry.content)
+                        ? stepReasoningMs.splice(
+                              0,
+                              (entry.content as Array<{ type?: string }>).filter((p) => p?.type === "reasoning").length,
+                          )
+                        : [];
+                    return {
+                        type: "message" as const,
+                        ts: Date.now(),
+                        role: entry.role,
+                        content: entry.content,
+                        ...(reasoningMs.length > 0 ? { reasoningMs } : {}),
+                        // Stamp the model AND the billed USD on usage-bearing
+                        // (assistant) entries so cost seeding reads the true
+                        // historical cost after a model switch or catalog drift.
+                        ...(entry.usage ? { usage: stampUsageCost(modelId, entry.usage), model: modelId } : {}),
+                    };
+                });
                 // One batch = one transaction for the whole step's messages.
                 await session.appendAll(rows);
                 // appendAll assigned ids in place — attribute this step's
@@ -661,6 +678,10 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
     // partial output and estimate its cost.
     let textSinceStep = "";
     let reasoningSinceStep = "";
+    // Wall clock per reasoning part (start→end), in stream order — stamped
+    // onto the step's assistant entry as reasoningMs so "Thought for Xs"
+    // survives resume. Consumed by persistStep in the same order.
+    let reasoningStartedAt = 0;
 
     const maybeYield = createYieldGate();
     // The interrupt can land between parts (caught by the `break` below) or while
@@ -684,9 +705,11 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
                     break;
                 }
                 case "reasoning-start":
+                    reasoningStartedAt = Date.now();
                     emitter.emit("reasoning-start");
                     break;
                 case "reasoning-end":
+                    reasoningDurations.push(Date.now() - (reasoningStartedAt || Date.now()));
                     emitter.emit("reasoning-end");
                     break;
                 case "tool-input-start":

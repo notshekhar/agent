@@ -2,7 +2,11 @@
 import { KeybindingsManager, setKeybindings, TUI_KEYBINDINGS } from "@notshekhar/loop-tui";
 
 const APP_KEYBINDINGS = {
-    "app.tools.expand": { defaultKeys: "ctrl+e", description: "Toggle tool output" },
+    "app.nav.enter": {
+        defaultKeys: ["ctrl+e", "escape", "alt+up", "ctrl+up"],
+        description: "Toggle transcript navigation (Esc form needs an idle empty prompt)",
+    },
+    "app.tools.expand": { defaultKeys: "e", description: "Expand/collapse all (in navigation mode)" },
     "app.interrupt": { defaultKeys: "escape", description: "Interrupt agent" },
     "app.clear": { defaultKeys: "ctrl+c", description: "Clear / exit" },
     "app.continue": { defaultKeys: "ctrl+g", description: 'Send "continue"' },

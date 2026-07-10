@@ -5,16 +5,24 @@
  * file watcher). Custom themes still load from ~/.loop/agent/themes/<name>.json
  * using a simple theme JSON shape (vars + colors).
  */
-import { CONFIG_DIR_NAME } from "@notshekhar/loop-core";
+import { CONFIG_DIR_NAME, settingsStore } from "@notshekhar/loop-core";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { MarkdownTheme, SelectListTheme } from "@notshekhar/loop-tui";
 import chalk from "chalk";
-import { DARK_THEME, LIGHT_THEME, type ThemeColors, type ThemeJson } from "./themes";
+import { DARK_THEME, type ThemeColors, type ThemeJson } from "./themes";
+import { activeUiMode, setActiveUiMode } from "./ui-mode";
 
 export type ThemeColor = keyof ThemeColors & string;
 export type ThemeBg =
-    "selectedBg" | "userMessageBg" | "customMessageBg" | "toolPendingBg" | "toolSuccessBg" | "toolErrorBg";
+    | "selectedBg"
+    | "userMessageBg"
+    | "customMessageBg"
+    | "toolPendingBg"
+    | "toolSuccessBg"
+    | "toolErrorBg"
+    | "bgBase"
+    | "bgRaised";
 
 type ColorMode = "truecolor" | "256color";
 type ColorValue = string | number;
@@ -114,21 +122,31 @@ const BG_KEYS: ReadonlySet<string> = new Set<ThemeBg>([
     "toolPendingBg",
     "toolSuccessBg",
     "toolErrorBg",
+    "bgBase",
+    "bgRaised",
 ]);
 
 export class Theme {
     readonly name: string;
     private fgColors = new Map<string, string>();
     private bgColors = new Map<string, string>();
+    private rawColors = new Map<string, ColorValue>();
 
     constructor(json: ThemeJson, mode: ColorMode = detectColorMode()) {
         this.name = json.name;
         const vars = json.vars ?? {};
         for (const [key, raw] of Object.entries(json.colors)) {
             const value = resolveVarRefs(raw, vars);
+            this.rawColors.set(key, value);
             if (BG_KEYS.has(key)) this.bgColors.set(key, bgAnsi(value, mode));
             else this.fgColors.set(key, fgAnsi(value, mode));
         }
+    }
+
+    /** The slot's resolved raw value (hex / 256-index / "" for terminal
+     * default), for uses beyond SGR text — e.g. the OSC 11 canvas wash. */
+    raw(color: ThemeColor | ThemeBg): ColorValue | undefined {
+        return this.rawColors.get(color);
     }
 
     fg(color: ThemeColor, text: string): string {
@@ -174,8 +192,10 @@ function customThemesDir(): string {
 }
 
 function loadThemeJson(name: string): ThemeJson {
-    if (name === "dark") return DARK_THEME;
-    if (name === "light") return LIGHT_THEME;
+    // The active UI mode's own themes first (loop owns dark/light), then the
+    // user's custom theme files.
+    const builtin = activeUiMode().themes.find((t) => t.name === name);
+    if (builtin) return builtin;
     const file = path.join(customThemesDir(), `${name}.json`);
     const custom = JSON.parse(fs.readFileSync(file, "utf8")) as ThemeJson;
     // Colors added after a custom theme was written fall back to dark's —
@@ -184,11 +204,30 @@ function loadThemeJson(name: string): ThemeJson {
 }
 
 export function initTheme(themeName = "dark"): void {
+    const fallback = activeUiMode().themes[0] ?? DARK_THEME;
     try {
         activeTheme = new Theme(loadThemeJson(themeName));
     } catch {
-        activeTheme = new Theme(DARK_THEME);
+        activeTheme = new Theme(fallback);
     }
+}
+
+/**
+ * Activate the configured UI mode and its theme (startup and /reload).
+ * Mode themes resolve from `uiThemes[modeId]`; loop keeps honoring the legacy
+ * `theme` key. Unknown modes (e.g. an uninstalled extension's) fall back to
+ * loop rather than failing startup.
+ */
+export function initUiModeAndTheme(): void {
+    const raw = (settingsStore.get("uiMode") as string | undefined) ?? "loop";
+    // The dark-canvas mode shipped briefly as "grok" — honor old settings.
+    const modeId = raw === "grok" ? "noir" : raw;
+    if (!setActiveUiMode(modeId)) setActiveUiMode("loop");
+    const mode = activeUiMode();
+    const perMode = settingsStore.get("uiThemes") as Record<string, string> | undefined;
+    const legacy = mode.id === "loop" ? (settingsStore.get("theme") as string | undefined) : undefined;
+    const perModeTheme = perMode?.[mode.id] ?? (mode.id === "noir" ? perMode?.grok : undefined);
+    initTheme(perModeTheme ?? legacy ?? mode.themes[0]?.name ?? "dark");
 }
 
 // ---------------------------------------------------------------------------

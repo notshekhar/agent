@@ -29,6 +29,8 @@ export interface CommandContext {
     showHotkeys(): void;
     copyLastAssistant(): Promise<void>;
     setSessionName(name: string): void;
+    /** /ui — show or switch the UI mode ("experience"): /ui · /ui <mode>. */
+    switchUiMode(args: string): void;
     attachImage(path?: string): Promise<void> | void;
     exportSession(target?: string): Promise<void>;
     importSession(path: string): Promise<void>;
@@ -342,6 +344,11 @@ export async function registerBuiltins(reg: CommandRegistry, opts: { cwd?: strin
             handler: async (ctx) => {
                 await ctx.openSettings();
             },
+        },
+        {
+            name: "ui",
+            description: "Show or switch the UI mode (experience): /ui · /ui <mode>",
+            handler: (ctx, args) => ctx.switchUiMode(args ?? ""),
         },
         {
             name: "hotkeys",

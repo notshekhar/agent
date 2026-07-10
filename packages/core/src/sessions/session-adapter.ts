@@ -67,6 +67,11 @@ export function adaptSessionEntry(raw: unknown): Entry | null {
                 // instead of dropping the turn. Both must survive the reload.
                 ...(typeof obj.model === "string" ? { model: obj.model } : {}),
                 ...(obj.interrupted === true ? { interrupted: true } : {}),
+                // Per-reasoning-part durations — display metadata for
+                // "Thought for Xs" on resume (see the Entry type).
+                ...(Array.isArray(obj.reasoningMs) && obj.reasoningMs.every((n) => typeof n === "number")
+                    ? { reasoningMs: obj.reasoningMs as number[] }
+                    : {}),
                 ...tree,
             };
         }

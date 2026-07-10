@@ -1,10 +1,13 @@
 import { Container, Markdown, Spacer, Text, type TUI } from "@notshekhar/loop-tui";
 import { formatSubagentActivity, type SubagentActivityPart } from "@notshekhar/loop-core";
-import { getMarkdownTheme } from "../ui/theme";
+import { getMarkdownTheme, theme } from "../ui/theme";
+import { uiStyle } from "../ui/ui-mode";
+import { formatTaskDuration } from "../ui/tool-execution";
 import {
     AssistantMessageComponent,
     BranchSummaryMessageComponent,
     CompactionSummaryMessageComponent,
+    type FoldableHandle,
     parseSkillBlock,
     SkillInvocationMessageComponent,
     UserMessageComponent,
@@ -64,8 +67,45 @@ export class ChatHistory extends Container {
     private allToolComponents: ToolExecutionComponent[] = [];
     private skillComponents: SkillInvocationMessageComponent[] = [];
     private compactionComponents: CompactionSummaryMessageComponent[] = [];
+    private assistantComponents: AssistantMessageComponent[] = [];
     private assistantTurn: Container | null = null;
     private expanded = false;
+    /** Every selectable entry in transcript order — user prompts, response
+     * text, thinking, tool calls — addressable by the ctrl+up/down selection
+     * (alt+up/down jumps between user turns). */
+    private foldables: Array<{
+        kind: "user" | "response" | "thinking" | "tool";
+        handle: FoldableHandle;
+        getText: () => string;
+        /** Component that renders this entry (user/tool: the component
+         * itself; thinking/response: the assistant message + content index)
+         * — lets range tracking map rendered lines back to entries. */
+        comp: unknown;
+        contentIndex?: number;
+    }> = [];
+    private selectedFoldable: number | null = null;
+    /** Line ranges per foldable within the last full render (click targets
+     * and the scroll anchor). Rebuilt on every render. */
+    private lastRanges: Array<{ fIdx: number; start: number; end: number }> = [];
+    /** Full-transcript render cache, trusted only while the nav viewport is
+     * on. Scrolling re-renders NOTHING — it slices these lines. Every content
+     * mutation (deltas, tool updates, folds, selection) calls markDirty(). */
+    private fullCache: {
+        width: number;
+        lines: string[];
+        ranges: Array<{ fIdx: number; start: number; end: number }>;
+    } | null = null;
+
+    private markDirty(): void {
+        this.fullCache = null;
+    }
+
+    override invalidate(): void {
+        this.markDirty();
+        super.invalidate();
+    }
+    /** Window geometry of the last render, when the viewport clipped it. */
+    private lastViewport: { offset: number; sliceLen: number } | null = null;
 
     constructor(
         private tui: TUI,
@@ -77,17 +117,266 @@ export class ChatHistory extends Container {
     }
 
     setToolsExpanded(expanded: boolean): void {
+        this.markDirty();
         this.expanded = expanded;
         for (const c of this.allToolComponents) c.setExpanded(expanded);
         for (const c of this.skillComponents) c.setExpanded(expanded);
         for (const c of this.compactionComponents) c.setExpanded(expanded);
+        for (const c of this.assistantComponents) c.setThinkingExpanded(expanded);
+        // Expand-all reflows the whole transcript — re-anchor on the selection.
+        if (this.viewportOn) this.pendingAnchor = true;
     }
     toggleToolsExpanded(): boolean {
         this.setToolsExpanded(!this.expanded);
         return this.expanded;
     }
 
+    // ------------------------------------------------------------------
+    // Navigation viewport: while nav mode is on, render() shows a window of
+    // the transcript that follows the selection — loop owns the scrolling
+    // instead of the terminal, so selection/expand never "jumps" the screen.
+    // ------------------------------------------------------------------
+    private viewportOn = false;
+    private viewportOffset = 0;
+    /** Anchor the window to the selection on the NEXT render only. Set by
+     * user actions (selection moves, folds) — never by passive re-renders,
+     * so a streaming turn growing the selected entry can't drag the window
+     * to the bottom on every delta. */
+    private pendingAnchor = false;
+
+    setViewport(on: boolean): void {
+        this.markDirty();
+        this.viewportOn = on;
+        this.pendingAnchor = true;
+        if (on) this.viewportOffset = Number.MAX_SAFE_INTEGER; // clamp to bottom
+    }
+
+    /** Rows the transcript window may use (editor + status keep the rest). */
+    private viewportRows(): number {
+        return Math.max(6, this.tui.terminal.rows - 8);
+    }
+
+    /** Page height for PgUp/PgDn (full page minus one line of continuity). */
+    viewportPage(): number {
+        return Math.max(1, this.viewportRows() - 1);
+    }
+
+    /** Manual scroll: moves the window; the selection stays where it is. */
+    scrollViewportLines(delta: number): void {
+        this.viewportOffset = Math.max(0, this.viewportOffset + delta);
+        this.pendingAnchor = false;
+    }
+
+    /** Jump the window to the very top/bottom (Home/End). */
+    scrollViewportEdge(edge: "top" | "bottom"): void {
+        this.viewportOffset = edge === "top" ? 0 : Number.MAX_SAFE_INTEGER;
+        this.pendingAnchor = false;
+    }
+
+    /** Full transcript render with per-entry line ranges (lastRanges). This
+     * replaces Container.render so every foldable knows exactly which lines
+     * it produced — the basis for click-to-select and the scroll anchor. */
+    private renderFull(width: number): string[] {
+        const lines: string[] = [];
+        this.lastRanges = [];
+        const compIdx = new Map<unknown, number>();
+        const blockIdx = new Map<unknown, Map<number, number>>();
+        this.foldables.forEach((f, i) => {
+            if (f.contentIndex === undefined) {
+                compIdx.set(f.comp, i);
+            } else {
+                let m = blockIdx.get(f.comp);
+                if (!m) {
+                    m = new Map();
+                    blockIdx.set(f.comp, m);
+                }
+                m.set(f.contentIndex, i);
+            }
+        });
+        const walk = (children: ReadonlyArray<{ render(w: number): string[] }>): void => {
+            for (const child of children) {
+                if (child instanceof AssistantMessageComponent) {
+                    const start = lines.length;
+                    const sub = child.renderTracked(width);
+                    const m = blockIdx.get(child);
+                    if (m) {
+                        for (const b of sub.blocks) {
+                            const fIdx = m.get(b.contentIndex);
+                            if (fIdx !== undefined) {
+                                this.lastRanges.push({ fIdx, start: start + b.start, end: start + b.end });
+                            }
+                        }
+                    }
+                    for (const l of sub.lines) lines.push(l);
+                } else if (compIdx.has(child)) {
+                    const start = lines.length;
+                    const childLines = child.render(width);
+                    this.lastRanges.push({
+                        fIdx: compIdx.get(child)!,
+                        start,
+                        end: Math.max(start, start + childLines.length - 1),
+                    });
+                    for (const l of childLines) lines.push(l);
+                } else if (child instanceof Container) {
+                    // Plain grouping container (assistant turn) — its render is
+                    // just child concatenation, so walking keeps line counts
+                    // identical while reaching the components inside.
+                    walk(child.children);
+                } else {
+                    for (const l of child.render(width)) lines.push(l);
+                }
+            }
+        };
+        walk(this.children);
+        return lines;
+    }
+
+    override render(width: number): string[] {
+        let full: string[];
+        if (this.viewportOn && this.fullCache && this.fullCache.width === width) {
+            full = this.fullCache.lines;
+            this.lastRanges = this.fullCache.ranges;
+        } else {
+            full = this.renderFull(width);
+            this.fullCache = this.viewportOn ? { width, lines: full, ranges: this.lastRanges } : null;
+        }
+        this.lastViewport = null;
+        if (!this.viewportOn) return full;
+        const rows = this.viewportRows();
+        if (full.length <= rows) return full;
+
+        // The selected entry's line range is the scroll anchor — applied once
+        // per user action, then cleared (see pendingAnchor).
+        if (this.pendingAnchor && this.selectedFoldable !== null) {
+            const r = this.lastRanges.find((x) => x.fIdx === this.selectedFoldable);
+            if (r) {
+                const inner = rows - 2; // leave room for the clip indicators
+                // An entry taller than the window pins to its TOP — trying to
+                // fit both ends made the window ping-pong between them.
+                const tall = r.end - r.start + 1 > inner;
+                if (tall || r.start < this.viewportOffset + 1) this.viewportOffset = Math.max(0, r.start - 1);
+                else if (r.end > this.viewportOffset + inner - 1) this.viewportOffset = r.end - inner + 1;
+                this.pendingAnchor = false;
+            }
+        }
+
+        const maxOffset = full.length - (rows - 2);
+        this.viewportOffset = Math.max(0, Math.min(this.viewportOffset, maxOffset));
+        const hasTop = this.viewportOffset > 0;
+        const inner = rows - 2;
+        const hasBottom = this.viewportOffset + inner < full.length;
+        const slice = full.slice(this.viewportOffset, this.viewportOffset + inner);
+        const above = this.viewportOffset;
+        const below = full.length - this.viewportOffset - slice.length;
+        this.lastViewport = { offset: this.viewportOffset, sliceLen: slice.length };
+        return [
+            hasTop ? theme.fg("dim", `   ▲ ${above} more line${above === 1 ? "" : "s"}`) : "",
+            ...slice,
+            hasBottom ? theme.fg("dim", `   ▼ ${below} more line${below === 1 ? "" : "s"}`) : "",
+        ];
+    }
+
+    private selectIndex(next: number): void {
+        this.markDirty();
+        if (this.selectedFoldable !== null) this.foldables[this.selectedFoldable].handle.setSelected(false);
+        this.selectedFoldable = next;
+        this.foldables[next].handle.setSelected(true);
+        this.pendingAnchor = true;
+    }
+
+    /** Move the entry selection (ctrl+up/down). Starts at the most recent
+     * entry — the one on screen. Returns false when nothing is selectable. */
+    moveSelection(delta: -1 | 1): boolean {
+        if (this.foldables.length === 0) return false;
+        const prev = this.selectedFoldable;
+        const next =
+            prev === null ? this.foldables.length - 1 : Math.max(0, Math.min(this.foldables.length - 1, prev + delta));
+        this.selectIndex(next);
+        return true;
+    }
+
+    /** Jump the selection to the previous/next user turn (alt+up/down). */
+    jumpTurn(delta: -1 | 1): boolean {
+        if (this.foldables.length === 0) return false;
+        const from = this.selectedFoldable ?? this.foldables.length;
+        for (let i = from + delta; i >= 0 && i < this.foldables.length; i += delta) {
+            if (this.foldables[i].kind === "user") {
+                this.selectIndex(i);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Toggle the selected entry only. Returns false when nothing is selected
+     * (the caller falls back to the global expand-all). Response text is
+     * selectable (navigation, y-copy) but never folds — collapsing the
+     * conversation itself reads as data loss. */
+    toggleSelected(): boolean {
+        this.markDirty();
+        if (this.selectedFoldable === null) return false;
+        const f = this.foldables[this.selectedFoldable];
+        if (f.kind === "response") return true;
+        f.handle.setExpanded(!f.handle.isExpanded());
+        this.pendingAnchor = true; // folding reflows — keep the entry in view
+        return true;
+    }
+
+    /** Drop the selection (esc). Returns whether there was one to drop. */
+    clearSelection(): boolean {
+        this.markDirty();
+        if (this.selectedFoldable === null) return false;
+        this.foldables[this.selectedFoldable].handle.setSelected(false);
+        this.selectedFoldable = null;
+        return true;
+    }
+
+    /** Select the most recent entry (scrollback-focus entry point). */
+    selectLast(): boolean {
+        if (this.foldables.length === 0) return false;
+        this.selectIndex(this.foldables.length - 1);
+        return true;
+    }
+
+    hasSelection(): boolean {
+        return this.selectedFoldable !== null;
+    }
+
+    /** Explicit open/close of the selected entry (Left/Right keys). */
+    setSelectedExpanded(expanded: boolean): boolean {
+        this.markDirty();
+        if (this.selectedFoldable === null) return false;
+        const f = this.foldables[this.selectedFoldable];
+        if (f.kind === "response") return true; // responses never fold
+        f.handle.setExpanded(expanded);
+        this.pendingAnchor = true;
+        return true;
+    }
+
+    /** The selected entry's plain-text content (y copy). */
+    getSelectedText(): string | null {
+        if (this.selectedFoldable === null) return null;
+        return this.foldables[this.selectedFoldable].getText();
+    }
+
+    /** Select the entry under a clicked line (0-based within this component's
+     * last rendered output). Translates through the viewport window and the
+     * range map from that render. Returns false on a miss (gaps, indicators). */
+    clickAtLocalLine(local: number): boolean {
+        let line = local;
+        if (this.lastViewport) {
+            // Window layout: [top indicator, ...slice, bottom indicator].
+            if (local < 1 || local > this.lastViewport.sliceLen) return false;
+            line = this.lastViewport.offset + (local - 1);
+        }
+        const hit = this.lastRanges.find((r) => line >= r.start && line <= r.end);
+        if (!hit) return false;
+        this.selectIndex(hit.fIdx);
+        return true;
+    }
+
     reset(): void {
+        this.markDirty();
         this.clear();
         this.liveMsg = null;
         this.liveComponent = null;
@@ -95,10 +384,16 @@ export class ChatHistory extends Container {
         this.allToolComponents = [];
         this.skillComponents = [];
         this.compactionComponents = [];
+        this.assistantComponents = [];
         this.assistantTurn = null;
+        this.foldables = [];
+        this.selectedFoldable = null;
+        this.lastRanges = [];
+        this.lastViewport = null;
     }
 
-    addUser(text: string): void {
+    addUser(text: string, ts?: number): void {
+        this.markDirty();
         this.addChild(new Spacer(1));
         // SessionStart hook context is model-facing — collapse it to a dim notice
         // instead of rendering it as part of what the user typed. Applies to live
@@ -121,53 +416,93 @@ export class ChatHistory extends Container {
             this.addChild(comp);
             this.skillComponents.push(comp);
             if (skill.userMessage) {
-                this.addChild(new UserMessageComponent(skill.userMessage));
+                this.addUserComponent(skill.userMessage, ts);
             }
         } else {
-            this.addChild(new UserMessageComponent(text));
+            this.addUserComponent(text, ts);
         }
         this.assistantTurn = null;
     }
 
-    ensureAssistant(provider: string, model: string): void {
+    /** A user message box, registered as a selectable "user" turn entry. */
+    private addUserComponent(text: string, ts?: number): void {
+        const comp = new UserMessageComponent(text, ts);
+        this.addChild(comp);
+        this.foldables.push({ kind: "user", handle: comp, getText: () => comp.getText(), comp });
+    }
+
+    ensureAssistant(provider: string, model: string, ts?: number): void {
+        this.markDirty();
         if (!this.assistantTurn) {
             this.assistantTurn = new Container();
-            this.addChild(new Spacer(1));
+            // Block-gap modes: each block carries its own leading blank, so
+            // the turn-level spacer would double the gap after the user box.
+            if (!uiStyle().layout.blockGaps) this.addChild(new Spacer(1));
             this.addChild(this.assistantTurn);
         }
         if (this.liveComponent) return;
         this.liveMsg = emptyAssistantMessage(provider, model);
         this.liveComponent = new AssistantMessageComponent(this.liveMsg);
+        if (ts !== undefined) this.liveComponent.setCreatedAt(ts);
+        this.liveComponent.setThinkingExpanded(this.expanded);
+        this.assistantComponents.push(this.liveComponent);
         this.assistantTurn.addChild(this.liveComponent);
     }
 
     appendAssistantDelta(text: string, provider: string, model: string): void {
+        this.markDirty();
         this.ensureAssistant(provider, model);
         const msg = this.liveMsg!;
         const last = msg.content[msg.content.length - 1];
         if (last && last.type === "text") {
             last.text += text;
         } else {
-            msg.content.push({ type: "text", text });
+            const entry = { type: "text" as const, text };
+            msg.content.push(entry);
+            // The stream moved past any thinking — close its wall clock.
+            this.liveComponent!.noteThinkingEnd();
+            this.foldables.push({
+                kind: "response",
+                handle: this.liveComponent!.textHandle(msg.content.length - 1),
+                getText: () => entry.text,
+                comp: this.liveComponent!,
+                contentIndex: msg.content.length - 1,
+            });
         }
         this.liveComponent!.updateContent(msg);
     }
 
-    appendAssistantThinking(text: string, provider: string, model: string): void {
+    appendAssistantThinking(text: string, provider: string, model: string, durationMs?: number): void {
+        this.markDirty();
         this.ensureAssistant(provider, model);
         const msg = this.liveMsg!;
         const last = msg.content[msg.content.length - 1];
         if (last && last.type === "thinking") {
             last.thinking += text;
         } else {
-            msg.content.push({ type: "thinking", thinking: text });
+            const entry = { type: "thinking" as const, thinking: text };
+            msg.content.push(entry);
+            const index = msg.content.length - 1;
+            // Replay passes the persisted duration; live streaming starts the
+            // wall clock instead.
+            if (durationMs !== undefined) this.liveComponent!.setThinkingDuration(index, durationMs);
+            else this.liveComponent!.noteThinkingStart(index);
+            this.foldables.push({
+                kind: "thinking",
+                handle: this.liveComponent!.thinkingHandle(index),
+                getText: () => entry.thinking,
+                comp: this.liveComponent!,
+                contentIndex: index,
+            });
         }
         this.liveComponent!.updateContent(msg);
     }
 
     finishAssistant(stopReason: PiAssistantMessage["stopReason"] = "stop"): void {
+        this.markDirty();
         if (this.liveMsg) {
             this.liveMsg.stopReason = stopReason;
+            this.liveComponent?.markDone();
             this.liveComponent?.updateContent(this.liveMsg);
         }
         this.liveMsg = null;
@@ -175,6 +510,7 @@ export class ChatHistory extends Container {
     }
 
     addToolCall(toolName: string, toolCallId: string, args: Record<string, unknown>): void {
+        this.markDirty();
         // The box may already exist from a `tool-input-start` stub — fill in the
         // args on it (once they've finished streaming) instead of duplicating it.
         const existing = this.toolComponents.get(toolCallId);
@@ -185,34 +521,44 @@ export class ChatHistory extends Container {
 
         if (this.liveMsg) {
             this.liveMsg.content.push({ type: "toolCall", id: toolCallId, name: toolName, arguments: args });
+            this.liveComponent?.markDone();
             this.liveComponent?.updateContent(this.liveMsg);
         }
         this.liveMsg = null;
         this.liveComponent = null;
 
         const comp = new ToolExecutionComponent(toolName, args, this.tui, this.cwd);
+        // Tight inside a tool group; every other block owns its own leading
+        // blank (layout.blockGaps), so a group's first row leads with one too.
+        const prevKind = this.foldables.length > 0 ? this.foldables[this.foldables.length - 1].kind : null;
+        comp.setGroupLead(prevKind !== "tool");
         if (this.expanded) comp.setExpanded(true);
         (this.assistantTurn ?? this).addChild(comp);
         this.toolComponents.set(toolCallId, comp);
         this.allToolComponents.push(comp);
+        this.foldables.push({ kind: "tool", handle: comp, getText: () => comp.copyText(), comp });
     }
 
     /** Live status line in the tool title (subagent: current tool name). */
     setToolStatus(toolCallId: string, status: string): void {
+        this.markDirty();
         this.toolComponents.get(toolCallId)?.updateStatus(status);
     }
 
     /** Live input fields of a still-streaming call (write: path + content so far). */
     updateToolInputStream(toolCallId: string, fields: Record<string, string>): void {
+        this.markDirty();
         this.toolComponents.get(toolCallId)?.updateStreamingInput(fields);
     }
 
     /** Live partial output (subagent streaming) — keeps the component pending. */
     updateToolProgress(toolCallId: string, text: string): void {
+        this.markDirty();
         this.toolComponents.get(toolCallId)?.updateResult({ content: [{ type: "text", text }], isError: false }, true);
     }
 
     addToolResult(toolCallId: string, output: unknown, isError = false): void {
+        this.markDirty();
         const comp = this.toolComponents.get(toolCallId);
         if (!comp) return;
         // Task output carries a run summary — surfaces steps/duration/cost in
@@ -225,16 +571,36 @@ export class ChatHistory extends Container {
     }
 
     addSystem(text: string): void {
+        this.markDirty();
         this.addChild(new Text(chalk.dim(text), 1, 0));
+    }
+
+    /** Abort landed while tool calls were still pending — freeze them as
+     * "interrupted" so they don't show a running state forever. The persisted
+     * transcript records whatever really completed; resume shows that. */
+    markPendingToolsInterrupted(): void {
+        this.markDirty();
+        for (const comp of this.toolComponents.values()) comp.markInterrupted();
+        this.toolComponents.clear();
+    }
+
+    /** Modes with turn.summaryLine print this after each finished turn. */
+    addTurnSummary(seconds: number): void {
+        this.markDirty();
+        const dur = seconds < 60 ? `${Math.round(seconds)}s` : formatTaskDuration(seconds * 1000);
+        this.addChild(new Spacer(1));
+        this.addChild(new Text(theme.fg("turnSummary", `Turn completed in ${dur}.`), 1, 0));
     }
 
     /** Hook-related lines get their own orange accent, like tools get grey/green. */
     addHook(text: string): void {
+        this.markDirty();
         this.addChild(new Text(HOOK_ORANGE(text), 1, 0));
     }
 
     /** Echo an executed slash command: highlighted /name, dim args. */
     addCommand(text: string): void {
+        this.markDirty();
         this.addChild(new Spacer(1));
         const space = text.indexOf(" ");
         const cmd = space < 0 ? text : text.slice(0, space);
@@ -245,11 +611,13 @@ export class ChatHistory extends Container {
 
     /** Themed markdown block (changelog, release notes). */
     addMarkdown(md: string): void {
+        this.markDirty();
         this.addChild(new Spacer(1));
         this.addChild(new Markdown(md, 1, 0, getMarkdownTheme()));
     }
 
     addCompactionSummary(summary: string, tokensBefore: number, timestamp = Date.now()): void {
+        this.markDirty();
         const comp = new CompactionSummaryMessageComponent({ summary, tokensBefore, timestamp });
         comp.setExpanded(this.expanded);
         this.addChild(new Spacer(1));
@@ -259,6 +627,7 @@ export class ChatHistory extends Container {
     }
 
     addBranchSummary(summary: string): void {
+        this.markDirty();
         const comp = new BranchSummaryMessageComponent(summary);
         comp.setExpanded(this.expanded);
         this.addChild(new Spacer(1));
@@ -269,11 +638,13 @@ export class ChatHistory extends Container {
     }
 
     addError(text: string): void {
+        this.markDirty();
         this.addChild(new Text(chalk.red(`error: ${text}`), 1, 0));
     }
 
     /** Post-turn recap (data-recap): dim `※ recap:`-labelled lines under the response. */
     addRecap(text: string): void {
+        this.markDirty();
         const lines = text.split("\n");
         lines.push("(disable recaps in /settings)");
         const body = lines.map((l, i) => chalk.dim(i === 0 ? `※ recap: ${l}` : `  ${l}`)).join("\n");

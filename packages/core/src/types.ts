@@ -237,6 +237,11 @@ export type Entry = EntryTreeFields &
                * interruption note so the next turn's context reflects it (and
                * never silently drops an empty aborted turn). */
               interrupted?: boolean;
+              /** Wall-clock ms per reasoning part of this assistant message, in
+               * part order — display metadata ("Thought for 3s" on resume).
+               * Kept OUTSIDE content: reasoning parts round-trip verbatim to
+               * the provider, and unknown keys on them risk strict-API 400s. */
+              reasoningMs?: number[];
           }
         | {
               type: "subagent";

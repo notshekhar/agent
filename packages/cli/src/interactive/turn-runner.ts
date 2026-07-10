@@ -17,6 +17,7 @@ import { formatError } from "./format-error";
 import { createSubagentStream } from "./subagent-stream";
 import { wireTurnEmitter } from "./turn-emitter";
 import { traceEvent } from "./debug-log";
+import { uiStyle } from "./ui/ui-mode";
 
 /**
  * Whether the leading /token of an input maps to a registered slash command.
@@ -70,7 +71,10 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
             "Implement with",
         );
         if (!pick) return;
-        void ctx.useAgent(pick.value, `Implement this plan. It is complete — follow it rather than re-planning:\n\n${plan}`);
+        void ctx.useAgent(
+            pick.value,
+            `Implement this plan. It is complete — follow it rather than re-planning:\n\n${plan}`,
+        );
     };
 
     // Pull the next queued input and resubmit it, whatever its type (chat or
@@ -184,6 +188,7 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
         });
 
         const turnSignal = state.abort.signal;
+        const turnStartedAt = Date.now();
         traceEvent("turn", `start "${text}" abortedAtStart=${turnSignal.aborted} agent=${turnAgent}`);
         try {
             await runTurn({
@@ -204,6 +209,12 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
             state.busy = false;
             subagentStream.dispose();
             history.finishAssistant();
+            // Aborted mid-flight: still-pending tool boxes would show a
+            // running state forever — freeze them as "interrupted".
+            if (turnSignal.aborted) history.markPendingToolsInterrupted();
+            if (uiStyle().turn.summaryLine && !turnSignal.aborted) {
+                history.addTurnSummary((Date.now() - turnStartedAt) / 1000);
+            }
             hideWorking();
             tui.requestRender();
             // Plan follow-up runs before the queue drains so the selector

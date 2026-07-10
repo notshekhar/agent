@@ -49,8 +49,7 @@ function vbsLauncherPath(): string {
     return join(dir, "goals-tick.vbs");
 }
 
-const xmlEscape = (s: string): string =>
-    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const xmlEscape = (s: string): string => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 /** cmd.exe-style quoting: wrap in double quotes when the value needs it. */
 const winQuote = (s: string): string => (/[\s"]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);

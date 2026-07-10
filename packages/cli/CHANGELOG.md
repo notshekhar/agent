@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.10.10] - 2026-07-10
+
+### Added
+
+- **UI modes.** The chat is now a pluggable experience: `/ui <mode>` (or the `uiMode` row in `/settings`) switches between the builtin `loop` look — unchanged, still the default — and the new **`noir`** mode: the terminal background washes to a deep dark canvas (OSC 11, restored on exit), tool calls render as flat `◆ name` rows whose diamond carries the state (yellow running, green done, red failed), reasoning collapses to a `◆ Thought for Xs` row when the turn moves on, user prompts get a `❯` prefix with right-aligned timestamps, and each turn ends with a "Turn completed in Xs." line. Each mode owns its themes: loop keeps `dark`/`light`, noir ships `night` and `day`. Subagents render as the same rows with live status and run stats; the plan tool keeps its full box (it's an approval surface). Under the hood every mode is a style spec + block renderers over one registry, so future modes (and eventually extensions) plug into the same seam.
+- **Transcript navigation.** `ctrl+e` toggles a navigation mode (also: `Esc` on an idle empty prompt, or `alt+↑` to jump straight to the last user turn): `↑/↓` walk every entry — user prompts, responses, thinking, tool calls — with a selection bar, `→/←` expand or fold the selected entry individually, `Enter` toggles it, `shift+←/→` jump between user turns, `e` expands everything, `y` copies the selected entry, and a click selects the entry under the pointer. The transcript renders in a window that follows the selection, scrollable with the mouse wheel, `PgUp/PgDn`, `ctrl+u/d`, and `Home/End` — expanding a huge tool output no longer flings the view, and a streaming turn no longer drags the window to the bottom while you read.
+- **Thinking time survives resume.** Each reasoning block's wall-clock duration persists with the turn (`reasoningMs` on the message entry), so a reopened session shows the real "Thought for 3.2s" instead of forgetting.
+- **`loop --session <id>` replays the transcript.** Opening a session by id used to restore only cost and context — now the conversation renders, like `/resume`.
+
+### Fixed
+
+- **An over-wide line no longer kills the TUI.** The renderer's width-overflow guard used to stop the UI and throw — the infamous dead screen where keystrokes echo below the input box. It now clamps the line, logs the evidence once to `loop-crash.log`, and keeps running. The welcome banner also truncates deep working-directory paths, and noir's one-line rows truncate long commands, closing the whole bug class.
+- **Startup cleanses stale terminal modes.** A previous loop killed with SIGKILL never restored the terminal (kitty keyboard protocol, mouse reporting, background color) — the shell then echoed raw key reports like `[9;5u`. Launching loop now resets those modes first, and the crash safety net resets mouse reporting and the background wash too.
+- **Aborted turns freeze their pending tools.** Interrupting a turn used to leave still-running tool boxes spinning forever; they now render as `· interrupted`, and resume shows whatever actually completed.
+- **Resume matches the live view.** Subagent boxes replayed in finish order instead of stream order and with different spacing; a resumed transcript is now line-for-line identical to what streamed live.
+- **Smooth wheel scrolling in navigation mode.** Trackpad micro-events that alternate direction on slow scrolls are coalesced into one net movement, so the window no longer flickers between the same lines; fast flicks are capped at a page.
+
+
 ## [0.10.9] - 2026-07-08
 
 ### Added

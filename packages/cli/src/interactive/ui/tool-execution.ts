@@ -8,9 +8,8 @@ import { Box, Container, Markdown, Spacer, Text, type TUI } from "@notshekhar/lo
 import { normalizePlanText } from "@notshekhar/loop-core";
 import { getLanguageFromPath, getMarkdownTheme, highlightCode, theme } from "./theme";
 import { formatToolArgs, readLineRangeText } from "./tool-summary";
-
-const COLLAPSED_LINES = 6;
-const EXPAND_HINT = "ctrl+e";
+import { uiRenderers, uiStyle } from "./ui-mode";
+import { markSelectedLines } from "./messages";
 /** Live-streaming preview cap in EXPANDED mode. Highlighting runs on every
  * flush while input streams — unbounded, a large file made a single frame
  * expensive enough to freeze the box. The full content still renders once
@@ -48,6 +47,26 @@ export class ToolExecutionComponent extends Container {
     private streamingContent = "";
     /** Finished task run summary — steps/duration/cost in the done title. */
     private taskStats?: TaskStatsLike;
+    /** Highlighted by the block-selection navigation (ctrl+up/down). */
+    private selected = false;
+    /** First call of a consecutive tool group (see ToolBlockState.groupLead). */
+    private groupLead = true;
+    /** The turn was aborted while this call was still running. */
+    private interrupted = false;
+
+    setGroupLead(lead: boolean): void {
+        this.groupLead = lead;
+    }
+
+    /** The turn ended (abort) with this call still pending — freeze it as
+     * "interrupted" instead of leaving a running spinner forever. */
+    markInterrupted(): void {
+        if (this.result && !this.isPartial) return; // finished normally
+        this.isPartial = false;
+        this.interrupted = true;
+        this.statusText = "";
+        this.updateDisplay();
+    }
 
     constructor(
         private toolName: string,
@@ -64,6 +83,16 @@ export class ToolExecutionComponent extends Container {
 
     setExpanded(expanded: boolean): void {
         this.expanded = expanded;
+        this.updateDisplay();
+    }
+
+    isExpanded(): boolean {
+        return this.expanded;
+    }
+
+    /** Selection highlight for the ctrl+up/down block navigation. */
+    setSelected(selected: boolean): void {
+        this.selected = selected;
         this.updateDisplay();
     }
 
@@ -115,6 +144,45 @@ export class ToolExecutionComponent extends Container {
         this.updateDisplay();
     }
 
+    override render(width: number): string[] {
+        const lines = this.renderInner(width);
+        return this.selected ? markSelectedLines(lines) : lines;
+    }
+
+    /** Copy payload for the y key: the call one-liner plus its output. */
+    copyText(): string {
+        const title = `${this.toolName} ${this.argsSummary()}`.trim();
+        const output = this.outputText();
+        return output ? `${title}\n${output}` : title;
+    }
+
+    private renderInner(width: number): string[] {
+        const override = uiRenderers().toolExecution;
+        if (override) {
+            const lines = override(
+                {
+                    toolName: this.toolName,
+                    args: this.args,
+                    summary: this.argsSummary(),
+                    output: this.outputText(),
+                    isError: this.result?.isError ?? false,
+                    isPartial: this.isPartial,
+                    expanded: this.expanded,
+                    selected: this.selected,
+                    groupLead: this.groupLead,
+                    interrupted: this.interrupted,
+                    statusText: this.statusText,
+                    streamingContent: this.streamingContent,
+                    taskStats: this.taskStats,
+                    cwd: this.cwd,
+                },
+                { width, theme },
+            );
+            if (lines) return lines;
+        }
+        return super.render(width);
+    }
+
     private updateDisplay(): void {
         // Subagents (task tool) keep the purple custom-message background as
         // their identity — pending and done alike; errors still go red.
@@ -124,7 +192,7 @@ export class ToolExecutionComponent extends Container {
                 ? (text: string) => theme.bg("toolErrorBg", text)
                 : isTask
                   ? (text: string) => theme.bg("customMessageBg", text)
-                  : this.isPartial
+                  : this.isPartial || this.interrupted
                     ? (text: string) => theme.bg("toolPendingBg", text)
                     : (text: string) => theme.bg("toolSuccessBg", text),
         );
@@ -164,17 +232,18 @@ export class ToolExecutionComponent extends Container {
         if (!output) return;
 
         const lines = this.colorOutput(output.split("\n"));
-        // Collapsed → short preview capped at COLLAPSED_LINES; expanded (ctrl+e)
-        // → the full output, no cap.
-        const truncated = !this.expanded && lines.length > COLLAPSED_LINES;
-        const shown = truncated ? lines.slice(0, COLLAPSED_LINES) : lines;
+        // Collapsed → short preview capped at the mode's collapsedLines;
+        // expanded (ctrl+e) → the full output, no cap.
+        const cap = uiStyle().tool.collapsedLines;
+        const truncated = !this.expanded && lines.length > cap;
+        const shown = truncated ? lines.slice(0, cap) : lines;
 
         this.box.addChild(new Spacer(1));
         this.box.addChild(new Text(shown.join("\n"), 0, 0));
         if (truncated) {
             this.box.addChild(
                 new Text(
-                    theme.fg("dim", `… +${lines.length - COLLAPSED_LINES} lines (${EXPAND_HINT} to expand)`),
+                    theme.fg("dim", `… +${lines.length - cap} lines (${uiStyle().hints.expandHint} to expand)`),
                     0,
                     0,
                 ),
@@ -182,10 +251,12 @@ export class ToolExecutionComponent extends Container {
         }
     }
 
-    /** Title color by state: pending/stale grey, failed vivid red, done normal. */
+    /** Title color by state: pending/stale grey, failed vivid red, done normal.
+     * Modes with mutedCollapsed grey the finished title while folded. */
     private titleColor(): "muted" | "toolError" | "toolTitle" {
-        if (this.isPartial) return "muted";
+        if (this.isPartial || this.interrupted) return "muted";
         if (this.result?.isError) return "toolError";
+        if (uiStyle().tool.mutedCollapsed && !this.expanded) return "muted";
         return "toolTitle";
     }
 
@@ -201,10 +272,16 @@ export class ToolExecutionComponent extends Container {
                   ? "failed"
                   : ["done", ...this.taskStatsParts()].join(" · ");
             const snippet = typeof this.args.prompt === "string" ? this.args.prompt.split("\n")[0].slice(0, 50) : "";
-            const title = theme.fg(this.titleColor(), theme.bold(`task ${agent}`));
+            const bullet = uiStyle().tool.bullet;
+            const title =
+                (bullet ? theme.fg(this.titleColor(), `${bullet} `) : "") +
+                theme.fg(this.titleColor(), theme.bold(`task ${agent}`));
             return `${title} ${theme.fg("muted", snippet ? `${state} · ${snippet}` : state)}`;
         }
-        const title = theme.fg(this.titleColor(), theme.bold(this.toolName));
+        const bullet = uiStyle().tool.bullet;
+        const title =
+            (bullet ? theme.fg(this.titleColor(), `${bullet} `) : "") +
+            theme.fg(this.titleColor(), theme.bold(this.toolName));
         const summary = this.argsSummary();
         if (!summary) return title;
         // `read` appends its offset/limit as a warning-colored `:start-end`
@@ -248,13 +325,13 @@ export class ToolExecutionComponent extends Container {
         const raw = this.streamingContent.split("\n");
         // Expanded mode is capped too: the preview re-highlights on every
         // flush, so an unbounded window froze the TUI on large files.
-        const cap = this.expanded ? STREAMING_EXPANDED_LINES : COLLAPSED_LINES;
+        const cap = this.expanded ? STREAMING_EXPANDED_LINES : uiStyle().tool.collapsedLines;
         const truncated = raw.length > cap;
         const shown = truncated ? raw.slice(-cap) : raw;
         const lang = getLanguageFromPath(String(this.args.path ?? ""));
         const lines = lang ? highlightCode(shown.join("\n"), lang) : shown.map((l) => theme.fg("toolOutput", l));
         if (!truncated) return lines;
-        const hint = this.expanded ? "streaming" : `${EXPAND_HINT} to expand`;
+        const hint = this.expanded ? "streaming" : `${uiStyle().hints.expandHint} to expand`;
         return [...lines, theme.fg("dim", `… +${raw.length - cap} earlier lines (${hint})`)];
     }
 

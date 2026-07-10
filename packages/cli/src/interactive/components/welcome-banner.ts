@@ -1,5 +1,5 @@
 import { PRODUCT_NAME } from "@notshekhar/loop-core";
-import { type Component, type TUI, visibleWidth } from "@notshekhar/loop-tui";
+import { type Component, truncateToWidth, type TUI, visibleWidth } from "@notshekhar/loop-tui";
 import chalk from "chalk";
 
 /**
@@ -171,11 +171,14 @@ export class WelcomeBanner implements Component {
         }
         lines.push("");
 
-        // Pad each line to full width so the differential renderer overwrites
-        // cleanly (no stale trailing chars from a previous longer line).
+        // Truncate then pad each line to full width so the differential
+        // renderer overwrites cleanly. Truncation matters: a deep cwd made
+        // the path row exceed the terminal width, tripping the TUI's
+        // width-overflow crash guard (silent exit at startup).
         const padded = lines.map((l) => {
-            const pad = Math.max(0, width - visibleWidth(l));
-            return l + " ".repeat(pad);
+            const truncated = visibleWidth(l) > width ? truncateToWidth(l, Math.max(0, width - 1)) + "…" : l;
+            const pad = Math.max(0, width - visibleWidth(truncated));
+            return truncated + " ".repeat(pad);
         });
 
         this.cachedLines = padded;

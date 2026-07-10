@@ -50,7 +50,11 @@ export function createGoalHandlers(state: AppState, deps: AppDeps): GoalHandlers
     async function promptSchedule(initial?: Goal): Promise<GoalSchedule | null> {
         const kind = await selectOnce(
             [
-                { value: "none", label: "on demand", description: "no schedule — run in the background when you say so" },
+                {
+                    value: "none",
+                    label: "on demand",
+                    description: "no schedule — run in the background when you say so",
+                },
                 { value: "once", label: "once", description: "10m · 18:30 · 2026-06-15 09:00" },
                 { value: "cron", label: "cron", description: "e.g. 0 9 * * 1-5 (weekdays 9:00)" },
             ],
@@ -81,7 +85,8 @@ export function createGoalHandlers(state: AppState, deps: AppDeps): GoalHandlers
     }
 
     function scheduleLabel(g: Goal): string {
-        const when = g.kind === "once" ? `once ${formatWhen(g.at)}` : g.kind === "cron" ? `cron ${g.expr}` : "on demand";
+        const when =
+            g.kind === "once" ? `once ${formatWhen(g.at)}` : g.kind === "cron" ? `cron ${g.expr}` : "on demand";
         return `${when}${g.enabled ? "" : "  (off)"}`;
     }
 
@@ -177,7 +182,9 @@ export function createGoalHandlers(state: AppState, deps: AppDeps): GoalHandlers
             runNowDetached(goal);
             return;
         }
-        say(`goal added — ${goal.text}  ·  ${describeSchedule(schedule)}${goal.agent ? `  ·  agent ${goal.agent}` : ""}`);
+        say(
+            `goal added — ${goal.text}  ·  ${describeSchedule(schedule)}${goal.agent ? `  ·  agent ${goal.agent}` : ""}`,
+        );
         if (!isDaemonInstalled()) {
             say(chalk.yellow("the goals daemon is off — this goal will NOT run on its own. Turn it on with /daemon"));
         }
@@ -205,10 +212,7 @@ export function createGoalHandlers(state: AppState, deps: AppDeps): GoalHandlers
         // Scheduled goals silently never fire without the OS scheduler — warn
         // up front instead of letting the user discover a "never ran" later.
         refreshGoals();
-        if (
-            listGoals().some((g) => g.enabled && g.kind !== "none") &&
-            !isDaemonInstalled()
-        ) {
+        if (listGoals().some((g) => g.enabled && g.kind !== "none") && !isDaemonInstalled()) {
             say(
                 chalk.yellow(
                     "scheduled goals exist but the daemon is off — they will not run on their own. Turn it on with /daemon",
@@ -294,7 +298,9 @@ export function createGoalHandlers(state: AppState, deps: AppDeps): GoalHandlers
                 const schedule = await promptSchedule(goal);
                 if (schedule) updateGoal(goal.id, { schedule, enabled: true });
             } else if (action.value === "model") {
-                const raw = (await promptOnce("model (provider/model, empty = project default)", goal.model ?? "")).trim();
+                const raw = (
+                    await promptOnce("model (provider/model, empty = project default)", goal.model ?? "")
+                ).trim();
                 if (!raw) {
                     updateGoal(goal.id, { model: null });
                 } else if (!raw.includes("/")) {
@@ -305,7 +311,11 @@ export function createGoalHandlers(state: AppState, deps: AppDeps): GoalHandlers
             } else if (action.value === "agent") {
                 const pick = await selectOnce(
                     [
-                        { value: "\x00default", label: "session default", description: "use the agent setting at run time" },
+                        {
+                            value: "\x00default",
+                            label: "session default",
+                            description: "use the agent setting at run time",
+                        },
                         ...listAgents().map((a) => ({ value: a.name, label: a.name })),
                     ],
                     `agent for: ${goal.text}`,
@@ -341,8 +351,16 @@ export function createGoalHandlers(state: AppState, deps: AppDeps): GoalHandlers
             const pick = await selectOnce(
                 [
                     installed
-                        ? { value: "off", label: "turn off", description: "uninstall — scheduled goals stop running on their own" }
-                        : { value: "on", label: "turn on", description: "install — runs scheduled goals in the background (ticks every minute)" },
+                        ? {
+                              value: "off",
+                              label: "turn off",
+                              description: "uninstall — scheduled goals stop running on their own",
+                          }
+                        : {
+                              value: "on",
+                              label: "turn on",
+                              description: "install — runs scheduled goals in the background (ticks every minute)",
+                          },
                     { value: "status", label: "status", description: "show the OS scheduler state" },
                     { value: "cancel", label: "cancel" },
                 ],

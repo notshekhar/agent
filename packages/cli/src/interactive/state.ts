@@ -19,6 +19,8 @@ export interface AppState {
     session: Session | null;
     latestContextTokens: number;
     busy: boolean;
+    /** Scrollback focus mode: arrow keys navigate transcript entries. */
+    scrollbackFocus: boolean;
     abort: AbortController;
     pendingInjection: string | null;
     lastCtrlCAt: number;

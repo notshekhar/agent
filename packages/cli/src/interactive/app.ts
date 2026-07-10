@@ -50,8 +50,11 @@ import {
     type Session,
     CONFIG_DIR_NAME,
 } from "@notshekhar/loop-core";
-import { getSelectListTheme, initTheme } from "./ui/theme";
+import { getSelectListTheme, initUiModeAndTheme } from "./ui/theme";
+import { registerNoirMode } from "./ui/noir-mode";
+import { applyCanvasWash, resetCanvasWash } from "./ui/canvas-wash";
 import { ChatHistory } from "./components/chat-history";
+import { renderSessionBranch } from "./replay";
 import { StatusLine } from "./components/status-line";
 import { TodoPanel } from "./components/todo-panel";
 import {
@@ -131,7 +134,8 @@ async function showNoModelGuidance(history: ChatHistory, tui: TUI): Promise<void
 }
 
 export async function runInteractive(opts: InteractiveOptions): Promise<void> {
-    initTheme((settingsStore.get("theme") as string | undefined) ?? "dark");
+    registerNoirMode();
+    initUiModeAndTheme();
     registerAppKeybindings();
 
     // Model precedence: CLI flag > this folder's last pick > global default.
@@ -203,6 +207,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         session: initialSession,
         latestContextTokens: seededCtxTokens,
         busy: false,
+        scrollbackFocus: false,
         abort: new AbortController(),
         pendingInjection: null,
         lastCtrlCAt: 0,
@@ -419,6 +424,8 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     const cleanExit = (code = 0) => {
         stopTicker();
         tui.stop();
+        // Give the terminal its own background back (OSC 111; no-op unwashed).
+        resetCanvasWash();
         // Tear down MCP transports (stdio subprocesses, sockets) on the way out.
         void getMcpManager().close();
         // Run extensions' deactivate() so they can release resources.
@@ -474,6 +481,10 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     syncTicker();
 
     showWelcomeBanner(history, state, deps);
+    // A session opened via --session replays its transcript like /resume does
+    // — reopening a conversation without its history looked like data loss.
+    // After the banner: it's a history child, and the transcript goes below it.
+    if (initialSession) renderSessionBranch(initialSession, history, state.modelId, todoPanel);
     await showWorkspaceBanners(history, state.cwd);
     if (!state.modelId) await showNoModelGuidance(history, tui);
 
@@ -501,6 +512,9 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
 
     tui.setFocus(editor);
     tui.start();
+    // After start: terminal.start() cleanses stale modes (incl. OSC 111
+    // background reset), so the mode's wash must be applied after it.
+    applyCanvasWash();
     tui.requestRender();
 
     // Catalog warm-up: models change between releases — kick the

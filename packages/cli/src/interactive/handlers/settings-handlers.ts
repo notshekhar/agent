@@ -20,10 +20,12 @@ import {
 import type { AppDeps } from "../deps";
 import type { AppState } from "../state";
 import { startMcpServers } from "../startup";
-import { initTheme } from "../ui/theme";
+import { initTheme, initUiModeAndTheme, theme } from "../ui/theme";
+import { activeUiMode, listUiModes, setActiveUiMode } from "../ui/ui-mode";
+import { applyCanvasWash } from "../ui/canvas-wash";
 import { currentBashAllow, currentBashDeny, runBashAllowManager, runBashDenyManager } from "./bashdeny-handlers";
 
-type SettingsHandlers = Pick<CommandContext, "openSettings" | "reload">;
+type SettingsHandlers = Pick<CommandContext, "openSettings" | "reload" | "switchUiMode">;
 
 export function createSettingsHandlers(state: AppState, deps: AppDeps): SettingsHandlers {
     const { tui, history, statusLine, commands, showWorking, hideWorking, searchOnce, promptOnce, refreshCommands } =
@@ -45,7 +47,36 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
     const boolSetting = (key: string): boolean =>
         (settingsStore.get(key) as boolean | undefined) ?? BOOLEAN_DEFAULTS[key];
 
+    // Shared by /ui <mode> and the /settings row.
+    const applyUiMode = (id: string): boolean => {
+        if (!setActiveUiMode(id)) return false;
+        settingsStore.set("uiMode", id);
+        // Re-resolve the theme for the new mode (its own uiThemes entry or
+        // its default), then re-wash and repaint everything.
+        initUiModeAndTheme();
+        applyCanvasWash();
+        tui.invalidate();
+        history.addSystem(`ui mode → ${id}`);
+        tui.requestRender(true);
+        return true;
+    };
+
     return {
+        switchUiMode(args) {
+            const available = listUiModes()
+                .map((m) => m.id)
+                .join(", ");
+            const id = (args ?? "").trim();
+            if (!id) {
+                history.addSystem(`ui mode: ${activeUiMode().id} (available: ${available}) — switch with /ui <mode>`);
+                tui.requestRender();
+                return;
+            }
+            if (!applyUiMode(id)) {
+                history.addError(`unknown ui mode: ${id} (available: ${available})`);
+                tui.requestRender();
+            }
+        },
         async openSettings() {
             // Loop so Esc on the value prompt returns to the settings picker
             // instead of bailing out of /settings entirely. `lastIndex` re-opens
@@ -54,7 +85,11 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
             let lastIndex = 0;
             while (true) {
                 const items: SelectItem[] = [
-                    { value: "theme", label: `theme: ${settingsStore.get("theme") ?? "dark"}` },
+                    { value: "uiMode", label: `uiMode: ${activeUiMode().id}` },
+                    // The ACTIVE theme's name — per-mode themes made the raw
+                    // `theme` settings key wrong outside loop mode (it showed
+                    // loop's theme while grok's was active).
+                    { value: "theme", label: `theme: ${theme.name}` },
                     {
                         value: "maxSteps",
                         label: `maxSteps: ${(settingsStore.get("maxSteps") as number) || "unlimited"}`,
@@ -205,6 +240,20 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                 // Theme gets a picker (built-ins + ~/.loop/agent/themes/*.json) and
                 // applies live — the global theme proxy makes themed components
                 // re-resolve colors on the next render.
+                // UI mode gets a picker of registered modes and applies live,
+                // same as /ui <mode>.
+                if (pick.value === "uiMode") {
+                    const cur = activeUiMode().id;
+                    const modeItems: SelectItem[] = listUiModes().map((m) => ({
+                        value: m.id,
+                        label: m.name ?? m.id,
+                        description: m.id === cur ? "(current)" : "",
+                    }));
+                    const mPick = await searchOnce(modeItems, "UI mode (type to filter)");
+                    if (!mPick) continue;
+                    applyUiMode(mPick.value);
+                    continue;
+                }
                 if (pick.value === "theme") {
                     const customDir = join(process.env.HOME ?? "", CONFIG_DIR_NAME, "agent", "themes");
                     const custom = existsSync(customDir)
@@ -212,16 +261,29 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                               .filter((f) => f.endsWith(".json"))
                               .map((f) => f.replace(/\.json$/, ""))
                         : [];
-                    const cur = (settingsStore.get("theme") as string) ?? "dark";
-                    const themeItems: SelectItem[] = ["dark", "light", ...custom].map((n) => ({
+                    // The active UI mode's own themes head the list (loop:
+                    // dark/light); the pick persists per mode — loop keeps the
+                    // legacy `theme` key, other modes write uiThemes.<id>.
+                    const mode = activeUiMode();
+                    const builtin = mode.themes.map((t) => t.name);
+                    // What's actually rendering right now — not a settings-key
+                    // reconstruction (that's how the row label bug happened).
+                    const cur = theme.name;
+                    const themeItems: SelectItem[] = [...builtin, ...custom].map((n) => ({
                         value: n,
                         label: n,
                         description: n === cur ? "(current)" : "",
                     }));
                     const tPick = await searchOnce(themeItems, "Theme (type to filter)");
                     if (!tPick) continue;
-                    settingsStore.set("theme", tPick.value);
+                    if (mode.id === "loop") {
+                        settingsStore.set("theme", tPick.value);
+                    } else {
+                        const perMode = (settingsStore.get("uiThemes") as Record<string, string> | undefined) ?? {};
+                        settingsStore.set("uiThemes", { ...perMode, [mode.id]: tPick.value });
+                    }
                     initTheme(tPick.value);
+                    applyCanvasWash();
                     tui.invalidate();
                     history.addSystem(`theme → ${tPick.value}`);
                     tui.requestRender(true);
@@ -258,8 +320,9 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                 // this the "hard reload" silently served stale cached config.
                 settingsStore.refresh();
 
-                // Theme (settings may have changed on disk).
-                initTheme((settingsStore.get("theme") as string | undefined) ?? "dark");
+                // UI mode + theme (settings may have changed on disk).
+                initUiModeAndTheme();
+                applyCanvasWash();
 
                 // Commands: prompts, skills, agents — rebuilt from disk.
                 const fresh = new CommandRegistry();

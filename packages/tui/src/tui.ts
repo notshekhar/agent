@@ -23,6 +23,7 @@ import {
     setWidthCalibration,
     sliceByColumn,
     sliceWithWidth,
+    truncateToWidth,
     visibleWidth,
 } from "./utils";
 
@@ -313,6 +314,9 @@ export class TUI extends Container {
     public onDebug?: () => void;
     private renderRequested = false;
     private renderTimer: NodeJS.Timeout | undefined;
+    private keepAliveTimer: ReturnType<typeof setInterval> | undefined;
+    /** One overflow log per session — see the clamp in doRender. */
+    private overflowLogged = false;
     private lastRenderAt = 0;
     private static readonly MIN_RENDER_INTERVAL_MS = 16;
     private cursorRow = 0; // Logical cursor row (end of rendered content)
@@ -651,6 +655,16 @@ export class TUI extends Container {
 
     start(): void {
         this.stopped = false;
+        // LOCAL CHANGE (keep across pi-mono syncs): a ref'd long-interval
+        // timer pins the event loop for the TUI's lifetime. Bun's tty stdin
+        // does not reliably hold the loop before the first byte ever arrives,
+        // so in an unattended pty the process silently exited the moment the
+        // width-probe timeout (the last live timer) fired.
+        // A minutely no-op: Bun does not keep max-delay (2^31-1 ms) intervals
+        // ref'd, so the pin must use an ordinary interval.
+        if (!this.keepAliveTimer) {
+            this.keepAliveTimer = setInterval(() => {}, 60_000);
+        }
         this.terminal.start(
             (data) => this.handleInput(data),
             () => this.requestRender(),
@@ -722,7 +736,9 @@ export class TUI extends Container {
         }
         this.pendingWidthProbeReplies = 3;
         this.widthProbeCols = [];
-        this.terminal.write("\x1b[?2026h\x1b7\rकी\x1b[6n\r\x1b[2Kप्रे\x1b[6n\r\x1b[2Kस्त्र\x1b[6n\r\x1b[2K\x1b8\x1b[?2026l");
+        this.terminal.write(
+            "\x1b[?2026h\x1b7\rकी\x1b[6n\r\x1b[2Kप्रे\x1b[6n\r\x1b[2Kस्त्र\x1b[6n\r\x1b[2K\x1b8\x1b[?2026l",
+        );
         // If the terminal never answers, stop intercepting CPR-shaped input
         // (it collides with modified-F3 key reports) and keep the defaults.
         this.widthProbeTimer = setTimeout(() => {
@@ -776,6 +792,10 @@ export class TUI extends Container {
 
     stop(): void {
         this.stopped = true;
+        if (this.keepAliveTimer) {
+            clearInterval(this.keepAliveTimer);
+            this.keepAliveTimer = undefined;
+        }
         if (this.renderTimer) {
             clearTimeout(this.renderTimer);
             this.renderTimer = undefined;
@@ -1646,7 +1666,7 @@ export class TUI extends Container {
         const renderEnd = Math.min(lastChanged, newLines.length - 1);
         for (let i = firstChanged; i <= renderEnd; i++) {
             if (i > firstChanged) buffer += "\r\n";
-            const line = newLines[i];
+            let line = newLines[i];
             const isImage = isImageLine(line);
             const imageReservedRows = isImage ? this.getKittyImageReservedRows(newLines, i, renderEnd) : 1;
             if (imageReservedRows > 1) {
@@ -1672,32 +1692,36 @@ export class TUI extends Container {
 
             buffer += "\x1b[2K"; // Clear current line
             if (!isImage && visibleWidth(line) > width) {
-                // Log all lines to crash file for debugging
-                const crashLogPath = path.join(os.homedir(), CONFIG_DIR_NAME, "agent", `${PRODUCT_NAME}-crash.log`);
-                const crashData = [
-                    `Crash at ${new Date().toISOString()}`,
-                    `Terminal width: ${width}`,
-                    `Line ${i} visible width: ${visibleWidth(line)}`,
-                    "",
-                    "=== All rendered lines ===",
-                    ...newLines.map((l, idx) => `[${idx}] (w=${visibleWidth(l)}) ${l}`),
-                    "",
-                ].join("\n");
-                fs.mkdirSync(path.dirname(crashLogPath), { recursive: true });
-                fs.writeFileSync(crashLogPath, crashData);
-
-                // Clean up terminal state before throwing
-                this.stop();
-
-                const errorMsg = [
-                    `Rendered line ${i} exceeds terminal width (${visibleWidth(line)} > ${width}).`,
-                    "",
-                    "This is likely caused by a custom TUI component not truncating its output.",
-                    "Use visibleWidth() to measure and truncateToWidth() to truncate lines.",
-                    "",
-                    `Debug log written to: ${crashLogPath}`,
-                ].join("\n");
-                throw new Error(errorMsg);
+                // LOCAL CHANGE (keep across pi-mono syncs): an over-wide line
+                // is a component bug, but killing the whole UI over it left a
+                // dead screen that still echoed keystrokes below the last
+                // frame ("typing under the input box"). Clamp the line, log
+                // the evidence once per session, and keep rendering.
+                if (!this.overflowLogged) {
+                    this.overflowLogged = true;
+                    try {
+                        const crashLogPath = path.join(
+                            os.homedir(),
+                            CONFIG_DIR_NAME,
+                            "agent",
+                            `${PRODUCT_NAME}-crash.log`,
+                        );
+                        fs.mkdirSync(path.dirname(crashLogPath), { recursive: true });
+                        fs.writeFileSync(
+                            crashLogPath,
+                            [
+                                `Overflow (clamped) at ${new Date().toISOString()}`,
+                                `Terminal width: ${width}`,
+                                `Line ${i} visible width: ${visibleWidth(line)}`,
+                                `Line: ${line}`,
+                                "",
+                            ].join("\n"),
+                        );
+                    } catch {
+                        // Logging must never break the render either.
+                    }
+                }
+                line = truncateToWidth(line, width);
             }
             buffer += line;
         }

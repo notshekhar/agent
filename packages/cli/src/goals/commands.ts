@@ -139,7 +139,9 @@ export async function cmdGoals(args: Args): Promise<void> {
             case "run": {
                 const goal = rest[0] ? findByPrefix(rest[0]) : undefined;
                 if (!goal) {
-                    console.error(rest[0] ? `no goal matching "${rest[0]}"` : `usage: ${PRODUCT_NAME} goals run <id-prefix>`);
+                    console.error(
+                        rest[0] ? `no goal matching "${rest[0]}"` : `usage: ${PRODUCT_NAME} goals run <id-prefix>`,
+                    );
                     process.exitCode = 1;
                     return;
                 }

@@ -103,9 +103,20 @@ export class StatusLine implements Component {
         this.costData = d;
     }
 
+    /** Transient contextual hint row — replaces the status rows while set
+     * (scrollback focus mode). */
+    private hint: string | null = null;
+
+    setHint(hint: string | null): void {
+        this.hint = hint;
+    }
+
     invalidate(): void {}
 
     render(width: number): string[] {
+        if (this.hint !== null) {
+            return [ansiSlice(chalk.dim(this.hint), width)];
+        }
         let ctxStr: string;
         if (this.ctxMax > 0) {
             const pct = (this.ctxUsed / this.ctxMax) * 100;
