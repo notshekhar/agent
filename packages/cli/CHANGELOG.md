@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.10.11] - 2026-07-10
+
+### Added
+
+- **The ask tool got a review step and question navigation.** Answers are no longer sent as you pick them: after the last question a review screen lists every answer (with `(skipped)` rows for unanswered ones) and nothing reaches the model until you hit **Submit** — Enter on a row (or its digit) reopens that question to change the answer. While answering, `←/→` move between questions with all state kept: the cursor row on a single-select, the ticked boxes on a multi-select (ticks count as the answer even without `done`). `Esc` now means *dismiss*: with nothing answered the whole prompt resolves immediately as declined so the agent proceeds on its own judgment; with answers already given it jumps to the review so nothing is sent unseen.
+- **Clipboard writes work beyond macOS.** `/copy`, `y` in transcript navigation, and the `/share` URL copy now go through the platform's own tool — `pbcopy` (macOS), `clip` (Windows), `wl-copy`/`xclip`/`xsel` tried in order (Linux) — and report honestly when no tool is available instead of claiming success.
+
+### Fixed
+
+- **One arrow press no longer acts twice in the ask flow.** Under the Kitty keyboard protocol a physical key press also emits a release event; the ask menus acted on both, so a single `←/→` jumped two questions.
+- **Switching UI modes rebuilds the transcript.** `/ui <mode>` used to repaint the old component tree, leaving a hybrid of both modes on screen (mode decisions are baked in when components are constructed); the transcript now re-renders under the new mode, `/reload` does the same when the mode changed on disk, and a mid-turn switch is rejected instead of orphaning the live streaming components.
+- **Noir polish.** Failed tool rows fold like everything else (the red diamond carries the signal; expand to read the error); durations no longer print `60s` or `1m00s` at the minute boundary; and mode themes or older custom theme files with missing slots fall back to the builtin dark theme's vars instead of throwing at render time.
+- **Navigation-mode input hardening.** Emoji/IME input exits nav mode back to the prompt like a plain letter; horizontal trackpad tilt no longer scrolls the window; `/hotkeys` reflects the current Tab/Shift+Tab and Ctrl+E bindings.
+
 ## [0.10.10] - 2026-07-10
 
 ### Added
