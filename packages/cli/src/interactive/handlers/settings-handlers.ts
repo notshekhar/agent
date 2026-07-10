@@ -21,9 +21,12 @@ import type { AppDeps } from "../deps";
 import type { AppState } from "../state";
 import { startMcpServers } from "../startup";
 import { initTheme, initUiModeAndTheme, theme } from "../ui/theme";
-import { activeUiMode, listUiModes, setActiveUiMode } from "../ui/ui-mode";
+import { activeUiMode, getUiMode, listUiModes } from "../ui/ui-mode";
 import { applyCanvasWash } from "../ui/canvas-wash";
+import { renderSessionBranch } from "../replay";
+import { showWelcomeBanner } from "../welcome";
 import { currentBashAllow, currentBashDeny, runBashAllowManager, runBashDenyManager } from "./bashdeny-handlers";
+import { rejectWhileBusy } from "./shared";
 
 type SettingsHandlers = Pick<CommandContext, "openSettings" | "reload" | "switchUiMode">;
 
@@ -49,12 +52,21 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
 
     // Shared by /ui <mode> and the /settings row.
     const applyUiMode = (id: string): boolean => {
-        if (!setActiveUiMode(id)) return false;
+        if (!getUiMode(id)) return false;
+        // Mid-turn a rebuild would orphan the live streaming components (and
+        // drop their pending tool results) — switch modes idle only.
+        if (rejectWhileBusy(state, deps)) return true;
         settingsStore.set("uiMode", id);
-        // Re-resolve the theme for the new mode (its own uiThemes entry or
-        // its default), then re-wash and repaint everything.
+        // Re-resolve the mode + its theme (its own uiThemes entry or its
+        // default), then re-wash and repaint everything.
         initUiModeAndTheme();
         applyCanvasWash();
+        // Rebuild the transcript under the new mode: prefix/spacing/group
+        // decisions are baked in when components are CONSTRUCTED, so merely
+        // re-rendering the old tree leaves a hybrid of both modes.
+        history.reset();
+        showWelcomeBanner(history, state, deps);
+        if (state.session) renderSessionBranch(state.session, history, state.modelId, deps.todoPanel);
         tui.invalidate();
         history.addSystem(`ui mode → ${id}`);
         tui.requestRender(true);
@@ -320,9 +332,17 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                 // this the "hard reload" silently served stale cached config.
                 settingsStore.refresh();
 
-                // UI mode + theme (settings may have changed on disk).
+                // UI mode + theme (settings may have changed on disk). A mode
+                // change needs the transcript rebuilt — construction-time
+                // decisions (prefix, spacers) bake the mode into components.
+                const prevMode = activeUiMode().id;
                 initUiModeAndTheme();
                 applyCanvasWash();
+                if (activeUiMode().id !== prevMode) {
+                    history.reset();
+                    showWelcomeBanner(history, state, deps);
+                    if (state.session) renderSessionBranch(state.session, history, state.modelId, deps.todoPanel);
+                }
 
                 // Commands: prompts, skills, agents — rebuilt from disk.
                 const fresh = new CommandRegistry();

@@ -53,6 +53,11 @@ export class ToolExecutionComponent extends Container {
     private groupLead = true;
     /** The turn was aborted while this call was still running. */
     private interrupted = false;
+    /** State changed since the box was last built. The box is rebuilt lazily
+     * at render time: a mode's toolExecution renderer replaces the box
+     * entirely, and building it anyway (highlighting, diff coloring) on every
+     * streaming delta was pure waste under such modes. */
+    private boxDirty = true;
 
     setGroupLead(lead: boolean): void {
         this.groupLead = lead;
@@ -65,7 +70,7 @@ export class ToolExecutionComponent extends Container {
         this.isPartial = false;
         this.interrupted = true;
         this.statusText = "";
-        this.updateDisplay();
+        this.boxDirty = true;
     }
 
     constructor(
@@ -78,12 +83,11 @@ export class ToolExecutionComponent extends Container {
         this.addChild(new Spacer(1));
         this.box = new Box(1, 1, (text: string) => theme.bg("toolPendingBg", text));
         this.addChild(this.box);
-        this.updateDisplay();
     }
 
     setExpanded(expanded: boolean): void {
         this.expanded = expanded;
-        this.updateDisplay();
+        this.boxDirty = true;
     }
 
     isExpanded(): boolean {
@@ -93,7 +97,6 @@ export class ToolExecutionComponent extends Container {
     /** Selection highlight for the ctrl+up/down block navigation. */
     setSelected(selected: boolean): void {
         this.selected = selected;
-        this.updateDisplay();
     }
 
     updateResult(result: ToolResultLike, isPartial = false): void {
@@ -103,7 +106,7 @@ export class ToolExecutionComponent extends Container {
             this.statusText = "";
             this.streamingContent = "";
         }
-        this.updateDisplay();
+        this.boxDirty = true;
         this.tui.requestRender();
     }
 
@@ -114,20 +117,20 @@ export class ToolExecutionComponent extends Container {
         if (fields.path && this.args.path !== fields.path) this.args = { ...this.args, path: fields.path };
         // plan streams its text under "plan"; write/edit under "content".
         this.streamingContent = fields.content ?? fields.plan ?? "";
-        this.updateDisplay();
+        this.boxDirty = true;
         this.tui.requestRender();
     }
 
     updateStatus(status: string): void {
         this.statusText = status;
-        this.updateDisplay();
+        this.boxDirty = true;
         this.tui.requestRender();
     }
 
     /** Attach a finished task run's summary — rendered in the done title. */
     setTaskStats(stats: TaskStatsLike): void {
         this.taskStats = stats;
-        this.updateDisplay();
+        this.boxDirty = true;
         this.tui.requestRender();
     }
 
@@ -135,13 +138,13 @@ export class ToolExecutionComponent extends Container {
      * created as a pending stub on `tool-input-start` with no args yet). */
     updateArgs(args: Record<string, unknown>): void {
         this.args = args;
-        this.updateDisplay();
+        this.boxDirty = true;
         this.tui.requestRender();
     }
 
     override invalidate(): void {
         super.invalidate();
-        this.updateDisplay();
+        this.boxDirty = true;
     }
 
     override render(width: number): string[] {
@@ -180,10 +183,16 @@ export class ToolExecutionComponent extends Container {
             );
             if (lines) return lines;
         }
+        if (this.boxDirty) {
+            this.rebuildBox();
+            this.boxDirty = false;
+        }
         return super.render(width);
     }
 
-    private updateDisplay(): void {
+    /** (Re)build the default box's children from current state. Called lazily
+     * from render — never eagerly on state changes (see boxDirty). */
+    private rebuildBox(): void {
         // Subagents (task tool) keep the purple custom-message background as
         // their identity — pending and done alike; errors still go red.
         const isTask = this.toolName === "task";

@@ -32,8 +32,8 @@ import {
     isTab,
     isUp,
 } from "./keys";
-import { spawn } from "node:child_process";
 import { isKeyRelease } from "@notshekhar/loop-tui";
+import { copyToClipboard } from "./clipboard";
 import { traceEvent } from "./debug-log";
 import { pickImageFile, readClipboardImageToFile } from "./clipboard-image";
 import {
@@ -130,15 +130,14 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
     const copySelected = (): void => {
         const text = history.getSelectedText();
         if (text === null) return;
-        try {
-            const child = spawn("pbcopy");
-            child.stdin.write(text);
-            child.stdin.end();
-            history.addSystem(`copied ${text.length} chars to clipboard`);
-        } catch {
-            history.addSystem(`pbcopy unavailable. content length: ${text.length}`);
-        }
-        tui.requestRender();
+        copyToClipboard(text, (ok) => {
+            history.addSystem(
+                ok
+                    ? `copied ${text.length} chars to clipboard`
+                    : `no clipboard tool available. content length: ${text.length}`,
+            );
+            tui.requestRender();
+        });
     };
 
     /** Map a clicked screen row (1-based) to the chat history's own rendered

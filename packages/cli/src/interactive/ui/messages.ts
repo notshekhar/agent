@@ -43,7 +43,8 @@ export class DynamicBorder implements Component {
 const FOLDED_PREVIEW_LINES = 2;
 
 /** Fold rendered lines to a short preview + a dim "+N lines" hint. Applied
- * only when the user folds an entry — never by default. */
+ * only when the user folds an entry in nav — never by default — so the hint
+ * is the nav per-entry expand key (expand-all doesn't reopen these). */
 function foldLines(lines: string[], hint: string): string[] {
     if (lines.length <= FOLDED_PREVIEW_LINES + 1) return lines;
     return [
@@ -140,7 +141,7 @@ export class UserMessageComponent extends Container {
         if (uiStyle().userMessage.timestamp && lines.length > 1) {
             lines[1] = injectBoxTimestamp(lines[1], this.createdAt);
         }
-        if (!this.expanded) lines = foldLines(lines, uiStyle().hints.expandHint);
+        if (!this.expanded) lines = foldLines(lines, uiStyle().hints.selectedExpandHint);
         return lines;
     }
 
@@ -236,7 +237,7 @@ class ResponseTextBlock implements Component, TrackedBlock {
         if (uiStyle().userMessage.timestamp && !streaming && lines.length > 0) {
             lines[0] = appendTimestamp(lines[0], createdAt, width);
         }
-        if (!expanded) lines = foldLines(lines, uiStyle().hints.expandHint);
+        if (!expanded) lines = foldLines(lines, uiStyle().hints.selectedExpandHint);
         // Block-gap modes: the response block owns its single leading blank.
         if (uiStyle().layout.blockGaps) lines = ["", ...lines];
         return lines;
@@ -343,7 +344,7 @@ export class AssistantMessageComponent extends Container {
         for (const t of this.thinkingTimes.values()) t.end ??= Date.now();
     }
 
-    /** Rides the ctrl+e expand-all toggle — modes that fold finished thinking
+    /** Rides the expand-all toggle (e in nav) — modes that fold finished thinking
      * blocks (grok) reopen them; the loop mode's inline display ignores it.
      * The global toggle clears individual overrides so "expand all" wins. */
     setThinkingExpanded(expanded: boolean): void {

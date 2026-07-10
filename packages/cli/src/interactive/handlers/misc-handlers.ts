@@ -3,7 +3,7 @@
  * command IO (emit), /cost, /changelog, /hotkeys, /copy, /attach, /cwd,
  * /login, /logout, /quit, and the not-implemented stub.
  */
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -18,6 +18,7 @@ import {
 } from "@notshekhar/loop-core";
 import type { AppDeps } from "../deps";
 import type { AppState } from "../state";
+import { copyToClipboard } from "../clipboard";
 import { readClipboardImageToFile } from "../clipboard-image";
 import { startLogin, startLogout } from "../login-flow";
 import { loadChangelogEntries } from "../../changelog";
@@ -155,8 +156,8 @@ export function createMiscHandlers(state: AppState, deps: AppDeps): MiscHandlers
             const lines = [
                 "Enter           submit",
                 "Shift+Enter     newline",
-                "Tab             cycle agent (applies completion when popup open)",
-                "Shift+Tab       cycle agent (always)",
+                "Tab             completion (slash commands, @ files)",
+                "Shift+Tab       cycle agent",
                 "@ / #           file completion while typing",
                 "Up / Down       history",
                 "Esc             abort current turn",
@@ -165,6 +166,8 @@ export function createMiscHandlers(state: AppState, deps: AppDeps): MiscHandlers
                 'Ctrl+G          send "continue" (resume interrupted work)',
                 "Ctrl+L          clear screen",
                 "Ctrl+P          cycle scoped models",
+                "Ctrl+E          navigate transcript (Esc on empty prompt too);",
+                "                inside: arrows select, e expand all, y copy, Esc exit",
             ];
             for (const l of lines) history.addSystem(l);
             tui.requestRender();
@@ -180,15 +183,14 @@ export function createMiscHandlers(state: AppState, deps: AppDeps): MiscHandlers
                 return;
             }
             const text = String((last as { content: unknown }).content ?? "");
-            try {
-                const child = spawn("pbcopy");
-                child.stdin.write(text);
-                child.stdin.end();
-                history.addSystem(`copied ${text.length} chars to clipboard`);
-            } catch {
-                history.addSystem(`pbcopy unavailable. content length: ${text.length}`);
-            }
-            tui.requestRender();
+            copyToClipboard(text, (ok) => {
+                history.addSystem(
+                    ok
+                        ? `copied ${text.length} chars to clipboard`
+                        : `no clipboard tool available. content length: ${text.length}`,
+                );
+                tui.requestRender();
+            });
         },
         async attachImage(givenPath) {
             const cat = await getCatalog();

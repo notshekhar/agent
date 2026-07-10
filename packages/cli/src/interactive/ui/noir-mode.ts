@@ -187,18 +187,22 @@ function fitRow(line: string, width: number): string {
     return visibleWidth(line) > width ? truncateToWidth(line, Math.max(0, width - 1)) + "…" : line;
 }
 
-/** `0.5s` under 10s, `41s` under a minute, `1m23s` beyond. */
+/** `0.5s` under 10s, `41s` under a minute, `1m23s` beyond. Branch on the
+ * ROUNDED value — branching on the raw one printed "60s" and "1m00s" for
+ * 119.7s (minutes floored raw, seconds rounded up past the boundary). */
 function fmtSeconds(ms: number): string {
-    const s = ms / 1000;
-    if (s < 10) return `${(Math.round(s * 10) / 10).toFixed(1)}s`;
-    if (s < 60) return `${Math.round(s)}s`;
-    return `${Math.floor(s / 60)}m${String(Math.round(s) % 60).padStart(2, "0")}s`;
+    const s = Math.max(0, ms) / 1000;
+    const tenth = Math.round(s * 10) / 10;
+    if (tenth < 10) return `${tenth.toFixed(1)}s`;
+    const r = Math.round(s);
+    if (r < 60) return `${r}s`;
+    return `${Math.floor(r / 60)}m${String(r % 60).padStart(2, "0")}s`;
 }
 
 /**
  * Thinking as a foldable one-line row, grok-style: `◆ Thought for 0.5s`
  * once done, a dim header + accent gutter + short tail while streaming,
- * the full gutter body when expanded (per-block ctrl+e or expand-all).
+ * the full gutter body when expanded (nav per-entry → or expand-all).
  */
 function renderThinking(state: ThinkingBlockState, ctx: RenderCtx): string[] {
     const th = ctx.theme;
@@ -215,7 +219,7 @@ function renderThinking(state: ThinkingBlockState, ctx: RenderCtx): string[] {
         return [
             "",
             fitRow(
-                header + (state.selected ? th.fg("dim", ` (${uiStyle().hints.expandHint} to expand)`) : ""),
+                header + (state.selected ? th.fg("dim", ` (${uiStyle().hints.selectedExpandHint} to expand)`) : ""),
                 ctx.width,
             ),
         ];
@@ -231,7 +235,7 @@ function renderThinking(state: ThinkingBlockState, ctx: RenderCtx): string[] {
 /**
  * Tools as flat one-line rows: `◆ name summary` — no box, no background.
  * Muted once done+folded, theme text when selected, error red on failure.
- * Expanded (or failed) rows show the output under an accent gutter. The
+ * Expanded rows show the output under an accent gutter. The
  * plan tool keeps its default box look (an approval surface the user must
  * read), so this returns null for it.
  *
@@ -293,7 +297,7 @@ function renderTool(state: ToolBlockState, ctx: RenderCtx): string[] | null {
     const lines = state.groupLead ? ["", header] : [header];
 
     // Subagent body: the live activity tail while running; the full run log
-    // when expanded (or on failure). Each subagent turn/part is one log line.
+    // when expanded. Each subagent turn/part is one log line.
     if (isTask) {
         if (!state.output) return lines;
         const raw = state.output.split("\n");
@@ -304,9 +308,12 @@ function renderTool(state: ToolBlockState, ctx: RenderCtx): string[] | null {
             }
             return lines;
         }
-        if (!state.expanded && !state.isError) {
+        if (!state.expanded) {
             if (state.selected) {
-                lines[0] = fitRow(lines[0] + th.fg("dim", ` (${uiStyle().hints.expandHint} to expand)`), ctx.width);
+                lines[0] = fitRow(
+                    lines[0] + th.fg("dim", ` (${uiStyle().hints.selectedExpandHint} to expand)`),
+                    ctx.width,
+                );
             }
             return lines;
         }
@@ -327,11 +334,12 @@ function renderTool(state: ToolBlockState, ctx: RenderCtx): string[] | null {
         return lines;
     }
 
-    // Output: hidden while folded (grok's whole point), shown expanded, and
-    // always shown on failure — errors must never hide.
-    if (!state.output || (!state.expanded && !state.isError)) {
+    // Output: hidden while folded (grok's whole point), shown expanded.
+    // Failures fold too — the red diamond + title carry the signal; expand
+    // (nav →) to read the error.
+    if (!state.output || !state.expanded) {
         if (state.output && state.selected) {
-            lines[0] = fitRow(lines[0] + th.fg("dim", ` (${uiStyle().hints.expandHint} to expand)`), ctx.width);
+            lines[0] = fitRow(lines[0] + th.fg("dim", ` (${uiStyle().hints.selectedExpandHint} to expand)`), ctx.width);
         }
         return lines;
     }
@@ -362,8 +370,6 @@ const NOIR_MODE: UiModePlugin = {
         tool: { bullet: "◆", mutedCollapsed: true },
         userMessage: { prefix: "❯", timestamp: true },
         turn: { summaryLine: true },
-        // In nav mode → expands the selected entry (ctrl+e toggles nav now).
-        hints: { expandHint: "→" },
         layout: { blockGaps: true },
     },
     render: { thinking: renderThinking, toolExecution: renderTool },

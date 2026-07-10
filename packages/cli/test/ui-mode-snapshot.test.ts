@@ -6,6 +6,10 @@ import type { TUI } from "@notshekhar/loop-tui";
  * rendering of every chat block must not change, ANSI bytes included. These
  * snapshots were captured BEFORE the seam existed — if a refactor changes any
  * of them, that is a regression in loop mode, not a snapshot to update.
+ *
+ * Deliberate re-baselines since capture (each changed ONLY the noted bytes):
+ * - 2026-07-10: expand hints "(ctrl+e to expand)" → "(ctrl+e then e to
+ *   expand)" — ctrl+e was repurposed to enter nav mode, so the old hint lied.
  */
 // Pin the color pipeline before the theme module reads COLORTERM.
 process.env.COLORTERM = "truecolor";

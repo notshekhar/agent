@@ -34,19 +34,30 @@ export const isRight = (d: string) => d === "\x1b[C" || matchesKey(d, "right");
 export const isShiftLeft = (d: string) => d === "\x1b[1;2D" || matchesKey(d, "shift+left");
 export const isShiftRight = (d: string) => d === "\x1b[1;2C" || matchesKey(d, "shift+right");
 export const isEnter = (d: string) => d === "\r" || d === "\n" || matchesKey(d, "enter");
-/** A single printable character (letter-key auto-focus back to the prompt). */
-export const isPrintableChar = (d: string) => d.length === 1 && d >= " " && d !== "\x7f";
+/** Printable text input (letter-key auto-focus back to the prompt). Covers
+ * multi-codeunit graphemes too — emoji/IME commits arrive as one chunk and
+ * must exit nav mode the same way a plain letter does. Anything starting
+ * with ESC (chords, mouse reports) or a control byte is not text. */
+export const isPrintableChar = (d: string) => {
+    if (d.length === 0) return false;
+    if (d.length === 1) return d >= " " && d !== "\x7f";
+    return d.charCodeAt(0) >= 0x20 && d.charCodeAt(0) !== 0x7f;
+};
 // SGR mouse reports (CSI < b ; x ; y M/m) — only requested while nav mode is
-// on. Wheel = button 64 (up) / 65 (down); modifier bits may be OR'd on top,
-// so match on bit 64 plus the low direction bit. A single stdin chunk can
-// carry several events (fast wheel), so scrolling counts every one.
+// on. Wheel = button 64 (up) / 65 (down); 66/67 are horizontal tilt (skip);
+// modifier bits may be OR'd on top, so read bit 64 plus the low direction
+// bits. A single stdin chunk can carry several events (fast wheel), so
+// scrolling counts every one.
 export const MOUSE_SGR_ANY = /^\x1b\[<\d+;\d+;\d+[Mm]/;
 const MOUSE_SGR_ALL = /\x1b\[<(\d+);\d+;\d+[Mm]/g;
 export function countWheelScroll(d: string): number {
     let delta = 0;
     for (const m of d.matchAll(MOUSE_SGR_ALL)) {
         const button = Number(m[1]);
-        if (button & 64) delta += button & 1 ? 1 : -1;
+        if (!(button & 64)) continue;
+        const dir = button & 3;
+        if (dir === 0) delta -= 1;
+        else if (dir === 1) delta += 1;
     }
     return delta;
 }

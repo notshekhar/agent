@@ -73,7 +73,7 @@ exports[`tool execution bash success, long output collapsed then expanded 1`] = 
   "\x1B[48;2;40;50;40m \x1B[38;2;128;128;128m4\x1B[39m                                                                              \x1B[49m",
   "\x1B[48;2;40;50;40m \x1B[38;2;128;128;128m5\x1B[39m                                                                              \x1B[49m",
   "\x1B[48;2;40;50;40m \x1B[38;2;128;128;128m6\x1B[39m                                                                              \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;102;102;102m… +6 lines (ctrl+e to expand)\x1B[39m                                                  \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;102;102;102m… +6 lines (ctrl+e then e to expand)\x1B[39m                                           \x1B[49m",
   "\x1B[48;2;40;50;40m                                                                                \x1B[49m",
 ]
 `;
@@ -200,7 +200,7 @@ exports[`tool execution streaming write input tail 1`] = `
 exports[`special message boxes skill invocation collapsed and expanded 1`] = `
 [
   "\x1B[48;2;45;40;56m                                                                                \x1B[49m",
-  "\x1B[48;2;45;40;56m \x1B[38;2;149;117;205m\x1B[1m[skill]\x1B[22m \x1B[39m\x1B[38;2;212;212;212mverify\x1B[39m\x1B[38;2;102;102;102m (ctrl+e to expand)\x1B[39m                                              \x1B[49m",
+  "\x1B[48;2;45;40;56m \x1B[38;2;149;117;205m\x1B[1m[skill]\x1B[22m \x1B[39m\x1B[38;2;212;212;212mverify\x1B[39m\x1B[38;2;102;102;102m (ctrl+e then e to expand)\x1B[39m                                       \x1B[49m",
   "\x1B[48;2;45;40;56m                                                                                \x1B[49m",
 ]
 `;
@@ -221,7 +221,7 @@ exports[`special message boxes compaction summary collapsed and expanded 1`] = `
   "\x1B[48;2;45;40;56m                                                                                \x1B[49m",
   "\x1B[48;2;45;40;56m \x1B[38;2;149;117;205m\x1B[1m[compaction]\x1B[22m\x1B[39m                                                                   \x1B[49m",
   "\x1B[48;2;45;40;56m                                                                                \x1B[49m",
-  "\x1B[48;2;45;40;56m \x1B[38;2;212;212;212mCompacted from 123,456 tokens (\x1B[39m\x1B[38;2;102;102;102mctrl+e\x1B[39m\x1B[38;2;212;212;212m to expand)\x1B[39m                               \x1B[49m",
+  "\x1B[48;2;45;40;56m \x1B[38;2;212;212;212mCompacted from 123,456 tokens (\x1B[39m\x1B[38;2;102;102;102mctrl+e then e\x1B[39m\x1B[38;2;212;212;212m to expand)\x1B[39m                        \x1B[49m",
   "\x1B[48;2;45;40;56m                                                                                \x1B[49m",
 ]
 `;
@@ -243,7 +243,7 @@ exports[`special message boxes branch summary collapsed 1`] = `
   "\x1B[48;2;45;40;56m                                                                                \x1B[49m",
   "\x1B[48;2;45;40;56m \x1B[38;2;149;117;205m\x1B[1m[branch]\x1B[22m\x1B[39m                                                                       \x1B[49m",
   "\x1B[48;2;45;40;56m                                                                                \x1B[49m",
-  "\x1B[48;2;45;40;56m \x1B[38;2;212;212;212mBranch summary (\x1B[39m\x1B[38;2;102;102;102mctrl+e\x1B[39m\x1B[38;2;212;212;212m to expand)\x1B[39m                                              \x1B[49m",
+  "\x1B[48;2;45;40;56m \x1B[38;2;212;212;212mBranch summary (\x1B[39m\x1B[38;2;102;102;102mctrl+e then e\x1B[39m\x1B[38;2;212;212;212m to expand)\x1B[39m                                       \x1B[49m",
   "\x1B[48;2;45;40;56m                                                                                \x1B[49m",
 ]
 `;
@@ -283,13 +283,13 @@ exports[`chat history end-to-end a small conversation renders stably 1`] = `
   "\x1B[48;2;45;40;56m                                                                                \x1B[49m",
   "\x1B[48;2;45;40;56m \x1B[38;2;149;117;205m\x1B[1m[compaction]\x1B[22m\x1B[39m                                                                   \x1B[49m",
   "\x1B[48;2;45;40;56m                                                                                \x1B[49m",
-  "\x1B[48;2;45;40;56m \x1B[38;2;212;212;212mCompacted from 5,000 tokens (\x1B[39m\x1B[38;2;102;102;102mctrl+e\x1B[39m\x1B[38;2;212;212;212m to expand)\x1B[39m                                 \x1B[49m",
+  "\x1B[48;2;45;40;56m \x1B[38;2;212;212;212mCompacted from 5,000 tokens (\x1B[39m\x1B[38;2;102;102;102mctrl+e then e\x1B[39m\x1B[38;2;212;212;212m to expand)\x1B[39m                          \x1B[49m",
   "\x1B[48;2;45;40;56m                                                                                \x1B[49m",
   "",
   "\x1B[48;2;45;40;56m                                                                                \x1B[49m",
   "\x1B[48;2;45;40;56m \x1B[38;2;149;117;205m\x1B[1m[branch]\x1B[22m\x1B[39m                                                                       \x1B[49m",
   "\x1B[48;2;45;40;56m                                                                                \x1B[49m",
-  "\x1B[48;2;45;40;56m \x1B[38;2;212;212;212mBranch summary (\x1B[39m\x1B[38;2;102;102;102mctrl+e\x1B[39m\x1B[38;2;212;212;212m to expand)\x1B[39m                                              \x1B[49m",
+  "\x1B[48;2;45;40;56m \x1B[38;2;212;212;212mBranch summary (\x1B[39m\x1B[38;2;102;102;102mctrl+e then e\x1B[39m\x1B[38;2;212;212;212m to expand)\x1B[39m                                       \x1B[49m",
   "\x1B[48;2;45;40;56m                                                                                \x1B[49m",
 ]
 `;
@@ -298,7 +298,7 @@ exports[`chat history end-to-end skill user message + session-start hook context
 [
   "",
   "\x1B[48;2;45;40;56m                                                                                \x1B[49m",
-  "\x1B[48;2;45;40;56m \x1B[38;2;149;117;205m\x1B[1m[skill]\x1B[22m \x1B[39m\x1B[38;2;212;212;212mverify\x1B[39m\x1B[38;2;102;102;102m (ctrl+e to expand)\x1B[39m                                              \x1B[49m",
+  "\x1B[48;2;45;40;56m \x1B[38;2;149;117;205m\x1B[1m[skill]\x1B[22m \x1B[39m\x1B[38;2;212;212;212mverify\x1B[39m\x1B[38;2;102;102;102m (ctrl+e then e to expand)\x1B[39m                                       \x1B[49m",
   "\x1B[48;2;45;40;56m                                                                                \x1B[49m",
   "\x1B]133;A\x07\x1B[48;2;52;53;65m                                                                                \x1B[49m",
   "\x1B[48;2;52;53;65m \x1B[38;2;212;212;212mdo it\x1B[39m                                                                          \x1B[49m",

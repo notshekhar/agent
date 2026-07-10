@@ -191,16 +191,25 @@ function customThemesDir(): string {
     return path.join(home, CONFIG_DIR_NAME, "agent", "themes");
 }
 
+/** Fill missing slots from the builtin dark theme — custom files written
+ * before a slot existed, and mode themes (extensions) that skip optional
+ * slots, would otherwise make theme.fg() throw at render time. Vars merge
+ * too: the inherited color values are var REFERENCES into dark's vars. */
+function withDarkFallback(json: ThemeJson): ThemeJson {
+    return {
+        ...json,
+        vars: { ...DARK_THEME.vars, ...json.vars },
+        colors: { ...DARK_THEME.colors, ...json.colors },
+    };
+}
+
 function loadThemeJson(name: string): ThemeJson {
     // The active UI mode's own themes first (loop owns dark/light), then the
     // user's custom theme files.
     const builtin = activeUiMode().themes.find((t) => t.name === name);
-    if (builtin) return builtin;
+    if (builtin) return withDarkFallback(builtin);
     const file = path.join(customThemesDir(), `${name}.json`);
-    const custom = JSON.parse(fs.readFileSync(file, "utf8")) as ThemeJson;
-    // Colors added after a custom theme was written fall back to dark's —
-    // otherwise theme.fg() throws on the missing key at render time.
-    return { ...custom, colors: { ...DARK_THEME.colors, ...custom.colors } };
+    return withDarkFallback(JSON.parse(fs.readFileSync(file, "utf8")) as ThemeJson);
 }
 
 export function initTheme(themeName = "dark"): void {
@@ -208,7 +217,7 @@ export function initTheme(themeName = "dark"): void {
     try {
         activeTheme = new Theme(loadThemeJson(themeName));
     } catch {
-        activeTheme = new Theme(fallback);
+        activeTheme = new Theme(withDarkFallback(fallback));
     }
 }
 

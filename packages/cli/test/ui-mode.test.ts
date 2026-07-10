@@ -14,7 +14,7 @@ import {
 import { DARK_THEME } from "../src/interactive/ui/themes";
 import { ToolExecutionComponent } from "../src/interactive/ui/tool-execution";
 import { UserMessageComponent } from "../src/interactive/ui/messages";
-import { initTheme } from "../src/interactive/ui/theme";
+import { initTheme, theme } from "../src/interactive/ui/theme";
 
 beforeAll(() => initTheme("dark"));
 
@@ -133,5 +133,24 @@ describe("components consume the active mode", () => {
         setActiveUiMode("test-mode");
         const text = new UserMessageComponent("hello").render(80).map(strip).join("\n");
         expect(text).toContain("❯ hello");
+    });
+});
+
+describe("mode themes fall back to dark for missing slots", () => {
+    test("a minimal mode theme (no optional slots) renders instead of throwing", () => {
+        // An extension theme that only sets what it cares about — the slots
+        // the type marks optional (selectionBorder, timestamp, …) are absent.
+        const { selectionBorder: _sb, timestamp: _ts, ...colors } = DARK_THEME.colors as Record<string, unknown>;
+        registerUiMode({
+            id: "test-mode",
+            themes: [{ name: "minimal", vars: DARK_THEME.vars, colors } as unknown as typeof DARK_THEME],
+        });
+        setActiveUiMode("test-mode");
+        initTheme("minimal");
+        expect(theme.name).toBe("minimal"); // loaded, not the fallback theme
+        // Would throw "Unknown theme color" without the dark fallback merge.
+        expect(theme.fg("selectionBorder", "x")).toContain("x");
+        expect(theme.fg("timestamp", "t")).toContain("t");
+        initTheme("dark");
     });
 });

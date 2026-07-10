@@ -51,8 +51,14 @@ export interface UiStyleSpec {
         summaryLine: boolean;
     };
     hints: {
-        /** Key name shown in "(… to expand)" hints. */
+        /** How to reach hidden content from the prompt — shown in the
+         * "(… to expand)" hints on truncated tool output and collapsed
+         * skill/compaction boxes. The flow: ctrl+e enters nav, e expands
+         * everything (per-entry: navigate + selectedExpandHint). */
         expandHint: string;
+        /** Key that expands the SELECTED entry inside nav mode — shown on
+         * selected rows and on entries the user folded in nav. */
+        selectedExpandHint: string;
     };
     layout: {
         /** Block-owned gaps: each thinking/response/tool-group block renders
@@ -70,7 +76,7 @@ export const LOOP_STYLE: UiStyleSpec = {
     tool: { bullet: "", collapsedLines: 6, mutedCollapsed: false },
     userMessage: { prefix: "", timestamp: false },
     turn: { summaryLine: false },
-    hints: { expandHint: "ctrl+e" },
+    hints: { expandHint: "ctrl+e then e", selectedExpandHint: "→" },
     layout: { blockGaps: false },
 };
 

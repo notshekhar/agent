@@ -22,6 +22,7 @@ import {
 import type { AppDeps } from "../deps";
 import type { AppState } from "../state";
 import { renderSessionBranch } from "../replay";
+import { copyToClipboard } from "../clipboard";
 import { showWelcomeBanner } from "../welcome";
 import { showWorkspaceBanners } from "../startup";
 
@@ -331,12 +332,11 @@ export function createSessionHandlers(state: AppState, deps: AppDeps): SessionHa
                 } else {
                     const url = result.out.trim().split("\n").pop() ?? "";
                     history.addSystem(`secret gist: ${url}`);
-                    try {
-                        const pb = spawn("pbcopy");
-                        pb.stdin.write(url);
-                        pb.stdin.end();
+                    copyToClipboard(url, (ok) => {
+                        if (!ok) return;
                         history.addSystem(chalk.dim("(url copied to clipboard)"));
-                    } catch {}
+                        tui.requestRender();
+                    });
                 }
             } finally {
                 hideWorking();

@@ -164,12 +164,13 @@ describe("noir mode rendering", () => {
         expect(t2).toBe(t1 + 1);
     });
 
-    test("failed tool rows always show their output", () => {
+    test("failed tool rows fold like the rest; expanding shows the error", () => {
         noirOn();
         const c = new ToolExecutionComponent("bash", { command: "false" }, tui, "/repo");
         c.updateResult({ content: [{ type: "text", text: "boom" }], isError: true }, false);
-        const text = c.render(W).map(strip).join("\n");
-        expect(text).toContain("boom");
+        expect(c.render(W).map(strip).join("\n")).not.toContain("boom");
+        c.setExpanded(true);
+        expect(c.render(W).map(strip).join("\n")).toContain("boom");
     });
 
     test("tool diamond carries the state color: running yellow, done green, failed red", () => {
@@ -437,6 +438,19 @@ describe("noir mode rendering", () => {
         h.appendAssistantThinking("old reasoning", "p", "m", 3200);
         h.finishAssistant();
         expect(h.render(W).map(strip).join("\n")).toContain("◆ Thought for 3.2s");
+    });
+
+    test("durations round on unit boundaries (59.7s is 1m00s, not 60s)", () => {
+        noirOn();
+        const render = (ms: number): string => {
+            const h = new ChatHistory(tui, "/repo");
+            h.appendAssistantThinking("r", "p", "m", ms);
+            h.finishAssistant();
+            return h.render(W).map(strip).join("\n");
+        };
+        expect(render(59700)).toContain("Thought for 1m00s");
+        expect(render(119700)).toContain("Thought for 2m00s");
+        expect(render(41000)).toContain("Thought for 41s");
     });
 
     test("REGRESSION: long tool headers truncate — never exceed the width (crash guard)", () => {
