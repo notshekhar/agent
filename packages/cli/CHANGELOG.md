@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.11.0] - 2026-07-11
+
+### Added
+
+- **The model can invoke skills directly.** A new `skill` tool lets the agent call a skill by name and get its instructions in one step, instead of only being pointed at a SKILL.md path to read. It rides the existing `skills` setting and project-trust gate — nothing new to enable — and an unknown name returns the real list of available skills. Skills with `disable-model-invocation` stay hidden from it, subagents keep the read-based flow, and reading the file directly still works everywhere. The tool shows up in `/context` accounting, and restricted agents opt in by naming `skill` in their tool list.
+
+### Changed
+
+- **The todo panel no longer outlives the turn.** When a turn ends — finished, interrupted, or failed — the pinned checklist retires into the scrollback as a one-line summary (`todos: all 5 done`, `todos: 3 of 7 open`) instead of sitting under the prompt forever. The list itself is kept, so staleness nudges and resumed sessions still know where you left off.
+
 ## [0.10.11] - 2026-07-10
 
 ### Added
