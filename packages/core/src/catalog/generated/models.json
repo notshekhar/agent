@@ -973,6 +973,26 @@
     ],
     "available": true
   },
+  "openai/gpt-realtime-2.1": {
+    "id": "openai/gpt-realtime-2.1",
+    "provider": "openai",
+    "name": "GPT-Realtime-2.1",
+    "contextWindow": 128000,
+    "maxOutput": 32000,
+    "cost": {
+      "input": 4,
+      "output": 24,
+      "cacheRead": 0.4,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "audio",
+      "image"
+    ],
+    "available": true
+  },
   "openai/gpt-5.6-terra": {
     "id": "openai/gpt-5.6-terra",
     "provider": "openai",
@@ -3503,9 +3523,9 @@
     "contextWindow": 1048576,
     "maxOutput": 131072,
     "cost": {
-      "input": 0.49,
-      "output": 1.54,
-      "cacheRead": 0.091,
+      "input": 0.42,
+      "output": 1.32,
+      "cacheRead": 0.078,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -6663,24 +6683,6 @@
       "input": 0.25,
       "output": 0.8,
       "cacheRead": 0.06,
-      "cacheWrite": 0
-    },
-    "reasoning": true,
-    "modalities": [
-      "text"
-    ],
-    "available": true
-  },
-  "openrouter/arcee-ai/trinity-mini": {
-    "id": "openrouter/arcee-ai/trinity-mini",
-    "provider": "openrouter",
-    "name": "Trinity Mini",
-    "contextWindow": 131072,
-    "maxOutput": 131072,
-    "cost": {
-      "input": 0.045,
-      "output": 0.15,
-      "cacheRead": 0,
       "cacheWrite": 0
     },
     "reasoning": true,
