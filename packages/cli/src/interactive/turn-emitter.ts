@@ -165,14 +165,10 @@ export function wireTurnEmitter(emitter: TurnEmitter, deps: TurnEmitterDeps): vo
         todoPanel.setItems(e.items);
         tui.requestRender();
     });
+    // Panel retire happens in the turn-runner's finally, not here: finish
+    // never fires on an interrupt, and fires once per stop-hook continuation.
     emitter.on("finish", (event: { usage?: UsageBlock; lastStepUsage?: UsageBlock }) => {
         history.finishAssistant();
-        // A fully-completed checklist retires into the scrollback as one dim
-        // line, freeing the pinned rows for the next job.
-        if (todoPanel.allCompleted()) {
-            history.addSystem(`todos: all ${todoPanel.count()} done`);
-            todoPanel.clear();
-        }
         refreshStatusLine(pickContextUsage(event));
         tui.requestRender();
     });

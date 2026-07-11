@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { TodoItem } from "@notshekhar/loop-core";
-import { formatTodoPanel, TodoPanel } from "../src/interactive/components/todo-panel";
+import { formatRetireLine, formatTodoPanel, TodoPanel } from "../src/interactive/components/todo-panel";
 
 const ANSI_RE = /\x1b\[[0-9;]*m/g;
 const plain = (lines: string[]): string[] => lines.map((l) => l.replace(ANSI_RE, ""));
@@ -70,7 +70,25 @@ describe("formatTodoPanel", () => {
     });
 });
 
+describe("formatRetireLine", () => {
+    test("fully-terminal list celebrates, counting cancelled as done", () => {
+        expect(formatRetireLine([item("a", "completed"), item("b", "cancelled")])).toBe("todos: all 2 done");
+    });
+
+    test("open work reports what's left", () => {
+        expect(formatRetireLine([item("a", "completed"), item("b", "in_progress"), item("c")])).toBe(
+            "todos: 2 of 3 open",
+        );
+    });
+});
+
 describe("TodoPanel", () => {
+    test("retireLine reflects the current items", () => {
+        const p = new TodoPanel();
+        p.setItems([item("a", "completed"), item("b")]);
+        expect(p.retireLine()).toBe("todos: 1 of 2 open");
+    });
+
     test("allCompleted treats cancelled as terminal", () => {
         const p = new TodoPanel();
         p.setItems([item("a", "completed"), item("b", "cancelled")]);

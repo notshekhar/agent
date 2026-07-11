@@ -43,6 +43,7 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
         ensureSession,
         tracker,
         selectOnce,
+        todoPanel,
     } = deps;
 
     /**
@@ -212,6 +213,13 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
             // Aborted mid-flight: still-pending tool boxes would show a
             // running state forever — freeze them as "interrupted".
             if (turnSignal.aborted) history.markPendingToolsInterrupted();
+            // The checklist retires into scrollback at every turn end — done,
+            // interrupted, or forgotten — so the panel never outlives the turn.
+            // Session state keeps the list for nudges and /resume.
+            if (!todoPanel.isEmpty()) {
+                history.addSystem(todoPanel.retireLine());
+                todoPanel.clear();
+            }
             if (uiStyle().turn.summaryLine && !turnSignal.aborted) {
                 history.addTurnSummary((Date.now() - turnStartedAt) / 1000);
             }

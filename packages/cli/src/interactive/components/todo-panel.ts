@@ -51,6 +51,16 @@ function visibleSubset(items: TodoItem[], maxItems: number): { shown: TodoItem[]
     return { shown: items.filter((t) => keep.has(t)), hidden: items.length - keep.size };
 }
 
+/**
+ * One-line scrollback summary for a retiring panel: a fully-terminal list
+ * reads "all 5 done", one with work left reads "3 of 7 open". Only the pinned
+ * rows retire — the list itself stays in session state for nudges and resume.
+ */
+export function formatRetireLine(items: TodoItem[]): string {
+    const open = items.filter((t) => !isTerminal(t)).length;
+    return open === 0 ? `todos: all ${items.length} done` : `todos: ${open} of ${items.length} open`;
+}
+
 /** Pure layout — exported for tests. Empty list renders as no rows at all. */
 export function formatTodoPanel(items: TodoItem[], width: number, maxRows = MAX_BODY_ROWS): string[] {
     if (items.length === 0) return [];
@@ -82,6 +92,10 @@ export class TodoPanel implements Component {
 
     allCompleted(): boolean {
         return this.items.length > 0 && this.items.every(isTerminal);
+    }
+
+    retireLine(): string {
+        return formatRetireLine(this.items);
     }
 
     count(): number {
