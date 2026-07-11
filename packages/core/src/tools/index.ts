@@ -76,6 +76,10 @@ export { askInputSchema, createAskTool, formatAskAnswers, type AskToolContext } 
 // websearch tool: also conditionally attached in runTurn, gated on the
 // webSearch setting (default off). No UI bridge — works in print mode too.
 export { createWebsearchTool, type WebsearchToolContext } from "./websearch";
+// skill tool: conditionally attached in runTurn whenever the turn has visible
+// skills (rides the `skills` setting + trust gate — no setting of its own).
+// Parent turn only; subagents keep the read-tool fallback.
+export { createSkillTool, SKILL_TOOL_NAME, stripSkillFrontmatter, type SkillToolContext } from "./skill";
 // plan tool: conditionally attached in runTurn for agents whose tool list
 // names it (the plan builtin does). A substantial delivery stops the turn.
 export {

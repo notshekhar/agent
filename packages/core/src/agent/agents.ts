@@ -65,9 +65,11 @@ const READONLY_TOOLS = ["read", "ls", "grep", "find", "sql"];
 // on this platform (see the plan BUILTINS comment). isSandboxSupported() is a
 // cheap, deterministic platform check, so resolving once at module load is fine.
 // "plan" is the delivery tool — calling it ends the turn with the final plan.
+// "skill" is read-only by construction (loads skill instructions), so the
+// planning agent gets it like the file-read tools.
 const PLAN_TOOLS = isSandboxSupported()
-    ? [...READONLY_TOOLS, "bash", "task", "plan"]
-    : [...READONLY_TOOLS, "task", "plan"];
+    ? [...READONLY_TOOLS, "bash", "task", "plan", "skill"]
+    : [...READONLY_TOOLS, "task", "plan", "skill"];
 
 export const ANALYST_BASE_PROMPT = `You are loop-data-analyst, a precise data assistant. Correctness over completeness — if a table, column, value, or range is missing or ambiguous, ASK the user instead of guessing.
 
@@ -142,9 +144,10 @@ export function isValidAgentName(name: string): boolean {
 /** Names selectable as agent tools: the file tools plus "task" (subagents),
  * "ask" (user questions; only active when the askUser setting is on),
  * "websearch" (only active when the webSearch setting is on), "plan"
- * (the plan-delivery tool that ends the turn) and "todo" (the visible
- * checklist; only active when the todos setting is on). */
-export const AGENT_TOOL_NAMES = [...TOOL_NAMES, "task", "ask", "websearch", "plan", "todo"] as const;
+ * (the plan-delivery tool that ends the turn), "todo" (the visible
+ * checklist; only active when the todos setting is on) and "skill"
+ * (explicit skill invocation; only active when the turn has skills). */
+export const AGENT_TOOL_NAMES = [...TOOL_NAMES, "task", "ask", "websearch", "plan", "todo", "skill"] as const;
 
 /**
  * Tool names valid in an agent allowlist: the builtins/task plus any tools

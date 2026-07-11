@@ -184,7 +184,7 @@ Paste image (Cmd+V / Ctrl+V), `/attach <path>`, or `Ctrl+I` for the file picker.
 
 ### Skills, prompts, workspace context
 
-- `*.md` under `~/.loop/agent/skills/` or `.loop/skills/` — auto-registered as `/skill:<name>`.
+- `*.md` under `~/.loop/agent/skills/` or `.loop/skills/` — auto-registered as `/skill:<name>`, and the model can invoke them itself via the `skill` tool when a task matches a skill's description.
 - `*.md` under `~/.loop/agent/prompts/` — invokable as a slash command.
 - `AGENTS.md` / `CLAUDE.md` in the repo are loaded as workspace context automatically.
 

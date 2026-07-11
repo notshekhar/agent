@@ -11,7 +11,15 @@ import { getSetting } from "../settings";
 import { getMcpManager, isMcpEnabled } from "../mcp";
 import { getExtensionHost } from "../extensions";
 import { parseModelId } from "../providers";
-import { createAskTool, createTools, createWebsearchTool, isAskUserAvailable, TODO_TOOL_NAME } from "../tools";
+import {
+    createAskTool,
+    createSkillTool,
+    createTools,
+    createWebsearchTool,
+    isAskUserAvailable,
+    SKILL_TOOL_NAME,
+    TODO_TOOL_NAME,
+} from "../tools";
 import type { Session } from "../sessions";
 import { getAgentPrompt, getAgentTools, listAgents } from "./agents";
 import { loadWorkspaceContext } from "./context";
@@ -112,10 +120,19 @@ export async function buildContextReport(opts: {
     if (getSetting("webSearch") === true && (!allowedTools?.length || allowedTools.includes("websearch"))) {
         toolSet.websearch = createWebsearchTool({});
     }
-    if (getSetting("askUser") === true && isAskUserAvailable() && (!allowedTools?.length || allowedTools.includes("ask"))) {
+    if (
+        getSetting("askUser") === true &&
+        isAskUserAvailable() &&
+        (!allowedTools?.length || allowedTools.includes("ask"))
+    ) {
         toolSet.ask = createAskTool({});
     }
-    const todosEnabled = getSetting("todos") === true && (!allowedTools?.length || allowedTools.includes(TODO_TOOL_NAME));
+    const visibleSkills = skills.skills.filter((s) => !s.disableModelInvocation);
+    if (visibleSkills.length > 0 && (!allowedTools?.length || allowedTools.includes(SKILL_TOOL_NAME))) {
+        toolSet[SKILL_TOOL_NAME] = createSkillTool({ skills: visibleSkills });
+    }
+    const todosEnabled =
+        getSetting("todos") === true && (!allowedTools?.length || allowedTools.includes(TODO_TOOL_NAME));
 
     const mcpTools = isMcpEnabled() && isTrusted(cwd) && !allowedTools?.length ? getMcpManager().getTools() : {};
     const mcpToolCount = Object.keys(mcpTools).length;

@@ -34,6 +34,8 @@ export function formatToolArgs(toolName: string, args: Record<string, unknown>, 
             return typeof a.pattern === "string" ? a.pattern : "";
         case "websearch":
             return typeof a.query === "string" ? a.query : "";
+        case "skill":
+            return typeof a.name === "string" ? a.name : "";
         case "sql": {
             const conn = typeof a.connectionId === "string" ? a.connectionId : "";
             const q = typeof a.query === "string" ? a.query.replace(/\s+/g, " ").trim() : "";

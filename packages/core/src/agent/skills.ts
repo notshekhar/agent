@@ -230,14 +230,23 @@ function escapeXml(str: string): string {
 /**
  * XML prompt block per the Agent Skills standard (agentskills.io).
  * Skills with disableModelInvocation are /skill:name-only and excluded.
+ *
+ * Two wordings for the how-to-load line: the default tells the model to read
+ * the skill's file (works everywhere — subagents get this one), `viaTool`
+ * points at the skill tool instead and is used by runTurn when it attached
+ * the tool for this turn. The <location> stays in both so the read path
+ * remains a working fallback.
  */
-export function formatSkillsForPrompt(skills: Skill[]): string {
+export function formatSkillsForPrompt(skills: Skill[], opts?: { viaTool?: boolean }): string {
     const visible = skills.filter((s) => !s.disableModelInvocation);
     if (visible.length === 0) return "";
 
+    const howToLoad = opts?.viaTool
+        ? "Invoke the skill tool with a skill's name to load its instructions when the task matches its description."
+        : "Use the read tool to load a skill's file when the task matches its description.";
     const lines = [
         "\n\nThe following skills provide specialized instructions for specific tasks.",
-        "Use the read tool to load a skill's file when the task matches its description.",
+        howToLoad,
         "When a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.",
         "",
         "<available_skills>",

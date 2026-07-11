@@ -11,6 +11,7 @@ import { getSetting } from "../settings";
 import {
     createAskTool,
     createPlanTool,
+    createSkillTool,
     createTodoNudger,
     createTodoTool,
     createTools,
@@ -19,13 +20,14 @@ import {
     isAskUserAvailable,
     planDeliveredThisStep,
     PLAN_TOOL_NAME,
+    SKILL_TOOL_NAME,
     TODO_TOOL_NAME,
 } from "../tools";
 import { buildSubagentNote, buildSystemPrompt, buildTodoNote } from "./system-prompt";
 import { getAgentPrompt, getAgentTools, isReadOnlyBashAgent, listAgents } from "./agents";
 import { loadWorkspaceContext } from "./context";
 import { loadMemoryContext } from "./memory";
-import { loadProjectSkills } from "./skills";
+import { formatSkillsForPrompt, loadProjectSkills, type Skill } from "./skills";
 import { extractImagesFromInput } from "./images";
 import { CostTracker, stampUsageCost } from "./cost";
 import { runCompact } from "./compact";
@@ -200,7 +202,7 @@ function estimateInterruptedUsage(
  */
 async function assembleTurnTools(
     opts: RunTurnOptions,
-    extra: { provider: string; modelShortId: string; workspaceContext: string; skillsPrompt: string },
+    extra: { provider: string; modelShortId: string; workspaceContext: string; skillsPrompt: string; skills: Skill[] },
 ) {
     const { session, modelId, cwd, abortSignal, tracker, emitter } = opts;
     const agentPrompt = opts.agent ? getAgentPrompt(opts.agent) : undefined;
@@ -275,6 +277,17 @@ async function assembleTurnTools(
             workspaceContext: extra.workspaceContext,
             skillsPrompt: extra.skillsPrompt,
         });
+    }
+    // Skill tool: explicit skill invocation — attached whenever this turn has
+    // visible skills (same `skills` setting + trust gate that loaded them; no
+    // setting of its own). Added AFTER the task tool so subagents never
+    // inherit it — their skills prompt keeps the read-tool wording, and the
+    // read path stays a working fallback everywhere. Restricted agents opt in
+    // by naming "skill". runTurn checks for this tool post-assembly to pick
+    // the viaTool prompt wording.
+    const visibleSkills = extra.skills.filter((s) => !s.disableModelInvocation);
+    if (visibleSkills.length > 0 && (!allowedTools?.length || allowedTools.includes(SKILL_TOOL_NAME))) {
+        toolsForTurn[SKILL_TOOL_NAME] = createSkillTool({ skills: visibleSkills });
     }
     // Todo tool: opt-in visible checklist for multi-step turns (todos setting,
     // default OFF). No UI bridge needed — in print mode the update just logs as
@@ -399,12 +412,19 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
         provider,
         modelShortId,
         workspaceContext: workspaceContext.text,
+        // Subagents get the read-tool wording (task tool forwards this): the
+        // skill tool is parent-only, but skill files are readable everywhere.
         skillsPrompt: skills.promptBlock,
+        skills: skills.skills,
     });
     // System prompt is built AFTER the task tool decision so the model's tool
     // list matches reality, plus explicit delegation guidance when present.
     const subagentNote = "task" in toolsForTurn ? buildSubagentNote(listAgents().map((a) => a.name)) : "";
     const todoNote = TODO_TOOL_NAME in toolsForTurn ? buildTodoNote() : "";
+    // Checked post-assembly (not re-derived from settings) so an extension
+    // removing the skill tool in onAssembleTools also flips the wording back.
+    const skillsBlock =
+        SKILL_TOOL_NAME in toolsForTurn ? formatSkillsForPrompt(skills.skills, { viaTool: true }) : skills.promptBlock;
     let system =
         buildSystemPrompt({
             cwd,
@@ -415,7 +435,7 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
         }) +
         subagentNote +
         todoNote +
-        (skills.promptBlock ?? "");
+        (skillsBlock ?? "");
     // Extension turn middleware may transform the system prompt, scoped by
     // ctx.agent (update any specific agent's prompt). No-op when none.
     system = await applySystemPrompt(system, turnContext);

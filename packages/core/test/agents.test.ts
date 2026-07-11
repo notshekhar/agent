@@ -10,6 +10,10 @@ describe("plan agent tools", () => {
         expect(tools).not.toContain("edit");
         expect(tools.includes("bash")).toBe(isSandboxSupported());
     });
+
+    test("includes skill (read-only skill loading)", () => {
+        expect(getAgentTools("plan")!).toContain("skill");
+    });
 });
 
 describe("isReadOnlyBashAgent", () => {
@@ -58,11 +62,16 @@ describe("parseAgentFile", () => {
         expect(parsed.tools).toBeUndefined();
     });
 
-    test("full tool list (incl. task + ask + websearch + plan + todo) normalizes to undefined (= all)", () => {
+    test("full tool list (incl. task + ask + websearch + plan + todo + skill) normalizes to undefined (= all)", () => {
         const parsed = parseAgentFile(
-            "---\ntools: read, write, edit, bash, ls, grep, find, sql, task, ask, websearch, plan, todo\n---\n\nBody.",
+            "---\ntools: read, write, edit, bash, ls, grep, find, sql, task, ask, websearch, plan, todo, skill\n---\n\nBody.",
         );
         expect(parsed.tools).toBeUndefined();
+    });
+
+    test("skill is a valid agent tool", () => {
+        const parsed = parseAgentFile("---\ntools: read, grep, skill\n---\n\nBody.");
+        expect(parsed.tools).toEqual(["read", "grep", "skill"]);
     });
 
     test("todo is a valid agent tool", () => {
