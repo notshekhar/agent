@@ -14,7 +14,7 @@ export interface AppSettings {
     /** Models Ctrl+P cycles through (full provider/model ids). Managed via /scoped-models. */
     scopedModels?: string[];
     theme?: string;
-    /** Active UI mode ("experience"). Builtin: "loop" (default); extensions can register more. */
+    /** Active UI mode ("experience"). Builtins: "noir" (default) and "loop"; extensions can register more. */
     uiMode?: string;
     /** Theme per UI mode, keyed by mode id (e.g. { grok: "night" }). Loop's theme stays on the legacy `theme` key. */
     uiThemes?: Record<string, string>;

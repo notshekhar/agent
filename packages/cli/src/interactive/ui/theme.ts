@@ -223,12 +223,13 @@ export function initTheme(themeName = "dark"): void {
 
 /**
  * Activate the configured UI mode and its theme (startup and /reload).
- * Mode themes resolve from `uiThemes[modeId]`; loop keeps honoring the legacy
- * `theme` key. Unknown modes (e.g. an uninstalled extension's) fall back to
- * loop rather than failing startup.
+ * Noir is the default when no uiMode is set. Mode themes resolve from
+ * `uiThemes[modeId]`; loop keeps honoring the legacy `theme` key. Unknown
+ * modes (e.g. an uninstalled extension's) fall back to loop rather than
+ * failing startup.
  */
 export function initUiModeAndTheme(): void {
-    const raw = (settingsStore.get("uiMode") as string | undefined) ?? "loop";
+    const raw = (settingsStore.get("uiMode") as string | undefined) ?? "noir";
     // The dark-canvas mode shipped briefly as "grok" — honor old settings.
     const modeId = raw === "grok" ? "noir" : raw;
     if (!setActiveUiMode(modeId)) setActiveUiMode("loop");
