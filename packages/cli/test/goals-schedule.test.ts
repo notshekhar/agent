@@ -42,8 +42,9 @@ describe("everyToCron", () => {
 describe("dueGoals", () => {
     test("filters with real croner math", () => {
         const now = Date.now();
-        const mk = (over: Partial<Goal> & ({ kind: "none" } | { kind: "once"; at: number } | { kind: "cron"; expr: string })): Goal =>
-            ({ id: "g", text: "t", cwd: "/", enabled: true, createdAt: now - 10 * 60_000, ...over }) as Goal;
+        const mk = (
+            over: Partial<Goal> & ({ kind: "none" } | { kind: "once"; at: number } | { kind: "cron"; expr: string }),
+        ): Goal => ({ id: "g", text: "t", cwd: "/", enabled: true, createdAt: now - 10 * 60_000, ...over }) as Goal;
         const due = dueGoals(
             [
                 mk({ id: "standing", kind: "none" }),
@@ -93,9 +94,16 @@ describe("daemon unit rendering", () => {
     test("schtasks args: minutely task pointing wscript at the launcher", () => {
         const args = schtasksCreateArgs("C:\\Users\\a\\.loop\\agent\\goals-tick.vbs");
         expect(args).toEqual([
-            "/Create", "/F", "/SC", "MINUTE", "/MO", "1",
-            "/TN", "loop-goals",
-            "/TR", 'wscript.exe "C:\\Users\\a\\.loop\\agent\\goals-tick.vbs"',
+            "/Create",
+            "/F",
+            "/SC",
+            "MINUTE",
+            "/MO",
+            "1",
+            "/TN",
+            "loop-goals",
+            "/TR",
+            'wscript.exe "C:\\Users\\a\\.loop\\agent\\goals-tick.vbs"',
         ]);
     });
 });

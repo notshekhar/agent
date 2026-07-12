@@ -51,18 +51,18 @@ Prebuilt binaries — no Node required. Targets: `darwin-x64`, `darwin-arm64`, `
 
 ## Providers
 
-| Provider                                        | Auth                         | Notes                                          |
-| ----------------------------------------------- | ---------------------------- | ---------------------------------------------- |
-| xAI (Grok)                                      | OAuth (SuperGrok) or API key | Default: `xai/grok-build-0.1`                  |
-| Anthropic                                       | API key                      | Claude 4.x — Opus / Sonnet / Haiku             |
-| OpenAI                                          | API key                      | GPT-5 family                                   |
-| Google                                          | API key                      | Gemini 3.1 Pro / Flash / Flash-Lite            |
-| OpenRouter                                      | API key                      | 100+ models, searchable picker                 |
-| GitHub Copilot                                  | OAuth (device flow)          | Subscription-billed                            |
-| AWS Bedrock                                     | none (AWS creds/SSO)         | Auto-detected from the aws CLI / env           |
-| DeepSeek / Mistral / GLM / Z.AI / Groq / Cerebras / ZenMux | API key           | Built-in                                       |
-| Ollama                                          | none (local daemon)          | Auto-detected; `LOOP_OLLAMA_BASE_URL` to point |
-| Custom                                          | 6 auth methods (below)       | Any OpenAI/Anthropic/Google-compatible gateway |
+| Provider                                                   | Auth                         | Notes                                          |
+| ---------------------------------------------------------- | ---------------------------- | ---------------------------------------------- |
+| xAI (Grok)                                                 | OAuth (SuperGrok) or API key | Default: `xai/grok-build-0.1`                  |
+| Anthropic                                                  | API key                      | Claude 4.x — Opus / Sonnet / Haiku             |
+| OpenAI                                                     | API key                      | GPT-5 family                                   |
+| Google                                                     | API key                      | Gemini 3.1 Pro / Flash / Flash-Lite            |
+| OpenRouter                                                 | API key                      | 100+ models, searchable picker                 |
+| GitHub Copilot                                             | OAuth (device flow)          | Subscription-billed                            |
+| AWS Bedrock                                                | none (AWS creds/SSO)         | Auto-detected from the aws CLI / env           |
+| DeepSeek / Mistral / GLM / Z.AI / Groq / Cerebras / ZenMux | API key                      | Built-in                                       |
+| Ollama                                                     | none (local daemon)          | Auto-detected; `LOOP_OLLAMA_BASE_URL` to point |
+| Custom                                                     | 6 auth methods (below)       | Any OpenAI/Anthropic/Google-compatible gateway |
 
 Custom providers (`/login custom`): name + base URL + auth + model list, saved to `~/.loop/` and usable like any built-in — handy for gateways like Bifrost or LiteLLM. Six auth methods:
 
@@ -98,15 +98,15 @@ Flags: `--model <provider/id>`, `--provider <id>`, `--cwd <path>`, `--session <i
 
 ### Slash commands
 
-| Group      | Commands                                                                                 |
-| ---------- | ---------------------------------------------------------------------------------------- |
+| Group      | Commands                                                                                                    |
+| ---------- | ----------------------------------------------------------------------------------------------------------- |
 | Sessions   | `/new` `/clear` `/resume` `/sessions` `/session` `/name` `/export` `/import` `/share` `/compact` `/context` |
-| Tree       | `/tree` `/fork` `/clone`                                                                 |
-| Models     | `/model` `/provider` `/thinking` `/scoped-models` (+ Ctrl+P cycle)                       |
-| Agents     | `/agents` `/<agent> <message>` (one-shot)                                                |
-| Automation | `/goal` `/daemon` `/reminder` `/timer` `/recap`                                          |
-| Setup      | `/login` `/logout` `/settings` `/mcp` `/extensions` `/hooks` `/bashdeny` `/doctor` `/reload` `/update` |
-| Misc       | `/help` `/cost` `/memory` `/init` `/attach` `/paste` `/copy` `/cd` `/hotkeys` `/changelog` `/quit` |
+| Tree       | `/tree` `/fork` `/clone`                                                                                    |
+| Models     | `/model` `/provider` `/thinking` `/scoped-models` (+ Ctrl+P cycle)                                          |
+| Agents     | `/agents` `/<agent> <message>` (one-shot)                                                                   |
+| Automation | `/goal` `/daemon` `/reminder` `/timer` `/recap`                                                             |
+| Setup      | `/login` `/logout` `/settings` `/mcp` `/extensions` `/hooks` `/bashdeny` `/doctor` `/reload` `/update`      |
+| Misc       | `/help` `/cost` `/memory` `/init` `/attach` `/paste` `/copy` `/cd` `/hotkeys` `/changelog` `/quit`          |
 
 `/clear` starts a fresh session (and clears the screen). Messages and slash commands typed while the agent is generating queue up and run after the turn.
 

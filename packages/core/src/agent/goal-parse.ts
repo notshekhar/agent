@@ -18,7 +18,9 @@ const goalParseSchema = z.object({
         .describe("The objective itself, with schedule words and agent mentions stripped. Imperative, concise."),
     kind: z
         .enum(["none", "once", "cron"])
-        .describe("none = no time expression (run in the background now); once = a single future moment; cron = recurring."),
+        .describe(
+            "none = no time expression (run in the background now); once = a single future moment; cron = recurring.",
+        ),
     // nullish, not nullable: models routinely omit irrelevant fields rather
     // than emitting explicit nulls, and either must validate.
     onceInMinutes: z
@@ -36,7 +38,9 @@ const goalParseSchema = z.object({
     cronExpr: z
         .string()
         .nullish()
-        .describe('For kind "cron": a standard 5-field cron expression (minute hour day month weekday). Otherwise null.'),
+        .describe(
+            'For kind "cron": a standard 5-field cron expression (minute hour day month weekday). Otherwise null.',
+        ),
     agent: z
         .string()
         .nullish()
@@ -89,7 +93,11 @@ export function toGoalSchedule(parsed: ParsedGoal, now: number): GoalSchedule | 
     if (parsed.kind === "once") {
         // Relative delays win: the model extracts "45" from "in 45 minutes"
         // reliably, but adding 45 minutes to a wall clock it cannot.
-        if (typeof parsed.onceInMinutes === "number" && Number.isFinite(parsed.onceInMinutes) && parsed.onceInMinutes > 0) {
+        if (
+            typeof parsed.onceInMinutes === "number" &&
+            Number.isFinite(parsed.onceInMinutes) &&
+            parsed.onceInMinutes > 0
+        ) {
             return { kind: "once", at: now + Math.round(parsed.onceInMinutes * 60_000) };
         }
         if (!parsed.onceAtIso) return null;

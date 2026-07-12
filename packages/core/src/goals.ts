@@ -99,10 +99,7 @@ export function listGoals(cwd?: string): Goal[] {
     if (!cache || cache.db !== db) {
         cache = {
             db,
-            list: db
-                .query<GoalRow, []>(`SELECT ${SELECT_COLS} FROM goals ORDER BY id`)
-                .all()
-                .map(rowToGoal),
+            list: db.query<GoalRow, []>(`SELECT ${SELECT_COLS} FROM goals ORDER BY id`).all().map(rowToGoal),
         };
     }
     return cwd === undefined ? cache.list : cache.list.filter((g) => g.cwd === cwd);
@@ -202,11 +199,7 @@ export function recordGoalRunStart(id: string, sessionId: string): void {
 }
 
 export function recordGoalRunEnd(id: string, status: "ok" | "error", summary: string | null): void {
-    getDb().run("UPDATE goals SET last_run_status = ?, last_run_summary = ? WHERE pub_id = ?", [
-        status,
-        summary,
-        id,
-    ]);
+    getDb().run("UPDATE goals SET last_run_status = ?, last_run_summary = ? WHERE pub_id = ?", [status, summary, id]);
     cache = null;
 }
 

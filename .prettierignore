@@ -3,3 +3,4 @@ dist
 packages/core/src/catalog/generated
 packages/core/src/docs/generated.ts
 bun.lock
+packages/core/test/fixtures

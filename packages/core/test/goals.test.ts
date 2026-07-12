@@ -20,7 +20,12 @@ describe("goals CRUD", () => {
     test("add/list/update/delete roundtrip across all schedule kinds", () => {
         setDbPathForTests(":memory:");
         const standing = addGoal("ship v1", "/repo", { kind: "none" });
-        const once = addGoal("check CI", "/repo", { kind: "once", at: 123 }, { model: "prov/model", agent: "reviewer" });
+        const once = addGoal(
+            "check CI",
+            "/repo",
+            { kind: "once", at: 123 },
+            { model: "prov/model", agent: "reviewer" },
+        );
         const cron = addGoal("update deps", "/other", { kind: "cron", expr: "0 9 * * *" });
 
         const all = listGoals();
@@ -93,7 +98,11 @@ describe("isGoalDue", () => {
         const goal: Goal = { ...base, kind: "cron", expr: "x" };
         expect(isGoalDue(goal, NOW, everySecond)).toBe(true); // createdAt + 1000 << NOW
         expect(
-            isGoalDue({ ...goal, lastRun: { at: NOW - 500, sessionId: "s", status: "ok", summary: null } }, NOW, everySecond),
+            isGoalDue(
+                { ...goal, lastRun: { at: NOW - 500, sessionId: "s", status: "ok", summary: null } },
+                NOW,
+                everySecond,
+            ),
         ).toBe(false); // next = NOW + 500
         expect(isGoalDue(goal, NOW, never)).toBe(false); // dead expression
     });

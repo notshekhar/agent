@@ -8,7 +8,15 @@
  * sent to the model until the user submits. Registered via setAskUserBridge
  * in app.ts — interactive mode only.
  */
-import { Container, Editor, type EditorTheme, isKeyRelease, SelectList, type SelectItem, Text } from "@notshekhar/loop-tui";
+import {
+    Container,
+    Editor,
+    type EditorTheme,
+    isKeyRelease,
+    SelectList,
+    type SelectItem,
+    Text,
+} from "@notshekhar/loop-tui";
 import type { AskAnswer, AskQuestion, AskUserBridge } from "@notshekhar/loop-core";
 import chalk from "chalk";
 import { isEsc, isLeft, isRight } from "./keys";

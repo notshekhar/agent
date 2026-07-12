@@ -25,9 +25,9 @@ describe("toGoalSchedule", () => {
             at: NOW + 60_000,
         });
         // Both set (model hedged): the deterministic relative delay wins.
-        expect(
-            toGoalSchedule(parsed({ kind: "once", onceInMinutes: 45, onceAtIso: "2026-07-07T13:00" }), NOW),
-        ).toEqual({ kind: "once", at: NOW + 45 * 60_000 });
+        expect(toGoalSchedule(parsed({ kind: "once", onceInMinutes: 45, onceAtIso: "2026-07-07T13:00" }), NOW)).toEqual(
+            { kind: "once", at: NOW + 45 * 60_000 },
+        );
         // Garbage delays fall through to the ISO path / rejection.
         expect(toGoalSchedule(parsed({ kind: "once", onceInMinutes: 0 }), NOW)).toBeNull();
         expect(toGoalSchedule(parsed({ kind: "once", onceInMinutes: -5 }), NOW)).toBeNull();
