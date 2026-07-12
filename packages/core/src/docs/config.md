@@ -34,6 +34,21 @@ Other notable keys (all managed via `/settings` too):
   recalls them via a small index injected each turn. Files are plain
   markdown — edit or delete them freely (`/memory` → "Agent memory (auto)"
   opens the index).
+- `"todos": true` — enables the `todo` tool: a visible checklist the agent
+  maintains during multi-step work, pinned above the editor while the turn
+  runs (`[>]` in progress, `[-]` cancelled) and retired into the scrollback
+  as a one-line summary when the turn ends. Lists persist with the session
+  (`/resume`, `/fork`, `/tree` restore them). Default off.
+- `"skills": false` — disables skills. Default on (gated by project trust):
+  skills are SKILL.md folders under `~/{{dir}}/agent/skills/` (global) and
+  `<cwd>/{{dir}}/skills/` (project); the agent loads one via the `skill`
+  tool or by reading its file. A skill with `disable-model-invocation` in
+  its frontmatter is excluded from the `skill` tool.
+- `"uiMode"` — the chat's look. Builtins: `"noir"` (default — dark washed
+  canvas, flat `◆` tool rows, collapsing thought blocks) and `"loop"` (the
+  classic boxed look). Switch live with `/ui <mode>`; each mode keeps its
+  own theme (loop: `dark`/`light` on the `theme` key; other modes under
+  `uiThemes`, e.g. `{ "noir": "day" }`).
 - `"subagentModel"` — default model for subagents (full `provider/model` id,
   cross-provider allowed). An agent file's own `model:` wins over it; unset =
   subagents inherit the parent's model. Invalid/unavailable picks fall back to
@@ -134,6 +149,24 @@ Shape (`CustomProviderConfig`):
 - `baseURL` — root URL. The version segment (`/v1`, `/v1beta`) is appended
   automatically when missing, so a bare host is fine.
 - `apiKey` — gateway key (use a placeholder if the endpoint needs none).
+- `auth` — optional richer auth; when absent the flat `apiKey` is used. Kinds:
+  - `{ "kind": "apikey", "apiKey": "sk-…" }` — stored key in the vendor header.
+  - `{ "kind": "bearer", "token": "…" }` — forces `Authorization: Bearer`.
+  - `{ "kind": "env", "var": "MY_KEY" }` — read from the environment at
+    request time, never stored.
+  - `{ "kind": "helper", "command": "vault read …", "ttlMs": 300000 }` — runs
+    the command, stdout is the key. Stdout may also be JSON
+    `{ "key": "…", "expiresAt": <epoch-ms or ISO> }` so the key's real
+    lifetime drives re-runs. Minted keys persist until expiry; a 401 forces
+    a fresh mint.
+  - `{ "kind": "oauth" }` — browser PKCE sign-in against the gateway's
+    authorization server; tokens refresh automatically. Endpoints are
+    discovered from the baseURL; for servers without discovery or dynamic
+    registration set `oauth: { authorizationEndpoint, tokenEndpoint,
+    clientId, clientSecret?, scopes? }`.
+  - `{ "kind": "none" }` — headers-only / open endpoints.
+
+  Prefer running the `/login` → custom wizard over hand-writing this.
 - `headers` — optional extra headers sent on every request.
 - `models` — optional. If the endpoint supports listing, {{name}} can discover
   models; list them here to control exactly what's exposed plus names/pricing.
@@ -254,11 +287,13 @@ You are a meticulous code reviewer. You investigate and report; you never edit.
 ```
 
 - `tools:` — comma-separated subset of: `read, write, edit, bash, ls, grep,
-find, sql, task, ask, websearch, plan`. Omit the frontmatter entirely to grant
-  all tools. `ask` and `websearch` only activate when their settings toggles
-  (`askUser` / `webSearch`) are on. `plan` is the plan-delivery tool: calling it
-  ends the agent's turn with a finished plan the user can hand to an
-  implementing agent — name it only for planner-style agents.
+find, sql, task, ask, websearch, plan, todo, skill`. Omit the frontmatter
+  entirely to grant all tools. `ask`, `websearch`, and `todo` only activate
+  when their settings toggles (`askUser` / `webSearch` / `todos`) are on;
+  `skill` rides the `skills` setting + project trust. `plan` is the
+  plan-delivery tool: calling it ends the agent's turn with a finished plan
+  the user can hand to an implementing agent — name it only for
+  planner-style agents.
 - `model:` — full `provider/model` id this agent runs on when spawned as a
   subagent (task tool). Cross-provider is fine. Omit = inherit (the
   `subagentModel` setting if set, else the parent's model). If the id is
