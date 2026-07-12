@@ -481,6 +481,9 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
                         tokensAfter: 0,
                         aborted: true,
                     });
+                    // Every other early return emits finish — without it a
+                    // finish-keyed consumer (an RPC client) waits forever.
+                    emitter.emit("finish", { usage: undefined });
                     return;
                 }
                 throw err;

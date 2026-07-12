@@ -66,7 +66,14 @@ export function loadMemoryContext(cwd: string, baseDir?: string): MemoryContext 
         if (existsSync(indexPath) && statSync(indexPath).isFile()) {
             let content = readFileSync(indexPath, "utf8").trim();
             if (Buffer.byteLength(content) > MAX_INDEX_BYTES) {
-                content = content.slice(0, MAX_INDEX_BYTES) + "\n...[index truncated — consider pruning MEMORY.md]";
+                // Cut on a line boundary: the cap is in bytes but slice() counts
+                // UTF-16 units, so a raw slice could split a multibyte character
+                // (and always split an index line mid-sentence).
+                const head = content.slice(0, MAX_INDEX_BYTES);
+                const lastLine = head.lastIndexOf("\n");
+                content =
+                    (lastLine > 0 ? head.slice(0, lastLine) : head) +
+                    "\n...[index truncated — consider pruning MEMORY.md]";
             }
             if (content) index = content;
         }
