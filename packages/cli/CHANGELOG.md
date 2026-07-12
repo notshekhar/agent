@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.11.3] - 2026-07-12
+
+### Changed
+
+- **The internal docs caught up with the last five releases.** `loop://docs/config.md` — what the agent reads when you ask it to configure loop — now covers the `todos` checklist setting, the `skills` toggle (and where skill folders live), UI modes (`uiMode`, `/ui`, per-mode themes), the full set of custom-provider auth kinds (`apikey`, `bearer`, `env`, key `helper` with JSON stdout + expiry, `oauth` with discovery escape hatches), and the `todo`/`skill` entries in a custom agent's `tools:` list.
+
 ## [0.11.2] - 2026-07-12
 
 ### Changed
