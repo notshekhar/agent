@@ -568,6 +568,47 @@ describe("noir mode rendering", () => {
         expect(task).toBeGreaterThan(text); // text first, task boxes after — like live
     });
 
+    test("replay keeps parallel subagents persisted in the same millisecond as separate boxes", async () => {
+        noirOn();
+        const { renderSessionBranch } = await import("../src/interactive/replay");
+        // Two fan-out runs that finished in the same ms share a replay id
+        // (ts-keyed). That's safe today only because each box's result is
+        // resolved before the next call registers — this pins that invariant.
+        const sub = (id: string, agent: string, result: string, parentId: string) => ({
+            type: "subagent",
+            ts: 2,
+            agent,
+            prompt: `${agent} it`,
+            result,
+            id,
+            parentId,
+        });
+        const entries = [
+            { type: "message", role: "user", content: "explore it", ts: 1, id: "u1", parentId: null },
+            sub("s1", "explore", "found alpha", "u1"),
+            sub("s2", "review", "found beta", "s1"),
+            {
+                type: "message",
+                role: "assistant",
+                content: [{ type: "text", text: "Done." }],
+                ts: 3,
+                id: "a1",
+                parentId: "s2",
+            },
+        ];
+        const fakeSession = {
+            getBranch: () => entries,
+        } as unknown as import("@notshekhar/loop-core").Session;
+        const h = new ChatHistory(tui, "/repo");
+        renderSessionBranch(fakeSession, h, "xai/grok-4.5");
+        h.toggleToolsExpanded(); // expand so both reports are visible
+        const text = h.render(W).map(strip).join("\n");
+        expect(text).toContain("◆ task explore");
+        expect(text).toContain("◆ task review");
+        expect(text).toContain("found alpha");
+        expect(text).toContain("found beta");
+    });
+
     test("aborting a turn freezes pending tools as interrupted", () => {
         noirOn();
         const h = new ChatHistory(tui, "/repo");

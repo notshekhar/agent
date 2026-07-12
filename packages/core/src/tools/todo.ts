@@ -88,6 +88,18 @@ export function clearSessionTodos(sessionId: string): void {
     sessionTodos.delete(sessionId);
 }
 
+/**
+ * Seed the canonical map from a replayed branch — resume/fork/tree navigation
+ * and the startup --resume render. Without this the map is empty after a
+ * process restart while the pinned panel shows the persisted list, so the
+ * staleness nudger and RPC readers disagree with what's on screen. An empty
+ * list clears the key, so switching to a branch without todos drops stale state.
+ */
+export function seedSessionTodos(sessionId: string, items: TodoItem[]): void {
+    if (items.length > 0) sessionTodos.set(sessionId, [...items]);
+    else sessionTodos.delete(sessionId);
+}
+
 function summarize(items: TodoItem[]): string {
     if (items.length === 0) return "Todo list cleared.";
     const count = (s: TodoStatus) => items.filter((t) => t.status === s).length;

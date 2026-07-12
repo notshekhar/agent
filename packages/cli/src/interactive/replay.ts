@@ -1,4 +1,11 @@
-import { isRecapPayload, latestTodos, parseModelId, type Entry, type Session } from "@notshekhar/loop-core";
+import {
+    isRecapPayload,
+    latestTodos,
+    parseModelId,
+    seedSessionTodos,
+    type Entry,
+    type Session,
+} from "@notshekhar/loop-core";
 import type { ChatHistory } from "./components/chat-history";
 import type { TodoPanel } from "./components/todo-panel";
 
@@ -25,8 +32,12 @@ export function renderSessionBranch(
 ): void {
     const path = session.getBranch();
     // Branch navigation restores the branch's own latest checklist (or clears
-    // the panel on a branch that never had one).
-    todoPanel?.setItems(latestTodos(path) ?? []);
+    // the panel on a branch that never had one). The core map seeds alongside
+    // the panel so the staleness nudger and RPC readers agree with the screen —
+    // after a process restart the map would otherwise be empty.
+    const todos = latestTodos(path) ?? [];
+    todoPanel?.setItems(todos);
+    seedSessionTodos(session.id, todos);
 
     let latestCompact: Extract<Entry, { type: "compact" }> | undefined;
     for (const e of path) {

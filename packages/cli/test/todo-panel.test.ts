@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import chalk from "chalk";
+import { visibleWidth } from "@notshekhar/loop-tui";
 import type { TodoItem } from "@notshekhar/loop-core";
 import { formatRetireLine, formatTodoPanel, TodoPanel } from "../src/interactive/components/todo-panel";
 
@@ -47,6 +49,35 @@ describe("formatTodoPanel", () => {
         const lines = plain(formatTodoPanel([item("x".repeat(100))], 20));
         expect(lines[1].length).toBeLessThanOrEqual(20);
         expect(lines[1].endsWith("…")).toBe(true);
+    });
+
+    test("clipped rows keep their styling", () => {
+        const prev = chalk.level;
+        chalk.level = 2;
+        try {
+            const lines = formatTodoPanel([item("x".repeat(100), "in_progress")], 20);
+            // The clip used to return the ANSI-stripped slice, so an overlong
+            // in_progress row lost its cyan while short rows stayed styled.
+            expect(lines[1]).toContain("\x1b[");
+            const stripped = lines[1].replace(ANSI_RE, "");
+            expect(stripped.endsWith("…")).toBe(true);
+            expect(stripped.length).toBeLessThanOrEqual(20);
+        } finally {
+            chalk.level = prev;
+        }
+    });
+
+    test("wide characters clip by display cells, not code units", () => {
+        const lines = plain(formatTodoPanel([item("宽".repeat(40))], 20));
+        expect(visibleWidth(lines[1])).toBeLessThanOrEqual(20);
+        expect(lines[1].endsWith("…")).toBe(true);
+    });
+
+    test("emoji rows never split a surrogate pair at the clip point", () => {
+        const lines = plain(formatTodoPanel([item("🙂".repeat(40))], 20));
+        expect(visibleWidth(lines[1])).toBeLessThanOrEqual(20);
+        // Whole emoji + ellipsis only — a code-unit slice leaves a lone surrogate.
+        expect(lines[1]).toMatch(/^\[ \] (?:🙂)+…$/u);
     });
 
     test("overflow keeps in_progress + pending and adds a +N more row", () => {

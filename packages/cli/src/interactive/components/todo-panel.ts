@@ -5,18 +5,17 @@
  * Renders zero rows when there's no list, so it costs no space until the
  * agent actually starts one.
  */
-import type { Component } from "@notshekhar/loop-tui";
+import { truncateToWidth, visibleWidth, type Component } from "@notshekhar/loop-tui";
 import type { TodoItem } from "@notshekhar/loop-core";
 import chalk from "chalk";
 
 const MAX_BODY_ROWS = 6;
 
-const ANSI_RE = /\x1b\[[0-9;]*m/g;
-
 function clip(s: string, width: number): string {
-    // Rows are styled as a whole after clipping, so plain-length math is safe.
-    const plain = s.replace(ANSI_RE, "");
-    return plain.length <= width ? s : `${plain.slice(0, Math.max(0, width - 1))}…`;
+    // ANSI- and grapheme-aware: the clipped row keeps its styling
+    // (truncateToWidth resets before the ellipsis) and wide characters
+    // (CJK, Devanagari, emoji) count by display cells, never split mid-pair.
+    return visibleWidth(s) <= width ? s : truncateToWidth(s, width, "…");
 }
 
 function row(item: TodoItem): string {
