@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.11.1] - 2026-07-12
+
+### Fixed
+
+- **The todo panel clips by display width.** Overlong rows truncate by terminal cells instead of string length, so wide characters (CJK, emoji, Devanagari) never split at the clip point and a clipped row keeps its styling — an overlong in-progress row used to lose its cyan.
+- **Resumed sessions keep todo state in sync.** Replaying a branch (resume, fork, tree navigation, `--session`) now seeds the agent's canonical todo map alongside the pinned panel, so staleness nudges and RPC readers agree with what's on screen after a process restart; switching to a branch without a checklist clears the stale one.
+- **Aborted turns always emit `finish`.** One early-return path skipped the event, leaving finish-keyed consumers (an RPC client) waiting forever.
+- **Memory-index truncation cuts on a line boundary.** The size cap counted bytes but sliced UTF-16 units, so it could split a multibyte character — and always split an index line mid-sentence.
+
 ## [0.11.0] - 2026-07-11
 
 ### Added
@@ -14,7 +23,7 @@
 
 ### Added
 
-- **The ask tool got a review step and question navigation.** Answers are no longer sent as you pick them: after the last question a review screen lists every answer (with `(skipped)` rows for unanswered ones) and nothing reaches the model until you hit **Submit** — Enter on a row (or its digit) reopens that question to change the answer. While answering, `←/→` move between questions with all state kept: the cursor row on a single-select, the ticked boxes on a multi-select (ticks count as the answer even without `done`). `Esc` now means *dismiss*: with nothing answered the whole prompt resolves immediately as declined so the agent proceeds on its own judgment; with answers already given it jumps to the review so nothing is sent unseen.
+- **The ask tool got a review step and question navigation.** Answers are no longer sent as you pick them: after the last question a review screen lists every answer (with `(skipped)` rows for unanswered ones) and nothing reaches the model until you hit **Submit** — Enter on a row (or its digit) reopens that question to change the answer. While answering, `←/→` move between questions with all state kept: the cursor row on a single-select, the ticked boxes on a multi-select (ticks count as the answer even without `done`). `Esc` now means _dismiss_: with nothing answered the whole prompt resolves immediately as declined so the agent proceeds on its own judgment; with answers already given it jumps to the review so nothing is sent unseen.
 - **Clipboard writes work beyond macOS.** `/copy`, `y` in transcript navigation, and the `/share` URL copy now go through the platform's own tool — `pbcopy` (macOS), `clip` (Windows), `wl-copy`/`xclip`/`xsel` tried in order (Linux) — and report honestly when no tool is available instead of claiming success.
 
 ### Fixed
@@ -40,7 +49,6 @@
 - **Aborted turns freeze their pending tools.** Interrupting a turn used to leave still-running tool boxes spinning forever; they now render as `· interrupted`, and resume shows whatever actually completed.
 - **Resume matches the live view.** Subagent boxes replayed in finish order instead of stream order and with different spacing; a resumed transcript is now line-for-line identical to what streamed live.
 - **Smooth wheel scrolling in navigation mode.** Trackpad micro-events that alternate direction on slow scrolls are coalesced into one net movement, so the window no longer flickers between the same lines; fast flicks are capped at a page.
-
 
 ## [0.10.9] - 2026-07-08
 

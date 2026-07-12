@@ -2268,24 +2268,6 @@
     ],
     "available": true
   },
-  "openrouter/meta-llama/llama-3-8b-instruct": {
-    "id": "openrouter/meta-llama/llama-3-8b-instruct",
-    "provider": "openrouter",
-    "name": "Llama 3 8B Instruct",
-    "contextWindow": 8192,
-    "maxOutput": 8192,
-    "cost": {
-      "input": 0.14,
-      "output": 0.14,
-      "cacheRead": 0,
-      "cacheWrite": 0
-    },
-    "reasoning": false,
-    "modalities": [
-      "text"
-    ],
-    "available": true
-  },
   "openrouter/meta-llama/llama-4-scout": {
     "id": "openrouter/meta-llama/llama-4-scout",
     "provider": "openrouter",
@@ -2429,8 +2411,8 @@
     "maxOutput": 262144,
     "cost": {
       "input": 0.72,
-      "output": 3.49,
-      "cacheRead": 0.159,
+      "output": 3.5,
+      "cacheRead": 0.15,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -3521,11 +3503,11 @@
     "provider": "openrouter",
     "name": "GLM-5.2",
     "contextWindow": 1048576,
-    "maxOutput": 131072,
+    "maxOutput": 128000,
     "cost": {
-      "input": 0.42,
-      "output": 1.32,
-      "cacheRead": 0.078,
+      "input": 0.35,
+      "output": 1.1,
+      "cacheRead": 0.065,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -8150,9 +8132,9 @@
     "contextWindow": 1048576,
     "maxOutput": 384000,
     "cost": {
-      "input": 0.084,
-      "output": 0.168,
-      "cacheRead": 0.0168,
+      "input": 0.077,
+      "output": 0.154,
+      "cacheRead": 0.0154,
       "cacheWrite": 0
     },
     "reasoning": true,
