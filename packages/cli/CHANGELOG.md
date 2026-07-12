@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.11.2] - 2026-07-12
+
+### Changed
+
+- **Noir is the default UI mode.** A fresh install — or any setup that never picked a mode — now opens in noir: dark washed canvas, diamond tool rows, collapsing thought blocks. An explicit `uiMode: "loop"` in settings keeps the classic look, and `/ui loop` switches back at any time.
+
 ## [0.11.1] - 2026-07-12
 
 ### Fixed
