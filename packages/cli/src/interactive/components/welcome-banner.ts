@@ -155,7 +155,7 @@ export class WelcomeBanner implements Component {
                 (this.info.version ? chalk.dim(`  v${this.info.version}`) : ""),
             idLine,
             chalk.dim(this.info.cwd),
-            ORANGE("Tips") + chalk.dim("  /help · Shift+Tab cycles agents · Ctrl+C twice to quit"),
+            ORANGE("Tips") + chalk.dim("  /help · Ctrl+E navigates transcript · Shift+Tab cycles agents · Ctrl+C twice to quit"),
         ];
 
         const lines: string[] = [""];

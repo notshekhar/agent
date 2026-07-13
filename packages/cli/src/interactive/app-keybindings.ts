@@ -3,8 +3,8 @@ import { KeybindingsManager, setKeybindings, TUI_KEYBINDINGS } from "@notshekhar
 
 const APP_KEYBINDINGS = {
     "app.nav.enter": {
-        defaultKeys: ["ctrl+e", "escape", "alt+up", "ctrl+up"],
-        description: "Toggle transcript navigation (Esc form needs an idle empty prompt)",
+        defaultKeys: "ctrl+e",
+        description: "Toggle transcript navigation",
     },
     "app.tools.expand": { defaultKeys: "e", description: "Expand/collapse all (in navigation mode)" },
     "app.interrupt": { defaultKeys: "escape", description: "Interrupt agent" },

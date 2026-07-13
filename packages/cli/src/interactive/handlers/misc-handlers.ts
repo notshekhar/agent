@@ -166,7 +166,7 @@ export function createMiscHandlers(state: AppState, deps: AppDeps): MiscHandlers
                 'Ctrl+G          send "continue" (resume interrupted work)',
                 "Ctrl+L          clear screen",
                 "Ctrl+P          cycle scoped models",
-                "Ctrl+E          navigate transcript (Esc on empty prompt too);",
+                "Ctrl+E          navigate transcript;",
                 "                inside: arrows select, e expand all, y copy, Esc exit",
             ];
             for (const l of lines) history.addSystem(l);

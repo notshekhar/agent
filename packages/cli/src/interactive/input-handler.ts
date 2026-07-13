@@ -280,20 +280,6 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
             exitScrollbackFocus();
         }
 
-        // ctrl+up/down (or alt+up/down) enters navigation mode — Tab already
-        // has a day job in loop (completion). The same chords keep working
-        // inside nav mode, so holding ctrl+up just keeps walking entries.
-        if (
-            (isCtrlUp(data) || isCtrlDown(data) || isAltUp(data) || isAltDown(data)) &&
-            editorFocused &&
-            deps.getSelectorDepth() === 0
-        ) {
-            if (enterScrollbackFocus() && (isAltUp(data) || isAltDown(data))) {
-                history.jumpTurn(isAltUp(data) ? -1 : 1);
-                tui.requestRender();
-            }
-            return { consume: true };
-        }
         // Drag-and-drop / paste of image file(s) into the prompt: attach them
         // (insert clean [image:…] tokens) instead of pasting the raw path text.
         // Editor-focused only, so it never fires while a selector owns input, and
@@ -347,7 +333,9 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
             if (next !== state.modelId) void ctx.setModel(next);
             return { consume: true };
         }
-        // ctrl+e toggles navigation mode (expand-all moved to `e` inside nav).
+        // ctrl+e is the ONLY way in to navigation mode (expand-all moved to
+        // `e` inside nav) — Esc/ctrl+arrows used to enter too, but stray Esc
+        // presses on an idle prompt kept flinging people into nav.
         if (isCtrlE(data) && editorFocused && deps.getSelectorDepth() === 0) {
             enterScrollbackFocus();
             return { consume: true };
@@ -395,19 +383,6 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
             state.lastCtrlCAt = now;
             history.addSystem("Press Ctrl+C again to quit.");
             tui.requestRender();
-            return { consume: true };
-        }
-        // Esc on an idle, EMPTY prompt enters navigation mode (and Esc exits
-        // it — a toggle). This is the mac-friendly entry: ctrl+arrows are OS
-        // gestures there. With a draft present Esc stays with the editor.
-        if (
-            isEsc(data) &&
-            !state.busy &&
-            editorFocused &&
-            deps.getSelectorDepth() === 0 &&
-            editor.getText() === "" &&
-            enterScrollbackFocus()
-        ) {
             return { consume: true };
         }
         // Esc with a stray idle selection just drops it (safety net).
