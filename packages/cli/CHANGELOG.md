@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.11.4] - 2026-07-13
+
+### Fixed
+
+- **Noir's day theme no longer shows invisible text in dark terminals.** The canvas wash set only the terminal's default background (OSC 11), so anything drawn at the terminal's default foreground — white, in a dark terminal — disappeared against the day theme's light canvas. The wash now sets the default foreground to the theme's text color too (OSC 10), restores both on exit (OSC 111/110), and the crash-safe startup cleanse clears a killed session's leftover foreground as well.
+
 ## [0.11.3] - 2026-07-12
 
 ### Changed

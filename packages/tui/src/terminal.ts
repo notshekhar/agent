@@ -441,11 +441,12 @@ export class ProcessTerminal implements Terminal {
         try {
             // pop kitty keyboard protocol · disable modifyOtherKeys · disable
             // bracketed paste · disable mouse reporting (normal + SGR — nav
-            // mode turns these on) · restore default background (OSC 111,
-            // undoes the canvas wash) · show cursor. All idempotent no-ops
-            // when the modes are already off, so this doubles as the startup
-            // cleanse for a predecessor killed with SIGKILL.
-            fs.writeSync(1, "\x1b[<u\x1b[>4;0m\x1b[?2004l\x1b[?1000l\x1b[?1006l\x1b]111\x07\x1b[?25h");
+            // mode turns these on) · restore default background + foreground
+            // (OSC 111/110, undoes the canvas wash) · show cursor. All
+            // idempotent no-ops when the modes are already off, so this
+            // doubles as the startup cleanse for a predecessor killed with
+            // SIGKILL.
+            fs.writeSync(1, "\x1b[<u\x1b[>4;0m\x1b[?2004l\x1b[?1000l\x1b[?1006l\x1b]111\x07\x1b]110\x07\x1b[?25h");
         } catch {
             // stdout closed/redirected — nothing more we can do.
         }

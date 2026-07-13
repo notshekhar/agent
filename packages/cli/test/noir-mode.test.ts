@@ -709,13 +709,13 @@ describe("canvas wash", () => {
         return { writes, stream: { write: (s: string) => (writes.push(s), true) } as unknown as NodeJS.WriteStream };
     };
 
-    test("grok mode washes with OSC 11 and restores with OSC 111", () => {
+    test("grok mode washes bg+fg with OSC 11/10 and restores with OSC 111/110", () => {
         noirOn();
         const { writes, stream } = fakeOut();
         applyCanvasWash(stream);
-        expect(writes).toEqual(["\x1b]11;#141414\x07"]);
+        expect(writes).toEqual(["\x1b]11;#141414\x07", "\x1b]10;#e0e0e0\x07"]);
         resetCanvasWash(stream);
-        expect(writes).toEqual(["\x1b]11;#141414\x07", "\x1b]111\x07"]);
+        expect(writes).toEqual(["\x1b]11;#141414\x07", "\x1b]10;#e0e0e0\x07", "\x1b]111\x07", "\x1b]110\x07"]);
     });
 
     test("loop mode does not wash, and un-washes a previous wash", () => {
@@ -725,8 +725,8 @@ describe("canvas wash", () => {
         setActiveUiMode("loop");
         initTheme("dark");
         applyCanvasWash(stream); // wash off now → emits the reset
-        expect(writes).toEqual(["\x1b]11;#141414\x07", "\x1b]111\x07"]);
+        expect(writes).toEqual(["\x1b]11;#141414\x07", "\x1b]10;#e0e0e0\x07", "\x1b]111\x07", "\x1b]110\x07"]);
         resetCanvasWash(stream); // already reset → no-op
-        expect(writes).toHaveLength(2);
+        expect(writes).toHaveLength(4);
     });
 });

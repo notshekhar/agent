@@ -5,7 +5,7 @@ import { ProcessTerminal } from "../src/terminal";
 // pop kitty keyboard protocol · disable modifyOtherKeys · disable bracketed
 // paste · show cursor. Left enabled, these make the shell echo raw escapes
 // (\x1b[27;5;13~) on the next keypress after an uncaught-signal exit.
-const RESET = "\x1b[<u\x1b[>4;0m\x1b[?2004l\x1b[?1000l\x1b[?1006l\x1b]111\x07\x1b[?25h";
+const RESET = "\x1b[<u\x1b[>4;0m\x1b[?2004l\x1b[?1000l\x1b[?1006l\x1b]111\x07\x1b]110\x07\x1b[?25h";
 
 function withTTY<T>(isTTY: boolean, fn: () => T): T {
     const original = process.stdout.isTTY;
