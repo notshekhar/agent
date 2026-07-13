@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.11.5] - 2026-07-13
+
+### Changed
+
+- **Ctrl+E is the only way into transcript navigation.** Esc on an idle empty prompt and ctrl/alt+arrows no longer drop you into nav mode — a stray Esc or a macOS cmd+arrow gesture kept flinging people into the transcript. Inside nav nothing changed: arrows still walk entries, alt+arrows still jump turns, and Esc still exits. The welcome banner now mentions the shortcut (`Ctrl+E navigates transcript`).
+
 ## [0.11.4] - 2026-07-13
 
 ### Fixed
