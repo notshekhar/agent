@@ -8,10 +8,14 @@
 import { readFileSync, mkdirSync, existsSync, rmSync, copyFileSync } from "node:fs";
 import { join } from "node:path";
 import { $ } from "bun";
+import { buildPage } from "../web/build-page";
 
 const pkg = JSON.parse(readFileSync(join(import.meta.dir, "package.json"), "utf8")) as { version: string };
 // Embedded so the standalone binary can serve /changelog without a file on disk.
 const changelog = readFileSync(join(import.meta.dir, "CHANGELOG.md"), "utf8");
+// Same for the web UI: the binary has no packages/web on disk, so the page
+// must be baked in here (core/build.ts does the same for the npm dist).
+const webUiHtml = await buildPage();
 
 const VALID_TARGETS = new Set([
     "bun-darwin-arm64",
@@ -82,9 +86,9 @@ const result = await Bun.build({
     define: {
         __APP_VERSION__: JSON.stringify(pkg.version),
         __APP_CHANGELOG__: JSON.stringify(changelog),
+        __WEB_UI_HTML__: JSON.stringify(webUiHtml),
     },
-});
-if (!result.success) {
+});if (!result.success) {
     for (const log of result.logs) console.error(log);
     process.exit(1);
 }

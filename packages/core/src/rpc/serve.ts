@@ -37,7 +37,15 @@ function getWebUiHtml(): Promise<string> {
 }
 
 async function buildWebUiFromSource(): Promise<string> {
-    const entry = fileURLToPath(import.meta.resolve("@notshekhar/loop-web/app"));
+    let entry: string;
+    try {
+        entry = fileURLToPath(import.meta.resolve("@notshekhar/loop-web/app"));
+    } catch (err: any) {
+        throw new Error(
+            `web UI is not embedded and @notshekhar/loop-web/app could not be resolved` +
+                ` (${err?.message ?? err}). Compiled binaries must bake __WEB_UI_HTML__ at build time.`,
+        );
+    }
     const srcDir = dirname(entry);
     const result = await Bun.build({
         entrypoints: [entry],

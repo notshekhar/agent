@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.12.3] - 2026-07-16
+
+### Fixed
+
+- **`loop serve` in the compiled binary no longer 500s on every page load.** The standalone binary never baked the web UI into `__WEB_UI_HTML__`, so it tried to resolve `@notshekhar/loop-web/app` from inside the binary filesystem and failed. Release builds now embed the page the same way core's npm dist already did.
+
 ## [0.12.2] - 2026-07-16
 
 ### Changed
