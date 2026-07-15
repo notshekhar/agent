@@ -150,23 +150,24 @@ Shape (`CustomProviderConfig`):
   automatically when missing, so a bare host is fine.
 - `apiKey` — gateway key (use a placeholder if the endpoint needs none).
 - `auth` — optional richer auth; when absent the flat `apiKey` is used. Kinds:
-  - `{ "kind": "apikey", "apiKey": "sk-…" }` — stored key in the vendor header.
-  - `{ "kind": "bearer", "token": "…" }` — forces `Authorization: Bearer`.
-  - `{ "kind": "env", "var": "MY_KEY" }` — read from the environment at
-    request time, never stored.
-  - `{ "kind": "helper", "command": "vault read …", "ttlMs": 300000 }` — runs
-    the command, stdout is the key. Stdout may also be JSON
-    `{ "key": "…", "expiresAt": <epoch-ms or ISO> }` so the key's real
-    lifetime drives re-runs. Minted keys persist until expiry; a 401 forces
-    a fresh mint.
-  - `{ "kind": "oauth" }` — browser PKCE sign-in against the gateway's
-    authorization server; tokens refresh automatically. Endpoints are
-    discovered from the baseURL; for servers without discovery or dynamic
-    registration set `oauth: { authorizationEndpoint, tokenEndpoint,
-    clientId, clientSecret?, scopes? }`.
-  - `{ "kind": "none" }` — headers-only / open endpoints.
+    - `{ "kind": "apikey", "apiKey": "sk-…" }` — stored key in the vendor header.
+    - `{ "kind": "bearer", "token": "…" }` — forces `Authorization: Bearer`.
+    - `{ "kind": "env", "var": "MY_KEY" }` — read from the environment at
+      request time, never stored.
+    - `{ "kind": "helper", "command": "vault read …", "ttlMs": 300000 }` — runs
+      the command, stdout is the key. Stdout may also be JSON
+      `{ "key": "…", "expiresAt": <epoch-ms or ISO> }` so the key's real
+      lifetime drives re-runs. Minted keys persist until expiry; a 401 forces
+      a fresh mint.
+    - `{ "kind": "oauth" }` — browser PKCE sign-in against the gateway's
+      authorization server; tokens refresh automatically. Endpoints are
+      discovered from the baseURL; for servers without discovery or dynamic
+      registration set `oauth: { authorizationEndpoint, tokenEndpoint,
+clientId, clientSecret?, scopes? }`.
+    - `{ "kind": "none" }` — headers-only / open endpoints.
 
-  Prefer running the `/login` → custom wizard over hand-writing this.
+    Prefer running the `/login` → custom wizard over hand-writing this.
+
 - `headers` — optional extra headers sent on every request.
 - `models` — optional. If the endpoint supports listing, {{name}} can discover
   models; list them here to control exactly what's exposed plus names/pricing.

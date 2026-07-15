@@ -205,7 +205,13 @@ export function createMiscHandlers(state: AppState, deps: AppDeps): MiscHandlers
             // bytes (catalog modality alone lies — xAI lists pdf but throws).
             const isPdf = (givenPath ?? "").toLowerCase().endsWith(".pdf");
             const probe = filterAttachmentsByModalities(
-                [{ data: Buffer.alloc(0), mediaType: isPdf ? "application/pdf" : "image/png", path: givenPath ?? "x.png" }],
+                [
+                    {
+                        data: Buffer.alloc(0),
+                        mediaType: isPdf ? "application/pdf" : "image/png",
+                        path: givenPath ?? "x.png",
+                    },
+                ],
                 info?.modalities,
                 state.modelId.split("/")[0],
             );
