@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildPage } from "../build-page";
+import { buildPage } from "./build-page";
 
 describe("buildPage", () => {
     test("inlines a parseable script without HTML-comment corruption", async () => {
