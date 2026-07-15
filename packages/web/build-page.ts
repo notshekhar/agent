@@ -21,7 +21,11 @@ export async function buildPage(): Promise<string> {
         Bun.file(join(src, "styles.css")).text(),
         result.outputs[0]!.text(),
     ]);
+    // Function replacers are required: a string replacement treats `$&` / `$`` /
+    // `$'` / `$n` in the minified JS as special patterns, which corrupts the
+    // bundle (e.g. `$&&` → `<!-- script … -->&`) and leaves the UI stuck on
+    // "connecting…".
     return template
-        .replace("<!-- styles injected by build.ts -->", `<style>${styles}</style>`)
-        .replace("<!-- script injected by build.ts -->", `<script>${script}</script>`);
+        .replace("<!-- styles injected by build.ts -->", () => `<style>${styles}</style>`)
+        .replace("<!-- script injected by build.ts -->", () => `<script>${script}</script>`);
 }

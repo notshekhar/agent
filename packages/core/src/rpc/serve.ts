@@ -62,8 +62,8 @@ async function buildWebUiFromSource(): Promise<string> {
         result.outputs[0]!.text(),
     ]);
     return template
-        .replace("<!-- styles injected by build.ts -->", `<style>${styles}</style>`)
-        .replace("<!-- script injected by build.ts -->", `<script>${script}</script>`);
+        .replace("<!-- styles injected by build.ts -->", () => `<style>${styles}</style>`)
+        .replace("<!-- script injected by build.ts -->", () => `<script>${script}</script>`);
 }
 
 /** Keypad-spellable default: 5667 = "loop". */

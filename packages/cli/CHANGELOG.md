@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.12.4] - 2026-07-16
+
+### Fixed
+
+- **`loop serve` no longer sticks on "connecting…".** Inlining the minified web bundle used a string-form `String.replace`, which treats `$&` in the JS as "insert the match" — so a minified `$&&` became an HTML comment mid-script and the browser never ran the client. Replacements now use a function so `$` in the bundle stays literal.
+
 ## [0.12.3] - 2026-07-16
 
 ### Fixed
