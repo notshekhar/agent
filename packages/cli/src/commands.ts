@@ -5,13 +5,18 @@ import { basename, dirname, join } from "node:path";
 import {
     getActiveProvider,
     getCatalog,
+    getSetting,
+    isLoopbackHost,
+    lanAddresses,
     listAuthorizedProviders,
     loginApiKey,
     loginXaiOAuth,
     logout,
+    SERVE_DEFAULT_PORT,
     SessionManager,
     startSocketServer,
     startStdioServer,
+    startWebServer,
     stopSocketServer,
 } from "@notshekhar/loop-core";
 import type { ProviderId } from "@notshekhar/loop-core";
@@ -101,6 +106,7 @@ Usage:
   ${PRODUCT_NAME} whoami              Show active provider + auth status
   ${PRODUCT_NAME} cost audit          Verify the cost ledger reconciles (self-audit)
   ${PRODUCT_NAME} rpc [--socket|stop] Start JSON-RPC server (stop: end the socket daemon)
+  ${PRODUCT_NAME} serve [--host|--port] Web UI + WebSocket RPC (opt-in via /settings; token-locked)
   ${PRODUCT_NAME} mcp <cmd>           Manage MCP servers (add, list, remove, login…)
   ${PRODUCT_NAME} upgrade             Pull latest and rebuild
   ${PRODUCT_NAME} version | -v        Print version
@@ -211,6 +217,57 @@ export function cmdRpc(args: Args): void {
         return;
     }
     startStdioServer();
+}
+
+export function cmdServe(args: Args): void {
+    // Opt-in gate: this is remote code execution by design — whoever has the
+    // URL runs the agent (and therefore shell commands) as this user.
+    if (!getSetting("serve")) {
+        console.error(
+            `${PRODUCT_NAME} serve is off. It exposes this machine to anyone with the URL — enable it\n` +
+                `deliberately: open ${PRODUCT_NAME}, run /settings, and turn on the serve entry.`,
+        );
+        process.exitCode = 1;
+        return;
+    }
+    const host = typeof args.flags.host === "string" ? args.flags.host : "127.0.0.1";
+    const port = typeof args.flags.port === "string" ? Number(args.flags.port) : SERVE_DEFAULT_PORT;
+    if (!Number.isInteger(port) || port < 0 || port > 65535) {
+        console.error(`Invalid --port: ${args.flags.port}`);
+        process.exitCode = 1;
+        return;
+    }
+    let url: string;
+    let hostname: string;
+    let networkUrls: string[];
+    let boundPort: number;
+    try {
+        ({ url, hostname, networkUrls, port: boundPort } = startWebServer({ host, port }));
+    } catch (err) {
+        console.error((err as Error).message);
+        process.exitCode = 1;
+        return;
+    }
+    console.log(`${PRODUCT_NAME} serve — web UI + WebSocket RPC\n`);
+    console.log(`  local     ${url}`);
+    if (networkUrls.length) {
+        for (const u of networkUrls) console.log(`  network   ${u}`);
+    } else if (isLoopbackHost(hostname)) {
+        // Show where the LAN URL WOULD be — but it only works on a network
+        // bind, so say so instead of printing a dead link with the token in it.
+        const lan = lanAddresses()[0];
+        console.log(`  network   ${lan ? `http://${lan}:${boundPort}/ — ` : ""}restart with --host 0.0.0.0 to expose`);
+    }
+    console.log(``);
+    console.log(`WARNING: anyone with this URL fully controls this machine (the agent runs`);
+    console.log(`shell commands as you). The token is the only lock — do not share or log it.`);
+    if (isLoopbackHost(hostname)) {
+        console.log(`Bound to ${hostname} — for remote access bring your own network`);
+        console.log(`(Tailscale, ssh -L, cloudflared), which also provides TLS.`);
+    } else {
+        console.log(`WARNING: bound to ${hostname} — reachable from the network, over plain HTTP.`);
+    }
+    console.log(`\nCtrl+C to stop.`);
 }
 
 export async function cmdRun(args: Args): Promise<void> {

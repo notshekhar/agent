@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.12.0] - 2026-07-15
+
+### Added
+
+- **`loop serve` — a token-protected web UI for remote use.** Enable `serve` in `/settings`, then run `loop serve` to open Loop's sessions in a browser. It is loopback-only by default, supports a chosen host/port, and prints a bearer-token URL; use Tailscale, SSH, or Cloudflare Tunnel for remote TLS access. Open web clients see a session's transcript and, for turns started in the web UI, live text, reasoning, tool, and subagent events; reconnects replay missed events. Treat the URL as full control of the machine.
+- **Image and PDF attachments accept more real-world drops.** Finder-style paths with spaces, shell-escaped paths, and `file://` URLs are recognized. PDFs now attach for providers that support inline PDF data; unsupported attachments remain visible as ordinary path text instead of disappearing.
+
+### Changed
+
+- **Prompt editing follows macOS conventions more closely.** Cmd+Left/Right move to a line boundary, Cmd+Up/Down move to the start/end of the input, Cmd+Backspace deletes to the line start, Cmd+Z undoes, and Up on the first visual line enters prompt history.
+
 ## [0.11.5] - 2026-07-13
 
 ### Changed

@@ -78,7 +78,7 @@ export {
 } from "./agents";
 export { DEFAULT_BASE_PROMPT } from "./system-prompt";
 export { subagentArgSummary, formatSubagentActivity, type SubagentOutput } from "./subagent";
-export { extractImagesFromInput, type ExtractedImages } from "./images";
+export { extractImagesFromInput, filterAttachmentsByModalities, type ExtractedImages } from "./images";
 export { asTurnEmitter, TURN_EVENT_NAMES, type TurnEmitter, type TurnEvents } from "./events";
 export {
     hasProjectTrustInputs,

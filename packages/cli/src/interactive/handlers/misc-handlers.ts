@@ -10,6 +10,7 @@ import { dirname, join, resolve } from "node:path";
 import chalk from "chalk";
 import {
     buildSteakGrid,
+    filterAttachmentsByModalities,
     getCatalog,
     listMemoryFiles,
     loadMemoryContext,
@@ -159,7 +160,11 @@ export function createMiscHandlers(state: AppState, deps: AppDeps): MiscHandlers
                 "Tab             completion (slash commands, @ files)",
                 "Shift+Tab       cycle agent",
                 "@ / #           file completion while typing",
-                "Up / Down       history",
+                "Up / Down       history (Up on first line, like a shell)",
+                "Cmd+Backspace   delete to line start (kitty-protocol terminals)",
+                "Cmd+←/→ ↑/↓     line start/end · input start/end",
+                "Cmd+Z / Ctrl+-  undo",
+                "Opt+←/→         word jump · Opt+Backspace delete word",
                 "Esc             abort current turn",
                 "Ctrl+C          abort, twice to quit",
                 "Ctrl+D          quit (empty)",
@@ -195,9 +200,22 @@ export function createMiscHandlers(state: AppState, deps: AppDeps): MiscHandlers
         async attachImage(givenPath) {
             const cat = await getCatalog();
             const info = cat[state.modelId];
-            if (info && Array.isArray(info.modalities) && !info.modalities.includes("image")) {
+            // Same acceptance rule as drops/turns: images need the "image"
+            // modality; PDFs need "pdf" AND a provider that takes inline PDF
+            // bytes (catalog modality alone lies — xAI lists pdf but throws).
+            const isPdf = (givenPath ?? "").toLowerCase().endsWith(".pdf");
+            const probe = filterAttachmentsByModalities(
+                [{ data: Buffer.alloc(0), mediaType: isPdf ? "application/pdf" : "image/png", path: givenPath ?? "x.png" }],
+                info?.modalities,
+                state.modelId.split("/")[0],
+            );
+            if (probe.allowed.length === 0) {
                 history.addSystem(
-                    chalk.yellow(`${state.modelId} does not accept images. Pick a vision model via /model first.`),
+                    chalk.yellow(
+                        isPdf
+                            ? `${state.modelId} cannot take PDF attachments (provider needs inline-PDF support). Try an anthropic/google/openai model.`
+                            : `${state.modelId} does not accept images. Pick a vision model via /model first.`,
+                    ),
                 );
                 tui.requestRender();
                 return;

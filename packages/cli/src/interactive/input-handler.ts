@@ -39,6 +39,7 @@ import { pickImageFile, readClipboardImageToFile } from "./clipboard-image";
 import {
     agentExists,
     extractImagesFromInput,
+    filterAttachmentsByModalities,
     getModelSync,
     getSetting,
     listAgents,
@@ -51,26 +52,29 @@ export type InputListener = (data: string) => { consume: boolean } | undefined;
 // paste: ESC[200~ <content> ESC[201~ (the TUI re-wraps its paste event this way).
 const BRACKETED_PASTE = /^\x1b\[200~([\s\S]*)\x1b\[201~$/;
 
-/** Whether the active model can actually accept image attachments. */
-function modelAcceptsImages(modelId: string): boolean {
-    const modalities = getModelSync(modelId)?.modalities;
-    // Unknown modalities → assume images are fine (don't block on missing info).
-    return !Array.isArray(modalities) || modalities.includes("image");
-}
-
 /**
- * If a paste / drag-and-drop is *purely* image file path(s) — nothing but the
- * path(s), modulo surrounding whitespace — return those paths so we can turn
- * them into attachments instead of dropping a raw, shell-escaped path into the
- * editor. Mixed pastes ("look at ./a.png") return null and fall through to the
- * editor untouched; submit-time extraction still handles those.
+ * If a paste / drag-and-drop is *purely* attachable file path(s) — images or
+ * PDFs, nothing but the path(s) modulo surrounding whitespace — return them,
+ * split by whether the active model's catalog modalities accept each (image
+ * files need "image", PDFs need "pdf"; unknown modalities allow everything).
+ * Mixed pastes ("look at ./a.png") return null and fall through to the editor
+ * untouched; submit-time extraction still handles those.
  */
-function droppedImagePaths(data: string, cwd: string): string[] | null {
+function droppedAttachments(
+    data: string,
+    cwd: string,
+    modelId: string,
+): { allowed: string[]; rejected: string[] } | null {
     const paste = BRACKETED_PASTE.exec(data);
     if (!paste) return null;
     const { textWithoutPaths, images } = extractImagesFromInput(paste[1], cwd);
     if (images.length === 0 || textWithoutPaths.trim() !== "") return null;
-    return images.map((img) => img.path);
+    const { allowed, rejected } = filterAttachmentsByModalities(
+        images,
+        getModelSync(modelId)?.modalities,
+        modelId.split("/")[0],
+    );
+    return { allowed: allowed.map((i) => i.path), rejected: rejected.map((i) => i.path) };
 }
 
 const SCROLLBACK_HINT =
@@ -280,15 +284,24 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
             exitScrollbackFocus();
         }
 
-        // Drag-and-drop / paste of image file(s) into the prompt: attach them
-        // (insert clean [image:…] tokens) instead of pasting the raw path text.
-        // Editor-focused only, so it never fires while a selector owns input, and
-        // only when the model accepts images — otherwise let the path paste as
-        // plain text rather than swallowing it into an attachment it can't use.
-        if (editorFocused && modelAcceptsImages(state.modelId)) {
-            const dropped = droppedImagePaths(data, state.cwd);
-            if (dropped) {
-                for (const path of dropped) void ctx.attachImage(path);
+        // Drag-and-drop / paste of attachable file(s) — images/PDFs — into the
+        // prompt: attach what the model accepts (clean [image:…] tokens); paths
+        // the model can't take stay in the editor as plain text WITH a visible
+        // note, so a blocked drop never looks like a silent no-op. Editor-focused
+        // only, so it never fires while a selector owns input.
+        if (editorFocused) {
+            const dropped = droppedAttachments(data, state.cwd, state.modelId);
+            if (dropped && (dropped.allowed.length > 0 || dropped.rejected.length > 0)) {
+                for (const path of dropped.allowed) void ctx.attachImage(path);
+                if (dropped.rejected.length > 0) {
+                    const current = editor.getText?.() ?? "";
+                    const sep = current && !current.endsWith(" ") ? " " : "";
+                    editor.setText?.(current + sep + dropped.rejected.join(" ") + " ");
+                    history.addSystem(
+                        `${state.modelId} does not accept ${dropped.rejected.some((p) => p.toLowerCase().endsWith(".pdf")) ? "PDFs" : "images"} — path pasted as text (switch models via /model to attach).`,
+                    );
+                    tui.requestRender();
+                }
                 return { consume: true };
             }
         }

@@ -12,16 +12,19 @@
 #   $BIN_DIR/loop  → $LOOP_HOME/loop     (symlink)
 #   $BIN_DIR/agent → $LOOP_HOME/loop     (symlink)
 #
-# Env knobs:
+# Flags (curl | bash -s -- <flags>) — each maps to the env knob next to it:
+#   -v, --version <vX.Y.Z>   pin a specific tag        (LOOP_VERSION)
+#       --force              skip up-to-date gate      (LOOP_FORCE=1)
+#       --from-source        clone + bun build         (LOOP_FROM_SOURCE=1)
+#       --uninstall          remove install + links    (LOOP_UNINSTALL=1)
+#       --no-modify-path     don't touch shell rc      (LOOP_NO_MODIFY_PATH=1)
+#   -h, --help
+#
+# Extra env knobs:
 #   LOOP_REPO_SLUG    notshekhar/loop     override repo
-#   LOOP_VERSION      vX.Y.Z            pin a specific tag
 #   LOOP_HOME         $HOME/.loop-bin     install dir for binary + package.json
 #   LOOP_BIN_DIR                        symlink dir (auto: /usr/local/bin or
 #                                       $HOME/.local/bin)
-#   LOOP_FORCE        1                 skip "already up to date" gate
-#   LOOP_FROM_SOURCE  1                 clone + bun build from source
-#                                       (requires bun ≥1.2)
-#   LOOP_UNINSTALL    1                 remove the install + symlinks and exit
 
 set -euo pipefail
 
@@ -33,6 +36,41 @@ FORCE="${LOOP_FORCE:-0}"
 FROM_SOURCE="${LOOP_FROM_SOURCE:-0}"
 UNINSTALL="${LOOP_UNINSTALL:-0}"
 PIN_VERSION="${LOOP_VERSION:-}"
+NO_MODIFY_PATH="${LOOP_NO_MODIFY_PATH:-0}"
+
+usage() {
+  cat <<EOF
+loop installer
+
+Usage: install.sh [options]
+
+Options:
+  -v, --version <vX.Y.Z>  Install a specific release
+      --force             Reinstall even when up to date
+      --from-source       Clone the repo and build with bun
+      --uninstall         Remove the install and its symlinks
+      --no-modify-path    Don't write the PATH line to your shell rc
+  -h, --help              Show this help
+
+Examples:
+  curl -fsSL https://raw.githubusercontent.com/${REPO_SLUG}/main/install.sh | bash
+  curl -fsSL https://raw.githubusercontent.com/${REPO_SLUG}/main/install.sh | bash -s -- --version v0.11.5
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -h|--help) usage; exit 0 ;;
+    -v|--version)
+      if [ -n "${2:-}" ]; then PIN_VERSION="$2"; shift 2; else
+        printf "\033[31m--version requires an argument\033[0m\n" >&2; exit 1; fi ;;
+    --force) FORCE=1; shift ;;
+    --from-source) FROM_SOURCE=1; shift ;;
+    --uninstall) UNINSTALL=1; shift ;;
+    --no-modify-path) NO_MODIFY_PATH=1; shift ;;
+    *) printf "\033[2mignoring unknown option: %s\033[0m\n" "$1" >&2; shift ;;
+  esac
+done
 
 # Older installs shipped a short `lp` alias that collided with the system CUPS
 # printer (/usr/bin/lp). `lp` is gone now — this marker lets us strip the alias
@@ -124,6 +162,13 @@ detect_target() {
     arm64|aarch64)  arch="arm64" ;;
     *)              err "unsupported arch: $uname_m"; exit 1 ;;
   esac
+  # A shell under Rosetta reports x86_64 on Apple Silicon — install the
+  # native arm64 build instead of the emulated one.
+  if [ "$os" = "darwin" ] && [ "$arch" = "x64" ]; then
+    if [ "$(sysctl -n sysctl.proc_translated 2>/dev/null || echo 0)" = "1" ]; then
+      arch="arm64"
+    fi
+  fi
   printf "%s-%s" "$os" "$arch"
 }
 
@@ -378,23 +423,56 @@ link_globally() {
 
   case ":$PATH:" in
     *":$bin_dir:"*) ;;
-    *) path_hint "$bin_dir" ;;
+    *) modify_path "$bin_dir" ;;
   esac
+
+  # GitHub Actions: expose the bin dir to subsequent workflow steps.
+  if [ "${GITHUB_ACTIONS:-}" = "true" ] && [ -n "${GITHUB_PATH:-}" ]; then
+    echo "$bin_dir" >> "$GITHUB_PATH"
+    dim "  added $bin_dir to \$GITHUB_PATH"
+  fi
 
   LOOP_LINK_DIR="$bin_dir"
 }
 
-# Exact copy-pasteable PATH line for the user's shell.
-path_hint() {
-  local bin_dir="$1" shell_name rc
+# Write the PATH line into the user's shell rc (opencode-style), unless
+# --no-modify-path. Falls back to a copy-pasteable hint when no rc is writable.
+modify_path() {
+  local bin_dir="$1" shell_name line config_file=""
   shell_name="$(basename "${SHELL:-bash}")"
-  err "warning: $bin_dir is not on PATH"
+  local xdg="${XDG_CONFIG_HOME:-$HOME/.config}"
+  local candidates
   case "$shell_name" in
-    zsh)  rc="~/.zshrc";  err "  echo 'export PATH=\"$bin_dir:\$PATH\"' >> $rc && source $rc" ;;
-    bash) rc="~/.bashrc"; err "  echo 'export PATH=\"$bin_dir:\$PATH\"' >> $rc && source $rc" ;;
-    fish) err "  fish_add_path $bin_dir" ;;
-    *)    err "  add to your shell rc: export PATH=\"$bin_dir:\$PATH\"" ;;
+    fish) candidates="$HOME/.config/fish/config.fish"
+          line="fish_add_path $bin_dir" ;;
+    zsh)  candidates="${ZDOTDIR:-$HOME}/.zshrc ${ZDOTDIR:-$HOME}/.zshenv $xdg/zsh/.zshrc"
+          line="export PATH=\"$bin_dir:\$PATH\"" ;;
+    bash) candidates="$HOME/.bashrc $HOME/.bash_profile $HOME/.profile $xdg/bash/.bashrc"
+          line="export PATH=\"$bin_dir:\$PATH\"" ;;
+    *)    candidates="$HOME/.profile"
+          line="export PATH=\"$bin_dir:\$PATH\"" ;;
   esac
+
+  if [ "$NO_MODIFY_PATH" = "1" ]; then
+    err "warning: $bin_dir is not on PATH (--no-modify-path given)"
+    err "  $line"
+    return 0
+  fi
+
+  for f in $candidates; do
+    if [ -f "$f" ]; then config_file="$f"; break; fi
+  done
+  if [ -z "$config_file" ] || [ ! -w "$config_file" ]; then
+    err "warning: $bin_dir is not on PATH — add it to your shell rc:"
+    err "  $line"
+    return 0
+  fi
+  if grep -Fxq "$line" "$config_file" 2>/dev/null; then
+    dim "  PATH line already in $config_file"
+    return 0
+  fi
+  printf "\n# loop\n%s\n" "$line" >> "$config_file"
+  dim "  added $bin_dir to PATH in $config_file (restart your shell to pick it up)"
 }
 
 # Remove the legacy `lp` alias block a prior install may have written to a
@@ -431,8 +509,18 @@ finish_message() {
   echo "  agent:   $LOOP_LINK_DIR/agent"
   echo "  target:  $LOOP_HOME"
   echo
-  dim "Run \`loop\` (or \`agent\`) to start. Run \`loop login\` to add a provider."
+  dim  "█░░░ █▀▀█ █▀▀█ █▀▀█"
+  dim  "█░░░ █░░█ █░░█ █░░█"
+  dim  "▀▀▀▀ ▀▀▀▀ ▀▀▀▀ █▀▀▀"
+  echo
+  echo "To start:"
+  echo
+  printf "  cd <project>  "; dim "# open a directory"
+  printf "  loop          "; dim "# run the agent"
+  printf "  loop login    "; dim "# add a provider"
+  echo
   dim "Update later with \`loop update\` (or /update inside the TUI)."
+  dim "Docs: https://github.com/${REPO_SLUG}#readme"
 }
 
 # ── Route ──────────────────────────────────────────────────────────────────

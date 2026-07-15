@@ -14,6 +14,8 @@ export interface Keybindings {
     "tui.editor.cursorWordRight": true;
     "tui.editor.cursorLineStart": true;
     "tui.editor.cursorLineEnd": true;
+    "tui.editor.cursorDocStart": true;
+    "tui.editor.cursorDocEnd": true;
     "tui.editor.jumpForward": true;
     "tui.editor.jumpBackward": true;
     "tui.editor.pageUp": true;
@@ -71,12 +73,22 @@ export const TUI_KEYBINDINGS = {
         description: "Move cursor word right",
     },
     "tui.editor.cursorLineStart": {
-        defaultKeys: ["home", "ctrl+a"],
+        // super+left = Cmd+Left on macs whose terminal speaks the kitty
+        // keyboard protocol (Ghostty, kitty, WezTerm); no-op elsewhere.
+        defaultKeys: ["home", "ctrl+a", "super+left"],
         description: "Move to line start",
     },
     "tui.editor.cursorLineEnd": {
-        defaultKeys: ["end", "ctrl+e"],
+        defaultKeys: ["end", "ctrl+e", "super+right"],
         description: "Move to line end",
+    },
+    "tui.editor.cursorDocStart": {
+        defaultKeys: "super+up",
+        description: "Move to start of input",
+    },
+    "tui.editor.cursorDocEnd": {
+        defaultKeys: "super+down",
+        description: "Move to end of input",
     },
     "tui.editor.jumpForward": {
         defaultKeys: "ctrl+]",
@@ -105,7 +117,8 @@ export const TUI_KEYBINDINGS = {
         description: "Delete word forward",
     },
     "tui.editor.deleteToLineStart": {
-        defaultKeys: "ctrl+u",
+        // super+backspace = Cmd+Backspace (mac native "delete whole line").
+        defaultKeys: ["ctrl+u", "super+backspace"],
         description: "Delete to line start",
     },
     "tui.editor.deleteToLineEnd": {
@@ -114,7 +127,7 @@ export const TUI_KEYBINDINGS = {
     },
     "tui.editor.yank": { defaultKeys: "ctrl+y", description: "Yank" },
     "tui.editor.yankPop": { defaultKeys: "alt+y", description: "Yank pop" },
-    "tui.editor.undo": { defaultKeys: "ctrl+-", description: "Undo" },
+    "tui.editor.undo": { defaultKeys: ["ctrl+-", "super+z"], description: "Undo" },
     "tui.input.newLine": { defaultKeys: ["shift+enter", "ctrl+j"], description: "Insert newline" },
     "tui.input.submit": { defaultKeys: "enter", description: "Submit input" },
     "tui.input.tab": { defaultKeys: "tab", description: "Tab / autocomplete" },

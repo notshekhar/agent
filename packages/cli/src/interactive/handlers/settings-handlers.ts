@@ -13,6 +13,7 @@ import {
     getCatalog,
     getMcpManager,
     getExtensionHost,
+    PRODUCT_NAME,
     registerBuiltins,
     settingsStore,
     type CommandContext,
@@ -41,6 +42,7 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
         recap: false,
         askUser: false,
         webSearch: false,
+        serve: false,
         todos: false,
         clock: false,
         reminders: true,
@@ -150,6 +152,11 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                         label: `websearch (DuckDuckGo): ${boolSetting("webSearch") ? "on" : "off"}`,
                         description:
                             "give the agent a websearch tool (scrapes DuckDuckGo — no API key, may rate-limit)",
+                    },
+                    {
+                        value: "serve",
+                        label: `serve (web UI): ${boolSetting("serve") ? "on" : "off"}`,
+                        description: `allow "${PRODUCT_NAME} serve" — token-locked web UI; anyone with the URL controls this machine`,
                     },
                     {
                         value: "todos",

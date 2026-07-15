@@ -26,6 +26,11 @@ export interface SteakGrid {
      * 1..4 = quartile buckets of non-zero days (GitHub-style relative shading).
      */
     cells: number[][];
+    /** Raw tokens per cell, same shape as `cells` (-1 = blank) — lets clients
+     * show per-day tooltips and streak stats without re-fetching the day map. */
+    tokens: number[][];
+    /** Local YYYY-MM-DD of the grid's first cell (column 0, row Sunday). */
+    startDay: string;
     /** Month abbrev to print above each week column, or "" for none. */
     monthLabels: string[];
     /** The 3 quartile cutoffs (q1,q2,q3) used for bucketing, for reference. */
@@ -132,5 +137,13 @@ export function buildSteakGrid(daily: Map<string, number>, opts: SteakOptions = 
         monthLabels[weeks - 1] = "";
     }
 
-    return { totalTokens, weeks, cells, monthLabels, thresholds: [q1, q2, q3] };
+    return {
+        totalTokens,
+        weeks,
+        cells,
+        tokens: raw,
+        startDay: dayKey(firstSunday),
+        monthLabels,
+        thresholds: [q1, q2, q3],
+    };
 }

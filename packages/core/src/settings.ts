@@ -53,6 +53,9 @@ export interface AppSettings {
     /** Websearch tool backed by DuckDuckGo's HTML endpoint — no API key, but
      * unofficial: may rate-limit or break on markup changes. Default OFF. */
     webSearch?: boolean;
+    /** `loop serve` — WebSocket RPC server + web UI. Remote code execution by
+     * design: anyone with the URL+token controls this machine. Default OFF. */
+    serve?: boolean;
     /** Todo tool: a visible checklist the agent maintains during multi-step
      * turns, pinned above the editor. Default OFF. */
     todos?: boolean;

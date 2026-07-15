@@ -838,16 +838,12 @@ export class Editor implements Component, Focusable {
             return;
         }
 
-        // Arrow key navigation (with history support)
+        // Arrow key navigation (with history support). Readline/zsh behavior:
+        // Up on the FIRST visual line always steps into prompt history,
+        // wherever the column is — line-start is one Cmd/Home away instead.
         if (kb.matches(data, "tui.editor.cursorUp")) {
-            if (
-                this.isOnFirstVisualLine() &&
-                (this.isEditorEmpty() || this.historyIndex > -1 || this.state.cursorCol === 0)
-            ) {
+            if (this.isOnFirstVisualLine()) {
                 this.navigateHistory(-1);
-            } else if (this.isOnFirstVisualLine()) {
-                // Already at top - jump to start of line
-                this.moveToLineStart();
             } else {
                 this.moveCursor(-1, 0);
             }
@@ -870,6 +866,15 @@ export class Editor implements Component, Focusable {
         }
         if (kb.matches(data, "tui.editor.cursorLeft")) {
             this.moveCursor(0, -1);
+            return;
+        }
+        // Cmd+Up / Cmd+Down (mac): start / end of the whole input.
+        if (kb.matches(data, "tui.editor.cursorDocStart")) {
+            this.moveToDocStart();
+            return;
+        }
+        if (kb.matches(data, "tui.editor.cursorDocEnd")) {
+            this.moveToDocEnd();
             return;
         }
 
@@ -1511,6 +1516,18 @@ export class Editor implements Component, Focusable {
         this.lastAction = null;
         const currentLine = this.state.lines[this.state.cursorLine] || "";
         this.setCursorCol(currentLine.length);
+    }
+
+    private moveToDocStart(): void {
+        this.lastAction = null;
+        this.state.cursorLine = 0;
+        this.setCursorCol(0);
+    }
+
+    private moveToDocEnd(): void {
+        this.lastAction = null;
+        this.state.cursorLine = Math.max(0, this.state.lines.length - 1);
+        this.setCursorCol((this.state.lines[this.state.cursorLine] || "").length);
     }
 
     private deleteToStartOfLine(): void {

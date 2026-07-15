@@ -28,7 +28,7 @@ import { getAgentPrompt, getAgentTools, isReadOnlyBashAgent, listAgents } from "
 import { loadWorkspaceContext } from "./context";
 import { loadMemoryContext } from "./memory";
 import { formatSkillsForPrompt, loadProjectSkills, type Skill } from "./skills";
-import { extractImagesFromInput } from "./images";
+import { extractImagesFromInput, filterAttachmentsByModalities } from "./images";
 import { CostTracker, stampUsageCost } from "./cost";
 import { runCompact } from "./compact";
 import { runRecap, turnDeservesRecap } from "./recap";
@@ -345,8 +345,22 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
     const configuredSteps = opts.maxSteps ?? getSetting("maxSteps") ?? 0;
     const maxSteps = configuredSteps > 0 ? configuredSteps : Number.MAX_SAFE_INTEGER;
 
-    // Extract any image paths from the user input → ai-sdk image parts
-    const { textWithoutPaths, images } = extractImagesFromInput(userInput, cwd);
+    // Extract attachment paths (images/PDFs) → ai-sdk file parts, keeping only
+    // what this model's catalog modalities accept. Rejected paths go back into
+    // the text so the reference reaches the model instead of vanishing.
+    const extracted = extractImagesFromInput(userInput, cwd);
+    const { allowed: images, rejected: rejectedAttachments } = filterAttachmentsByModalities(
+        extracted.images,
+        (await getCatalog())[modelId]?.modalities,
+        modelId.split("/")[0],
+    );
+    let textWithoutPaths = extracted.textWithoutPaths;
+    if (rejectedAttachments.length > 0) {
+        // Keep the reference visible to the model — but only for paths the
+        // cleanup actually removed (sentinel forms keep their token in text).
+        const missing = rejectedAttachments.map((r) => r.path).filter((p) => !textWithoutPaths.includes(p));
+        textWithoutPaths = [textWithoutPaths, ...missing].filter(Boolean).join("\n");
+    }
     if (images.length > 0) {
         emitter.emit(
             "attached-images",

@@ -59,6 +59,9 @@ async function main(): Promise<void> {
         case "rpc":
             (await commands()).cmdRpc(args);
             return;
+        case "serve":
+            (await commands()).cmdServe(args);
+            return;
         case "mcp":
             await (await import("./mcp-commands")).cmdMcp(process.argv.slice(3));
             return;

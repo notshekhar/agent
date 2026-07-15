@@ -79,7 +79,7 @@ describe("Editor component", () => {
             assert.strictEqual(editor.getText(), "first");
         });
 
-        it("jumps to start before entering history from a non-empty draft", () => {
+        it("enters history straight from a non-empty draft (readline behavior)", () => {
             const editor = new Editor(createTestTUI(), defaultEditorTheme);
 
             editor.addToHistory("prompt");
@@ -87,16 +87,51 @@ describe("Editor component", () => {
             editor.handleInput("\x1b[D");
             editor.handleInput("\x1b[D");
 
-            editor.handleInput("\x1b[A"); // Up - jumps to start before history browsing
-            assert.strictEqual(editor.getText(), "draft");
-            assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 0 });
-
-            editor.handleInput("\x1b[A"); // Up at start - shows "prompt"
+            // Up on the first visual line goes straight to history, wherever
+            // the column is — shell/readline convention.
+            editor.handleInput("\x1b[A");
             assert.strictEqual(editor.getText(), "prompt");
 
             editor.handleInput("\x1b[B"); // Down - restores draft
             assert.strictEqual(editor.getText(), "draft");
+        });
+
+        it("Up inside a multiline draft moves the cursor, not history", () => {
+            const editor = new Editor(createTestTUI(), defaultEditorTheme);
+
+            editor.addToHistory("prompt");
+            editor.setText("line one\nline two");
+            // Cursor ends on the last line; Up moves within the draft.
+            editor.handleInput("\x1b[A");
+            assert.strictEqual(editor.getText(), "line one\nline two");
+            assert.strictEqual(editor.getCursor().line, 0);
+            // A second Up (now on the first line) enters history.
+            editor.handleInput("\x1b[A");
+            assert.strictEqual(editor.getText(), "prompt");
+        });
+
+        it("mac chords: Cmd+Backspace deletes to line start, Cmd+arrows jump (kitty sequences)", () => {
+            const editor = new Editor(createTestTUI(), defaultEditorTheme);
+
+            // Cmd+Backspace (kitty CSI-u: keycode 127, modifier 1+8=9).
+            editor.setText("hello world");
+            editor.handleInput("\x1b[127;9u");
+            assert.strictEqual(editor.getText(), "");
+
+            // Cmd+Left / Cmd+Right (legacy-encoded arrows with super modifier).
+            editor.setText("hello world");
+            editor.handleInput("\x1b[1;9D"); // Cmd+Left -> line start
             assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 0 });
+            editor.handleInput("\x1b[1;9C"); // Cmd+Right -> line end
+            assert.strictEqual(editor.getCursor().col, "hello world".length);
+
+            // Cmd+Up / Cmd+Down on a multiline draft -> doc start / end.
+            editor.setText("first line\nsecond line");
+            editor.handleInput("\x1b[1;9A");
+            assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 0 });
+            editor.handleInput("\x1b[1;9B");
+            assert.strictEqual(editor.getCursor().line, 1);
+            assert.strictEqual(editor.getCursor().col, "second line".length);
         });
 
         it("navigates forward through history with Down arrow", () => {
