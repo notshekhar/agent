@@ -13,7 +13,7 @@ export {
     type StepBilling,
 } from "./model-call";
 export { CostTracker, stampUsageCost, type AddContext } from "./cost";
-export { buildSteakGrid, type SteakGrid, type SteakOptions } from "./steak";
+export { buildSteakGrid, type SteakGrid, type SteakOptions, type SteakStats } from "./steak";
 export { runCompact, CompactAbortedError } from "./compact";
 export { runRecap, isRecapPayload, RECAP_KIND, type RecapPayload } from "./recap";
 export { parseGoalInput, toGoalSchedule, type ParsedGoal } from "./goal-parse";

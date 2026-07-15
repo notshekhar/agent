@@ -63,4 +63,46 @@ describe("buildSteakGrid", () => {
         // A clearly future in-range day (Dec 2026) is an empty square, not blank.
         expect(g.cells[1][g.weeks - 2]).toBe(0);
     });
+
+    test("streak stats: runs, active days, and the busiest day", () => {
+        const daily = new Map<string, number>([
+            // 3-day run ending yesterday…
+            ["2026-06-25", 200_000],
+            ["2026-06-26", 50_000],
+            ["2026-06-27", 1000],
+            // …and an older, longer 4-day run.
+            ["2026-06-01", 10],
+            ["2026-06-02", 10],
+            ["2026-06-03", 10],
+            ["2026-06-04", 4_000_000],
+        ]);
+        const g = buildSteakGrid(daily, { now: NOW });
+        // Today (06-28, quiet so far) doesn't break the trailing run.
+        expect(g.stats.currentStreak).toBe(3);
+        expect(g.stats.longestStreak).toBe(4);
+        expect(g.stats.activeDays).toBe(7);
+        expect(g.stats.busiestDay).toBe("2026-06-04");
+        expect(g.stats.busiestDayTokens).toBe(4_000_000);
+    });
+
+    test("streak stats: usage today extends the current streak", () => {
+        const daily = new Map<string, number>([
+            ["2026-06-27", 500],
+            ["2026-06-28", 500], // today
+        ]);
+        const g = buildSteakGrid(daily, { now: NOW });
+        expect(g.stats.currentStreak).toBe(2);
+        expect(g.stats.longestStreak).toBe(2);
+    });
+
+    test("streak stats: empty history is all zeros", () => {
+        const g = buildSteakGrid(new Map(), { now: NOW });
+        expect(g.stats).toEqual({
+            currentStreak: 0,
+            longestStreak: 0,
+            activeDays: 0,
+            busiestDay: "",
+            busiestDayTokens: 0,
+        });
+    });
 });

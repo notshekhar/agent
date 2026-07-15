@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { buildPage } from "../web/build-page";
 
 const pkg = JSON.parse(readFileSync(join(import.meta.dir, "package.json"), "utf8")) as {
     dependencies?: Record<string, string>;
@@ -18,6 +19,10 @@ const externals = [
     "bun",
 ];
 
+// Bake the web UI into dist so npm installs and compiled binaries serve the
+// page without the web workspace on disk (source runs bundle it on the fly).
+const webUiHtml = await buildPage();
+
 const result = await Bun.build({
     entrypoints: [join(import.meta.dir, "src/index.ts")],
     outdir: join(import.meta.dir, "dist"),
@@ -25,6 +30,7 @@ const result = await Bun.build({
     format: "esm",
     minify: { whitespace: true, identifiers: false, syntax: true },
     external: externals,
+    define: { __WEB_UI_HTML__: JSON.stringify(webUiHtml) },
 });
 
 if (!result.success) {

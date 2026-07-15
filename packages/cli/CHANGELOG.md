@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.12.1] - 2026-07-16
+
+### Added
+
+- **Streak stats under the usage heatmap.** `/steak` and `/cost` now show your current streak, longest streak, active days, and busiest day beneath the graph — the same numbers as the web UI's usage dialog, computed once in core so every client agrees. A quiet "today" doesn't break the streak until the day is over.
+
+### Changed
+
+- **`loop serve` binds `0.0.0.0` by default and prints the network URL with its token.** Reaching the UI from another device is the point of serve, and the token is the lock either way — so the LAN URL is now copy-pasteable as printed. `--host 127.0.0.1` restores a loopback-only bind (which still previews the LAN URL it would serve).
+- **The browser client is its own workspace package.** `packages/web` owns the serve UI as small focused modules (state, RPC client, transcript renderer, per-feature files) instead of one 3,600-line embedded HTML file. Builds bake the compiled single-file page into core — release binaries stay self-contained — while source runs bundle it on the fly, so web edits show up on reload.
+
+### Fixed
+
+- **The web UI behaves on phones.** Streaming no longer janks the page (deltas paint at most once per frame, so typing stays smooth while the agent responds); the composer keeps send on one row, autosizes in CSS, and stays clear of the on-screen keyboard and the iPhone home bar; the header wraps to two rows so the actions never squeeze out the session title (and the cost readout is back on mobile).
+
 ## [0.12.0] - 2026-07-15
 
 ### Added

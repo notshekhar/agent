@@ -15,9 +15,26 @@ function dayKey(d: Date): string {
     return d.toLocaleDateString("sv");
 }
 
+export interface SteakStats {
+    /** Trailing run of active days. A quiet "today" doesn't break it yet —
+     * the day isn't over. */
+    currentStreak: number;
+    /** Longest run of consecutive active days in the visible range. */
+    longestStreak: number;
+    /** Days with any usage in the visible range. */
+    activeDays: number;
+    /** Local YYYY-MM-DD of the highest-token day, or "" if no usage. */
+    busiestDay: string;
+    /** Tokens on that busiest day. */
+    busiestDayTokens: number;
+}
+
 export interface SteakGrid {
     /** Sum of tokens across every visible day. */
     totalTokens: number;
+    /** Streak facts over the visible days — shared by every client so the
+     * TUI and web UI never disagree on what a streak is. */
+    stats: SteakStats;
     /** Number of week columns. */
     weeks: number;
     /**
@@ -82,6 +99,9 @@ export function buildSteakGrid(daily: Map<string, number>, opts: SteakOptions = 
     const raw: number[][] = Array.from({ length: 7 }, () => new Array<number>(weeks).fill(-1));
     const nonZero: number[] = [];
     let totalTokens = 0;
+    // Counted days in chronological order (column-major walk == date order),
+    // for the streak stats below.
+    const countedDays: Array<{ key: string; tok: number }> = [];
     for (let c = 0; c < weeks; c++) {
         for (let r = 0; r < 7; r++) {
             const d = new Date(firstSunday);
@@ -91,10 +111,39 @@ export function buildSteakGrid(daily: Map<string, number>, opts: SteakOptions = 
             const counted = !future && d.getTime() >= lower.getTime() && d.getTime() <= lastDay.getTime();
             const tok = counted ? (daily.get(dayKey(d)) ?? 0) : 0;
             raw[r][c] = tok; // 0 for empty/future days, keeping the rectangle solid
-            if (counted) totalTokens += tok;
+            if (counted) {
+                totalTokens += tok;
+                countedDays.push({ key: dayKey(d), tok });
+            }
             if (tok > 0) nonZero.push(tok);
         }
     }
+
+    // Streak facts. Current streak: trailing run of active days, where a
+    // quiet final day (today so far) doesn't break the run yet.
+    let longestStreak = 0;
+    let run = 0;
+    let activeDays = 0;
+    let busiest: { key: string; tok: number } | null = null;
+    for (const d of countedDays) {
+        if (d.tok > 0) {
+            run++;
+            activeDays++;
+            if (run > longestStreak) longestStreak = run;
+            if (!busiest || d.tok > busiest.tok) busiest = d;
+        } else run = 0;
+    }
+    let currentStreak = 0;
+    let i = countedDays.length - 1;
+    if (i >= 0 && countedDays[i].tok === 0) i--;
+    for (; i >= 0 && countedDays[i].tok > 0; i--) currentStreak++;
+    const stats: SteakStats = {
+        currentStreak,
+        longestStreak,
+        activeDays,
+        busiestDay: busiest ? busiest.key : "",
+        busiestDayTokens: busiest ? busiest.tok : 0,
+    };
 
     // Quartile thresholds over non-zero days — relative shading, so the graph
     // reads well whether the user burns 10k or 10M tokens a day.
@@ -139,6 +188,7 @@ export function buildSteakGrid(daily: Map<string, number>, opts: SteakOptions = 
 
     return {
         totalTokens,
+        stats,
         weeks,
         cells,
         tokens: raw,

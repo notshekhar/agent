@@ -230,7 +230,10 @@ export function cmdServe(args: Args): void {
         process.exitCode = 1;
         return;
     }
-    const host = typeof args.flags.host === "string" ? args.flags.host : "127.0.0.1";
+    // Default to all interfaces: the point of serve is reaching the UI from
+    // another device (phone, laptop) — the token is the lock either way.
+    // `--host 127.0.0.1` restores a loopback-only bind.
+    const host = typeof args.flags.host === "string" ? args.flags.host : "0.0.0.0";
     const port = typeof args.flags.port === "string" ? Number(args.flags.port) : SERVE_DEFAULT_PORT;
     if (!Number.isInteger(port) || port < 0 || port > 65535) {
         console.error(`Invalid --port: ${args.flags.port}`);
@@ -241,8 +244,9 @@ export function cmdServe(args: Args): void {
     let hostname: string;
     let networkUrls: string[];
     let boundPort: number;
+    let token: string;
     try {
-        ({ url, hostname, networkUrls, port: boundPort } = startWebServer({ host, port }));
+        ({ url, hostname, networkUrls, port: boundPort, token } = startWebServer({ host, port }));
     } catch (err) {
         console.error((err as Error).message);
         process.exitCode = 1;
@@ -253,10 +257,14 @@ export function cmdServe(args: Args): void {
     if (networkUrls.length) {
         for (const u of networkUrls) console.log(`  network   ${u}`);
     } else if (isLoopbackHost(hostname)) {
-        // Show where the LAN URL WOULD be — but it only works on a network
-        // bind, so say so instead of printing a dead link with the token in it.
+        // Loopback bind (--host 127.0.0.1): show the full LAN URL (token
+        // included) so it can be copied now — but it only answers on a
+        // network bind, so say so.
         const lan = lanAddresses()[0];
-        console.log(`  network   ${lan ? `http://${lan}:${boundPort}/ — ` : ""}restart with --host 0.0.0.0 to expose`);
+        if (lan) {
+            console.log(`  network   http://${lan}:${boundPort}/?token=${token}`);
+            console.log(`            (not reachable yet — restart without --host to expose)`);
+        }
     }
     console.log(``);
     console.log(`WARNING: anyone with this URL fully controls this machine (the agent runs`);
@@ -265,7 +273,8 @@ export function cmdServe(args: Args): void {
         console.log(`Bound to ${hostname} — for remote access bring your own network`);
         console.log(`(Tailscale, ssh -L, cloudflared), which also provides TLS.`);
     } else {
-        console.log(`WARNING: bound to ${hostname} — reachable from the network, over plain HTTP.`);
+        console.log(`Bound to ${hostname} — reachable from your network, over plain HTTP.`);
+        console.log(`Use --host 127.0.0.1 for a loopback-only bind.`);
     }
     console.log(`\nCtrl+C to stop.`);
 }

@@ -8,19 +8,55 @@
  *
  * Security model (see settings.serve): possession of the token is full
  * control of this machine. Token required on the WS upgrade AND the page
- * load; default bind is loopback — remote reach is the user's own network
- * (Tailscale / SSH -L / cloudflared), TLS included.
+ * load. The CLI binds 0.0.0.0 by default (LAN reach is the point); beyond
+ * the LAN bring your own network (Tailscale / SSH -L / cloudflared), which
+ * also provides TLS.
  */
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { networkInterfaces } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { RpcServer } from "./server";
 import { getStoredServeToken, storeServeToken } from "./serve-token-store";
-// bun-types declares *.html as HTMLBundle (the fullstack-route loader); the
-// `type: "text"` attribute overrides the loader to a plain inlined string in
-// both the runtime and Bun.build, so re-type it through unknown.
-import webUiHtml from "./web-ui.html" with { type: "text" };
 
-const WEB_UI_HTML = webUiHtml as unknown as string;
+/** Injected by packages/core/build.ts: the prebuilt single-file page from
+ * @notshekhar/loop-web. Release artifacts (npm dist, compiled binaries) ship
+ * with it baked in; running from source leaves it undefined. */
+declare const __WEB_UI_HTML__: string | undefined;
+
+/** The single-file page: baked in at build time, or — running from source
+ * (dev, tests) — bundled on the fly so web edits show up on reload without a
+ * prebuild step. Memoized: one bundle per process. */
+let webUiHtmlPromise: Promise<string> | null = null;
+function getWebUiHtml(): Promise<string> {
+    if (!webUiHtmlPromise) {
+        webUiHtmlPromise =
+            typeof __WEB_UI_HTML__ === "string" ? Promise.resolve(__WEB_UI_HTML__) : buildWebUiFromSource();
+    }
+    return webUiHtmlPromise;
+}
+
+async function buildWebUiFromSource(): Promise<string> {
+    const entry = fileURLToPath(import.meta.resolve("@notshekhar/loop-web/app"));
+    const srcDir = dirname(entry);
+    const result = await Bun.build({
+        entrypoints: [entry],
+        target: "browser",
+        format: "iife",
+        minify: true,
+    });
+    if (!result.success) {
+        throw new Error(`web UI bundle failed: ${result.logs.map((l) => l.message).join("; ")}`);
+    }
+    const [template, styles, script] = await Promise.all([
+        Bun.file(join(srcDir, "index.html")).text(),
+        Bun.file(join(srcDir, "styles.css")).text(),
+        result.outputs[0]!.text(),
+    ]);
+    return template
+        .replace("<!-- styles injected by build.ts -->", `<style>${styles}</style>`)
+        .replace("<!-- script injected by build.ts -->", `<script>${script}</script>`);
+}
 
 /** Keypad-spellable default: 5667 = "loop". */
 export const SERVE_DEFAULT_PORT = 5667;
@@ -66,6 +102,10 @@ function tokenMatches(candidate: string | null, token: string): boolean {
 export interface ServeHandle {
     hostname: string;
     port: number;
+    /** The access token guarding this server — the caller may need it to
+     * print prospective URLs (e.g. the LAN URL that a network bind would
+     * serve). It is stable across restarts. */
+    token: string;
     /** Ready-to-open URL including the token. Never log it server-side. */
     url: string;
     /** LAN URLs (one per non-internal IPv4). Only usable when the bind host
@@ -93,7 +133,7 @@ export function startWebServer(opts: { host?: string; port?: number } = {}): Ser
     const server = Bun.serve<WsData, never>({
         hostname,
         port,
-        fetch(req, srv) {
+        async fetch(req, srv) {
             const url = new URL(req.url);
             if (!tokenMatches(url.searchParams.get("token"), token)) return unauthorized();
             if (url.pathname === "/ws") {
@@ -105,7 +145,7 @@ export function startWebServer(opts: { host?: string; port?: number } = {}): Ser
                 (url.pathname === "/" || SESSION_PATH.test(url.pathname)) &&
                 (req.method === "GET" || req.method === "HEAD")
             ) {
-                return new Response(WEB_UI_HTML, {
+                return new Response(await getWebUiHtml(), {
                     headers: { "content-type": "text/html; charset=utf-8" },
                 });
             }
@@ -155,6 +195,7 @@ export function startWebServer(opts: { host?: string; port?: number } = {}): Ser
     return {
         hostname,
         port: boundPort,
+        token,
         url: `http://${localHost}:${boundPort}/?token=${token}`,
         networkUrls: networkHosts.map((h) => `http://${h}:${boundPort}/?token=${token}`),
         stop: () => server.stop(true),

@@ -88,6 +88,28 @@ export function createMiscHandlers(state: AppState, deps: AppDeps): MiscHandlers
         const legend = [0, 1, 2, 3, 4].map((l) => chalk.hex(ramp[l])("■")).join("");
         history.addSystem("");
         history.addSystem(`${" ".repeat(GUTTER)}${chalk.dim("Less ")}${legend}${chalk.dim(" More")}`);
+
+        // Streak stats, computed in core alongside the grid — same numbers
+        // the web UI's usage dialog shows.
+        const st = grid.stats;
+        const days = (n: number) => `${n} ${n === 1 ? "day" : "days"}`;
+        const fmtDay = (key: string) => {
+            const [y, m, d] = key.split("-").map(Number);
+            return new Date(y, (m || 1) - 1, d || 1).toLocaleDateString(undefined, {
+                month: "short",
+                day: "numeric",
+                year: "numeric",
+            });
+        };
+        const stat = (label: string, value: string, note = "") =>
+            history.addSystem(
+                `  ${chalk.dim(label.padEnd(16))}${chalk.bold(value)}${note ? `   ${chalk.dim(note)}` : ""}`,
+            );
+        history.addSystem("");
+        stat("current streak", days(st.currentStreak), st.currentStreak >= 3 ? "🔥" : "");
+        stat("longest streak", days(st.longestStreak));
+        stat("active days", String(st.activeDays));
+        if (st.busiestDay) stat("busiest day", `${fmtTok(st.busiestDayTokens)} tokens`, fmtDay(st.busiestDay));
     };
 
     return {
