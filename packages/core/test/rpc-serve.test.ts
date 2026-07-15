@@ -23,17 +23,6 @@ mock.module("../src/settings", () => ({
     },
 }));
 
-// Instant turn failure for multi-client broadcast tests — a real runTurn with
-// provider "nope" still loads catalog/skills/tools before throwing, which
-// raced the wait under CI load (until timed out with no error event).
-const realAgent = await import("../src/agent");
-mock.module("../src/agent", () => ({
-    ...realAgent,
-    runTurn: async () => {
-        throw new Error("Unknown provider: nope");
-    },
-}));
-
 const { getOrCreateServeToken, isLoopbackHost, startWebServer } = await import("../src/rpc/serve");
 const { writeImagePayloads, RpcServer } = await import("../src/rpc/server");
 import type { ServeHandle } from "../src/rpc/serve";
@@ -59,11 +48,7 @@ function fakeTransport() {
     };
 }
 
-async function settle(): Promise<void> {
-    // Dispatch is async (awaits this.ready + handlers); let microtasks drain.
-    for (let i = 0; i < 20; i++) await new Promise((r) => setTimeout(r, 5));
-}
-
+/** Unknown-provider sends fail at getModel; keep budget for init under CI load. */
 async function until(cond: () => boolean, tries = 1000, ms = 10): Promise<void> {
     for (let i = 0; i < tries; i++) {
         if (cond()) return;
@@ -156,15 +141,17 @@ describe("multi-client broadcast + seq replay", () => {
         const listed = (b.response(3) as { result: Array<{ id: string; attached: number; running: boolean }> }).result;
         expect(listed.find((s) => s.id === sid)?.attached).toBe(2);
 
-        // A send on a bogus provider fails fast — the error event must reach
-        // BOTH subscribers, with a seq stamp. Wait for the error itself (fixed
-        // settle windows raced under load and saw mid-turn deltas first).
+        // A send on a bogus provider fails at getModel — the error event must
+        // reach BOTH subscribers, with a seq stamp. Wait for the error on both
+        // (fixed settle windows raced under load and saw mid-turn deltas first).
         fa.feed(
             JSON.stringify({ jsonrpc: "2.0", id: 2, method: "session.send", params: { sessionId: sid, input: "hi" } }) +
                 "\n",
         );
-        await until(() => a.events().some((e) => e.part.type === "error"));
-        await settle(); // let the twin subscriber catch up
+        await until(
+            () =>
+                a.events().some((e) => e.part.type === "error") && b.events().some((e) => e.part.type === "error"),
+        );
         const aEvents = a.events();
         const bEvents = b.events();
         expect(aEvents.length).toBeGreaterThan(0);
@@ -221,7 +208,9 @@ describe("multi-client broadcast + seq replay", () => {
         await until(() => a.events().length > aBefore);
         expect(a.events().length).toBeGreaterThan(aBefore);
         expect(b.events().length).toBe(bBefore);
-    });
+        // Real runTurn spins up a session + fails on the bogus provider; ~240ms
+        // locally but a loaded CI runner blows past the 5s default. Give it room.
+    }, 30000);
 });
 
 describe("startWebServer", () => {

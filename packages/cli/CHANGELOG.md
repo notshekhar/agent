@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.12.7] - 2026-07-16
+
+### Fixed
+
+- **Release CI: fix the flaky multi-client RPC serve test for real.** v0.12.6 mocked the whole agent module, but Bun shares mocks across files so rpc/abort/reopen tests broke with `Unknown provider: nope`; that mock is gone. v0.12.6/v0.12.7 also reordered `getModel` in production `turn.ts` purely to speed the test up — that has been reverted (no production change for a test). The test just does real work (spin a session, fail on a bogus provider) that a loaded CI runner can't finish inside Bun's 5s default, so it now gets a 30s timeout budget.
+
 ## [0.12.6] - 2026-07-16
 
 ### Fixed
