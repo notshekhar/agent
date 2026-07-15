@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.2] - 2026-07-16
+
+### Changed
+
+- **Mobile home uses an OpenCode-style project dialog.** The cramped horizontal project chips and Esc-only open-path popup are gone: one Projects button opens a closable dialog (backdrop tap + close) with a filterable project list and an Open path field. Desktop keeps the side rail.
+- **Composer send stays right-aligned on desktop.** Hiding an empty status line no longer drops the flex spacer that pinned send to the trailing edge.
+
 ## [0.12.1] - 2026-07-16
 
 ### Added

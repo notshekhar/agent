@@ -12,10 +12,11 @@ import { wireComposer } from "./features/composer";
 import { closeDialog, wireDialogFrame } from "./features/dialogs/frame";
 import { showContext } from "./features/dialogs/context";
 import { showExtensions } from "./features/dialogs/extensions";
+import { showProjectPicker } from "./features/dialogs/projects";
 import { showSettings } from "./features/dialogs/settings";
 import { showUsage } from "./features/dialogs/usage";
 import { onEvent } from "./features/events";
-import { projectsOf, renderHome, wireHome } from "./features/home";
+import { projectsOf, wireHome } from "./features/home";
 import { initModel, wireModelPicker } from "./features/model-picker";
 import { newDraft, openSession } from "./features/session";
 
@@ -27,7 +28,6 @@ async function boot(): Promise<void> {
         state.catalog = cat;
         state.authProviders = auth.providers || [];
         initModel((state.current && state.current.model) || state.selectedModel || "");
-        byId<HTMLInputElement>("openPath").value = (state.serverInfo.defaults && state.serverInfo.defaults.cwd) || "";
         byId("overlay").classList.add("hidden");
         const current = state.current;
         if (current && !current.draft) {
@@ -75,7 +75,7 @@ function startNewSession(): void {
         (state.serverInfo && state.serverInfo.defaults && state.serverInfo.defaults.cwd);
     if (!cwd) {
         showHome();
-        byId("openProject").click();
+        showProjectPicker({ focusPath: true });
         return;
     }
     newDraft(cwd);
@@ -84,23 +84,8 @@ function startNewSession(): void {
 function wireHeaderAndHome(): void {
     byId("newSession").onclick = startNewSession;
     byId("headerNew").onclick = startNewSession;
-    byId("openProject").onclick = () => {
-        byId("openForm").classList.toggle("visible");
-        byId("openPath").focus();
-    };
-    byId<HTMLInputElement>("openPath").addEventListener("keydown", (e) => {
-        if (e.key === "Enter") {
-            const p = byId<HTMLInputElement>("openPath").value.trim();
-            if (p) {
-                state.selectedProject = p;
-                byId("openForm").classList.remove("visible");
-                renderHome();
-                newDraft(p);
-            }
-        } else if (e.key === "Escape") {
-            byId("openForm").classList.remove("visible");
-        }
-    });
+    byId("openProject").onclick = () => showProjectPicker({ focusPath: true });
+    byId("projSelect").onclick = () => showProjectPicker();
     byId("usageBtn").onclick = showUsage;
     byId("extBtn").onclick = showExtensions;
     byId("settingsBtn").onclick = showSettings;

@@ -592,32 +592,152 @@ header .hbtn:hover {
     color: var(--text);
     border-color: var(--faint);
 }
-#openForm {
+/* Mobile-only: one button that opens the project picker dialog. Hidden on
+ * desktop where the full rail list is already visible. */
+#projSelect {
     display: none;
-    margin-top: 8px;
-    padding: 0 2px;
-}
-#openForm.visible {
-    display: block;
-}
-#openForm input {
+    align-items: center;
+    gap: 8px;
     width: 100%;
+    padding: 10px 12px;
+    border-radius: 8px;
     background: var(--bg-layer);
+    border: 1px solid var(--border);
+    color: var(--text);
+    text-align: left;
+    font-weight: 530;
+}
+#projSelect .psname {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+#projSelect .chev {
+    color: var(--faint);
+    flex: none;
+}
+
+/* Project picker dialog (OpenCode-style searchable list). */
+.pp-open {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 14px;
+}
+.pp-open input {
+    flex: 1;
+    min-width: 0;
+    background: var(--bg);
     border: 1px solid var(--border-strong);
-    border-radius: 6px;
+    border-radius: 8px;
     color: var(--text);
     font-family: var(--mono);
-    font-size: 12px;
-    padding: 6px 8px;
+    font-size: 13px;
+    padding: 10px 12px;
 }
-#openForm input:focus {
+.pp-open input:focus {
     outline: none;
     border-color: var(--faint);
 }
-#openForm .hint {
+.pp-open button {
+    flex: none;
+    background: var(--text);
+    color: var(--bg);
+    font-weight: 600;
+    padding: 10px 16px;
+    border-radius: 8px;
+}
+.pp-open button:hover {
+    background: #fff;
+}
+.pp-filter {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font: inherit;
+    padding: 8px 12px;
+    margin-bottom: 10px;
+}
+.pp-filter:focus {
+    outline: none;
+    border-color: var(--border-strong);
+}
+.pp-filter::placeholder {
+    color: var(--faint);
+}
+.pp-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.pp-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 10px 10px;
+    border-radius: 8px;
+    color: var(--muted);
+    text-align: left;
+}
+.pp-row:hover,
+.pp-row.hot {
+    background: var(--bg-hover);
+    color: var(--text);
+}
+.pp-row.active {
+    background: var(--bg-raise);
+    color: var(--text);
+    box-shadow: inset 0 0 0 0.5px var(--border-strong);
+}
+.pp-row .avatar {
+    width: 28px;
+    height: 28px;
+    border-radius: 7px;
+    flex: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 700;
+    font-family: var(--mono);
+    text-transform: uppercase;
+}
+.pp-row .ppmain {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+.pp-row .ppname {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text);
+    font-weight: 530;
+}
+.pp-row .pppath {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     color: var(--faint);
     font-size: 11px;
-    padding: 4px 2px 0;
+    font-family: var(--mono);
+}
+.pp-row .count {
+    color: var(--faint);
+    font-size: 11px;
+    font-family: var(--mono);
+    flex: none;
+}
+.pp-empty {
+    color: var(--faint);
+    padding: 20px 4px;
+    text-align: center;
 }
 
 #homeMain {
@@ -1395,9 +1515,13 @@ details.row .body .line.text {
     text-overflow: ellipsis;
     white-space: nowrap;
     flex: 1;
+    min-width: 0;
 }
 #send,
 #stop {
+    /* Always pin to the right — #status used to be the spacer, but when it is
+     * empty (display:none) send would sit mid-row without this. */
+    margin-left: auto;
     flex: none;
     font-weight: 600;
     padding: 5px 14px;
@@ -1500,9 +1624,10 @@ details.row .body .line.text {
          * bump every text input to 16px to keep the viewport stable. */
     #input,
     #search,
-    #openPath,
     #modelPop .pfilter,
-    #crumb input.rename {
+    #crumb input.rename,
+    .pp-open input,
+    .pp-filter {
         font-size: 16px;
     }
 
@@ -1545,7 +1670,9 @@ details.row .body .line.text {
         display: none;
     }
 
-    /* Projects rail becomes a horizontal strip above the session list. */
+    /* Projects rail collapses to one selector button (opens the picker
+     * dialog) — the horizontal chip strip was too cramped and unclosable
+     * forms were unusable on touch. Matches OpenCode's dialog pattern. */
     #home {
         flex-direction: column;
     }
@@ -1556,53 +1683,17 @@ details.row .body .line.text {
         height: auto;
         border-right: none;
         border-bottom: 1px solid var(--border);
-        padding: 8px;
-        gap: 6px;
+        padding: 10px 12px;
+        gap: 8px;
         flex: none;
     }
-    #rail .section {
-        display: none;
-    }
-    #projects {
-        flex-direction: row;
-        overflow-x: auto;
-        overflow-y: hidden;
-        flex: 1;
-        gap: 6px;
-        scrollbar-width: none;
-    }
-    #projects::-webkit-scrollbar {
-        display: none;
-    }
-    .proj {
-        width: auto;
-        flex: none;
-        padding: 5px 8px;
-    }
-    .proj .pname {
-        max-width: 96px;
-    }
-    .proj .count {
-        display: none;
-    }
+    #rail .section,
+    #projects,
     #openProject {
-        margin-top: 0;
-        flex: none;
-        padding: 5px 9px;
-        white-space: nowrap;
+        display: none;
     }
-    #openForm.visible {
-        position: fixed;
-        top: 50px;
-        left: 10px;
-        right: 10px;
-        z-index: 6;
-        margin: 0;
-        background: var(--bg-raise);
-        border: 1px solid var(--border-strong);
-        border-radius: 10px;
-        padding: 10px;
-        box-shadow: 0 8px 24px #00000066;
+    #projSelect {
+        display: flex;
     }
 
     #homeCol {
@@ -1622,7 +1713,7 @@ details.row .body .line.text {
         padding: 10px 8px;
     } /* comfortable touch target */
 
-    /* Chat: tighter gutters, wrapping composer controls. */
+    /* Chat: OpenCode-style full-bleed dock — tight gutters, no max squeeze. */
     #blocks {
         padding: 14px 12px 32px;
     }
@@ -1630,10 +1721,15 @@ details.row .body .line.text {
         padding: 6px 2px 0;
     }
     #composerWrap {
-        padding: 0 10px calc(10px + env(safe-area-inset-bottom, 0px));
+        padding: 0 12px calc(12px + env(safe-area-inset-bottom, 0px));
+    }
+    #composer {
+        border-radius: 14px;
+        min-height: 96px;
     }
     #input {
-        padding: 10px 12px 2px;
+        padding: 12px 14px 4px;
+        min-height: 52px;
     }
     /* One tidy row: attach, model, think left; send/stop pinned right.
          * The model button shrinks (ellipsis) before anything wraps, so send
@@ -1641,15 +1737,17 @@ details.row .body .line.text {
     #controls {
         flex-wrap: wrap;
         gap: 4px;
-        row-gap: 4px;
+        padding: 6px 10px 10px;
+        min-height: 44px;
     }
     #modelBtn {
         flex: 0 1 auto;
         min-width: 56px;
-        max-width: 38vw;
+        max-width: 36vw;
     }
     #thinkSel {
         flex: none;
+        max-width: 28vw;
     }
     #send,
     #stop {
@@ -1665,15 +1763,38 @@ details.row .body .line.text {
         padding-left: 8px;
     }
 
-    /* Dialogs go full screen. */
+    /* Dialogs: viewport-clamped sheet (OpenCode min(100vw-16px) pattern),
+     * not edge-to-edge — keeps the close control reachable and backdrop
+     * tap-to-dismiss obvious. */
     #dialogWrap {
-        padding: 0;
+        padding: 8px;
+        align-items: stretch;
     }
     #dialog {
         max-width: 100%;
-        height: 100%;
-        max-height: 100%;
-        border-radius: 0;
+        height: auto;
+        max-height: calc(100dvh - 16px);
+        border-radius: 14px;
+        margin: auto 0;
+    }
+    #dialog .dhead {
+        padding: 14px 16px;
+    }
+    #dialog .dhead .dclose {
+        padding: 8px 12px;
+        font-size: 14px;
+    }
+
+    /* Project picker: stack path + Open so the keyboard doesn't crush them. */
+    .pp-open {
+        flex-direction: column;
+    }
+    .pp-open button {
+        width: 100%;
+        padding: 12px 16px;
+    }
+    .pp-row {
+        padding: 12px 10px;
     }
 
     /* Cost table: tighter fixed columns so the extra text keeps room. */

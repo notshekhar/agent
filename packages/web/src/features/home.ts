@@ -30,6 +30,11 @@ export function renderHome(): void {
     if (state.selectedProject && !projs.some((p) => p.cwd === state.selectedProject)) {
         projs.unshift({ cwd: state.selectedProject, count: 0, mtime: Date.now() });
     }
+    /* Mobile collapses the rail into one selector button — keep its label
+     * pointing at the active filter. */
+    byId("projSelect").querySelector<HTMLElement>(".psname")!.textContent = state.selectedProject
+        ? basename(state.selectedProject)
+        : "All sessions";
     const rail = byId("projects");
     rail.innerHTML = "";
     const all = document.createElement("button");

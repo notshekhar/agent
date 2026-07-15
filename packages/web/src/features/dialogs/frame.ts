@@ -17,6 +17,9 @@ export function wireDialogFrame(): void {
     });
     byId("dialog").querySelector<HTMLButtonElement>(".dclose")!.onclick = closeDialog;
     document.addEventListener("keydown", (e) => {
-        if (e.key === "Escape" && byId("dialogWrap").classList.contains("visible")) closeDialog();
+        if (e.key === "Escape" && byId("dialogWrap").classList.contains("visible")) {
+            e.preventDefault();
+            closeDialog();
+        }
     });
 }

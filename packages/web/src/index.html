@@ -42,12 +42,11 @@
         <div id="home">
             <div id="rail">
                 <div class="section">Projects</div>
+                <!-- Mobile: the rail collapses to this one button (opens the
+                     project picker dialog); desktop shows the full list. -->
+                <button id="projSelect"><span class="psname">All sessions</span><span class="chev">▾</span></button>
                 <div id="projects"></div>
                 <button id="openProject">Open project</button>
-                <div id="openForm">
-                    <input id="openPath" spellcheck="false" placeholder="/path/to/project" />
-                    <div class="hint">Enter to open, Esc to close</div>
-                </div>
             </div>
             <div id="homeMain">
                 <div id="homeCol">
