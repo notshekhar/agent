@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.5] - 2026-07-16
+
+### Fixed
+
+- **Stop during a web UI turn actually ends the turn.** Abort used to skip the stream `finish` event, so the composer stayed locked and tokens kept looking live after you hit stop. Aborted turns now emit `finish`, and the client clears running state as soon as you click stop.
+- **Flaky multi-client RPC serve test.** It waited a fixed settle window and asserted the last event was `error`, which raced under CI load; it now waits for the error itself and uses a real temp cwd.
+
 ## [0.12.4] - 2026-07-16
 
 ### Fixed

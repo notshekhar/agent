@@ -227,7 +227,7 @@ describe("rpc: turn streaming", () => {
     });
 
     test("session.cancel aborts the in-flight model stream", async () => {
-        const { call } = harness();
+        const { call, events } = harness();
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         let signal: AbortSignal | undefined;
         doStreamImpl = async (options) => {
@@ -243,6 +243,9 @@ describe("rpc: turn streaming", () => {
         const res = await call("session.cancel", { sessionId });
         expect(res.result.ok).toBe(true);
         expect(signal!.aborted).toBe(true);
+        // Abort used to skip the stream `finish` part — web clients stayed
+        // "running" forever. We synthesize finish so Stop unlocks the UI.
+        await until(() => events().some((p) => p.sessionId === sessionId && p.part.type === "finish"));
     });
 
     test("a turn that throws is reported on the same error channel", async () => {

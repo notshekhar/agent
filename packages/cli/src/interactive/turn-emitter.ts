@@ -165,8 +165,9 @@ export function wireTurnEmitter(emitter: TurnEmitter, deps: TurnEmitterDeps): vo
         todoPanel.setItems(e.items);
         tui.requestRender();
     });
-    // Panel retire happens in the turn-runner's finally, not here: finish
-    // never fires on an interrupt, and fires once per stop-hook continuation.
+    // Panel retire happens in the turn-runner's finally, not only here: finish
+    // now also fires on interrupt (for RPC/web clients), and fires once per
+    // stop-hook continuation. finishAssistant is idempotent either way.
     emitter.on("finish", (event: { usage?: UsageBlock; lastStepUsage?: UsageBlock }) => {
         history.finishAssistant();
         refreshStatusLine(pickContextUsage(event));

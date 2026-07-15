@@ -719,6 +719,9 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
     // onto the step's assistant entry as reasoningMs so "Thought for Xs"
     // survives resume. Consumed by persistStep in the same order.
     let reasoningStartedAt = 0;
+    // The AI SDK skips its stream `finish` part on abort; track whether we
+    // already forwarded one so RPC/web clients still get a single end event.
+    let sawFinish = false;
 
     const maybeYield = createYieldGate();
     // The interrupt can land between parts (caught by the `break` below) or while
@@ -804,6 +807,7 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
                 case "finish": {
                     const u = (part as { totalUsage?: UsageBlock }).totalUsage;
                     lastUsage = u;
+                    sawFinish = true;
                     emitter.emit("finish", { usage: u, lastStepUsage });
                     break;
                 }
@@ -880,6 +884,13 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
             if (est && estRowId !== undefined && (interruptedEntry as { id?: string }).id) {
                 attachLedgerEntry(estRowId, (interruptedEntry as { id?: string }).id!);
             }
+        }
+        // The AI SDK skips its stream `finish` part on abort (see model-call.ts).
+        // RPC/web clients clear "running" on finish — without this, Stop looks
+        // broken and the composer stays locked. TUI finishAssistant is idempotent.
+        if (!sawFinish) {
+            sawFinish = true;
+            emitter.emit("finish", { usage: undefined, lastStepUsage });
         }
     } else if (!persistedAnyMessage && (tailParts.length > 0 || lastUsage || billing.sum)) {
         // Non-abort edge: the stream ended without any step persisting (e.g. a

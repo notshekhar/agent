@@ -1,4 +1,7 @@
 import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { useTempSessionDb } from "./helpers/temp-db";
 
 // In-memory token store so tests never touch the real ~/.loop/auth.json.
@@ -48,6 +51,14 @@ function fakeTransport() {
 async function settle(): Promise<void> {
     // Dispatch is async (awaits this.ready + handlers); let microtasks drain.
     for (let i = 0; i < 20; i++) await new Promise((r) => setTimeout(r, 5));
+}
+
+async function until(cond: () => boolean, tries = 400, ms = 5): Promise<void> {
+    for (let i = 0; i < tries; i++) {
+        if (cond()) return;
+        await new Promise((r) => setTimeout(r, ms));
+    }
+    throw new Error("until: condition not met");
 }
 
 describe("serve token", () => {
@@ -107,6 +118,9 @@ describe("multi-client broadcast + seq replay", () => {
         const fa = server.attach(a);
         const fb = server.attach(b);
         const fc = server.attach(c);
+        // Real writable cwd — "/tmp" alone can fail create on some runners /
+        // sandboxes and leaves response(1) undefined.
+        const cwd = mkdtempSync(join(tmpdir(), "loop-rpc-"));
 
         // a creates (auto-subscribed); b attaches explicitly.
         fa.feed(
@@ -114,35 +128,38 @@ describe("multi-client broadcast + seq replay", () => {
                 jsonrpc: "2.0",
                 id: 1,
                 method: "session.create",
-                params: { cwd: "/tmp", provider: "nope", model: "nope/model" },
+                params: { cwd, provider: "nope", model: "nope/model" },
             }) + "\n",
         );
-        await settle();
+        await until(() => !!a.response(1));
         const sid = (a.response(1) as { result: { sessionId: string } }).result.sessionId;
         fb.feed(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "session.attach", params: { sessionId: sid } }) + "\n");
-        await settle();
+        await until(() => !!b.response(1));
         expect((b.response(1) as { result: { running: boolean } }).result.running).toBe(false);
 
         // session.list reflects both watchers, and re-opening from b does NOT
         // reset the shared context (attached count survives).
         fb.feed(JSON.stringify({ jsonrpc: "2.0", id: 2, method: "session.open", params: { sessionId: sid } }) + "\n");
         fb.feed(JSON.stringify({ jsonrpc: "2.0", id: 3, method: "session.list", params: {} }) + "\n");
-        await settle();
+        await until(() => !!b.response(3));
         const listed = (b.response(3) as { result: Array<{ id: string; attached: number; running: boolean }> }).result;
         expect(listed.find((s) => s.id === sid)?.attached).toBe(2);
 
         // A send on a bogus provider fails fast — the error event must reach
-        // BOTH subscribers, with a seq stamp.
+        // BOTH subscribers, with a seq stamp. Wait for the error itself (fixed
+        // settle windows raced under load and saw mid-turn deltas first).
         fa.feed(
             JSON.stringify({ jsonrpc: "2.0", id: 2, method: "session.send", params: { sessionId: sid, input: "hi" } }) +
                 "\n",
         );
-        await settle();
+        await until(() => a.events().some((e) => e.part.type === "error"));
+        await settle(); // let the twin subscriber catch up
         const aEvents = a.events();
         const bEvents = b.events();
         expect(aEvents.length).toBeGreaterThan(0);
         expect(bEvents.length).toBe(aEvents.length);
-        expect(aEvents[aEvents.length - 1]!.part.type).toBe("error");
+        expect(aEvents.some((e) => e.part.type === "error")).toBe(true);
+        expect(bEvents.some((e) => e.part.type === "error")).toBe(true);
         expect(aEvents[0]!.seq).toBe(1);
         const total = aEvents.length;
 
@@ -155,7 +172,7 @@ describe("multi-client broadcast + seq replay", () => {
                 params: { sessionId: sid, afterSeq: 0 },
             }) + "\n",
         );
-        await settle();
+        await until(() => !!c.response(1) && c.events().length === total);
         expect(c.events().length).toBe(total);
         expect((c.response(1) as { result: { resync: boolean; seq: number } }).result).toMatchObject({
             resync: false,
@@ -174,7 +191,7 @@ describe("multi-client broadcast + seq replay", () => {
                 params: { sessionId: sid, afterSeq: 9999 },
             }) + "\n",
         );
-        await settle();
+        await until(() => !!d.response(1));
         expect((d.response(1) as { result: { resync: boolean } }).result.resync).toBe(true);
         expect(d.events().length).toBe(0);
 
@@ -190,7 +207,7 @@ describe("multi-client broadcast + seq replay", () => {
                 params: { sessionId: sid, input: "again" },
             }) + "\n",
         );
-        await settle();
+        await until(() => a.events().length > aBefore);
         expect(a.events().length).toBeGreaterThan(aBefore);
         expect(b.events().length).toBe(bBefore);
     });

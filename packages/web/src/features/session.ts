@@ -160,6 +160,12 @@ async function doSend(input: string, images: QueuedPrompt["images"], label: stri
 
 export async function cancelTurn(): Promise<void> {
     if (!state.current || !state.current.id) return;
+    // Unlock the composer immediately — the server abort is async and the AI
+    // SDK may not emit stream `finish` until the in-flight chunk drains.
+    setRunning(false);
+    setStatus("");
+    breakLiveText();
+    breakReasoning();
     try {
         await rpc("session.cancel", { sessionId: state.current.id });
     } catch {}
