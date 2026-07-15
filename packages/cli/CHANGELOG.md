@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.12.6] - 2026-07-16
+
+### Fixed
+
+- **Release CI flake in the multi-client RPC serve test.** Waiting for a real `runTurn` with an unknown provider still loads catalog/skills/tools before failing, which exceeded the wait under CI load. The test now mocks `runTurn` to fail instantly so broadcast/attach/detach stay deterministic.
+
 ## [0.12.5] - 2026-07-16
 
 ### Fixed

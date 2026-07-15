@@ -23,6 +23,17 @@ mock.module("../src/settings", () => ({
     },
 }));
 
+// Instant turn failure for multi-client broadcast tests — a real runTurn with
+// provider "nope" still loads catalog/skills/tools before throwing, which
+// raced the wait under CI load (until timed out with no error event).
+const realAgent = await import("../src/agent");
+mock.module("../src/agent", () => ({
+    ...realAgent,
+    runTurn: async () => {
+        throw new Error("Unknown provider: nope");
+    },
+}));
+
 const { getOrCreateServeToken, isLoopbackHost, startWebServer } = await import("../src/rpc/serve");
 const { writeImagePayloads, RpcServer } = await import("../src/rpc/server");
 import type { ServeHandle } from "../src/rpc/serve";
@@ -53,7 +64,7 @@ async function settle(): Promise<void> {
     for (let i = 0; i < 20; i++) await new Promise((r) => setTimeout(r, 5));
 }
 
-async function until(cond: () => boolean, tries = 400, ms = 5): Promise<void> {
+async function until(cond: () => boolean, tries = 1000, ms = 10): Promise<void> {
     for (let i = 0; i < tries; i++) {
         if (cond()) return;
         await new Promise((r) => setTimeout(r, ms));
