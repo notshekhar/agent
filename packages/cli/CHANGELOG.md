@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.12.9] - 2026-07-16
+
+### Changed
+
+- **Installer download progress bar.** `install.sh` and `install.ps1` (and therefore `loop update` / `/update`, which re-run them) now draw a live `■■■････ 42%` bar while the release tarball downloads. The bash installer parses a `curl --trace-ascii` stream through a FIFO (TTY only, falling back to `curl --progress-bar`; unlike the technique's origin, an HTTP error fails the download instead of saving the error page). The PowerShell installer streams via HttpClient with the same bar, degrades to `Invoke-WebRequest` on any failure, uses `·` so legacy conhost codepages render cleanly, and opts Windows PowerShell 5.1 into TLS 1.2.
+
 ## [0.12.8] - 2026-07-16
 
 ### Added

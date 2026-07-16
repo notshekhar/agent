@@ -19,6 +19,12 @@
 
 $ErrorActionPreference = "Stop"
 
+# Windows PowerShell 5.1 on older .NET defaults may lack TLS 1.2, which GitHub
+# requires — opt in without clobbering anything newer (no-op on PowerShell 7+).
+try {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor 3072
+} catch {}
+
 function Bold($msg)  { Write-Host $msg -ForegroundColor White }
 function Dim($msg)   { Write-Host $msg -ForegroundColor DarkGray }
 function Err($msg)   { Write-Host $msg -ForegroundColor Red }
@@ -164,13 +170,73 @@ $base = "https://github.com/$RepoSlug/releases/download/$latest"
 $url  = "$base/loop-$target.tar.gz"
 $tar  = Join-Path $tmpRoot "loop.tar.gz"
 
+# Streamed download with a live ■■■･･･ 42% bar (opencode-style). Throws on
+# HTTP errors; the caller falls back to Invoke-WebRequest on any failure
+# (older hosts, redirected console, missing System.Net.Http, …).
+function Download-WithProgress {
+    param([string]$Url, [string]$OutFile)
+
+    # Windows PowerShell 5.1 needs the assembly loaded explicitly.
+    try { Add-Type -AssemblyName System.Net.Http -ErrorAction SilentlyContinue } catch {}
+
+    $client = [System.Net.Http.HttpClient]::new()
+    $client.DefaultRequestHeaders.UserAgent.ParseAdd("loop-installer")
+    $stream = $null
+    $file = $null
+    try {
+        $resp = $client.GetAsync($Url, [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead).GetAwaiter().GetResult()
+        if (-not $resp.IsSuccessStatusCode) { throw "HTTP $([int]$resp.StatusCode)" }
+        $total  = $resp.Content.Headers.ContentLength
+        $stream = $resp.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
+        $file   = [System.IO.File]::Create($OutFile)
+
+        $buf = New-Object byte[] 262144
+        $done = 0
+        $width = 50
+        $lastPct = -1
+        try { [Console]::CursorVisible = $false } catch {}
+        while (($n = $stream.Read($buf, 0, $buf.Length)) -gt 0) {
+            $file.Write($buf, 0, $n)
+            $done += $n
+            if ($total) {
+                $pct = [int][math]::Min(100, ($done * 100 / $total))
+                if ($pct -ne $lastPct) {
+                    $on  = [int]($pct * $width / 100)
+                    # "·" (U+00B7) over opencode's "･": it exists in the legacy
+                    # conhost codepages, so old terminals degrade gracefully.
+                    $bar = ("■" * $on) + ("·" * ($width - $on))
+                    Write-Host -NoNewline ("`r$bar {0,3}%" -f $pct) -ForegroundColor DarkYellow
+                    $lastPct = $pct
+                }
+            }
+        }
+        if ($lastPct -ge 0) { Write-Host "" }
+    } finally {
+        try { [Console]::CursorVisible = $true } catch {}
+        if ($file)   { $file.Dispose() }
+        if ($stream) { $stream.Dispose() }
+        $client.Dispose()
+    }
+}
+
 Bold "▶ Downloading $($url.Split('/')[-1])"
-try {
-    Invoke-WebRequest -Uri $url -OutFile $tar -UseBasicParsing
-} catch {
-    Err "download failed: $url"
-    Err "  release may not have $target asset"
-    exit 1
+$downloaded = $false
+if (-not [Console]::IsOutputRedirected) {
+    try {
+        Download-WithProgress -Url $url -OutFile $tar
+        $downloaded = $true
+    } catch {
+        Remove-Item $tar -Force -ErrorAction SilentlyContinue
+    }
+}
+if (-not $downloaded) {
+    try {
+        Invoke-WebRequest -Uri $url -OutFile $tar -UseBasicParsing
+    } catch {
+        Err "download failed: $url"
+        Err "  release may not have $target asset"
+        exit 1
+    }
 }
 
 try {
