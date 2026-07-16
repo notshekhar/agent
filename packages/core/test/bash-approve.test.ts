@@ -18,9 +18,18 @@ mock.module("../src/settings", () => ({
 }));
 
 const { createBashTool } = await import("../src/tools/bash");
+const { clearPermissionRulesCache } = await import("../src/tools/utils/permission-rules");
+const { getProjectBashAllow } = await import("../src/sessions/projects");
+const { canonicalProjectDir } = await import("../src/agent/trust");
+const { useTempSessionDb } = await import("./helpers/temp-db");
+
+// "always allow" now persists per-project (projects table), so the tool
+// touches the session DB — isolate it per test.
+useTempSessionDb();
 
 beforeEach(() => {
     for (const k of Object.keys(mem)) delete mem[k];
+    clearPermissionRulesCache();
     setBashApprovalBridge(null);
 });
 
@@ -75,14 +84,16 @@ describe("bash approval gate (bashApprove setting)", () => {
         expect(run("echo nope")).rejects.toThrow(/declined/);
     });
 
-    test("always: runs, persists the suggested pattern, and skips the next prompt", async () => {
+    test("always: runs, persists the pattern per-project, and skips the next prompt", async () => {
         mem.bashApprove = true;
         const requests = fakeBridge(["always"]);
         expect(await run("echo first")).toContain("first");
         expect(requests.length).toBe(1);
         expect(requests[0].patterns).toEqual(["echo"]);
-        expect(mem.bashAllow).toEqual(["echo"]);
-        // Second run matches the allowlist — no prompt.
+        // Persisted to the project's grant store, not global settings.
+        expect(getProjectBashAllow(canonicalProjectDir(process.cwd()))).toEqual(["echo"]);
+        expect(mem.bashAllow).toBeUndefined();
+        // Second run matches the remembered grant — no prompt.
         expect(await run("echo second")).toContain("second");
         expect(requests.length).toBe(1);
     });
@@ -110,5 +121,75 @@ describe("bash approval gate (bashApprove setting)", () => {
         const requests = fakeBridge(["once"]);
         expect(run("echo blocked")).rejects.toThrow(/blocked/);
         expect(requests.length).toBe(0);
+    });
+
+    test("never: refuses and persists the pattern into bashDeny", async () => {
+        mem.bashApprove = true;
+        fakeBridge(["never"]);
+        expect(run("echo forbidden")).rejects.toThrow(/declined/);
+        // Waits a tick so the rejection above has landed before asserting.
+        await Bun.sleep(0);
+        expect(mem.bashDeny as string[]).toContain("echo");
+    });
+
+    test("dangerous command prompts even when a remembered grant covers it", async () => {
+        mem.bashApprove = true;
+        mem.bashAllow = ["rm"];
+        const requests = fakeBridge(["deny"]);
+        expect(run("rm -f /nonexistent-loop-test")).rejects.toThrow(/declined/);
+        await Bun.sleep(0);
+        expect(requests.length).toBe(1);
+    });
+});
+
+describe("permission rules (settings `permissions`)", () => {
+    test("deny rule refuses without any prompt", async () => {
+        mem.permissions = { deny: ["Bash(echo *)"] };
+        const requests = fakeBridge(["once"]);
+        expect(run("echo blocked")).rejects.toThrow(/permission rule/);
+        await Bun.sleep(0);
+        expect(requests.length).toBe(0);
+    });
+
+    test("deny rule catches a hidden segment behind an allowed prefix", async () => {
+        mem.permissions = { allow: ["Bash(git *)"], deny: ["Bash(rm *)"] };
+        expect(run("git status && rm -rf /tmp/x")).rejects.toThrow(/permission rule/);
+    });
+
+    test("ask rule prompts even with bashApprove off", async () => {
+        mem.permissions = { ask: ["Bash(echo *)"] };
+        const requests = fakeBridge(["once"]);
+        expect(await run("echo asked")).toContain("asked");
+        expect(requests.length).toBe(1);
+        expect(requests[0].title).toContain("Bash(echo *)");
+    });
+
+    test("ask rule with no bridge fails closed (print mode)", async () => {
+        mem.permissions = { ask: ["Bash(echo *)"] };
+        expect(run("echo headless")).rejects.toThrow(/interactive user approval/);
+    });
+
+    test("a remembered grant satisfies an ask rule without re-prompting", async () => {
+        mem.permissions = { ask: ["Bash(echo *)"] };
+        mem.bashAllow = ["echo"];
+        const requests = fakeBridge(["deny"]);
+        expect(await run("echo granted")).toContain("granted");
+        expect(requests.length).toBe(0);
+    });
+
+    test("allow rule skips the bashApprove prompt", async () => {
+        mem.bashApprove = true;
+        mem.permissions = { allow: ["Bash(echo *)"] };
+        const requests = fakeBridge(["deny"]);
+        expect(await run("echo ruled")).toContain("ruled");
+        expect(requests.length).toBe(0);
+    });
+
+    test("allow rule matches the whole command only — segments still prompt", async () => {
+        mem.bashApprove = true;
+        mem.permissions = { allow: ["Bash(echo *)"] };
+        const requests = fakeBridge(["once"]);
+        expect(await run("true && echo tail")).toContain("tail");
+        expect(requests.length).toBe(1);
     });
 });

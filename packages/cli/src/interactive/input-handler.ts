@@ -42,7 +42,10 @@ import {
     filterAttachmentsByModalities,
     getModelSync,
     getSetting,
+    isPlanModeActive,
     listAgents,
+    PLAN_AGENT_NAME,
+    setPlanMode,
     settingsStore,
 } from "@notshekhar/loop-core";
 
@@ -322,9 +325,25 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
                     .map((a) => a.name),
             ];
             const next = cycle[(cycle.indexOf(state.agent) + 1) % cycle.length];
+            const prev = state.agent;
             state.agent = next;
             settingsStore.set("agent", next);
             statusLine.setAgent(next);
+            // Landing on the plan agent arms the session's plan-mode gate
+            // (edits rejected, bash read-only — covers subagents too); cycling
+            // away disarms it only when the cycle armed it, so a gate set via
+            // /plan or enter_plan_mode isn't clobbered by agent browsing.
+            if (state.session) {
+                if (next === PLAN_AGENT_NAME && !isPlanModeActive(state.session.id)) {
+                    setPlanMode(state.session.id, true);
+                    state.planModeViaCycle = true;
+                    statusLine.setPlanMode(true);
+                } else if (prev === PLAN_AGENT_NAME && next !== PLAN_AGENT_NAME && state.planModeViaCycle) {
+                    setPlanMode(state.session.id, false);
+                    state.planModeViaCycle = false;
+                    statusLine.setPlanMode(false);
+                }
+            }
             tui.requestRender();
             return { consume: true };
         }

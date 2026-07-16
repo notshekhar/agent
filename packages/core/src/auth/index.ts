@@ -20,6 +20,8 @@ export { discoverOAuthEndpoints, type OAuthEndpoints } from "./oauth/custom";
 export { authStore, settingsStore, migrateLegacyConfig } from "./storage";
 // Moved to the projects table; re-exported here so callers keep their imports.
 export { getProjectModel, setProjectModel, getProjectProviderModel } from "../sessions/projects";
+// Per-project bash "always allow" grants (the approval prompt's persistence).
+export { addProjectBashAllow, getProjectBashAllow, setProjectBashAllow } from "../sessions/projects";
 
 type ProviderMap = Record<string, AuthEntry>;
 

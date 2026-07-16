@@ -5,6 +5,7 @@ import path from "node:path";
 import { tool } from "ai";
 import { z } from "zod";
 import { resolveToCwd } from "./utils/path-utils";
+import { enforcePathPermission } from "./utils/permission-rules";
 import { ensureTool } from "./utils/tools-manager";
 import { DEFAULT_MAX_BYTES, formatSize, truncateHead } from "./utils/truncate";
 
@@ -34,6 +35,15 @@ export function createFindTool(ctx: FindToolContext) {
             if (signal?.aborted) throw new Error("Operation aborted");
 
             const searchPath = resolveToCwd(searchDir || ".", ctx.cwd);
+            // Permission rules: find rides the grep class, governed by read too.
+            await enforcePathPermission({
+                classes: ["grep", "read"],
+                paths: [searchDir || ".", searchPath],
+                cwd: ctx.cwd,
+                what: `Listing files under \`${searchDir || "."}\``,
+                dir: true,
+                signal,
+            });
             if (!existsSync(searchPath)) throw new Error(`Path not found: ${searchPath}`);
             const effectiveLimit = limit ?? DEFAULT_LIMIT;
 

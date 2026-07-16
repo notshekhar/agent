@@ -1,22 +1,37 @@
 /**
- * UI bridge for bash approval prompts (bashApprove setting). Core cannot
- * depend on the CLI's TUI, so the interactive confirm flow is injected here at
- * startup, exactly like the ask tool's bridge. The registry doubles as the
- * availability signal: print mode / RPC never register a bridge, so the
- * bashApprove setting is inert there and commands run unprompted as before.
+ * UI bridge for tool approval prompts. Core cannot depend on the CLI's TUI,
+ * so the interactive confirm flow is injected here at startup, exactly like
+ * the ask tool's bridge. The registry doubles as the availability signal:
+ * print mode / RPC never register a bridge, so prompting features are inert
+ * there (ask permission rules fail closed with a refusal instead).
+ *
+ * One bridge serves every prompt kind — bash commands (the original
+ * bashApprove flow), path-rule prompts on file tools, and the plan-mode entry
+ * confirmation — distinguished by `kind` so the UI can word each one.
  */
 
+export type ApprovalKind = "bash" | "path" | "plan";
+
 export interface BashApprovalRequest {
-    /** The raw command the model asked to run (pre commandPrefix). */
+    /** What kind of approval this is; absent = "bash" (pre-kind callers). */
+    kind?: ApprovalKind;
+    /** The raw command the model asked to run (pre commandPrefix), the file
+     * path being touched, or a plan-mode entry summary — per `kind`. */
     command: string;
     /** Working directory the command would run in. */
     cwd: string;
-    /** Patterns "always allow" would persist (shown so the choice is informed). */
+    /** Patterns "always allow" / "never allow" would persist (shown so the
+     * choice is informed). Empty = only once/deny offered. */
     patterns: string[];
+    /** Optional prompt headline override (e.g. the rule that forced the ask). */
+    title?: string;
 }
 
-/** once = run this time only · always = run + persist `patterns` · deny = refuse. */
-export type BashApprovalDecision = "once" | "always" | "deny";
+/**
+ * once = run this time only · always = run + persist `patterns` as allows ·
+ * never = refuse + persist `patterns` as denies · deny = refuse this time.
+ */
+export type BashApprovalDecision = "once" | "always" | "never" | "deny";
 
 export interface BashApprovalBridge {
     /**

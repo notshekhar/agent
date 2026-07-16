@@ -10,9 +10,11 @@ import {
     DEFAULT_AGENT_NAME,
     agentExists,
     bustCatalogCache,
+    canonicalProjectDir,
     getCatalog,
     getMcpManager,
     getExtensionHost,
+    getProjectBashAllow,
     PRODUCT_NAME,
     registerBuiltins,
     settingsStore,
@@ -27,6 +29,13 @@ import { applyCanvasWash } from "../ui/canvas-wash";
 import { renderSessionBranch } from "../replay";
 import { showWelcomeBanner } from "../welcome";
 import { currentBashAllow, currentBashDeny, runBashAllowManager, runBashDenyManager } from "./bashdeny-handlers";
+import { runPermissionsManager } from "./permission-handlers";
+
+/** Total rule count across the three actions, for the settings row label. */
+function countPermissionRules(): number {
+    const p = settingsStore.get("permissions") as { allow?: string[]; ask?: string[]; deny?: string[] } | undefined;
+    return (p?.allow?.length ?? 0) + (p?.ask?.length ?? 0) + (p?.deny?.length ?? 0);
+}
 import { rejectWhileBusy } from "./shared";
 
 type SettingsHandlers = Pick<CommandContext, "openSettings" | "reload" | "switchUiMode">;
@@ -184,13 +193,18 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                         description: "add/remove bash commands the agent is refused (guardrail)",
                     },
                     {
+                        value: "permissions",
+                        label: `permission rules: ${countPermissionRules()}`,
+                        description: "allow/ask/deny rules over the tools (Bash(git *), Read(secrets/**), …)",
+                    },
+                    {
                         value: "bashApprove",
                         label: `bash approval: ${boolSetting("bashApprove") ? "on" : "off"}`,
                         description: "ask before every bash command — deny / allow once / always allow",
                     },
                     {
                         value: "bashAllow",
-                        label: `bash allowlist: ${currentBashAllow().length} always-allowed`,
+                        label: `bash allowlist: ${getProjectBashAllow(canonicalProjectDir(state.cwd)).length + currentBashAllow().length} always-allowed`,
                         description: "commands the approval prompt skips (“always allow” entries)",
                     },
                 ];
@@ -207,8 +221,12 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                     await runBashDenyManager(deps);
                     continue;
                 }
+                if (pick.value === "permissions") {
+                    await runPermissionsManager(deps);
+                    continue;
+                }
                 if (pick.value === "bashAllow") {
-                    await runBashAllowManager(deps);
+                    await runBashAllowManager(deps, state.cwd);
                     continue;
                 }
                 // Default subagent model: cross-provider picker (subagents may

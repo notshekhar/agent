@@ -3,9 +3,11 @@ import chalk from "chalk";
 import {
     asTurnEmitter,
     isDeliveredPlan,
+    isPlanModeActive,
     listAgents,
     normalizePlanText,
     PLAN_TOOL_NAME,
+    setPlanMode,
     type CommandContext,
     parseModelId,
     runTurn,
@@ -72,6 +74,14 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
             "Implement with",
         );
         if (!pick) return;
+        // Accepting a plan is the plan-mode exit gate: lift the session's
+        // read-only lock so the implementing agent can actually edit.
+        if (state.session && isPlanModeActive(state.session.id)) {
+            setPlanMode(state.session.id, false);
+            state.planModeViaCycle = false;
+            deps.statusLine.setPlanMode(false);
+            history.addSystem(chalk.dim("plan approved — plan mode off, edits enabled"));
+        }
         void ctx.useAgent(
             pick.value,
             `Implement this plan. It is complete — follow it rather than re-planning:\n\n${plan}`,
@@ -190,6 +200,9 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
 
         const turnSignal = state.abort.signal;
         const turnStartedAt = Date.now();
+        // enter_plan_mode can flip the session's gate mid-turn; diff at turn
+        // end to surface the change (the approval prompt itself already ran).
+        const planModeBefore = isPlanModeActive(activeSession.id);
         traceEvent("turn", `start "${text}" abortedAtStart=${turnSignal.aborted} agent=${turnAgent}`);
         try {
             await runTurn({
@@ -222,6 +235,16 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
             }
             if (uiStyle().turn.summaryLine && !turnSignal.aborted) {
                 history.addTurnSummary((Date.now() - turnStartedAt) / 1000);
+            }
+            const planModeAfter = isPlanModeActive(activeSession.id);
+            if (planModeAfter !== planModeBefore) {
+                deps.statusLine.setPlanMode(planModeAfter);
+                if (planModeAfter) {
+                    history.addSystem(
+                        chalk.yellow("plan mode on") +
+                            chalk.dim(" — edits rejected, bash read-only; accept a plan or /plan to turn off"),
+                    );
+                }
             }
             hideWorking();
             tui.requestRender();

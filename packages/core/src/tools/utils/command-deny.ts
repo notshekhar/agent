@@ -57,9 +57,10 @@ function normalizeToken(token: string): string {
 /**
  * Break a command line into the individual commands it would run. Command
  * substitutions ($(...) and `...`) are flattened into their own segments so a
- * denied command hidden inside one is still seen.
+ * denied command hidden inside one is still seen. Exported for the permission
+ * rules engine, which applies deny/ask rules per segment with the same split.
  */
-function splitSegments(command: string): string[] {
+export function splitSegments(command: string): string[] {
     const flattened = command
         .replace(SHELL_DASH_C, " ; $2 ; ")
         .replace(/\$\(([\s\S]*?)\)/g, " ; $1 ; ")
@@ -75,7 +76,7 @@ function splitSegments(command: string): string[] {
  * Leading `VAR=value` assignments and wrapper commands (sudo/env/…) are peeled
  * off so `sudo FOO=1 /bin/rm -rf` resolves to command `rm`.
  */
-function resolveSegment(segment: string): { command: string; rest: string[] } | null {
+export function resolveSegment(segment: string): { command: string; rest: string[] } | null {
     let tokens = segment.split(/\s+/).filter(Boolean);
     // Peel leading env-assignments and wrappers until the real command surfaces.
     // Either kind can come first (`env FOO=1 sudo rm`), so loop over both.
@@ -108,7 +109,7 @@ function resolveSegment(segment: string): { command: string; rest: string[] } | 
  * ("rm") match on the command name; multi-word patterns ("git commit") also
  * require the following tokens to match as a prefix.
  */
-function segmentMatchesPattern(resolved: { command: string; rest: string[] }, pattern: string): boolean {
+export function segmentMatchesPattern(resolved: { command: string; rest: string[] }, pattern: string): boolean {
     const words = pattern.trim().split(/\s+/).map(normalizeToken);
     if (words.length === 0 || words[0] !== resolved.command) return false;
     const subcommands = words.slice(1);

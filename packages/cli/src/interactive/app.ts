@@ -213,6 +213,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         lastCtrlCAt: 0,
         startupHooksDone: null,
         pendingPlan: null,
+        planModeViaCycle: false,
         timerEndsAt: null,
         timerLabel: "",
     };

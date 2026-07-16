@@ -10,14 +10,18 @@ import { getCatalog } from "../catalog";
 import { getSetting } from "../settings";
 import {
     createAskTool,
+    createEnterPlanModeTool,
     createPlanTool,
     createSkillTool,
     createTodoNudger,
     createTodoTool,
     createTools,
     createWebsearchTool,
+    ENTER_PLAN_MODE_TOOL_NAME,
+    getBashApprovalBridge,
     getSessionTodos,
     isAskUserAvailable,
+    isPlanModeActive,
     planDeliveredThisStep,
     PLAN_TOOL_NAME,
     SKILL_TOOL_NAME,
@@ -305,14 +309,27 @@ async function assembleTurnTools(
     if (askEnabled && (!allowedTools?.length || allowedTools.includes("ask"))) {
         toolsForTurn.ask = createAskTool({ abortSignal });
     }
-    // Plan-delivery tool: only for restricted agents that name it (the plan
-    // builtin does; custom agents opt in via frontmatter). Never for
-    // unrestricted agents — default handing itself a plan makes no sense.
+    // Plan-delivery tool: for restricted agents that name it (the plan
+    // builtin does; custom agents opt in via frontmatter), and for ANY agent
+    // while the session's plan mode is active — a plan-mode session must be
+    // able to deliver its plan no matter which agent is running the turn.
     // Added AFTER the task tool so subagents don't inherit it. Its presence
     // also arms the hasToolCall stop condition below: calling plan ends the
     // turn with the final plan as the tool input.
-    if (allowedTools?.length && allowedTools.includes(PLAN_TOOL_NAME)) {
+    if ((allowedTools?.length && allowedTools.includes(PLAN_TOOL_NAME)) || isPlanModeActive(session.id)) {
         toolsForTurn[PLAN_TOOL_NAME] = createPlanTool();
+    }
+    // enter_plan_mode: agent-initiated plan mode, approval-gated. Unrestricted
+    // agents only (a read-only agent has nothing to gain), interactive only
+    // (needs the approval bridge; print mode / RPC never register one), and
+    // pointless once plan mode is already on. Added AFTER the task tool so
+    // subagents can't flip the parent session's mode.
+    if (!allowedTools?.length && !isPlanModeActive(session.id) && getBashApprovalBridge()) {
+        toolsForTurn[ENTER_PLAN_MODE_TOOL_NAME] = createEnterPlanModeTool({
+            sessionId: session.id,
+            cwd,
+            abortSignal,
+        });
     }
     // TurnContext carries which agent/model/tools are running. It's handed to
     // every turn-middleware seam (so an extension can scope by ctx.agent — e.g.

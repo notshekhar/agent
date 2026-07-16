@@ -24,6 +24,12 @@ function canonical(cwd: string): string {
     }
 }
 
+/** The canonical form project rows are keyed by — shared with the per-project
+ * bash-grant store so grants land on the same row as trust decisions. */
+export function canonicalProjectDir(cwd: string): string {
+    return canonical(cwd);
+}
+
 /** True when the folder (or an ancestor) ships project resources worth gating. */
 export function hasProjectTrustInputs(cwd: string): boolean {
     let dir = canonical(cwd);

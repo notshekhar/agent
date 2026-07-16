@@ -17,6 +17,7 @@ import { createHookHandlers } from "./handlers/hook-handlers";
 import { createMcpHandlers } from "./handlers/mcp-handlers";
 import { createMiscHandlers } from "./handlers/misc-handlers";
 import { createModelHandlers } from "./handlers/model-handlers";
+import { createPermissionHandlers } from "./handlers/permission-handlers";
 import { createSessionHandlers } from "./handlers/session-handlers";
 import { createSessionTreeHandlers } from "./handlers/session-tree-handlers";
 import { createSettingsHandlers } from "./handlers/settings-handlers";
@@ -33,6 +34,7 @@ export function createCommandContext(state: AppState, deps: AppDeps): CommandCon
         ...createSessionTreeHandlers(state, deps),
         ...createAgentHandlers(state, deps),
         ...createBashDenyHandlers(state, deps),
+        ...createPermissionHandlers(state, deps),
         ...createContextHandlers(state, deps),
         ...createDoctorHandlers(state, deps),
         ...createHookHandlers(state, deps),

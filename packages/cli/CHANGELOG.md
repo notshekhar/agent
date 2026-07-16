@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.12.8] - 2026-07-16
+
+### Added
+
+- **Permission rules: allow / ask / deny over the tools.** A new `permissions` key in settings.json (managed via `/permissions` or the `/settings` row) takes rule strings like `Bash(git *)`, `Read(secrets/**)`, `Edit(**/*.pem)` — deny always wins, ask forces an approval prompt even with bash approval off (failing closed in print mode/RPC), allow skips the prompt. Bash deny/ask rules match every executed segment (chains, `sh -c`, command substitution, env/wrapper prefixes) while allow matches the whole command only, so an allowed prefix can't smuggle a blocked segment. `Read` rules also govern `grep`/`find`, and trusted projects can add rules from `<project>/.loop/settings.json`. Full syntax and evaluation order: `loop://docs/permissions.md`.
+- **Per-project "always allow" + dangerous-command re-prompts.** Approval-prompt grants now persist per project instead of globally (the legacy global `bashAllow` list still matches), the prompt gained a "never allow" row that feeds `bashDeny`, and dangerous commands (`rm`, `chmod`, `kill`, `git push`, …) always re-prompt instead of riding a remembered grant — only an explicit written allow rule approves them silently.
+- **Enforced plan mode.** `/plan` (or `/plan <task>`, or Shift+Tab onto the plan agent) locks the session read-only at the tool layer in every permission mode: edit/write are rejected and bash runs in the fail-closed kernel read-only sandbox — subagents inherit the lock. The agent can request it mid-task via the new approval-gated `enter_plan_mode` tool when the approach is genuinely ambiguous. Accepting a delivered plan ("implement it") lifts the lock; the status line shows `plan mode (read-only)` while it's on.
+
 ## [0.12.7] - 2026-07-16
 
 ### Fixed

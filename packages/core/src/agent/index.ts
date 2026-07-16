@@ -81,6 +81,7 @@ export { subagentArgSummary, formatSubagentActivity, type SubagentOutput } from 
 export { extractImagesFromInput, filterAttachmentsByModalities, type ExtractedImages } from "./images";
 export { asTurnEmitter, TURN_EVENT_NAMES, type TurnEmitter, type TurnEvents } from "./events";
 export {
+    canonicalProjectDir,
     hasProjectTrustInputs,
     getTrustDecision,
     isTrusted,

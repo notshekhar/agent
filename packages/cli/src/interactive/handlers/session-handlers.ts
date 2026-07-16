@@ -120,6 +120,10 @@ export function createSessionHandlers(state: AppState, deps: AppDeps): SessionHa
             abortActiveTurn();
             state.session = null;
             statusLine.setSession("unsaved");
+            // Plan mode is keyed to the old session id — clear the UI flag so
+            // the fresh session doesn't look gated.
+            state.planModeViaCycle = false;
+            statusLine.setPlanMode(false);
             deps.todoPanel.clear();
             tracker.reset();
             clearReadRegistry();

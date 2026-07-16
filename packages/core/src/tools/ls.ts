@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { tool } from "ai";
 import { z } from "zod";
 import { resolveToCwd } from "./utils/path-utils";
+import { enforcePathPermission } from "./utils/permission-rules";
 import { DEFAULT_MAX_BYTES, formatSize, truncateHead } from "./utils/truncate";
 
 const DEFAULT_LIMIT = 500;
@@ -29,6 +30,15 @@ export function createLsTool(ctx: LsToolContext) {
             if (signal?.aborted) throw new Error("Operation aborted");
 
             const dirPath = resolveToCwd(path || ".", ctx.cwd);
+            // Permission rules: ls rides the read class.
+            await enforcePathPermission({
+                classes: ["read"],
+                paths: [path || ".", dirPath],
+                cwd: ctx.cwd,
+                what: `Listing \`${path || "."}\``,
+                dir: true,
+                signal,
+            });
             const effectiveLimit = limit ?? DEFAULT_LIMIT;
 
             if (!existsSync(dirPath)) throw new Error(`Path not found: ${dirPath}`);

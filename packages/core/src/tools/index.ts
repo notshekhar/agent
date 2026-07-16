@@ -63,10 +63,30 @@ export {
 export {
     getBashApprovalBridge,
     setBashApprovalBridge,
+    type ApprovalKind,
     type BashApprovalBridge,
     type BashApprovalDecision,
     type BashApprovalRequest,
 } from "./approval-bridge";
+// Permission rules (allow/ask/deny) — engine + types for the settings UI and
+// project rule files. Matching semantics documented in the module header.
+export {
+    DANGEROUS_COMMANDS,
+    clearPermissionRulesCache,
+    enforcePathPermission,
+    evaluateBashRules,
+    evaluatePathRules,
+    getPermissionRules,
+    isDangerousCommand,
+    matchBashPattern,
+    matchPathPattern,
+    parsePermissionsSetting,
+    parseRuleString,
+    type PermissionAction,
+    type PermissionRule,
+    type PermissionsSetting,
+    type PermissionToolClass,
+} from "./utils/permission-rules";
 // Resolves the bundled/downloaded `fd` & `rg` binaries — also used by the CLI to
 // power @-mention fuzzy file search in the editor's autocomplete.
 export { ensureTool, getToolPath } from "./utils/tools-manager";
@@ -90,6 +110,10 @@ export {
     PLAN_TOOL_NAME,
     planDeliveredThisStep,
 } from "./plan";
+// Plan mode: session-level read-only gate (edit/write reject, bash sandboxed
+// read-only) + the approval-gated enter_plan_mode tool that flips it on.
+export { formatPlanModeRefusal, isPlanModeActive, setPlanMode } from "./utils/plan-mode";
+export { createEnterPlanModeTool, ENTER_PLAN_MODE_TOOL_NAME, type EnterPlanModeContext } from "./enter-plan-mode";
 // todo tool: conditionally attached in runTurn (todos setting, default OFF),
 // after the task tool so subagents never inherit it. Works in print mode.
 export {

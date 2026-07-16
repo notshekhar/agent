@@ -77,6 +77,10 @@ export class StatusLine implements Component {
     setAgent(name: string) {
         this.agent = name;
     }
+    private planMode = false;
+    setPlanMode(active: boolean) {
+        this.planMode = active;
+    }
     setSession(id: string) {
         this.sessionId = id;
     }
@@ -136,6 +140,7 @@ export class StatusLine implements Component {
                 ? chalk.hex("#e09956")(`agent ${this.agent}`)
                 : chalk.dim("agent default")) + chalk.dim(" (shift+tab)");
         const identity = [agentStr, chalk.cyan(modelLabel)];
+        if (this.planMode) identity.push(chalk.yellow("plan mode (read-only)"));
         const usage = [chalk.dim(`session ${sid}`), chalk.green(this.cost), ctxStr];
         if (this.timerEndsAt !== null) {
             const remaining = this.timerEndsAt - Date.now();

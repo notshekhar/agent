@@ -12,7 +12,15 @@
  */
 import type { SelectItem } from "@notshekhar/loop-tui";
 import chalk from "chalk";
-import { DEFAULT_BASH_DENY, denyPattern, settingsStore, type CommandContext } from "@notshekhar/loop-core";
+import {
+    canonicalProjectDir,
+    DEFAULT_BASH_DENY,
+    denyPattern,
+    getProjectBashAllow,
+    setProjectBashAllow,
+    settingsStore,
+    type CommandContext,
+} from "@notshekhar/loop-core";
 import type { AppDeps } from "../deps";
 import type { AppState } from "../state";
 
@@ -95,7 +103,8 @@ export async function runBashDenyManager(deps: AppDeps): Promise<void> {
     }
 }
 
-/** Resolved approval allowlist (settings.json `bashAllow`) as pattern strings. */
+/** Resolved GLOBAL approval allowlist (settings.json `bashAllow`). New grants
+ * persist per-project (projects table); this legacy list still matches. */
 export function currentBashAllow(): string[] {
     const stored = settingsStore.get("bashAllow") as unknown[] | undefined;
     if (!stored) return [];
@@ -103,31 +112,42 @@ export function currentBashAllow(): string[] {
 }
 
 /**
- * Manager for the bashApprove allowlist ("always allow" entries). Reached from
- * the /settings "bash allowlist" row; same flow as the denylist manager.
+ * Manager for the bashApprove "always allow" entries. Two stores share the
+ * list: per-project grants (what the approval prompt persists — scoped to
+ * this project only) and the legacy global settings.bashAllow. Adds land in
+ * the project store; removes hit whichever store the entry lives in.
  */
-export async function runBashAllowManager(deps: AppDeps): Promise<void> {
+export async function runBashAllowManager(deps: AppDeps, cwd: string): Promise<void> {
     const { tui, history, selectOnce, searchOnce, promptOnce } = deps;
-    const save = (entries: string[]): void => settingsStore.set("bashAllow", entries);
+    const projectDir = canonicalProjectDir(cwd);
+    const saveGlobal = (entries: string[]): void => settingsStore.set("bashAllow", entries);
 
     let lastIndex = 0;
     while (true) {
-        const entries = currentBashAllow();
+        const projectEntries = getProjectBashAllow(projectDir);
+        const globalEntries = currentBashAllow();
         const items: SelectItem[] = [
             {
                 value: "+add",
                 label: "+ add command",
-                description: 'run without asking (e.g. "ls" or "git status") — only used while bash approval is on',
+                description: 'always allow in this project (e.g. "ls" or "git status")',
             },
-            ...entries.map((pattern, i) => ({
-                value: `i:${i}`,
+            ...projectEntries.map((pattern, i) => ({
+                value: `p:${i}`,
                 label: pattern,
-                description: "select to remove",
+                description: "this project — select to remove",
+            })),
+            ...globalEntries.map((pattern, i) => ({
+                value: `g:${i}`,
+                label: pattern,
+                description: "all projects (global) — select to remove",
             })),
         ];
-        const pick = await searchOnce(items, `Bash allowlist · ${entries.length} always-allowed`, {
-            initialIndex: lastIndex,
-        });
+        const pick = await searchOnce(
+            items,
+            `Bash allowlist · ${projectEntries.length} project + ${globalEntries.length} global`,
+            { initialIndex: lastIndex },
+        );
         if (!pick) return;
         lastIndex = Math.max(
             0,
@@ -135,21 +155,22 @@ export async function runBashAllowManager(deps: AppDeps): Promise<void> {
         );
 
         if (pick.value === "+add") {
-            const pattern = (await promptOnce('command to always allow (e.g. "ls" or "git status")')).trim();
+            const pattern = (await promptOnce('command to always allow here (e.g. "ls" or "git status")')).trim();
             if (!pattern) continue;
-            if (entries.includes(pattern)) {
+            if (projectEntries.includes(pattern) || globalEntries.includes(pattern)) {
                 history.addSystem(chalk.yellow(`"${pattern}" is already in the allowlist`));
                 tui.requestRender();
                 continue;
             }
-            save([...entries, pattern]);
-            history.addSystem(`always allowing "${pattern}"`);
+            setProjectBashAllow(projectDir, [...projectEntries, pattern]);
+            history.addSystem(`always allowing "${pattern}" in this project`);
             tui.requestRender();
             continue;
         }
 
+        const isProject = pick.value.startsWith("p:");
         const idx = Number(pick.value.slice(2));
-        const pattern = entries[idx];
+        const pattern = isProject ? projectEntries[idx] : globalEntries[idx];
         const action = await selectOnce(
             [
                 { value: "remove", label: "remove", description: `ask again before running "${pattern}"` },
@@ -158,7 +179,14 @@ export async function runBashAllowManager(deps: AppDeps): Promise<void> {
             `"${pattern}"`,
         );
         if (!action || action.value !== "remove") continue;
-        save(entries.filter((_, i) => i !== idx));
+        if (isProject) {
+            setProjectBashAllow(
+                projectDir,
+                projectEntries.filter((_, i) => i !== idx),
+            );
+        } else {
+            saveGlobal(globalEntries.filter((_, i) => i !== idx));
+        }
         history.addSystem(`removed "${pattern}" from the allowlist`);
         tui.requestRender();
     }

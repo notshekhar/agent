@@ -5,6 +5,7 @@ import { basename, relative } from "node:path";
 import { tool } from "ai";
 import { z } from "zod";
 import { resolveToCwd } from "./utils/path-utils";
+import { enforcePathPermission } from "./utils/permission-rules";
 import { ensureTool } from "./utils/tools-manager";
 import { DEFAULT_MAX_BYTES, formatSize, GREP_MAX_LINE_LENGTH, truncateHead, truncateLine } from "./utils/truncate";
 
@@ -49,6 +50,16 @@ export function createGrepTool(ctx: GrepToolContext) {
             if (!rgPath) throw new Error("ripgrep (rg) is not available and could not be downloaded");
 
             const searchPath = resolveToCwd(searchDir || ".", ctx.cwd);
+            // Permission rules: Grep(...) patterns gate searches; Read(...)
+            // deny/ask patterns govern grep too (unreadable ⇒ unsearchable).
+            await enforcePathPermission({
+                classes: ["grep", "read"],
+                paths: [searchDir || ".", searchPath],
+                cwd: ctx.cwd,
+                what: `Searching \`${searchDir || "."}\``,
+                dir: true,
+                signal,
+            });
             let isDirectory: boolean;
             try {
                 isDirectory = statSync(searchPath).isDirectory();

@@ -4,6 +4,7 @@ import { constants } from "node:fs";
 import { tool } from "ai";
 import { z } from "zod";
 import { resolveReadPath } from "./utils/path-utils";
+import { enforcePathPermission } from "./utils/permission-rules";
 import { recordRead } from "./utils/read-registry";
 import { fetchUrlAsText, isHttpUrl } from "./utils/fetch-url";
 import { getDoc, renderDocsIndex } from "../docs";
@@ -80,6 +81,14 @@ IMPORTANT: when the user asks to add or change a model, custom provider, hook, M
                 return fetchUrlAsText(trimmed, signal);
             }
             const absolutePath = resolveReadPath(path, ctx.cwd);
+            // Permission rules: Read(...) deny/ask patterns gate file reads.
+            await enforcePathPermission({
+                classes: ["read"],
+                paths: [trimmed, absolutePath],
+                cwd: ctx.cwd,
+                what: `Reading \`${path}\``,
+                signal,
+            });
             await fsAccess(absolutePath, constants.R_OK);
             const mime = detectImageMimeType(absolutePath);
             if (mime) {

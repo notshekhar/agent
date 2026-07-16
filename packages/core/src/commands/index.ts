@@ -40,6 +40,8 @@ export interface CommandContext {
     manageHooks(): Promise<void>;
     /** /bashdeny — add/remove bash commands the agent is refused. */
     manageBashDeny(): Promise<void>;
+    /** /permissions — manage allow/ask/deny permission rules. */
+    managePermissions(): Promise<void>;
     /** /mcp — list servers, or `reconnect [name]` to (re)connect. */
     manageMcp(args: string): Promise<void> | void;
     /** /extensions — panel; `install <spec>` non-interactive shortcut (also /install). */
@@ -48,6 +50,9 @@ export interface CommandContext {
     manageDatasources(): Promise<void> | void;
     /** With message: run that one message under this agent's prompt (one-shot). */
     useAgent(name: string, message?: string): Promise<void> | void;
+    /** /plan — toggle plan mode (read-only until a plan is approved). With a
+     * message: enter plan mode AND submit that message in one step. */
+    togglePlanMode(args: string): Promise<void> | void;
     stub(name: string): void;
     clearScreen(): void;
     /** /fork — pick a previous user message, branch it into a new session. */
@@ -192,6 +197,13 @@ export async function registerBuiltins(reg: CommandRegistry, opts: { cwd?: strin
             description: "Manually compact the session context",
             handler: async (ctx) => {
                 await ctx.manualCompact();
+            },
+        },
+        {
+            name: "plan",
+            description: "Toggle plan mode — read-only until a plan is approved (/plan <task> to start planning)",
+            handler: async (ctx, args) => {
+                await ctx.togglePlanMode(args);
             },
         },
         {
@@ -418,6 +430,13 @@ export async function registerBuiltins(reg: CommandRegistry, opts: { cwd?: strin
             description: "Add or remove bash commands the agent is refused (denylist guardrail)",
             handler: async (ctx) => {
                 await ctx.manageBashDeny();
+            },
+        },
+        {
+            name: "permissions",
+            description: "Manage allow/ask/deny permission rules (Bash(git *), Read(secrets/**), …)",
+            handler: async (ctx) => {
+                await ctx.managePermissions();
             },
         },
         {

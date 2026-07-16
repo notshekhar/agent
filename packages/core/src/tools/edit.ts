@@ -13,6 +13,8 @@ import {
 } from "./utils/edit-diff";
 import { withFileMutationQueue } from "./utils/file-mutation-queue";
 import { resolveToCwd } from "./utils/path-utils";
+import { enforcePathPermission } from "./utils/permission-rules";
+import { formatPlanModeRefusal, isPlanModeActive } from "./utils/plan-mode";
 import { checkReadBeforeModify, recordModified } from "./utils/read-registry";
 
 export interface EditToolContext {
@@ -68,9 +70,20 @@ export function createEditTool(ctx: EditToolContext) {
         execute: async (input, options) => {
             const signal = options?.abortSignal ?? ctx.abortSignal;
             if (signal?.aborted) throw new Error("Operation aborted");
+            // Plan mode gates every file mutation, in every permission mode.
+            if (isPlanModeActive(ctx.sessionId)) throw new Error(formatPlanModeRefusal());
 
             const { path, edits } = prepareEditInput(input);
             const absolutePath = resolveToCwd(path, ctx.cwd);
+
+            // Permission rules: Edit(...) deny/ask patterns gate file edits.
+            await enforcePathPermission({
+                classes: ["edit"],
+                paths: [path, absolutePath],
+                cwd: ctx.cwd,
+                what: `Editing \`${path}\``,
+                signal,
+            });
 
             return withFileMutationQueue(absolutePath, async () => {
                 if (signal?.aborted) throw new Error("Operation aborted");

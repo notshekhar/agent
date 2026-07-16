@@ -15,17 +15,19 @@ import {
     getCatalog,
     hasBuiltinOverride,
     isHiddenAgent,
+    isPlanModeActive,
     isValidAgentName,
     listAgents,
     registerAgentCommand,
     saveAgent,
+    setPlanMode,
     settingsStore,
     type CommandContext,
 } from "@notshekhar/loop-core";
 import type { AppDeps } from "../deps";
 import type { AppState } from "../state";
 
-type AgentHandlers = Pick<CommandContext, "useAgent" | "manageAgents">;
+type AgentHandlers = Pick<CommandContext, "useAgent" | "manageAgents" | "togglePlanMode">;
 
 export function createAgentHandlers(state: AppState, deps: AppDeps): AgentHandlers {
     const {
@@ -42,6 +44,33 @@ export function createAgentHandlers(state: AppState, deps: AppDeps): AgentHandle
     } = deps;
 
     return {
+        async togglePlanMode(args) {
+            // Plan mode is keyed to the session, so make sure one exists —
+            // /plan as the very first input still needs an id to gate on.
+            const session = await deps.ensureSession();
+            const active = isPlanModeActive(session.id);
+            const message = args.trim();
+            if (active && !message) {
+                setPlanMode(session.id, false);
+                state.planModeViaCycle = false;
+                statusLine.setPlanMode(false);
+                history.addSystem("plan mode off — file edits are enabled again");
+                tui.requestRender();
+                return;
+            }
+            if (!active) {
+                setPlanMode(session.id, true);
+                state.planModeViaCycle = false;
+                statusLine.setPlanMode(true);
+                history.addSystem(
+                    chalk.yellow("plan mode on") +
+                        chalk.dim(" — edits rejected, bash read-only; accept a plan or /plan to turn off"),
+                );
+                tui.requestRender();
+            }
+            // /plan <task>: enter plan mode and start planning in one step.
+            if (message && editor.onSubmit) void editor.onSubmit(message);
+        },
         useAgent(name, message) {
             if (!agentExists(name)) {
                 history.addSystem(chalk.red(`unknown agent: ${name} — /agents to create one`));

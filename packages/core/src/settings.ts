@@ -8,6 +8,7 @@ import type { ThinkingLevel } from "./agent/thinking";
 import type { HooksConfig } from "./agent/hooks";
 import type { McpServerConfig } from "./mcp/config";
 import type { BashDenyEntry } from "./tools/utils/command-deny";
+import type { PermissionsSetting } from "./tools/utils/permission-rules";
 
 export interface AppSettings {
     defaultModel?: string;
@@ -93,6 +94,14 @@ export interface AppSettings {
      * key to use DEFAULT_BASH_DENY; set it (even to []) to take full control.
      */
     bashDeny?: BashDenyEntry[];
+    /**
+     * Permission rules layered over the tools: deny always wins, ask forces a
+     * prompt, allow skips the bashApprove prompt. Rule strings use the
+     * Claude-settings shape ("Bash(git *)", "Read(src/**)", bare "Read", "*").
+     * Trusted projects add rules via <project>/CONFIG_DIR/settings.json under
+     * the same key. See tools/utils/permission-rules.ts for matching semantics.
+     */
+    permissions?: PermissionsSetting;
     /**
      * Ask before every bash command (deny / allow once / always allow), like a
      * permission prompt. Default OFF — opt in via /settings for an extra

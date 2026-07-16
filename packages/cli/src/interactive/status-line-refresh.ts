@@ -1,4 +1,4 @@
-import { getModelSync, type CostTracker, type UsageBlock } from "@notshekhar/loop-core";
+import { getModelSync, isPlanModeActive, type CostTracker, type UsageBlock } from "@notshekhar/loop-core";
 import type { TUI } from "@notshekhar/loop-tui";
 import type { StatusLine } from "./components/status-line";
 import type { AppState } from "./state";
@@ -31,6 +31,9 @@ export function createStatusLineRefresher(
     function refreshStatusLine(usage?: UsageBlock): void {
         statusLine.setCost(tracker.format());
         statusLine.setCostData(tracker.sessionBreakdown());
+        // Plan mode is keyed to the session id — resyncing here keeps the
+        // flag honest across session switches (/resume, /fork, /tree).
+        statusLine.setPlanMode(state.session !== null && isPlanModeActive(state.session.id));
         refreshStatusLineCtx(usage);
         tui.requestRender();
     }

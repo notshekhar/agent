@@ -14,7 +14,7 @@ import { debugLog } from "../debug";
  * fails with SQLITE_CANTOPEN.
  */
 
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -97,6 +97,7 @@ CREATE TABLE IF NOT EXISTS projects (
     trust           INTEGER,
     model           TEXT,
     provider_models TEXT,
+    bash_allow      TEXT,
     updated_at      INTEGER NOT NULL
 );
 
@@ -186,6 +187,9 @@ function openDb(path: string, recovered = false): Database {
                 // whole migration.
                 // v4 → v5: goals.agent (which agent runs the goal; NULL =
                 // the global agent setting at run time).
+                // v5 → v6: projects.bash_allow (JSON string array — the
+                // per-project "always allow" grants the bash approval prompt
+                // persists; was the global settings.bashAllow key).
                 // Two processes can race an ALTER — the loser's
                 // duplicate-column error is the success case, everything else
                 // still throws.
@@ -199,6 +203,7 @@ function openDb(path: string, recovered = false): Database {
                         : []),
                     ...(version < 3 ? ["ALTER TABLE projects ADD COLUMN provider_models TEXT"] : []),
                     ...(version < 5 ? ["ALTER TABLE goals ADD COLUMN agent TEXT"] : []),
+                    ...(version < 6 ? ["ALTER TABLE projects ADD COLUMN bash_allow TEXT"] : []),
                 ];
                 for (const alter of alters) {
                     try {

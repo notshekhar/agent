@@ -74,10 +74,11 @@ describe("session db v1 → v2 migration", () => {
         expect(ledgerCols.map((c) => c.name)).toContain("entry_id");
         expect(ledgerCols.map((c) => c.name)).toContain("entry_pub");
         const version = db.query<{ value: string }, []>("SELECT value FROM meta WHERE key = 'schema_version'").get();
-        expect(version?.value).toBe("5");
-        // v2 → v3 rides the same pass
+        expect(version?.value).toBe("6");
+        // v2 → v3 rides the same pass, as does v5 → v6 (projects.bash_allow).
         const projCols = db.query<{ name: string }, []>("PRAGMA table_info(projects)").all();
         expect(projCols.map((c) => c.name)).toContain("provider_models");
+        expect(projCols.map((c) => c.name)).toContain("bash_allow");
         // v3 → v4 is a new table (goals), created by the schema exec; v4 → v5
         // adds goals.agent (a no-op ALTER here since the fresh table has it).
         const goalCols = db.query<{ name: string }, []>("PRAGMA table_info(goals)").all();

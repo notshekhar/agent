@@ -22,8 +22,18 @@ import {
     isCommandAllowed,
     suggestAllowPatterns,
 } from "./utils/command-deny";
+import {
+    evaluateBashRules,
+    formatAskUnavailableRefusal,
+    formatRuleDenyRefusal,
+    getPermissionRules,
+    isDangerousCommand,
+} from "./utils/permission-rules";
 import { getBashApprovalBridge } from "./approval-bridge";
+import { isPlanModeActive } from "./utils/plan-mode";
 import { getSetting, setSetting } from "../settings";
+import { canonicalProjectDir } from "../agent/trust";
+import { addProjectBashAllow, getProjectBashAllow } from "../sessions/projects";
 import { sandbox, type SandboxConfig } from "@notshekhar/loop-sandbox";
 
 /**
@@ -52,10 +62,13 @@ export interface BashToolContext {
     shellPath?: string;
     /** Optional command prefix prepended to every command (e.g. shell setup) */
     commandPrefix?: string;
+    /** Scopes plan-mode lookups (see tools/index.ts ToolContext). */
+    sessionId?: string;
     /**
      * Force a fail-closed, kernel-enforced read-only sandbox (no writable cwd),
      * regardless of user sandbox settings. Set for read-only agents (plan): if
      * the sandbox can't be enforced, the command is REFUSED rather than run.
+     * Plan mode (see utils/plan-mode.ts) forces the same path live.
      */
     readOnlyFs?: boolean;
 }
@@ -147,20 +160,23 @@ function execBash(
  * silent downgrade. `command` is the final command (after commandPrefix).
  */
 async function resolveSandbox(command: string, ctx: BashToolContext): Promise<{ argv?: string[]; warning?: string }> {
-    // Read-only agents (e.g. plan): bash MUST be kernel-enforced read-only, and
-    // fail CLOSED — if the sandbox can't be applied, refuse rather than run
-    // unsandboxed. (Plan only gets bash on sandbox-capable platforms, so the
-    // unsupported branch is defensive.)
-    if (ctx.readOnlyFs) {
+    // Read-only agents (e.g. plan) and active plan mode: bash MUST be
+    // kernel-enforced read-only, and fail CLOSED — if the sandbox can't be
+    // applied, refuse rather than run unsandboxed. (Plan only gets bash on
+    // sandbox-capable platforms, so the unsupported branch is defensive.)
+    // Plan mode is checked live (not at tool creation) so the gate applies
+    // the moment enter_plan_mode is approved, mid-turn.
+    if (ctx.readOnlyFs || isPlanModeActive(ctx.sessionId)) {
+        const why = ctx.readOnlyFs ? "This agent runs" : "Plan mode runs";
         if (!sandbox.isSupported()) {
             throw new Error(
-                "This agent runs bash in a read-only OS sandbox, which isn't available on this platform — bash is disabled here. Investigate with read/ls/grep/find instead.",
+                `${why} bash in a read-only OS sandbox, which isn't available on this platform — bash is disabled here. Investigate with read/ls/grep/find instead.`,
             );
         }
         const deps = sandbox.checkDependencies();
         if (deps.errors.length > 0) {
             throw new Error(
-                `This agent runs bash in a read-only OS sandbox, but it's unavailable (${deps.errors.join(", ")}). Refusing to run bash unsandboxed. Use read/ls/grep/find, or install the missing dependency.`,
+                `${why} bash in a read-only OS sandbox, but it's unavailable (${deps.errors.join(", ")}). Refusing to run bash unsandboxed. Use read/ls/grep/find, or install the missing dependency.`,
             );
         }
         const { shell } = getShellConfig(ctx.shellPath);
@@ -235,28 +251,72 @@ export function createBashTool(ctx: BashToolContext) {
             const denied = findDeniedCommand(command, getSetting("bashDeny") ?? DEFAULT_BASH_DENY);
             if (denied) throw new Error(formatDenyRefusal(denied));
 
-            const signal = options?.abortSignal ?? ctx.abortSignal;
+            // Permission rules (settings `permissions` + trusted project files):
+            // deny > ask > allow, judged against the raw command like the
+            // denylist. Deny/ask match per executed segment; allow matches the
+            // whole string only, so an allowed prefix can't smuggle segments.
+            const rules = getPermissionRules(ctx.cwd);
+            const ruleVerdict = evaluateBashRules(command, rules);
+            const commandLabel = `\`${command.split("\n")[0].slice(0, 80)}\``;
+            if (ruleVerdict?.action === "deny") throw new Error(formatRuleDenyRefusal(commandLabel, ruleVerdict));
 
-            // Approval prompt (opt-in bashApprove setting, default off): ask the
-            // user before running, unless every segment of the command is already
-            // on the bashAllow list. Needs the interactive bridge — print mode /
-            // RPC never register one, so the setting is inert there. Judged
-            // against the raw command (like the denylist) so the user approves
-            // exactly what the model wrote. Subagent bash goes through this same
-            // tool, so the safeguard covers delegation too.
-            const approvalBridge = getSetting("bashApprove") === true ? getBashApprovalBridge() : null;
-            if (approvalBridge) {
-                const allowlist = (getSetting("bashAllow") ?? []).map(denyPattern).filter((p) => p.length > 0);
-                if (!isCommandAllowed(command, allowlist)) {
-                    const patterns = suggestAllowPatterns(command);
-                    const decision = await approvalBridge.confirm({ command, cwd: ctx.cwd, patterns }, { signal });
-                    if (signal?.aborted) throw new Error("Command aborted");
-                    if (decision === "deny") throw new Error(formatApprovalRefusal(command));
-                    if (decision === "always" && patterns.length > 0) {
-                        setSetting("bashAllow", [...allowlist, ...patterns.filter((p) => !allowlist.includes(p))]);
-                    }
+            const signal = options?.abortSignal ?? ctx.abortSignal;
+            const bridge = getBashApprovalBridge();
+            const projectDir = canonicalProjectDir(ctx.cwd);
+
+            // Remembered "always allow" grants: per-project (the approval
+            // prompt's persistence) plus the legacy global bashAllow list. A
+            // dangerous command (rm, git push, kill, …) never rides a
+            // remembered grant — it prompts again; only an explicit allow RULE
+            // in configuration approves it silently.
+            const grants = [
+                ...getProjectBashAllow(projectDir),
+                ...(getSetting("bashAllow") ?? []).map(denyPattern).filter((p) => p.length > 0),
+            ];
+            const remembered = isCommandAllowed(command, grants) && !isDangerousCommand(command);
+
+            // Show the approval prompt and apply the decision. "always"
+            // persists per-project allow grants; "never" persists the same
+            // patterns into the bashDeny guardrail.
+            const promptUser = async (title?: string): Promise<void> => {
+                if (!bridge) return; // no UI — callers gate on bridge first
+                const patterns = suggestAllowPatterns(command);
+                const decision = await bridge.confirm(
+                    { kind: "bash", command, cwd: ctx.cwd, patterns, title },
+                    { signal },
+                );
+                if (signal?.aborted) throw new Error("Command aborted");
+                if (decision === "never") {
+                    const denyList = (getSetting("bashDeny") ?? DEFAULT_BASH_DENY)
+                        .map(denyPattern)
+                        .filter((p) => p.length > 0);
+                    setSetting("bashDeny", [...denyList, ...patterns.filter((p) => !denyList.includes(p))]);
+                    throw new Error(formatApprovalRefusal(command));
+                }
+                if (decision === "deny") throw new Error(formatApprovalRefusal(command));
+                if (decision === "always" && patterns.length > 0) addProjectBashAllow(projectDir, patterns);
+            };
+
+            if (ruleVerdict?.action === "ask") {
+                // An ask rule forces a prompt in every mode — even when the
+                // bashApprove setting is off. A remembered grant satisfies it
+                // (grok parity) unless the command is dangerous. Without an
+                // interactive bridge (print mode / RPC) it fails closed.
+                if (!remembered) {
+                    if (!bridge) throw new Error(formatAskUnavailableRefusal(commandLabel, ruleVerdict));
+                    await promptUser(`rule ${ruleVerdict.source} requires approval`);
+                }
+            } else if (ruleVerdict?.action !== "allow") {
+                // No rule matched: the opt-in bashApprove policy (default off)
+                // prompts for anything not remembered. Needs the interactive
+                // bridge — the setting is inert in print mode / RPC. Subagent
+                // bash goes through this same tool, so the safeguard covers
+                // delegation too.
+                if (getSetting("bashApprove") === true && bridge && !remembered) {
+                    await promptUser();
                 }
             }
+            // ruleVerdict "allow": explicit configuration — skip all prompting.
             const output = new OutputAccumulator({ tempFilePrefix: "loop-bash" });
             const finalCommand = ctx.commandPrefix ? `${ctx.commandPrefix}\n${command}` : command;
 

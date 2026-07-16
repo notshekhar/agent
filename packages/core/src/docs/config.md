@@ -58,9 +58,14 @@ Other notable keys (all managed via `/settings` too):
   tasks queue visibly and start as slots free. Default 4; 0 = unlimited.
 - `"bashApprove": true` — ask before every bash command (deny / allow once /
   always allow), like a permission prompt. Default off; interactive TUI only.
-- `"bashAllow"` — the "always allow" list the approval prompt maintains
-  (same `command` / `"command subcommand"` pattern shape as `bashDeny`). A
-  command runs unprompted only when every segment matches an entry.
+- `"bashAllow"` — the legacy global "always allow" list (same `command` /
+  `"command subcommand"` pattern shape as `bashDeny`). New "always allow"
+  grants persist per-project instead; this list still matches everywhere.
+- `"permissions"` — allow/ask/deny rules over the tools
+  (`{"deny": ["Bash(rm -rf *)", "Read(secrets/**)"]}`). Trusted projects add
+  rules via `<cwd>/{{dir}}/settings.json` under the same key. Read
+  `{{name}}://docs/permissions.md` for the full rule syntax, matching
+  semantics, and evaluation order before editing these.
 - Goals (background/scheduled tasks) are managed with `/goal` in the TUI or
   `{{name}} goals` on the CLI (add/list/rm/run/tick); the background scheduler
   toggles with `/daemon` (or `{{name}} goals daemon install|uninstall|status`).

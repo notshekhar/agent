@@ -30,6 +30,10 @@ export interface AppState {
     /** Plan delivered by the plan tool this turn; the turn runner offers
      * implement/talk after the turn ends, then clears it. */
     pendingPlan: string | null;
+    /** The session plan-mode gate was armed by Shift+Tab landing on the plan
+     * agent — cycling away then disarms it. Gates armed via /plan or
+     * enter_plan_mode are NOT tied to the agent cycle and stay put. */
+    planModeViaCycle: boolean;
     /** /timer deadline (ms epoch). In-memory only — dies with the process. */
     timerEndsAt: number | null;
     /** Original /timer input ("1h30m"), shown in the time's-up prompt. */

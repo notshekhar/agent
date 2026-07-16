@@ -4,6 +4,8 @@ import { dirname } from "node:path";
 import { tool } from "ai";
 import { z } from "zod";
 import { resolveToCwd } from "./utils/path-utils";
+import { enforcePathPermission } from "./utils/permission-rules";
+import { formatPlanModeRefusal, isPlanModeActive } from "./utils/plan-mode";
 import { withFileMutationQueue } from "./utils/file-mutation-queue";
 import { checkReadBeforeModify, recordModified } from "./utils/read-registry";
 
@@ -25,7 +27,17 @@ export function createWriteTool(ctx: WriteToolContext) {
         execute: async ({ path, content }, options) => {
             const signal = options?.abortSignal ?? ctx.abortSignal;
             if (signal?.aborted) throw new Error("Operation aborted");
+            // Plan mode gates every file mutation, in every permission mode.
+            if (isPlanModeActive(ctx.sessionId)) throw new Error(formatPlanModeRefusal());
             const absolutePath = resolveToCwd(path, ctx.cwd);
+            // Permission rules: Edit(...) patterns cover write too.
+            await enforcePathPermission({
+                classes: ["edit"],
+                paths: [path, absolutePath],
+                cwd: ctx.cwd,
+                what: `Writing \`${path}\``,
+                signal,
+            });
             const dir = dirname(absolutePath);
             return withFileMutationQueue(absolutePath, async () => {
                 if (signal?.aborted) throw new Error("Operation aborted");

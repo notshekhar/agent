@@ -96,6 +96,45 @@ function readProviderModels(cwd: string): Record<string, string> {
     }
 }
 
+// --------------------------------------------------------------------------
+// Per-project bash "always allow" grants
+// --------------------------------------------------------------------------
+
+/**
+ * Interactive "always allow" grants from the bash approval prompt, scoped to
+ * the project (exact canonical dir) they were made in — a grant in one repo
+ * never applies in another. Same pattern shape as bashDeny/bashAllow. The
+ * legacy global settings.bashAllow keeps working; matching consults both.
+ */
+export function getProjectBashAllow(cwd: string): string[] {
+    const row = getDb()
+        .query<{ bash_allow: string | null }, [string]>("SELECT bash_allow FROM projects WHERE dir = ?")
+        .get(cwd);
+    if (!row?.bash_allow) return [];
+    try {
+        const parsed = JSON.parse(row.bash_allow) as unknown;
+        return Array.isArray(parsed) ? parsed.filter((p): p is string => typeof p === "string" && p.length > 0) : [];
+    } catch {
+        return [];
+    }
+}
+
+export function setProjectBashAllow(cwd: string, patterns: string[]): void {
+    upsert(cwd, {});
+    getDb().run("UPDATE projects SET bash_allow = ?, updated_at = ? WHERE dir = ?", [
+        JSON.stringify(patterns),
+        Date.now(),
+        cwd,
+    ]);
+}
+
+/** Append grants (deduped) to the project's always-allow list. */
+export function addProjectBashAllow(cwd: string, patterns: string[]): void {
+    const current = getProjectBashAllow(cwd);
+    const next = [...current, ...patterns.filter((p) => !current.includes(p))];
+    if (next.length !== current.length) setProjectBashAllow(cwd, next);
+}
+
 // Mirrors providers/parseModelId; inlined (and non-throwing) to avoid a
 // sessions ↔ providers import cycle.
 function providerOfModelId(modelId: string): string | undefined {
