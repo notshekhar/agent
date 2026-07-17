@@ -36,7 +36,7 @@ mock.module("../src/auth/storage", () => ({
 }));
 
 import { loginApiKey, logout } from "../src/auth";
-import { isKimiSubscriptionKey, kimiBaseURL } from "../src/providers";
+import { isKimiSubscriptionKey, kimiBaseURL, kimiCacheFetch } from "../src/providers";
 import { KIMI_CODE_MODELS } from "../src/catalog/fallbacks";
 
 afterEach(() => {
@@ -76,6 +76,60 @@ describe("kimi key-kind routing", () => {
         expect(isKimiSubscriptionKey()).toBe(true);
         delete process.env.KIMI_API_KEY;
         expect(isKimiSubscriptionKey()).toBe(false);
+    });
+
+    test("kimiCacheFetch maps JSON usage.cached_tokens → prompt_cache_hit/miss_tokens", async () => {
+        using server = Bun.serve({
+            port: 0,
+            fetch: () =>
+                Response.json({
+                    choices: [],
+                    usage: { prompt_tokens: 1000, completion_tokens: 20, total_tokens: 1020, cached_tokens: 900 },
+                }),
+        });
+        const res = await kimiCacheFetch()(`http://127.0.0.1:${server.port}/v1/chat/completions`);
+        const body = (await res.json()) as { usage: Record<string, number> };
+        expect(body.usage.prompt_cache_hit_tokens).toBe(900);
+        expect(body.usage.prompt_cache_miss_tokens).toBe(100);
+        expect(body.usage.cached_tokens).toBe(900);
+    });
+
+    test("kimiCacheFetch rewrites SSE usage chunks and leaves other lines intact", async () => {
+        const sse = [
+            'data: {"choices":[{"delta":{"content":"hi"}}]}',
+            "",
+            'data: {"choices":[],"usage":{"prompt_tokens":50,"completion_tokens":5,"cached_tokens":40}}',
+            "",
+            "data: [DONE]",
+            "",
+            "",
+        ].join("\n");
+        using server = Bun.serve({
+            port: 0,
+            fetch: () => new Response(sse, { headers: { "content-type": "text/event-stream" } }),
+        });
+        const res = await kimiCacheFetch()(`http://127.0.0.1:${server.port}/v1/chat/completions`);
+        const text = await res.text();
+        expect(text).toContain('"content":"hi"');
+        expect(text).toContain("data: [DONE]");
+        const usageLine = text.split("\n").find((l) => l.includes('"usage"'));
+        const usage = (JSON.parse(usageLine!.slice("data: ".length)) as { usage: Record<string, number> }).usage;
+        expect(usage.prompt_cache_hit_tokens).toBe(40);
+        expect(usage.prompt_cache_miss_tokens).toBe(10);
+    });
+
+    test("kimiCacheFetch leaves DeepSeek-shaped usage (already has hit tokens) alone", async () => {
+        using server = Bun.serve({
+            port: 0,
+            fetch: () =>
+                Response.json({
+                    usage: { prompt_tokens: 100, prompt_cache_hit_tokens: 60, prompt_cache_miss_tokens: 40, cached_tokens: 60 },
+                }),
+        });
+        const res = await kimiCacheFetch()(`http://127.0.0.1:${server.port}/v1/chat/completions`);
+        const body = (await res.json()) as { usage: Record<string, number> };
+        expect(body.usage.prompt_cache_hit_tokens).toBe(60);
+        expect(body.usage.prompt_cache_miss_tokens).toBe(40);
     });
 
     test("subscription catalog seed carries the plan's model ids at cost 0", () => {

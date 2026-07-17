@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.12.11] - 2026-07-17
+
+### Fixed
+
+- **Kimi cache hits now show up.** Kimi reports prompt-cache hits as OpenAI-style `usage.cached_tokens`, but the DeepSeek SDK the provider rides only understands DeepSeek's `prompt_cache_hit_tokens` — so the cost ticker and `/context` always showed `cache:0` even though Moonshot's automatic prefix caching was hitting (and billing you the cheap tier) the whole time. A fetch-layer rewrite now maps the field for both JSON and streaming responses; live-verified on a Kimi Code subscription (2560 of 2622 prompt tokens read from cache on the second call).
+
+### Changed
+
+- **AI SDK refresh, for real this time.** The v0.12.10 notes claimed the `@ai-sdk/*` minor updates but the dependency bumps never made it into that commit — this release actually pins them (anthropic/openai/xai 4.0.16, google 4.0.18, deepseek/cerebras 3.0.12, groq 4.0.12, mistral 4.0.13, amazon-bedrock 5.0.24, mcp 2.0.15, ai 7.0.31), plus the build-time models.dev price refresh. Tests, typecheck, and live streaming verified against the new versions.
+
 ## [0.12.10] - 2026-07-17
 
 ### Added

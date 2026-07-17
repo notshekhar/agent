@@ -120,6 +120,76 @@ function openaiChatgptAuthFetch(): typeof fetch {
 }
 
 /**
+ * Kimi reports cache hits OpenAI-style as a top-level `usage.cached_tokens`
+ * (both endpoints; caching is automatic), but the DeepSeek SDK the kimi
+ * provider rides only parses DeepSeek's `prompt_cache_hit_tokens` — and its
+ * zod schema strips unknown keys, so the count is unrecoverable downstream.
+ * Rewrite the usage payload before the SDK sees it: hit = cached_tokens,
+ * miss = prompt_tokens - cached_tokens.
+ */
+function rewriteKimiUsage(obj: unknown): unknown {
+    const usage = (obj as { usage?: Record<string, unknown> } | null)?.usage;
+    if (usage && typeof usage.cached_tokens === "number" && usage.prompt_cache_hit_tokens == null) {
+        const prompt = typeof usage.prompt_tokens === "number" ? usage.prompt_tokens : 0;
+        usage.prompt_cache_hit_tokens = usage.cached_tokens;
+        usage.prompt_cache_miss_tokens = Math.max(0, prompt - usage.cached_tokens);
+    }
+    return obj;
+}
+
+/** Line-buffered SSE transform: rewrite usage on data lines that carry it. */
+function kimiSseRewrite(): TransformStream<string, string> {
+    let buf = "";
+    const rewriteLine = (line: string): string => {
+        if (!line.includes('"cached_tokens"')) return line;
+        const eol = line.endsWith("\r") ? "\r" : "";
+        const body = eol ? line.slice(0, -1) : line;
+        if (!body.startsWith("data:")) return line;
+        const payload = body.slice(5).trimStart();
+        if (!payload || payload === "[DONE]") return line;
+        try {
+            return `data: ${JSON.stringify(rewriteKimiUsage(JSON.parse(payload)))}${eol}`;
+        } catch {
+            return line;
+        }
+    };
+    return new TransformStream({
+        transform(chunk, controller) {
+            buf += chunk;
+            const lines = buf.split("\n");
+            buf = lines.pop() ?? "";
+            for (const line of lines) controller.enqueue(`${rewriteLine(line)}\n`);
+        },
+        flush(controller) {
+            if (buf) controller.enqueue(rewriteLine(buf));
+        },
+    });
+}
+
+export function kimiCacheFetch(): typeof fetch {
+    return withPreconnect(async (input, init) => {
+        const res = await fetch(input, init as RequestInit);
+        const ctype = res.headers.get("content-type") ?? "";
+        if (!res.ok || !res.body) return res;
+        // Content-length no longer matches after a rewrite.
+        const headers = new Headers(res.headers);
+        headers.delete("content-length");
+        if (ctype.includes("text/event-stream")) {
+            const body = res.body
+                .pipeThrough(new TextDecoderStream())
+                .pipeThrough(kimiSseRewrite())
+                .pipeThrough(new TextEncoderStream());
+            return new Response(body, { status: res.status, statusText: res.statusText, headers });
+        }
+        if (ctype.includes("application/json")) {
+            const json = rewriteKimiUsage(await res.json());
+            return new Response(JSON.stringify(json), { status: res.status, statusText: res.statusText, headers });
+        }
+        return res;
+    });
+}
+
+/**
  * Kimi Code subscription keys (sk-kimi-…) only work on api.kimi.com/coding/v1
  * — the pay-per-token platform endpoint 401s them (and vice versa), with its
  * own model ids (kimi-for-coding, k3). Platform keys are plain sk-… .
@@ -490,7 +560,7 @@ export async function getModel(fullId: string): Promise<LanguageModel> {
             const key = getApiKey("kimi");
             if (!key) throw new Error(`No Kimi (Moonshot AI) API key. Run: ${PRODUCT_NAME} login kimi`);
             const { createDeepSeek } = await import("@ai-sdk/deepseek");
-            return createDeepSeek({ apiKey: key, baseURL: kimiBaseURL() })(model);
+            return createDeepSeek({ apiKey: key, baseURL: kimiBaseURL(), fetch: kimiCacheFetch() })(model);
         }
         case "groq": {
             const key = getApiKey("groq");
