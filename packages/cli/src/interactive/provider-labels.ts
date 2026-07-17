@@ -22,6 +22,8 @@ export function providerLabel(id: string): string {
             return "Zhipu GLM (open.bigmodel.cn) — API key";
         case "zai":
             return "z.ai (GLM, international) — API key";
+        case "kimi":
+            return "Kimi (Moonshot AI) — API key";
         case "groq":
             return "Groq — API key";
         case "cerebras":

@@ -119,6 +119,23 @@ function openaiChatgptAuthFetch(): typeof fetch {
     });
 }
 
+/**
+ * Kimi Code subscription keys (sk-kimi-…) only work on api.kimi.com/coding/v1
+ * — the pay-per-token platform endpoint 401s them (and vice versa), with its
+ * own model ids (kimi-for-coding, k3). Platform keys are plain sk-… .
+ */
+export function isKimiSubscriptionKey(): boolean {
+    return getApiKey("kimi")?.startsWith("sk-kimi-") ?? false;
+}
+
+/** Endpoint matching the stored key's kind; LOOP_KIMI_BASE_URL overrides. */
+export function kimiBaseURL(): string {
+    return (
+        brandEnv("KIMI_BASE_URL") ||
+        (isKimiSubscriptionKey() ? "https://api.kimi.com/coding/v1" : "https://api.moonshot.ai/v1")
+    );
+}
+
 /** Ollama host root (no /api suffix). Override with LOOP_OLLAMA_BASE_URL. */
 export function ollamaBaseURL(): string {
     return (brandEnv("OLLAMA_BASE_URL") || "http://127.0.0.1:11434").replace(/\/+$/, "");
@@ -463,6 +480,17 @@ export async function getModel(fullId: string): Promise<LanguageModel> {
             if (!key) throw new Error(`No z.ai API key. Run: ${PRODUCT_NAME} login zai`);
             const { createZhipu } = await import("zhipu-ai-provider");
             return createZhipu({ apiKey: key, baseURL: "https://api.z.ai/api/paas/v4" })(model);
+        }
+        case "kimi": {
+            // Moonshot AI (Kimi) — OpenAI-compatible with DeepSeek-shaped
+            // reasoning_content, so the DeepSeek SDK extracts (and round-trips)
+            // K2.6/K2.7/K3 thinking for free. The base URL follows the key kind
+            // (see kimiBaseURL); LOOP_KIMI_BASE_URL overrides both (e.g.
+            // https://api.moonshot.cn/v1 for the China endpoint).
+            const key = getApiKey("kimi");
+            if (!key) throw new Error(`No Kimi (Moonshot AI) API key. Run: ${PRODUCT_NAME} login kimi`);
+            const { createDeepSeek } = await import("@ai-sdk/deepseek");
+            return createDeepSeek({ apiKey: key, baseURL: kimiBaseURL() })(model);
         }
         case "groq": {
             const key = getApiKey("groq");

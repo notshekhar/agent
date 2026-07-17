@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.12.10] - 2026-07-17
+
+### Added
+
+- **Kimi (Moonshot AI) as a built-in provider.** `loop login kimi` (or set `KIMI_API_KEY`), then pick a model with `/model`. Both key kinds work and route automatically by prefix: pay-per-token platform keys (`sk-…`) hit `api.moonshot.ai` with the Kimi K3 / K2.7 Code / K2.6 catalog at real prices, while Kimi Code subscription keys (`sk-kimi-…`) hit `api.kimi.com/coding` and swap the catalog for the plan's models (`k3`, `kimi-for-coding`, `kimi-for-coding-highspeed`) at $0 — re-pasting the other kind via `/login` re-routes everything. Rides the DeepSeek SDK, so `reasoning_content` thinking streams live and round-trips across turns; the thinking level toggles Moonshot's `thinking` switch. `LOOP_KIMI_BASE_URL` overrides the endpoint (e.g. `api.moonshot.cn` for China).
+
+### Changed
+
+- **AI SDK refresh.** Minor updates across `@ai-sdk/*` (anthropic/openai/xai 4.0.16, google 4.0.18, deepseek/cerebras 3.0.12, groq 4.0.12, mistral 4.0.13, amazon-bedrock 5.0.24, mcp 2.0.15); tests, typecheck, and a live streaming call verified against the new versions.
+
 ## [0.12.9] - 2026-07-16
 
 ### Changed

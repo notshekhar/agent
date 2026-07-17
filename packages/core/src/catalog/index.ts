@@ -3,12 +3,13 @@ import { CachedStore } from "../auth/storage";
 import { join } from "node:path";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { GENERATED_MODELS } from "./generated/models";
-import { FALLBACK_MODELS, XAI_FALLBACK_MODELS, fallbackModelsForSdk } from "./fallbacks";
+import { FALLBACK_MODELS, KIMI_CODE_MODELS, XAI_FALLBACK_MODELS, fallbackModelsForSdk } from "./fallbacks";
 import { getApiKey, getAccessToken, listAuthorizedProviders, listCustomProviders, saveCustomProvider } from "../auth";
 import {
     bedrockShortModelId,
     fetchCustomProviderModels,
     hasAwsCredentialSources,
+    isKimiSubscriptionKey,
     listBedrockModels,
     listOllamaModels,
     showOllamaModel,
@@ -406,6 +407,13 @@ export async function getCatalog(opts: { refresh?: boolean } = {}): Promise<Reco
     for (const m of Object.values(out)) {
         if (m.provider === "github-copilot") m.available = hasCopilot;
         if (m.provider === "openai-chatgpt") m.available = hasChatgpt;
+    }
+
+    // A Kimi Code subscription key can only call the plan's own models on its
+    // own endpoint — the pay-per-token ids 401/404 there — so swap the seed.
+    if (isKimiSubscriptionKey()) {
+        for (const [id, m] of Object.entries(out)) if (m.provider === "kimi") delete out[id];
+        for (const m of KIMI_CODE_MODELS) out[m.id] = { ...m };
     }
 
     // Note: we do NOT downmark fallback models based on /v1/models availability.

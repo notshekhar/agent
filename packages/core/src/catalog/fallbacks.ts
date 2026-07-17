@@ -325,6 +325,42 @@ const ZAI: ModelInfo[] = [
     m("zai", "glm-4.5-air", "GLM-4.5 Air (z.ai)", 128_000, 96_000, { input: 0.2, output: 1.1 }, true),
 ];
 
+// Moonshot AI Kimi via api.moonshot.ai (models.dev keys this "moonshotai", a
+// different id — curated seed like glm/zai). All current models think.
+const KIMI: ModelInfo[] = [
+    m("kimi", "kimi-k3", "Kimi K3", 1_048_576, 32_768, { input: 3, output: 15, cacheRead: 0.3 }, true, [
+        "text",
+        "image",
+    ]),
+    m("kimi", "kimi-k2.7-code", "Kimi K2.7 Code", 262_144, 32_768, { input: 0.95, output: 4, cacheRead: 0.19 }, true, [
+        "text",
+        "image",
+    ]),
+    m("kimi", "kimi-k2.6", "Kimi K2.6", 262_144, 32_768, { input: 0.95, output: 4, cacheRead: 0.16 }, true, [
+        "text",
+        "image",
+    ]),
+];
+
+// Kimi Code subscription (sk-kimi-… keys) — same provider id, but the
+// api.kimi.com/coding/v1 endpoint exposes its own model ids, billed by the
+// plan (cost 0, like copilot). getCatalog swaps these in for the
+// pay-per-token seed above when the stored key is a subscription key.
+export const KIMI_CODE_MODELS: ModelInfo[] = [
+    m("kimi", "k3", "Kimi K3 (Code plan)", 1_048_576, 32_768, { input: 0, output: 0 }, true, ["text", "image"]),
+    m("kimi", "kimi-for-coding", "Kimi K2.7 Coding", 262_144, 32_768, { input: 0, output: 0 }, true, ["text", "image"]),
+    m(
+        "kimi",
+        "kimi-for-coding-highspeed",
+        "Kimi K2.7 Coding Highspeed",
+        262_144,
+        32_768,
+        { input: 0, output: 0 },
+        true,
+        ["text", "image"],
+    ),
+];
+
 // Groq — OSS models on LPU hardware. models.dev overrides pricing at runtime.
 const GROQ: ModelInfo[] = [
     m("groq", "openai/gpt-oss-120b", "GPT-OSS 120B (Groq)", 131_072, 32_768, { input: 0.15, output: 0.75 }, true),
@@ -447,6 +483,7 @@ export const FALLBACK_MODELS: ModelInfo[] = [
     ...MISTRAL,
     ...GLM,
     ...ZAI,
+    ...KIMI,
     ...GROQ,
     ...CEREBRAS,
     ...ZENMUX,

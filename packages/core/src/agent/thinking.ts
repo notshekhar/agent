@@ -23,14 +23,17 @@ export const THINKING_LEVEL_DESCRIPTIONS: Record<ThinkingLevel, string> = {
 export type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
 
 /**
- * Providers reached through a community AI-SDK package (not a first-party
- * @ai-sdk provider) — the portable `reasoning` param doesn't flow through them,
- * so they keep the hand-built `providerOptions` path in buildProviderOptions.
- * Everything else (anthropic/openai/google/xai/groq/mistral/deepseek/cerebras,
- * plus the openai-compatible routes: zenmux/github-copilot/chatgpt) uses the
- * native `reasoning` param.
+ * Providers where the portable `reasoning` param must NOT be sent — either it
+ * doesn't flow through their community AI-SDK package (ollama/glm/zai/
+ * openrouter), or the SDK would translate it into a param the backend doesn't
+ * take (kimi rides @ai-sdk/deepseek, which maps effort → `reasoning_effort`;
+ * Moonshot K2.x doesn't document that param). They keep the hand-built
+ * `providerOptions` path in buildProviderOptions. Everything else
+ * (anthropic/openai/google/xai/groq/mistral/deepseek/cerebras, plus the
+ * openai-compatible routes: zenmux/github-copilot/chatgpt) uses the native
+ * `reasoning` param.
  */
-const COMMUNITY_REASONING_PROVIDERS = new Set(["ollama", "glm", "zai", "openrouter"]);
+const COMMUNITY_REASONING_PROVIDERS = new Set(["ollama", "glm", "zai", "openrouter", "kimi"]);
 
 const OPENROUTER_EFFORT: Record<Exclude<ThinkingLevel, "off">, "low" | "medium" | "high"> = {
     minimal: "low",
@@ -53,7 +56,7 @@ function xaiSupportsEffort(modelShortId: string): boolean {
 /**
  * The portable v7 `reasoning` value for a provider + level, or undefined when
  * this provider should NOT use the native param:
- *  - community providers (ollama/glm/zai) → handled by buildProviderOptions;
+ *  - community providers (ollama/glm/zai/kimi) → handled by buildProviderOptions;
  *  - non-mini xAI models that 400 on reasoning effort → omit entirely.
  */
 export function reasoningEffort(
@@ -181,6 +184,7 @@ export function buildReasoningParams(
  *    still surface (additive — composes with the native effort);
  *  - openrouter: `reasoning: { effort }` (community provider, own option shape);
  *  - glm/zai:  zhipu `thinking: { type: enabled|disabled }` (boolean, no budget);
+ *  - kimi:     same toggle shape, via the deepseek SDK's `thinking` option;
  *  - ollama:   `think: boolean` (DeepSeek-R1, Qwen3, …; no budget).
  */
 export function buildProviderOptions(
@@ -203,6 +207,11 @@ export function buildProviderOptions(
             // GLM-4.5+ thinking is a boolean toggle (no budget), merged into the
             // request body via the zhipu provider's providerOptions.
             return { zhipu: { thinking: { type: on ? "enabled" : "disabled" } } };
+        case "kimi":
+            // Moonshot's toggle has the same shape; the deepseek SDK forwards
+            // its `thinking` option verbatim (and no reasoning_effort, since
+            // the portable param is suppressed above).
+            return { deepseek: { thinking: { type: on ? "enabled" : "disabled" } } };
         case "ollama":
             return { ollama: { think: on } };
         default:

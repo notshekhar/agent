@@ -10,6 +10,7 @@ export type BuiltinProviderId =
     | "mistral"
     | "glm"
     | "zai"
+    | "kimi"
     | "groq"
     | "cerebras"
     | "zenmux"
@@ -32,6 +33,7 @@ export const BUILTIN_PROVIDER_IDS: BuiltinProviderId[] = [
     "mistral",
     "glm",
     "zai",
+    "kimi",
     "groq",
     "cerebras",
     "zenmux",

@@ -86,8 +86,8 @@ End every config task by telling the user which one to do.
 ## Add a model from a built-in provider
 
 Built-in providers: `anthropic`, `openai`, `google`, `xai`, `openrouter`,
-`github-copilot`, `deepseek`, `mistral`, `glm`, `zai`, `groq`, `cerebras`,
-`zenmux`, `bedrock`, `ollama`.
+`github-copilot`, `deepseek`, `mistral`, `glm`, `zai`, `kimi`, `groq`,
+`cerebras`, `zenmux`, `bedrock`, `ollama`.
 
 Their models are discovered automatically once the provider is authenticated —
 there is no per-model list to maintain. Two providers need no login at all:
