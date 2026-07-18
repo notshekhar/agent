@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.14] - 2026-07-18
+
+### Fixed
+
+- **`loop run --session <id>` actually resumes.** The flag — long advertised in `--help` — was silently ignored: every run created a fresh session, forking your history without a word. It now loads the session (full prior context carries into the turn, verified end-to-end), defaults the model and working directory to the session's own, and an unknown id fails loudly with exit 1 instead of quietly starting over. `--model` and `--cwd` still override per-run.
+- **`loop run - < file` works.** Reading the prompt from a shell redirect printed the Usage error even though a pipe (`cat file | loop run -`) worked: in the bundled build, the stdin stream saw EOF without ever delivering a regular file's bytes — pipes only survived by arrival timing. Non-tty stdin is now read directly from the file descriptor, so redirects, pipes, and heredocs all behave the same; a tty keeps the old streaming path for interactive Ctrl+D input.
+
 ## [0.12.13] - 2026-07-18
 
 ### Fixed

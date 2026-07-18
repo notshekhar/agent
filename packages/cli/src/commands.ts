@@ -295,7 +295,8 @@ export async function cmdRun(args: Args): Promise<void> {
     await runPrint({
         prompt,
         modelId: (args.flags.model as string) || undefined,
-        cwd: (args.flags.cwd as string) || process.cwd(),
+        cwd: (args.flags.cwd as string) || undefined,
+        sessionId: (args.flags.session as string) || undefined,
         maxSteps,
     });
 }

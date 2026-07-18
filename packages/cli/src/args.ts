@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 export interface Args {
     cmd?: string;
     positional: string[];
@@ -43,6 +45,17 @@ export function parseArgs(argv: string[]): Args {
 
 /** Read stdin to EOF — `loop run -` takes its prompt piped (CI, long diffs). */
 export async function readStdinAll(): Promise<string> {
+    // Read the fd directly when stdin isn't a tty: in the bundled build the
+    // process.stdin stream sees EOF without data for regular-file stdin
+    // (`loop run - < file`), while pipes only survive by arrival timing (#5).
+    // A tty keeps the stream path so interactive typing + Ctrl+D still works.
+    if (!process.stdin.isTTY) {
+        try {
+            return readFileSync(0, "utf8");
+        } catch {
+            // Non-blocking or otherwise unreadable fd — fall back to the stream.
+        }
+    }
     let data = "";
     process.stdin.setEncoding("utf8");
     for await (const chunk of process.stdin) data += chunk;

@@ -17,21 +17,41 @@ import {
     settingsStore,
     PRODUCT_NAME,
 } from "@notshekhar/loop-core";
-import type { ProviderId } from "@notshekhar/loop-core";
+import type { ProviderId, Session } from "@notshekhar/loop-core";
 import { openBrowser } from "../open-browser";
 
 export interface PrintOptions {
     prompt: string;
     modelId?: string;
-    cwd: string;
+    /** Explicit --cwd; unset falls back to the resumed session's cwd, then process.cwd(). */
+    cwd?: string;
+    /** `--session <id>` — resume this session instead of creating one. Unknown id fails loudly. */
+    sessionId?: string;
     /** Step cap for the turn (`--max-steps`); unset = maxSteps setting / unlimited. */
     maxSteps?: number;
 }
 
 export async function runPrint(opts: PrintOptions): Promise<void> {
+    const manager = new SessionManager();
+    // Resume before model resolution: a resumed session carries its own model
+    // and cwd as defaults. open() throws on an unknown id — never fall back to
+    // a fresh session, silent forking is worse than an error (#4).
+    let resumed: Session | null = null;
+    if (opts.sessionId) {
+        try {
+            resumed = await manager.open(opts.sessionId);
+        } catch {
+            process.stderr.write(`Session not found: ${opts.sessionId} (see \`${PRODUCT_NAME} sessions\`)\n`);
+            process.exit(1);
+        }
+    }
+    const cwd = opts.cwd ?? resumed?.info.cwd ?? process.cwd();
     // No silent provider fallback — require an explicitly selected model.
     const modelId =
-        opts.modelId ?? getProjectModel(opts.cwd) ?? (settingsStore.get("defaultModel") as string | undefined);
+        opts.modelId ??
+        resumed?.info.model ??
+        getProjectModel(cwd) ??
+        (settingsStore.get("defaultModel") as string | undefined);
     if (!modelId) {
         process.stderr.write(
             `No model selected. Pass --model <provider/model>, or run ${PRODUCT_NAME} interactively and use /login + /provider first.\n`,
@@ -39,8 +59,7 @@ export async function runPrint(opts: PrintOptions): Promise<void> {
         process.exit(1);
     }
     const provider = (getActiveProvider() ?? parseModelId(modelId).provider) as ProviderId;
-    const manager = new SessionManager();
-    const session = await manager.create({ cwd: opts.cwd, provider, model: modelId });
+    const session = resumed ?? (await manager.create({ cwd, provider, model: modelId }));
     const tracker = new CostTracker();
     const emitter = asTurnEmitter(new EventEmitter());
     const abort = new AbortController();
@@ -84,7 +103,7 @@ export async function runPrint(opts: PrintOptions): Promise<void> {
         "SessionStart",
         "startup",
         { session_id: session.id, transcript_path: session.path, source: "startup" },
-        opts.cwd,
+        cwd,
     );
     for (const m of startHooks.messages) process.stderr.write(`\n[hook] ${m}\n`);
     for (const s of startHooks.terminalSequences) process.stdout.write(s);
@@ -92,8 +111,8 @@ export async function runPrint(opts: PrintOptions): Promise<void> {
 
     // Connect MCP servers before the turn (same gate as the agent loop) so
     // their tools are available headlessly. Closed after the turn finishes.
-    const mcpEnabled = isMcpEnabled() && isTrusted(opts.cwd);
-    if (mcpEnabled) await getMcpManager().init(opts.cwd);
+    const mcpEnabled = isMcpEnabled() && isTrusted(cwd);
+    if (mcpEnabled) await getMcpManager().init(cwd);
 
     // Load extensions so their tools/middleware apply headlessly too. No-op
     // when none are installed. Inject a browser opener but no `ui`: any
@@ -105,7 +124,7 @@ export async function runPrint(opts: PrintOptions): Promise<void> {
         session,
         modelId,
         userInput,
-        cwd: opts.cwd,
+        cwd,
         abortSignal: abort.signal,
         tracker,
         emitter,
@@ -125,7 +144,7 @@ export async function runPrint(opts: PrintOptions): Promise<void> {
             "SessionEnd",
             undefined,
             { session_id: session.id, transcript_path: session.path, reason: "exit" },
-            opts.cwd,
+            cwd,
         ),
         new Promise((r) => setTimeout(r, 3_000)),
     ]);
