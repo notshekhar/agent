@@ -49,12 +49,14 @@ function fakeTransport() {
 }
 
 /** Unknown-provider sends fail at getModel; keep budget for init under CI load. */
-async function until(cond: () => boolean, tries = 1000, ms = 10): Promise<void> {
+async function until(cond: () => boolean, label: string, tries = 1000, ms = 10): Promise<void> {
     for (let i = 0; i < tries; i++) {
         if (cond()) return;
         await new Promise((r) => setTimeout(r, ms));
     }
-    throw new Error("until: condition not met");
+    // Name the starved wait — the async stack loses the call site, and an
+    // unlabeled "condition not met" cost a week of red ci (see issue #3).
+    throw new Error(`until: condition not met: ${label}`);
 }
 
 describe("serve token", () => {
@@ -127,17 +129,17 @@ describe("multi-client broadcast + seq replay", () => {
                 params: { cwd, provider: "nope", model: "nope/model" },
             }) + "\n",
         );
-        await until(() => !!a.response(1));
+        await until(() => !!a.response(1), "session.create response");
         const sid = (a.response(1) as { result: { sessionId: string } }).result.sessionId;
         fb.feed(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "session.attach", params: { sessionId: sid } }) + "\n");
-        await until(() => !!b.response(1));
+        await until(() => !!b.response(1), "session.attach response (b)");
         expect((b.response(1) as { result: { running: boolean } }).result.running).toBe(false);
 
         // session.list reflects both watchers, and re-opening from b does NOT
         // reset the shared context (attached count survives).
         fb.feed(JSON.stringify({ jsonrpc: "2.0", id: 2, method: "session.open", params: { sessionId: sid } }) + "\n");
         fb.feed(JSON.stringify({ jsonrpc: "2.0", id: 3, method: "session.list", params: {} }) + "\n");
-        await until(() => !!b.response(3));
+        await until(() => !!b.response(3), "session.list response");
         const listed = (b.response(3) as { result: Array<{ id: string; attached: number; running: boolean }> }).result;
         expect(listed.find((s) => s.id === sid)?.attached).toBe(2);
 
@@ -151,6 +153,7 @@ describe("multi-client broadcast + seq replay", () => {
         await until(
             () =>
                 a.events().some((e) => e.part.type === "error") && b.events().some((e) => e.part.type === "error"),
+            "error event broadcast to a AND b",
         );
         const aEvents = a.events();
         const bEvents = b.events();
@@ -170,7 +173,7 @@ describe("multi-client broadcast + seq replay", () => {
                 params: { sessionId: sid, afterSeq: 0 },
             }) + "\n",
         );
-        await until(() => !!c.response(1) && c.events().length === total);
+        await until(() => !!c.response(1) && c.events().length === total, "attach replay to c");
         expect(c.events().length).toBe(total);
         expect((c.response(1) as { result: { resync: boolean; seq: number } }).result).toMatchObject({
             resync: false,
@@ -189,7 +192,7 @@ describe("multi-client broadcast + seq replay", () => {
                 params: { sessionId: sid, afterSeq: 9999 },
             }) + "\n",
         );
-        await until(() => !!d.response(1));
+        await until(() => !!d.response(1), "session.attach response (d, resync)");
         expect((d.response(1) as { result: { resync: boolean } }).result.resync).toBe(true);
         expect(d.events().length).toBe(0);
 
@@ -205,7 +208,7 @@ describe("multi-client broadcast + seq replay", () => {
                 params: { sessionId: sid, input: "again" },
             }) + "\n",
         );
-        await until(() => a.events().length > aBefore);
+        await until(() => a.events().length > aBefore, "post-detach error broadcast to a");
         expect(a.events().length).toBeGreaterThan(aBefore);
         expect(b.events().length).toBe(bBefore);
         // Real runTurn spins up a session + fails on the bogus provider; ~240ms

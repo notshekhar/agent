@@ -9,6 +9,18 @@ import { useTempSessionDb } from "./helpers/temp-db";
 
 useTempSessionDb();
 
+// One delegating providers mock for the whole file: bun module mocks leak
+// across test files, and already-bound importers can't be un-mocked later
+// (mock.restore() doesn't touch module mocks) — so the mock stays installed
+// but getModel is only fake while a test sets currentModel. See rpc.test.ts.
+let currentModel: MockLanguageModelV3 | null = null;
+const realProviders = await import("../src/providers");
+mock.module("../src/providers", () => ({
+    ...realProviders,
+    getModel: async (...args: Parameters<typeof realProviders.getModel>) =>
+        currentModel ?? realProviders.getModel(...args),
+}));
+
 const MODEL = "anthropic/claude-sonnet-4-6";
 
 function streamOf(events: any[]) {
@@ -30,7 +42,10 @@ function mkSession(dir: string) {
 }
 
 describe("turns survive being reopened from disk", () => {
-    afterEach(() => mock.restore());
+    afterEach(() => {
+        currentModel = null;
+        mock.restore();
+    });
 
     test("a multi-step (tool-call) turn keeps its final answer after reload", async () => {
         const dir = mkdtempSync(join(tmpdir(), "loop-reopen-ms-"));
@@ -65,8 +80,7 @@ describe("turns survive being reopened from disk", () => {
                 ]);
             },
         });
-        const realProviders = await import("../src/providers");
-        mock.module("../src/providers", () => ({ ...realProviders, getModel: async () => model }));
+        currentModel = model;
         const { runTurn, CostTracker } = await import("../src/agent");
 
         await runTurn({
@@ -113,8 +127,7 @@ describe("turns survive being reopened from disk", () => {
                     },
                 ]),
         });
-        const realProviders = await import("../src/providers");
-        mock.module("../src/providers", () => ({ ...realProviders, getModel: async () => model }));
+        currentModel = model;
         const { runTurn, CostTracker } = await import("../src/agent");
 
         const abort = new AbortController();

@@ -9,6 +9,18 @@ import { useTempSessionDb } from "./helpers/temp-db";
 
 useTempSessionDb();
 
+// One delegating providers mock for the whole file: bun module mocks leak
+// across test files, and already-bound importers can't be un-mocked later
+// (mock.restore() doesn't touch module mocks) — so the mock stays installed
+// but getModel is only fake while a test sets currentModel. See rpc.test.ts.
+let currentModel: MockLanguageModelV3 | null = null;
+const realProviders = await import("../src/providers");
+mock.module("../src/providers", () => ({
+    ...realProviders,
+    getModel: async (...args: Parameters<typeof realProviders.getModel>) =>
+        currentModel ?? realProviders.getModel(...args),
+}));
+
 // Streams reasoning deltas, then text deltas, slowly — like a reasoning model
 // that "thinks" before writing the answer. A turn can be interrupted in either
 // phase to check what survives.
@@ -44,7 +56,10 @@ describe("partial output is persisted when a turn is aborted mid-stream", () => 
     beforeEach(() => {
         dir = mkdtempSync(join(tmpdir(), "loop-abort-"));
     });
-    afterEach(() => mock.restore());
+    afterEach(() => {
+        currentModel = null;
+        mock.restore();
+    });
 
     async function runUntilAborted(opts: {
         reasoning: string;
@@ -55,8 +70,7 @@ describe("partial output is persisted when a turn is aborted mid-stream", () => 
         const model = new MockLanguageModelV3({
             doStream: async () => reasoningThenText(opts.reasoning, opts.text),
         });
-        const realProviders = await import("../src/providers");
-        mock.module("../src/providers", () => ({ ...realProviders, getModel: async () => model }));
+        currentModel = model;
         const { runTurn, CostTracker } = await import("../src/agent");
 
         const session = mkSession(dir, MODEL);

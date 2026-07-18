@@ -40,6 +40,8 @@ let doStreamImpl: (options: any) => Promise<any> = async () => textTurn("hello f
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let RpcServer: any, startSocketServer: any, RpcClient: any;
+let realProviders: typeof import("../src/providers");
+let providersMockActive = true;
 
 beforeAll(async () => {
     process.env.HOME = HOME;
@@ -49,9 +51,21 @@ beforeAll(async () => {
     setDbPathForTests(join(HOME, ".loop", "agent.db"));
     // Mock the model resolver BEFORE importing the server, so runTurn's binding
     // resolves to the mock. Every turn streams whatever doStreamImpl returns.
-    const realProviders = await import("../src/providers");
+    realProviders = await import("../src/providers");
     const model = new MockLanguageModelV3({ doStream: (options) => doStreamImpl(options) });
-    mock.module("../src/providers", () => ({ ...realProviders, getModel: async () => model }));
+    // The mock delegates through providersMockActive instead of being swapped
+    // out in afterAll: bindings resolve at import time (hence "mock BEFORE
+    // importing the server" above), so the rpc/server module cached by this
+    // file keeps THIS namespace forever — including when a later test file
+    // (rpc-serve.test.ts on CI's file order) imports it. mock.restore() does
+    // not undo mock.module, and a re-mock can't reach the stale binding; the
+    // leaked always-succeed getModel made rpc-serve's bogus-provider send
+    // never fail, timing out its error-event wait (the red ci since v0.12.8).
+    mock.module("../src/providers", () => ({
+        ...realProviders,
+        getModel: async (...args: Parameters<typeof realProviders.getModel>) =>
+            providersMockActive ? model : realProviders.getModel(...args),
+    }));
     ({ RpcServer, startSocketServer } = await import("../src/rpc/server"));
     ({ RpcClient } = await import("../src/rpc/client"));
 });
@@ -62,6 +76,10 @@ afterEach(() => {
 
 afterAll(async () => {
     mock.restore();
+    // Hand the real getModel back to whoever imports rpc/server after us —
+    // see the delegation comment in beforeAll.
+    providersMockActive = false;
+    mock.module("../src/providers", () => realProviders);
     // The RpcServer constructor init()s the process-global extension host; reset
     // it so a later test file gets a pristine (uninitialized) host.
     const { getExtensionHost } = await import("../src/extensions");
