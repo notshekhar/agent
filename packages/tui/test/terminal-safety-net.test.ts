@@ -40,6 +40,53 @@ describe("terminal exit safety net", () => {
         }
     });
 
+    test("clears the OSC 9;4 tab progress bar, but only when it was shown", () => {
+        const term = new ProcessTerminal() as unknown as {
+            resetKeyboardModesSync(): void;
+            setProgress(active: boolean): void;
+        };
+        const writeSync = spyOn(fs, "writeSync").mockImplementation(() => 0);
+        const write = spyOn(process.stdout, "write").mockImplementation(() => true);
+        try {
+            // Never shown → the reset string must not carry OSC 9;4 (old iTerm2
+            // renders unknown OSC 9 as a notification popup).
+            withTTY(true, () => term.resetKeyboardModesSync());
+            expect(writeSync).toHaveBeenLastCalledWith(1, RESET);
+
+            term.setProgress(true);
+            expect(write).toHaveBeenCalledWith("\x1b]9;4;3\x07");
+            withTTY(true, () => term.resetKeyboardModesSync());
+            expect(writeSync).toHaveBeenLastCalledWith(1, `\x1b]9;4;0\x07${RESET}`);
+
+            // The safety net consumed the active flag — a second pass is clean.
+            withTTY(true, () => term.resetKeyboardModesSync());
+            expect(writeSync).toHaveBeenLastCalledWith(1, RESET);
+        } finally {
+            term.setProgress(false); // stop the keepalive before the mock lifts
+            writeSync.mockRestore();
+            write.mockRestore();
+        }
+    });
+
+    test("setProgress(false) clears once while active, then goes quiet", () => {
+        const term = new ProcessTerminal() as unknown as { setProgress(active: boolean): void };
+        const write = spyOn(process.stdout, "write").mockImplementation(() => true);
+        try {
+            term.setProgress(false); // never shown — nothing to clear
+            expect(write).not.toHaveBeenCalled();
+
+            term.setProgress(true);
+            term.setProgress(false);
+            expect(write).toHaveBeenCalledWith("\x1b]9;4;0\x07");
+
+            write.mockClear();
+            term.setProgress(false); // already cleared — stays quiet
+            expect(write).not.toHaveBeenCalled();
+        } finally {
+            write.mockRestore();
+        }
+    });
+
     test("a fatal signal resets the terminal and exits 128+signo (no re-raise)", () => {
         const term = new ProcessTerminal() as unknown as { onFatalSignal(signal: NodeJS.Signals): void };
         const writeSync = spyOn(fs, "writeSync").mockImplementation(() => 0);

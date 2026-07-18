@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.13] - 2026-07-18
+
+### Fixed
+
+- **Terminal tab progress indicator actually works now.** The OSC 9;4 "working" indicator added for Ghostty/WezTerm/iTerm2 tabs sent state `1` (set percentage) with an invalid `-1`, which terminals drop or render as 0% — it now sends state `3` (indeterminate), so the tab shows a busy indicator for the whole turn. The working indicator also routes through the TUI terminal's single `setProgress` implementation instead of a second private copy of the escape-writing machinery.
+- **No more stuck tab progress after a crash or signal.** The indicator is now cleared on every exit path: the TUI's exit safety net (SIGINT/SIGTERM/SIGHUP and `process exit`) and `terminal.stop()` both emit the OSC 9;4 clear when the bar was shown. The clear is deliberately skipped when the bar never appeared, so old iTerm2 — which renders unknown OSC 9 as a notification popup — sees nothing.
+
 ## [0.12.12] - 2026-07-18
 
 ### Changed

@@ -11,7 +11,7 @@ const cjsRequire = createRequire(import.meta.url);
 
 const TERMINAL_PROGRESS_KEEPALIVE_MS = 1000;
 const TERMINAL_PROGRESS_ACTIVE_SEQUENCE = "\x1b]9;4;3\x07";
-const TERMINAL_PROGRESS_CLEAR_SEQUENCE = "\x1b]9;4;0;\x07";
+const TERMINAL_PROGRESS_CLEAR_SEQUENCE = "\x1b]9;4;0\x07";
 const APPLE_TERMINAL_SHIFT_ENTER_SEQUENCE = "\x1b[13;2u";
 const DESIRED_KITTY_KEYBOARD_PROTOCOL_FLAGS = 7;
 const KEYBOARD_PROTOCOL_RESPONSE_FRAGMENT_TIMEOUT_MS = 150;
@@ -111,6 +111,10 @@ export class ProcessTerminal implements Terminal {
     private stdinBuffer?: StdinBuffer;
     private stdinDataHandler?: (data: string) => void;
     private progressInterval?: ReturnType<typeof setInterval>;
+    // True while the OSC 9;4 tab indicator is shown. Gates the clear writes:
+    // OSC 9;4 must never reach a terminal that wasn't sent the active sequence
+    // (old iTerm2 renders unknown OSC 9 as a notification popup).
+    private progressActive = false;
     private exitSafetyNetInstalled = false;
     // Last-resort terminal restore. Bound once so add/removeListener pair up.
     private readonly onProcessExit = (): void => this.resetKeyboardModesSync();
@@ -446,7 +450,12 @@ export class ProcessTerminal implements Terminal {
             // idempotent no-ops when the modes are already off, so this
             // doubles as the startup cleanse for a predecessor killed with
             // SIGKILL.
-            fs.writeSync(1, "\x1b[<u\x1b[>4;0m\x1b[?2004l\x1b[?1000l\x1b[?1006l\x1b]111\x07\x1b]110\x07\x1b[?25h");
+            // The OSC 9;4 progress clear is NOT part of the static string: it
+            // only goes to terminals that were shown the indicator, so old
+            // iTerm2 (OSC 9 = notification popup) never sees it.
+            const progressClear = this.progressActive ? TERMINAL_PROGRESS_CLEAR_SEQUENCE : "";
+            this.progressActive = false;
+            fs.writeSync(1, `${progressClear}\x1b[<u\x1b[>4;0m\x1b[?2004l\x1b[?1000l\x1b[?1006l\x1b]111\x07\x1b]110\x07\x1b[?25h`);
         } catch {
             // stdout closed/redirected — nothing more we can do.
         }
@@ -479,7 +488,9 @@ export class ProcessTerminal implements Terminal {
 
     stop(): void {
         this.removeExitSafetyNet();
-        if (this.clearProgressInterval()) {
+        this.clearProgressInterval();
+        if (this.progressActive) {
+            this.progressActive = false;
             process.stdout.write(TERMINAL_PROGRESS_CLEAR_SEQUENCE);
         }
 
@@ -586,15 +597,19 @@ export class ProcessTerminal implements Terminal {
 
     setProgress(active: boolean): void {
         if (active) {
+            this.progressActive = true;
             // OSC 9;4;3 - indeterminate progress
             process.stdout.write(TERMINAL_PROGRESS_ACTIVE_SEQUENCE);
             if (!this.progressInterval) {
                 this.progressInterval = setInterval(() => {
                     process.stdout.write(TERMINAL_PROGRESS_ACTIVE_SEQUENCE);
                 }, TERMINAL_PROGRESS_KEEPALIVE_MS);
+                this.progressInterval.unref?.();
             }
         } else {
             this.clearProgressInterval();
+            if (!this.progressActive) return;
+            this.progressActive = false;
             // OSC 9;4;0 - clear progress
             process.stdout.write(TERMINAL_PROGRESS_CLEAR_SEQUENCE);
         }

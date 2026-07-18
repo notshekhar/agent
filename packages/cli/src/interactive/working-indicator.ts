@@ -8,15 +8,10 @@ export interface WorkingIndicator {
     hideWorking(): void;
 }
 
-// OSC 9;4 terminal tab progress bar (Ghostty, WezTerm, iTerm2 ≥ 3.6).
-// Unknown OSC is ignored elsewhere; old iTerm2 shows it as a popup — gated below.
-const OSC_PROGRESS_ON = "\x1b]9;4;1;-1\x07";
-const OSC_PROGRESS_OFF = "\x1b]9;4;0;0\x07";
-// Ghostty resets the indicator after ~15s of silence; re-send to keep alive.
-const OSC_KEEPALIVE_MS = 5_000;
-
+// OSC 9;4 terminal tab progress (Ghostty, WezTerm, iTerm2 ≥ 3.6). The writes
+// live in Terminal.setProgress; this gate exists because old iTerm2 renders
+// unknown OSC 9 as a notification popup instead of ignoring it.
 function supportsOscProgress(): boolean {
-    // ponytail: env sniff, skip iTerm2 < 3.6 which misreads OSC 9 as a notification
     const term = process.env.TERM_PROGRAM;
     if (term === "ghostty" || term === "WezTerm") return true;
     if (term === "iTerm.app") {
@@ -24,27 +19,6 @@ function supportsOscProgress(): boolean {
         return major > 3 || (major === 3 && minor >= 6);
     }
     return false;
-}
-
-function createTabProgress(): { start(): void; stop(): void } {
-    const supported = supportsOscProgress();
-    let keepalive: ReturnType<typeof setInterval> | null = null;
-    return {
-        start() {
-            if (!supported || keepalive) return;
-            process.stdout.write(OSC_PROGRESS_ON);
-            keepalive = setInterval(() => process.stdout.write(OSC_PROGRESS_ON), OSC_KEEPALIVE_MS);
-            keepalive.unref?.();
-        },
-        stop() {
-            if (!supported) return;
-            if (keepalive) {
-                clearInterval(keepalive);
-                keepalive = null;
-                process.stdout.write(OSC_PROGRESS_OFF);
-            }
-        },
-    };
 }
 
 /**
@@ -58,7 +32,7 @@ export function createWorkingIndicator(
     statusIdleSpacer: Component,
 ): WorkingIndicator {
     let workingLoader: Loader | null = null;
-    const tabProgress = createTabProgress();
+    const oscProgress = supportsOscProgress();
 
     function showWorking(message = "Generating…"): void {
         const fullMsg = `${message} ${chalk.dim("(Esc to interrupt)")}`;
@@ -75,12 +49,12 @@ export function createWorkingIndicator(
         statusContainer.clear();
         statusContainer.addChild(workingLoader);
         workingLoader.start();
-        tabProgress.start();
+        if (oscProgress) tui.terminal.setProgress(true);
         tui.requestRender();
     }
 
     function hideWorking(): void {
-        tabProgress.stop();
+        if (oscProgress) tui.terminal.setProgress(false);
         if (!workingLoader) return;
         workingLoader.stop();
         statusContainer.clear();
