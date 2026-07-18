@@ -424,6 +424,8 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
 
     const cleanExit = (code = 0) => {
         stopTicker();
+        // Clear the OSC 9;4 tab progress bar before leaving the TUI.
+        hideWorking();
         tui.stop();
         // Give the terminal its own background back (OSC 111; no-op unwashed).
         resetCanvasWash();
