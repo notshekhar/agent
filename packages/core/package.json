@@ -1,6 +1,6 @@
 {
     "name": "@notshekhar/loop-core",
-    "version": "0.12.11",
+    "version": "0.12.12",
     "description": "Core engine for loop — auth, providers, catalog, sessions, agent loop, tools, RPC.",
     "license": "MIT",
     "type": "module",
@@ -40,7 +40,7 @@
         "@aws-sdk/credential-providers": "^3.1079.0",
         "@notshekhar/loop-sandbox": "*",
         "@notshekhar/loop-web": "*",
-        "@openrouter/ai-sdk-provider": "6.0.0-alpha.1",
+        "@openrouter/ai-sdk-provider": "^3.0.0",
         "ai": "^7.0.31",
         "aws4fetch": "^1.0.20",
         "configstore": "^8.0.0",

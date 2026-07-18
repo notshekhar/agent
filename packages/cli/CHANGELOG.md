@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.12] - 2026-07-18
+
+### Changed
+
+- **OpenRouter provider off the alpha.** `@openrouter/ai-sdk-provider` moves from the pinned `6.0.0-alpha.1` pre-release to the current stable `^3.0.0` release line (upstream's versioning jumped 3.0.0 → 6.0.0-alpha, so the lower number is the newer build). The stable line ships against the `@ai-sdk/provider@4` spec — the alpha was v3-spec — and is the release line upstream supports for `ai@^7`: no more "backward-compat keeps it working", this is the intended pairing.
+- **Dependency sweep.** `@aws-sdk/credential-providers` 3.1090.0, `shell-quote` 1.10.0, `marked` 18.0.6, plus dev bumps (`@types/node` 26.1.1, prettier 3.9.5). The monorepo root also dropped its duplicate `@ai-sdk/*` entries — they only ever belonged to `@notshekhar/loop-core`, which already pinned the same versions. Build, typecheck, and the full test suite verified.
+
 ## [0.12.11] - 2026-07-17
 
 ### Fixed
