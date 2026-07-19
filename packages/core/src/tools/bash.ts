@@ -29,6 +29,7 @@ import {
     getPermissionRules,
     isDangerousCommand,
 } from "./utils/permission-rules";
+import { findContextFileDeletion, formatContextFileRefusal } from "./utils/context-file-guard";
 import { getBashApprovalBridge } from "./approval-bridge";
 import { isPlanModeActive } from "./utils/plan-mode";
 import { getSetting, setSetting } from "../settings";
@@ -297,7 +298,16 @@ export function createBashTool(ctx: BashToolContext) {
                 if (decision === "always" && patterns.length > 0) addProjectBashAllow(projectDir, patterns);
             };
 
-            if (ruleVerdict?.action === "ask") {
+            // Workspace context files (AGENTS.md / CLAUDE.md) are never
+            // deleted or moved on the model's initiative: prompt when
+            // interactive, fail closed otherwise. Remembered grants don't
+            // satisfy this (like other dangerous commands); only an explicit
+            // whole-command allow rule in configuration skips it.
+            const contextHit = ruleVerdict?.action !== "allow" ? findContextFileDeletion(command) : null;
+            if (contextHit) {
+                if (!bridge) throw new Error(formatContextFileRefusal(contextHit));
+                await promptUser(`deletes workspace context file ${contextHit.file}`);
+            } else if (ruleVerdict?.action === "ask") {
                 // An ask rule forces a prompt in every mode — even when the
                 // bashApprove setting is off. A remembered grant satisfies it
                 // (grok parity) unless the command is dangerous. Without an

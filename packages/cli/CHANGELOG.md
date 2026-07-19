@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.12.15] - 2026-07-19
+
+### Added
+
+- **Workspace context files are protected from the agent.** The bash tool now refuses to delete or move `AGENTS.md` / `CLAUDE.md` (`rm`, `unlink`, `shred`, `trash`, `mv`, `git rm`, `git mv` — per segment, so chained, wrapped, and absolute-path forms are caught) on the model's own initiative. These files feed the system prompt every turn; losing one silently changes how the agent behaves in the repo. Interactively the attempt shows the normal approval prompt; in print mode / RPC it fails closed with an instructive refusal. An explicit whole-command `allow` permission rule still approves it — a deliberate written decision, same as the other dangerous commands — but remembered "always allow" grants never do. Verified live: the agent's `rm <abs-path>/CLAUDE.md` is refused and the file survives.
+
 ## [0.12.14] - 2026-07-18
 
 ### Fixed
