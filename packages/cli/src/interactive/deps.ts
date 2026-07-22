@@ -24,7 +24,7 @@ export interface AppDeps {
     renderPending: () => void;
     showWorking: (msg?: string) => void;
     hideWorking: () => void;
-    showSelector: (component: Container, focusable: Container | SelectList) => () => void;
+    showSelector: (component: Container, focusable: Container | SelectList, label?: string) => () => void;
     /** Open-selector count — >0 means a menu/prompt owns the input right now. */
     getSelectorDepth: () => number;
     selectOnce: (items: SelectItem[], title?: string, opts?: { initialIndex?: number }) => Promise<SelectItem | null>;

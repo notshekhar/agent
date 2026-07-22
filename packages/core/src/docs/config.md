@@ -39,6 +39,11 @@ Other notable keys (all managed via `/settings` too):
   runs (`[>]` in progress, `[-]` cancelled) and retired into the scrollback
   as a one-line summary when the turn ends. Lists persist with the session
   (`/resume`, `/fork`, `/tree` restore them). Default off.
+- `"herdr": false` — disables herdr agent-state reporting. Default on, and
+  only ever active inside a [herdr](https://herdr.dev) pane (detected via the
+  env herdr injects): the pane's sidebar entry shows `loop` with live
+  working / blocked (waiting on a prompt) / idle state and the session id,
+  via herdr's socket API. Outside herdr this does nothing at all.
 - `"skills": false` — disables skills. Default on (gated by project trust):
   skills are SKILL.md folders under `~/{{dir}}/agent/skills/` (global) and
   `<cwd>/{{dir}}/skills/` (project); the agent loads one via the `skill`

@@ -70,6 +70,10 @@ export interface AppSettings {
      * saved by the agent with its normal write tool and recalled via an
      * index-only prompt block. Default ON; set false to disable entirely. */
     memory?: boolean;
+    /** Report agent state (working/blocked/idle + session) to herdr's socket
+     * API when running inside a herdr pane. Only ever does anything under
+     * herdr (HERDR_ENV). Default ON; set false to disable reporting. */
+    herdr?: boolean;
     skills?: boolean;
     agent?: string;
     /** User-defined command aliases: name → expansion ("/model gpt …"). Managed via /alias. */

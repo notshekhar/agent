@@ -16,7 +16,11 @@ export function buildSelectorWrapper(items: SelectItem[], title: string | undefi
 
 export interface SelectorHost {
     tui: TUI;
-    showSelector: (component: Container, focusable: Container | SelectList) => () => void;
+    /** `label` marks an agent-driven wait ("question", "bash approval") and
+     * names it for agent-state watchers, which show the pane as blocked while
+     * the prompt is open. Menus the user opened themselves must leave it
+     * unset — they are not the agent waiting on input. */
+    showSelector: (component: Container, focusable: Container | SelectList, label?: string) => () => void;
 }
 
 type TuiWithInput = TUI & {

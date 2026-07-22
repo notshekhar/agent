@@ -64,7 +64,9 @@ export function createBashApprovalBridge(host: SelectorHost): BashApprovalBridge
             wrapper.addChild(new DynamicBorder());
             wrapper.addChild(new Text(chalk.dim(" ↑↓ navigate · Enter select · Esc denies"), 0, 0));
 
-            const close = host.showSelector(wrapper, list);
+            const statusLabel =
+                kind === "path" ? "file access approval" : kind === "plan" ? "plan approval" : "bash approval";
+            const close = host.showSelector(wrapper, list, statusLabel);
             let done = false;
             const onAbort = () => finish("deny");
             const finish = (v: BashApprovalDecision) => {

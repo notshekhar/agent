@@ -101,7 +101,7 @@ export function createAskUserBridge(deps: AskUserDeps): AskUserBridge {
         new Promise((resolve) => {
             const list = new SelectList(items, Math.min(items.length, 10), getSelectListTheme());
             if (opts?.initialIndex) list.setSelectedIndex(opts.initialIndex);
-            const close = host.showSelector(buildWrapper(q, progress, list, help), list);
+            const close = host.showSelector(buildWrapper(q, progress, list, help), list, `question: ${q.header}`);
             let done = false;
             let cleanup: (() => void) | undefined;
             const onAbort = () => finish(null);
@@ -131,7 +131,7 @@ export function createAskUserBridge(deps: AskUserDeps): AskUserBridge {
                 editor,
                 "Enter to submit · Shift+Enter newline · Esc back to options",
             );
-            const close = host.showSelector(wrapper, editor as never);
+            const close = host.showSelector(wrapper, editor as never, `question: ${q.header}`);
             let done = false;
             let removeEsc: (() => void) | undefined;
             const onAbort = () => finish("");

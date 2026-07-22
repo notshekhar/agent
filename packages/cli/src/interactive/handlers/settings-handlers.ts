@@ -57,6 +57,7 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
         reminders: true,
         mcp: true,
         bashApprove: false,
+        herdr: true,
     };
     const boolSetting = (key: string): boolean =>
         (settingsStore.get(key) as boolean | undefined) ?? BOOLEAN_DEFAULTS[key];
@@ -186,6 +187,12 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                         value: "mcp",
                         label: `mcp servers: ${boolSetting("mcp") ? "on" : "off"}`,
                         description: "connect configured MCP servers and expose their tools (/mcp to manage)",
+                    },
+                    {
+                        value: "herdr",
+                        label: `herdr reporting: ${boolSetting("herdr") ? "on" : "off"}`,
+                        description:
+                            "report working/blocked/idle to herdr panes (no-op outside herdr; applies next launch)",
                     },
                     {
                         value: "bashDeny",

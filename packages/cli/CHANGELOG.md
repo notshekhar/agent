@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.13.1] - 2026-07-23
+
+### Added
+
+- **herdr integration.** Running inside a [herdr](https://herdr.dev) pane, loop now reports its state natively over herdr's socket API: the sidebar shows `loop` with live **working / blocked / idle**, the session id rides along (re-announced across `/new`, `/resume`, and forks), and the pane is released back to herdr's own detection on exit. Blocked means *the agent is waiting on you* — ask-tool questions and bash/file/plan approval prompts, each labeled ("question: <header>", "bash approval") so herdr can show why — while menus you opened yourself (`/settings`, pickers) deliberately never count, matching how herdr treats Claude's own menus. herdr's completion and needs-attention sounds now fire for loop panes exactly as they do for officially integrated agents. Under the hood this is a generic per-pane agent-status bus fed by the two seams that already see everything (the working indicator and the modal-prompt host), with the herdr reporter as one consumer: hard-gated on the env herdr injects (`HERDR_ENV` + socket + pane id) so it is completely inert outside herdr, fire-and-forget sends with a hard timeout so a dead or restarting herdr server can never slow the TUI, and an ordered send queue with strictly increasing seq. `"herdr": false` in settings (or the `/settings` row) turns it off. Verified end-to-end against a live socket server driving the real TUI.
+- **`Notification` hook fires for interactive prompts.** When an agent-driven prompt opens mid-turn (ask tool, approval prompts), the Claude Code–compatible `Notification` hook now fires with `message: "Waiting for input: <label>"` — previously it only fired for PreToolUse denials. Agent-state watchers and custom notification hooks get the same "needs attention" signal Claude Code gives them; user-opened menus don't trigger it.
+
+### Changed
+
+- **AI SDK refresh.** `ai` 7.0.35 and provider bumps (@ai-sdk/openai 4.0.18, google 4.0.22, amazon-bedrock 5.0.28), plus a model-catalog regeneration picking up new upstream models and pricing. Tests, typecheck, build, and live streaming verified against the new versions.
+
 ## [0.13.0] - 2026-07-22
 
 ### Added

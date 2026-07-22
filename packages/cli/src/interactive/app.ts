@@ -45,6 +45,8 @@ import {
     latestTodos,
     setAskUserBridge,
     setBashApprovalBridge,
+    getSetting,
+    PRODUCT_NAME,
     type ThinkingLevel,
     type ProviderId,
     type Session,
@@ -71,6 +73,8 @@ import { isEventTraceEnabled, setEventTraceSink, toggleEventTrace } from "./debu
 import { createTurnRunner } from "./turn-runner";
 import { createStatusLineRefresher } from "./status-line-refresh";
 import { createWorkingIndicator } from "./working-indicator";
+import { createAgentStatusBus } from "./agent-status";
+import { attachHerdrReporter } from "./herdr-reporter";
 import { createTicker } from "./ticker";
 import { registerAppKeybindings } from "./app-keybindings";
 import { installConsoleBridge } from "./console-bridge";
@@ -300,12 +304,58 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
             tui.requestRender();
         });
 
-    const { showWorking, hideWorking } = createWorkingIndicator(tui, statusContainer, statusIdleSpacer);
+    const workingIndicator = createWorkingIndicator(tui, statusContainer, statusIdleSpacer);
+
+    // Agent-status bus: the semantic working/blocked/idle state of this pane.
+    // Fed by the two seams that already see everything — the working
+    // indicator (turns, compaction, hook commands, goal mode, Esc-interrupt)
+    // and showSelector below (every modal prompt). Consumed by agent-state
+    // watchers: the herdr reporter and the Notification hook bridge.
+    const agentStatus = createAgentStatusBus();
+    const showWorking = (message?: string): void => {
+        agentStatus.setWorking();
+        workingIndicator.showWorking(message);
+    };
+    const hideWorking = (): void => {
+        agentStatus.setIdle();
+        workingIndicator.hideWorking();
+    };
+
+    // herdr agent-state reporting (inert outside a herdr pane).
+    const herdr = attachHerdrReporter(agentStatus, {
+        getSession: () => (state.session ? { id: state.session.id, path: state.session.path } : null),
+        disabled: getSetting("herdr") === false,
+    });
+
+    // Notification hook on agent-driven waits (Claude Code parity): when a
+    // prompt opens mid-turn, external watchers get the "needs attention"
+    // signal — same event the PreToolUse-denial path in core fires. Gated on
+    // state.busy so user-opened menus (/provider, /theme) don't ping.
+    agentStatus.on((e) => {
+        if (e.status !== "blocked" || !state.busy) return;
+        void runHooks(
+            "Notification",
+            undefined,
+            {
+                session_id: state.session?.id,
+                transcript_path: state.session?.path,
+                message: `Waiting for input: ${e.label ?? "prompt"}`,
+                title: PRODUCT_NAME,
+            },
+            state.cwd,
+        ).then((n) => {
+            for (const s of n.terminalSequences) process.stdout.write(s);
+        });
+    });
 
     // Open-selector count — timer/reminder prompts wait until the slot is free.
     let selectorDepth = 0;
-    function showSelector(component: Container, focusable: Container | SelectList): () => void {
+    function showSelector(component: Container, focusable: Container | SelectList, label?: string): () => void {
         selectorDepth++;
+        // Every modal prompt passes through here — but only agent-driven
+        // waits (labeled: ask tool, approvals) count as blocked for watchers.
+        // User-opened menus (/settings, pickers) are not the agent waiting.
+        const modalClosed = label ? agentStatus.modalOpened(label) : undefined;
         editorContainer.clear();
         editorContainer.addChild(component);
         tui.setFocus(focusable as never);
@@ -313,6 +363,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         tui.requestRender();
         return () => {
             selectorDepth--;
+            modalClosed?.();
             editorContainer.clear();
             editorContainer.addChild(editor);
             tui.setFocus(editor);
@@ -435,14 +486,19 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         void getExtensionHost().close();
         // Close any open datasource connection pools.
         void closeAllPools();
-        // SessionEnd hooks: give them a moment, then exit regardless.
+        // SessionEnd hooks + herdr release: give them a moment, then exit
+        // regardless. Release hands the pane back to herdr's own detection so
+        // the sidebar doesn't keep showing a stale loop state.
         void Promise.race([
-            runHooks(
-                "SessionEnd",
-                undefined,
-                { session_id: state.session?.id, transcript_path: state.session?.path, reason: "exit" },
-                state.cwd,
-            ),
+            Promise.allSettled([
+                runHooks(
+                    "SessionEnd",
+                    undefined,
+                    { session_id: state.session?.id, transcript_path: state.session?.path, reason: "exit" },
+                    state.cwd,
+                ),
+                herdr.release(),
+            ]),
             new Promise((r) => setTimeout(r, 3_000)),
         ]).finally(() => {
             // Checkpoint + close the session DB last — SessionEnd hooks above
