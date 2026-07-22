@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.13.0] - 2026-07-22
+
+### Added
+
+- **Goal mode.** `/goal <objective>` drives the current session autonomously until an adversarial verifier agrees the objective is met. On start, a hidden read-only planner writes a frozen plan (acceptance criteria + a `- [ ]` task checklist) — fail-closed: no usable plan, no goal. After every turn the harness mines the plan's first unchecked checkbox into a continuation nudge and resubmits, at zero extra model cost per round; turn-final hand-off phrases ("stopping here", "let me know if…") get an explicit anti-bail nudge instead. When the checklist runs out, a fresh read-only adversarial verifier (its own context — it never sees the implementer's narration) audits the workspace against the plan: tests must honestly drive the shipped code (hardcoded expectations, mocked-out units, and started-past-the-unit scenarios count as no evidence), fabricated claims and leftover TODO/skipped-test markers refute. Refuted findings feed the next round as a concrete punch list, with an anti-ratchet rule on re-verification (the bar never rises between rounds) so goals converge instead of chasing fresh nitpicks; a clean verdict completes the goal with an OS notification. Esc pauses rather than kills; `/goal pause | resume | status | clear`; guard rails auto-pause instead of burning tokens (40-round cap, 10-verification cap, identical-gaps stall detection, a stuck checklist forces verification). Goal state, the plan, and a scratch dir persist per session under `~/.loop/agent/goal-mode/`, so `/resume` picks a goal back up. Planner/verifier spend is billed to the session under their own ledger sources (`goal-planner`, `goal-verifier`) and reconciles in `loop cost audit`. Verified end-to-end in the real TUI: plan frozen verbatim (including refusing to "correct" a typo'd objective), one implementation turn, verifier passed on the first run.
+
+### Changed
+
+- **`/goal` (background tasks) is now `/background`.** The old `/goal` surface — on-demand detached runs and once/cron-scheduled tasks — moves to `/background` (alias `/bg`): bare opens the same manager, `/background <text>` is the same AI quick-add, `/daemon` is unchanged. The `/goals` alias is gone; the `goal` name now belongs to goal mode above. Headless runs are named `background: <text>`, and `loop background` works alongside the unchanged `loop goals` CLI subcommand (kept verbatim so already-installed daemons keep firing).
+- **AI SDK refresh.** `ai` 7.0.34 and the `@ai-sdk/*` provider line (anthropic 4.0.18, openai 4.0.17, google 4.0.21, xai 4.0.18, amazon-bedrock 5.0.27, cerebras 3.0.14, deepseek 3.0.13, groq 4.0.13, mistral 4.0.14, mcp 2.0.16). Tests, typecheck, build, and live streaming verified against the new versions.
+
 ## [0.12.15] - 2026-07-19
 
 ### Added

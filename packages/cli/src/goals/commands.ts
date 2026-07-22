@@ -1,6 +1,6 @@
 /**
- * `<product> goals …` — the CLI face of /goal: CRUD, a manual tick, and the
- * OS-scheduler install. The TUI manager (/goal) is the richer surface; this
+ * `<product> goals …` — the CLI face of /background: CRUD, a manual tick, and
+ * the OS-scheduler install. The TUI manager (/background) is the richer surface; this
  * one exists so the daemon has something to invoke and headless boxes can be
  * scripted.
  */
@@ -34,17 +34,17 @@ function describeLastRun(goal: Goal): string {
 function usage(): void {
     console.log(`Usage: ${PRODUCT_NAME} goals <command>
 
-  list                          show goals with schedule and last-run status
-  add <text> [options]          add a goal
+  list                          show background tasks with schedule and last-run status
+  add <text> [options]          add a background task
       --cron "<expr>"           run on a cron schedule
       --every <30m|2h|1d>       run on an interval (sugar for --cron)
       --at "<when>"             run once (e.g. "18:30", "2h", "tomorrow 9:00")
-      --cwd <dir>               directory the goal runs in (default: here)
+      --cwd <dir>               directory the task runs in (default: here)
       --model <provider/model>  model for scheduled runs
-      --agent <name>            agent the goal runs under
-  rm <id-prefix>                delete a goal
-  run <id-prefix>               run a goal now (headless)
-  tick                          run all due goals, then exit (what the daemon calls)
+      --agent <name>            agent the task runs under
+  rm <id-prefix>                delete a background task
+  run <id-prefix>               run a background task now (headless)
+  tick                          run all due tasks, then exit (what the daemon calls)
   daemon install|uninstall|status
                                 manage the background scheduler (launchd/systemd)
 

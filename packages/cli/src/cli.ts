@@ -69,6 +69,7 @@ async function main(): Promise<void> {
             await (await commands()).cmdRun(args);
             return;
         case "goals":
+        case "background":
             await (await import("./goals/commands")).cmdGoals(args);
             return;
         case "models":

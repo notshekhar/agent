@@ -66,10 +66,17 @@ Other notable keys (all managed via `/settings` too):
   rules via `<cwd>/{{dir}}/settings.json` under the same key. Read
   `{{name}}://docs/permissions.md` for the full rule syntax, matching
   semantics, and evaluation order before editing these.
-- Goals (background/scheduled tasks) are managed with `/goal` in the TUI or
-  `{{name}} goals` on the CLI (add/list/rm/run/tick); the background scheduler
-  toggles with `/daemon` (or `{{name}} goals daemon install|uninstall|status`).
-  Goals live in {{name}}'s internal database, not in settings.json.
+- Background tasks (detached/scheduled runs) are managed with `/background`
+  in the TUI or `{{name}} goals` on the CLI (add/list/rm/run/tick); the
+  background scheduler toggles with `/daemon` (or
+  `{{name}} goals daemon install|uninstall|status`). Background tasks live in
+  {{name}}'s internal database, not in settings.json.
+- Goal mode (`/goal <objective>` in the TUI) drives the current session
+  autonomously: a planner writes a plan, the agent keeps working turn after
+  turn, and an adversarial verifier audits the result before the goal
+  completes (`/goal pause|resume|status|clear`). Its plan/state files live
+  under `~/{{dir}}/agent/goal-mode/<session>/` — nothing to configure in
+  settings.json.
 
 ## Hard reload — REQUIRED after any config change
 

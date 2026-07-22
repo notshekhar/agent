@@ -20,6 +20,7 @@ import { createSubagentStream } from "./subagent-stream";
 import { wireTurnEmitter } from "./turn-emitter";
 import { traceEvent } from "./debug-log";
 import { uiStyle } from "./ui/ui-mode";
+import { goalModeEngine } from "./goal-mode";
 
 /**
  * Whether the leading /token of an input maps to a registered slash command.
@@ -187,6 +188,12 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
             showWorking,
             refreshStatusLine,
         });
+        // Goal mode reads the turn's final text (bail phrases, verifier
+        // input) — accumulate it here rather than re-parsing history.
+        let assistantText = "";
+        emitter.on("text-delta", (t: string) => {
+            assistantText += t;
+        });
         // Plan delivery: stash the plan tool's input so the follow-up flow
         // (implement / talk) can run once the turn has fully wound down.
         emitter.on("tool-call", (part: { toolName?: string; input?: unknown }) => {
@@ -253,6 +260,10 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
             const plan = state.pendingPlan;
             state.pendingPlan = null;
             if (plan && !turnSignal.aborted) await offerPlanFollowUp(plan);
+            // Goal mode: decide whether this session's goal continues, gets
+            // verified, or pauses — may resubmit through onSubmit. No-op when
+            // no goal is active or user input is queued.
+            goalModeEngine(state, deps).afterTurn(assistantText, turnSignal.aborted);
             // Drain the next queued input (FIFO), whatever its type. Each fresh
             // turn/command re-reads state.
             drainNext();

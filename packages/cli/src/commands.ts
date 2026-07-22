@@ -101,7 +101,7 @@ Usage:
   ${PRODUCT_NAME} login [provider]    Configure provider auth
   ${PRODUCT_NAME} logout [provider]   Remove auth
   ${PRODUCT_NAME} sessions            List sessions in current cwd
-  ${PRODUCT_NAME} goals <cmd>         Manage goals (list, add, rm, run, tick, daemon…)
+  ${PRODUCT_NAME} goals <cmd>         Manage background tasks (list, add, rm, run, tick, daemon…)
   ${PRODUCT_NAME} models              List available models
   ${PRODUCT_NAME} whoami              Show active provider + auth status
   ${PRODUCT_NAME} cost audit          Verify the cost ledger reconciles (self-audit)
@@ -192,7 +192,7 @@ export async function cmdSessions(): Promise<void> {
         return;
     }
     for (const s of sessions) {
-        // Named sessions (goal runs are always "goal: <text>") show the name —
+        // Named sessions (background runs are always "background: <text>") show the name —
         // it identifies the session far better than the first prompt line.
         const preview = s.name ?? s.firstUserMessage?.split("\n")[0] ?? "";
         console.log(`${s.id}  ${s.model}  ${new Date(s.mtime).toISOString()}  ${preview}`);

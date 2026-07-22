@@ -1,7 +1,7 @@
 /**
  * Headless goal execution — the runPrint recipe with the stream swapped for
  * an accumulator. Each run is a normal persisted session (named
- * "goal: <text>") so the TUI can list and resume it; the outcome lands on the
+ * "background: <text>") so the TUI can list and resume it; the outcome lands on the
  * goal row (last_run_*) and in a desktop notification.
  *
  * DB lifecycle belongs to the caller (the tick loop) — no closeDb() here.
@@ -59,7 +59,7 @@ export async function runGoal(goal: Goal): Promise<GoalRunResult> {
     ) as ProviderId;
     const manager = new SessionManager();
     const session = await manager.create({ cwd: goal.cwd, provider, model: modelId });
-    await session.setName(`goal: ${goal.text}`);
+    await session.setName(`background: ${goal.text}`);
     recordGoalRunStart(goal.id, session.id);
 
     const tracker = new CostTracker();

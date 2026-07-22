@@ -42,7 +42,7 @@ type SessionHandlers = Pick<
 /**
  * Open a session by id or transcript path and swap it in as the live session
  * (model, status line, cost tracker, replayed history). Shared by /resume and
- * the /goal manager's "open last run".
+ * the /background manager's "open last run".
  */
 export async function resumeSessionById(state: AppState, deps: AppDeps, idOrPath: string): Promise<void> {
     const { tui, history, statusLine, tracker, manager, refreshStatusLine } = deps;

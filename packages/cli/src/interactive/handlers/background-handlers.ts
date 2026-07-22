@@ -1,8 +1,8 @@
 /**
- * /goal — background tasks and scheduled runs. Bare /goal opens the manager
- * (same selector CRUD flow as /reminder); `/goal <text>` parses the text and
- * either runs it immediately in the background (no time mentioned) or
- * schedules it (once/cron, executed by the goals daemon —
+ * /background — background tasks and scheduled runs. Bare /background opens
+ * the manager (same selector CRUD flow as /reminder); `/background <text>`
+ * parses the text and either runs it immediately in the background (no time
+ * mentioned) or schedules it (once/cron, executed by the background daemon —
  * `<product> goals daemon install`). Background runs are detached headless
  * processes so the TUI never blocks on them.
  */
@@ -34,11 +34,11 @@ import { daemonInstall, daemonStatus, daemonUninstall, isDaemonInstalled } from 
 import { nextCronRun } from "../../goals/schedule";
 import { resumeSessionById } from "./session-handlers";
 
-type GoalHandlers = Pick<CommandContext, "manageGoals" | "manageDaemon">;
+type BackgroundHandlers = Pick<CommandContext, "manageBackground" | "manageDaemon">;
 
 const ADD = "\x00add";
 
-export function createGoalHandlers(state: AppState, deps: AppDeps): GoalHandlers {
+export function createBackgroundHandlers(state: AppState, deps: AppDeps): BackgroundHandlers {
     const { tui, history, selectOnce, searchOnce, promptOnce, showWorking, hideWorking, tracker } = deps;
 
     const say = (text: string) => {
@@ -58,7 +58,7 @@ export function createGoalHandlers(state: AppState, deps: AppDeps): GoalHandlers
                 { value: "once", label: "once", description: "10m · 18:30 · 2026-06-15 09:00" },
                 { value: "cron", label: "cron", description: "e.g. 0 9 * * 1-5 (weekdays 9:00)" },
             ],
-            "Goal schedule",
+            "Background task schedule",
         );
         if (!kind) return null;
         if (kind.value === "none") return { kind: "none" };
@@ -107,23 +107,22 @@ export function createGoalHandlers(state: AppState, deps: AppDeps): GoalHandlers
 
     /**
      * AI quick-add: parse the raw text into objective + schedule + agent,
-     * confirm before acting. No time mentioned = run in the background NOW
-     * (matching how background tasks work everywhere else); a time makes it a
-     * scheduled goal for the daemon. On parse failure the goal is saved
-     * without running — a garbled schedule must not trigger unattended work —
-     * and /goal <text> never errors out.
+     * confirm before acting. No time mentioned = run in the background NOW;
+     * a time makes it a scheduled task for the daemon. On parse failure the
+     * task is saved without running — a garbled schedule must not trigger
+     * unattended work — and /background <text> never errors out.
      */
     async function quickAdd(raw: string): Promise<void> {
         if (listGoals().length >= MAX_GOALS) {
-            say(chalk.yellow(`goal limit reached (max ${MAX_GOALS}) — delete one first`));
+            say(chalk.yellow(`background task limit reached (max ${MAX_GOALS}) — delete one first`));
             return;
         }
         const fallback = (note: string) => {
             const goal = addGoal(raw, state.cwd, { kind: "none" }, { agent: resolveAgent(null) });
-            say(`${chalk.dim(note)}\nsaved — run or schedule it in /goal: ${goal.text}`);
+            say(`${chalk.dim(note)}\nsaved — run or schedule it in /background: ${goal.text}`);
         };
 
-        showWorking("Parsing goal");
+        showWorking("Parsing background task");
         tui.requestRender();
         let text = raw;
         let schedule: GoalSchedule | null = null;
@@ -169,7 +168,7 @@ export function createGoalHandlers(state: AppState, deps: AppDeps): GoalHandlers
                 { value: "schedule", label: "edit schedule", description: describeSchedule(schedule) },
                 { value: "cancel", label: "cancel" },
             ],
-            `goal: ${text}`,
+            `background: ${text}`,
         );
         if (!choice || choice.value === "cancel") return;
         if (choice.value === "schedule") {
@@ -183,10 +182,14 @@ export function createGoalHandlers(state: AppState, deps: AppDeps): GoalHandlers
             return;
         }
         say(
-            `goal added — ${goal.text}  ·  ${describeSchedule(schedule)}${goal.agent ? `  ·  agent ${goal.agent}` : ""}`,
+            `background task added — ${goal.text}  ·  ${describeSchedule(schedule)}${goal.agent ? `  ·  agent ${goal.agent}` : ""}`,
         );
         if (!isDaemonInstalled()) {
-            say(chalk.yellow("the goals daemon is off — this goal will NOT run on its own. Turn it on with /daemon"));
+            say(
+                chalk.yellow(
+                    "the background daemon is off — this task will NOT run on its own. Turn it on with /daemon",
+                ),
+            );
         }
     }
 
@@ -215,7 +218,7 @@ export function createGoalHandlers(state: AppState, deps: AppDeps): GoalHandlers
         if (listGoals().some((g) => g.enabled && g.kind !== "none") && !isDaemonInstalled()) {
             say(
                 chalk.yellow(
-                    "scheduled goals exist but the daemon is off — they will not run on their own. Turn it on with /daemon",
+                    "scheduled background tasks exist but the daemon is off — they will not run on their own. Turn it on with /daemon",
                 ),
             );
         }
@@ -224,7 +227,7 @@ export function createGoalHandlers(state: AppState, deps: AppDeps): GoalHandlers
             refreshGoals(); // a daemon tick may have updated run status since the last look
             const goals = listGoals();
             const items: SelectItem[] = [
-                { value: ADD, label: "+ add goal…", description: "on demand, once, or cron-scheduled" },
+                { value: ADD, label: "+ add background task…", description: "on demand, once, or cron-scheduled" },
                 ...goals.map((g) => ({
                     value: g.id,
                     label: g.text,
@@ -238,7 +241,7 @@ export function createGoalHandlers(state: AppState, deps: AppDeps): GoalHandlers
                         .join("  ·  "),
                 })),
             ];
-            const pick = await searchOnce(items, `Goals · ${goals.length}`, { initialIndex: lastIndex });
+            const pick = await searchOnce(items, `Background · ${goals.length}`, { initialIndex: lastIndex });
             if (!pick) return;
             lastIndex = Math.max(
                 0,
@@ -247,17 +250,17 @@ export function createGoalHandlers(state: AppState, deps: AppDeps): GoalHandlers
 
             if (pick.value === ADD) {
                 if (goals.length >= MAX_GOALS) {
-                    say(chalk.yellow(`goal limit reached (max ${MAX_GOALS}) — delete one first`));
+                    say(chalk.yellow(`background task limit reached (max ${MAX_GOALS}) — delete one first`));
                     continue;
                 }
-                const text = (await promptOnce("goal")).trim();
+                const text = (await promptOnce("background task")).trim();
                 if (!text) continue;
                 const schedule = await promptSchedule();
                 if (!schedule) continue;
                 addGoal(text, state.cwd, schedule);
-                say(`goal added — ${text}`);
+                say(`background task added — ${text}`);
                 if (schedule.kind !== "none" && !isDaemonInstalled()) {
-                    say(chalk.dim("scheduled goals need the daemon — turn it on with /daemon"));
+                    say(chalk.dim("scheduled background tasks need the daemon — turn it on with /daemon"));
                 }
                 continue;
             }
@@ -292,7 +295,7 @@ export function createGoalHandlers(state: AppState, deps: AppDeps): GoalHandlers
             if (action.value === "toggle") {
                 updateGoal(goal.id, { enabled: !goal.enabled });
             } else if (action.value === "text") {
-                const text = (await promptOnce("goal", goal.text)).trim();
+                const text = (await promptOnce("background task", goal.text)).trim();
                 if (text) updateGoal(goal.id, { text });
             } else if (action.value === "schedule") {
                 const schedule = await promptSchedule(goal);
@@ -333,9 +336,10 @@ export function createGoalHandlers(state: AppState, deps: AppDeps): GoalHandlers
     }
 
     /**
-     * /daemon — install/uninstall the OS scheduler that runs scheduled goals.
-     * Bare /daemon opens a toggle panel; on|off|status skip it. install is
-     * safe to repeat (it re-bootstraps, picking up a moved binary).
+     * /daemon — install/uninstall the OS scheduler that runs scheduled
+     * background tasks. Bare /daemon opens a toggle panel; on|off|status skip
+     * it. install is safe to repeat (it re-bootstraps, picking up a moved
+     * binary).
      */
     async function manageDaemon(args: string): Promise<void> {
         const arg = args.trim().toLowerCase();
@@ -354,24 +358,24 @@ export function createGoalHandlers(state: AppState, deps: AppDeps): GoalHandlers
                         ? {
                               value: "off",
                               label: "turn off",
-                              description: "uninstall — scheduled goals stop running on their own",
+                              description: "uninstall — scheduled background tasks stop running on their own",
                           }
                         : {
                               value: "on",
                               label: "turn on",
-                              description: "install — runs scheduled goals in the background (ticks every minute)",
+                              description: "install — runs scheduled background tasks (ticks every minute)",
                           },
                     { value: "status", label: "status", description: "show the OS scheduler state" },
                     { value: "cancel", label: "cancel" },
                 ],
-                `Goals daemon · ${installed ? "on" : "off"}`,
+                `Background daemon · ${installed ? "on" : "off"}`,
             );
             if (!pick || pick.value === "cancel") return;
             action = pick.value;
         }
         try {
             if (action === "on") say(daemonInstall());
-            else if (action === "off") say(installed ? daemonUninstall() : "goals daemon is not installed");
+            else if (action === "off") say(installed ? daemonUninstall() : "background daemon is not installed");
             else say(daemonStatus());
         } catch (err) {
             say(chalk.red((err as Error).message));
@@ -379,7 +383,7 @@ export function createGoalHandlers(state: AppState, deps: AppDeps): GoalHandlers
     }
 
     return {
-        async manageGoals(args: string) {
+        async manageBackground(args: string) {
             const text = args.trim();
             if (!text) {
                 await openManager();

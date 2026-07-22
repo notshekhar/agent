@@ -18,6 +18,40 @@ export { runCompact, CompactAbortedError } from "./compact";
 export { runRecap, isRecapPayload, RECAP_KIND, type RecapPayload } from "./recap";
 export { parseGoalInput, toGoalSchedule, type ParsedGoal } from "./goal-parse";
 export {
+    GOAL_MAX_ROUNDS,
+    GOAL_MAX_VERIFY_RUNS,
+    GOAL_STALL_THRESHOLD,
+    GOAL_SAME_STEP_FORCE_VERIFY,
+    goalModeDir,
+    initGoalState,
+    loadGoalState,
+    saveGoalState,
+    clearGoalState,
+    writeGoalPlan,
+    readGoalPlan,
+    firstUncheckedStep,
+    detectBail,
+    decideNextAction,
+    parseGoalVerdict,
+    applyVerdict,
+    type GoalModeState,
+    type GoalModeStatus,
+    type GoalPauseReason,
+    type GoalNextAction,
+    type GoalVerdict,
+    type GoalVerdictAction,
+} from "./goal-mode";
+export {
+    GOAL_PLANNER_SYSTEM,
+    GOAL_VERIFIER_SYSTEM,
+    buildPlannerPrompt,
+    buildVerifierPrompt,
+    buildGoalRulesDirective,
+    buildContinuationDirective,
+    formatGoalElapsed,
+} from "./goal-prompts";
+export { runGoalRole, type GoalRoleOptions, type GoalRoleResult, type GoalRoleName } from "./goal-roles";
+export {
     runBranchSummary,
     BranchSummaryAbortedError,
     collectEntriesForBranchSummary,

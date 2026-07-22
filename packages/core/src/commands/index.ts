@@ -67,10 +67,13 @@ export interface CommandContext {
     setTimer(args: string): void;
     /** /reminder — open the reminder manager (create/edit/delete). */
     openReminders(): Promise<void>;
-    /** /goal — manager panel (no args) or quick-add a standing goal (`/goal <text>`). */
-    manageGoals(args: string): Promise<void> | void;
-    /** /daemon — goals background scheduler: toggle panel (no args) or on|off|status. */
+    /** /background — manager panel (no args) or quick-add a background task (`/background <text>`). */
+    manageBackground(args: string): Promise<void> | void;
+    /** /daemon — background-task scheduler: toggle panel (no args) or on|off|status. */
     manageDaemon(args: string): Promise<void> | void;
+    /** /goal — goal mode: `/goal <objective>` works autonomously until verified
+     * done; subcommands pause | resume | status | clear. */
+    manageGoalMode(args: string): Promise<void> | void;
     /** /recap — generate the post-turn recap on demand (ignores the recap setting). */
     generateRecap(): Promise<void>;
     /** /memory — pick an AGENTS.md location and open it in $EDITOR. */
@@ -267,18 +270,24 @@ export async function registerBuiltins(reg: CommandRegistry, opts: { cwd?: strin
             handler: (ctx) => ctx.openReminders(),
         },
         {
-            name: "goal",
-            description: "Manage goals: /goal opens the manager · /goal <text> adds a standing goal",
-            handler: (ctx, args) => ctx.manageGoals(args ?? ""),
+            name: "background",
+            description: "Background tasks: /background opens the manager · /background <text> runs or schedules one",
+            handler: (ctx, args) => ctx.manageBackground(args ?? ""),
         },
         {
-            name: "goals",
-            description: "Alias for /goal",
-            handler: (ctx, args) => ctx.manageGoals(args ?? ""),
+            name: "bg",
+            description: "Alias for /background",
+            handler: (ctx, args) => ctx.manageBackground(args ?? ""),
+        },
+        {
+            name: "goal",
+            description:
+                "Goal mode: /goal <objective> works autonomously until verified done · pause|resume|status|clear",
+            handler: (ctx, args) => ctx.manageGoalMode(args ?? ""),
         },
         {
             name: "daemon",
-            description: "Background scheduler for goals: /daemon toggles it · /daemon on|off|status",
+            description: "Background scheduler for background tasks: /daemon toggles it · /daemon on|off|status",
             handler: (ctx, args) => ctx.manageDaemon(args ?? ""),
         },
         {
