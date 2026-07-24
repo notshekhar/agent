@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.15.0] - 2026-07-25
+
+### Added
+
+- **Tab completion for the shell.** `loop completion bash`, `loop completion zsh`, or `loop completion fish` prints a completion script — `loop gate<Tab>` finishes the command, `loop gateways <Tab>` offers `status`, `stop`, and the gateway names, `loop mcp <Tab>` offers its subcommands, and `--cwd <Tab>` completes directories instead of guessing at words. The three scripts are generated from one table of commands, so a new subcommand is described once rather than in three shell dialects that quietly drift apart. Each command runs `loop completion <shell>` and prints where to put the output; zsh's goes on `fpath` rather than being sourced, which is the usual reason a `#compdef` script silently never fires.
+- **A manual: `man loop`.** A real roff man page with the commands, options, config file locations, environment variables, and examples, generated from the same command table the completions use so the two can't describe different CLIs. The installer writes it to `~/.local/share/man/man1/`, which is on the default manpath, so `man loop` works after an install with nothing to configure; `loop man` opens it directly, and `loop man --install` rewrites it after an upgrade.
+
+### Fixed
+
+- **The Telegram bot's model picker hid every provider that needs no password.** `/model` listed only providers with stored credentials, which silently excluded all three kinds that have none: a local ollama daemon, bedrock running on ambient AWS credentials, and custom gateways, which are saved somewhere else entirely. There was no error — the models simply weren't there. What counts as a usable provider now has one definition, shared by the terminal, the web UI, and the bot, rather than the correct one living in the TUI and a stricter one behind the API. **The web UI's model picker was quietly missing them too, and is fixed by the same change.**
+- **Resuming a session no longer arrives as a dozen notifications.** Replaying a transcript sent one message per turn, so switching sessions buried the chat and lit up the phone once per replayed turn. It is a single message now, split only when it exceeds Telegram's size limit and only ever between turns, never inside one.
+- **`/sessions` can reach past the ten most recent.** The list was cut at ten with no way to see the rest; it now pages eight at a time with prev/next that wrap around. The page rides the button rather than being remembered by the bridge, so a menu still works after a restart, two open menus can't fight over one cursor, and a page that no longer exists falls back instead of showing an empty list.
+- **`/cost`, `/steak`, and `/context` render straight on a phone.** Cost amounts were padded on the label only, leaving the decimal points ragged down the column. The usage heatmap and the context bar drew themselves with a middle dot and shade blocks borrowed from three different Unicode ranges; Telegram's mobile code font doesn't carry all of them and substitutes per glyph from fallback fonts whose widths don't match, so the grid's columns came out crooked and the bar's drawn width changed with how full it was. Both are plain ASCII now, which has no fallback to go wrong.
+- **Pasting an image into the TUI.** `Ctrl+V` attaches an image from the clipboard and `Ctrl+I` opens a file picker — both already worked, but neither was registered, so `/hotkeys` never listed them and there was no way to find out they existed. They are listed and rebindable now, `Ctrl+V` says why nothing happened when the clipboard holds no image instead of appearing broken, and `Cmd+V` attaches too on terminals that report the empty paste it produces (macOS hands `Cmd+V` to the terminal, which pastes the clipboard's text — and raw image data has none).
+- **`/new` in Telegram names the model** the new session will run on, instead of leaving you to check afterwards.
+
 ## [0.14.1] - 2026-07-25
 
 ### Fixed

@@ -56,6 +56,20 @@ export type InputListener = (data: string) => { consume: boolean } | undefined;
 const BRACKETED_PASTE = /^\x1b\[200~([\s\S]*)\x1b\[201~$/;
 
 /**
+ * True for a paste that carried no text at all.
+ *
+ * This is what Cmd+V looks like when the clipboard holds an image: the
+ * terminal owns Cmd+V, reads the clipboard's *text* flavour, finds none, and
+ * sends an empty paste. The keystroke never reaches us as a chord, so the
+ * empty paste is the only trace of it — treat it as "the user tried to paste
+ * something we should go look for".
+ */
+function isEmptyPaste(data: string): boolean {
+    const paste = BRACKETED_PASTE.exec(data);
+    return paste !== null && paste[1].trim() === "";
+}
+
+/**
  * If a paste / drag-and-drop is *purely* attachable file path(s) — images or
  * PDFs, nothing but the path(s) modulo surrounding whitespace — return them,
  * split by whether the active model's catalog modalities accept each (image
@@ -372,12 +386,35 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
             enterScrollbackFocus();
             return { consume: true };
         }
+        // Cmd+V with an image on the clipboard: the terminal handles Cmd+V
+        // itself and pastes the clipboard's text flavour, which for raw image
+        // data is nothing — so an empty paste is our only signal that the user
+        // asked for one. Checked before Ctrl+V so both routes share the attach.
+        if (editorFocused && isEmptyPaste(data)) {
+            const path = readClipboardImageToFile();
+            if (path) {
+                void ctx.attachImage(path);
+                return { consume: true };
+            }
+            // No image either — swallow it. An empty paste has nothing to
+            // insert, and letting it through just redraws the editor.
+            return { consume: true };
+        }
         if (isCtrlV(data)) {
             const path = readClipboardImageToFile();
             if (path) {
                 void ctx.attachImage(path);
                 return { consume: true };
             }
+            // Say so rather than no-op: a silent Ctrl+V is indistinguishable
+            // from a broken one, which is exactly how this got reported.
+            history.addSystem(
+                process.platform === "darwin"
+                    ? "no image in the clipboard — copy one (screenshot, or Cmd+C in Preview/Finder), or press Ctrl+I to pick a file."
+                    : "reading images from the clipboard is macOS-only for now — use Ctrl+I to pick a file, or `/attach <path>`.",
+            );
+            tui.requestRender();
+            return { consume: true };
         }
         if (isCtrlI(data)) {
             const path = pickImageFile();

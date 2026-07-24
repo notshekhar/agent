@@ -10,6 +10,11 @@ const APP_KEYBINDINGS = {
     "app.interrupt": { defaultKeys: "escape", description: "Interrupt agent" },
     "app.clear": { defaultKeys: "ctrl+c", description: "Clear / exit" },
     "app.continue": { defaultKeys: "ctrl+g", description: 'Send "continue"' },
+    // Both were bound but registered nowhere, so /hotkeys never listed them —
+    // "clipboard paste doesn't work" was largely nobody knowing the key. Cmd+V
+    // can't be bound here: the terminal consumes it before loop sees it.
+    "app.image.paste": { defaultKeys: "ctrl+v", description: "Attach image from clipboard" },
+    "app.image.pick": { defaultKeys: "ctrl+i", description: "Attach image from a file picker" },
     // /tree selector bindings
     "app.tree.foldOrUp": { defaultKeys: ["ctrl+left", "alt+left"], description: "Fold tree branch or move up" },
     "app.tree.unfoldOrDown": {

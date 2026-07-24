@@ -558,5 +558,38 @@ export function getModelSync(id: string): ModelInfo | undefined {
     return override ? ({ ...override, id } as ModelInfo) : undefined;
 }
 
+/**
+ * Which providers the user can actually use right now — the only honest answer
+ * to "what may I offer in a model picker".
+ *
+ * Being logged in is not the same as being usable, and three whole classes of
+ * provider have no auth entry at all: ollama (a detected local daemon),
+ * bedrock (AWS credentials from the environment), and custom gateways (stored
+ * under `customProviders`, keyed `custom:<name>`). Filtering a picker by
+ * `listAuthorizedProviders()` silently hides all of them — which is exactly
+ * what the Telegram and web model pickers were doing. Lives here, beside the
+ * catalog it consults, so every surface agrees.
+ */
+export async function listUsableProviders(): Promise<ProviderId[]> {
+    const providers = [...listAuthorizedProviders()];
+
+    // Zero-login providers announce themselves by landing in the catalog at
+    // all: ollama once its daemon answers, bedrock once AWS creds resolve.
+    const ZERO_LOGIN = new Set<string>(["ollama", "bedrock"]);
+    const catalog = await getCatalog();
+    for (const model of Object.values(catalog)) {
+        if (model.available && ZERO_LOGIN.has(model.provider) && !providers.includes(model.provider)) {
+            providers.push(model.provider);
+        }
+    }
+
+    for (const custom of listCustomProviders()) {
+        const id = `custom:${custom.name}` as ProviderId;
+        if (!providers.includes(id)) providers.push(id);
+    }
+
+    return providers;
+}
+
 export { GENERATED_MODELS };
 export { fallbackModelsForSdk, FALLBACK_MODELS } from "./fallbacks";

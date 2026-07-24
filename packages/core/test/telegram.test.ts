@@ -8,6 +8,7 @@ import {
     escapeHtml,
     formatCost,
     formatContext,
+    formatSteak,
     CHUNK_LIMIT,
 } from "../src/telegram/render";
 import { settingsKeyboard, modelKeyboard, thinkingKeyboard } from "../src/telegram/menus";
@@ -179,7 +180,49 @@ describe("render", () => {
             mcpToolCount: 0,
         });
         expect(ctx).toContain("grok-4");
-        expect(ctx).toContain("■");
+        // ASCII bar: Telegram's mobile code font substitutes box-drawing glyphs
+        // from fallback fonts with mismatched widths, so the bar's drawn width
+        // would change with how full it is.
+        expect(ctx).toContain("#");
+        expect(ctx).not.toContain("■");
+    });
+
+    test("cost amounts are right-aligned so the decimals form a column", () => {
+        const cost = formatCost(
+            { lifetimeUsd: 1234.5678, byProvider: {}, todayUsd: 12.34, last7Usd: 88.9, monthUsd: 310.25, cwdUsd: 0 },
+            { inputTokens: 0, outputTokens: 0, cachedInputTokens: 0, usd: 0.4213 },
+        );
+        const lines = cost
+            .replace(/<[^>]+>/g, "")
+            .split("\n")
+            .slice(1);
+        const dollarColumns = new Set(lines.filter((l) => l.includes("$")).map((l) => l.indexOf("$")));
+        // A ragged table has the $ starting at several different columns.
+        expect(dollarColumns.size).toBeGreaterThan(0);
+        expect([...dollarColumns].every((c) => c === [...dollarColumns][0])).toBe(false);
+        // …but every amount must END at the same column.
+        const ends = new Set(lines.filter((l) => l.includes("$")).map((l) => l.length));
+        expect(ends.size).toBe(1);
+    });
+
+    test("the steak heatmap uses only ASCII, so no font can misalign its columns", () => {
+        const weeks = 6;
+        const cells = Array.from({ length: 7 }, (_, d) => Array.from({ length: weeks }, (_, w) => ((d + w) % 6) - 1));
+        const out = formatSteak({
+            totalTokens: 45_600_000,
+            stats: { activeDays: 210, currentStreak: 12, longestStreak: 34 } as never,
+            weeks,
+            cells,
+            tokens: cells,
+            startDay: "2026-01-04",
+            monthLabels: [],
+        } as never);
+        const grid = out.slice(out.indexOf("<pre>") + 5, out.indexOf("</pre>"));
+        expect(grid).toMatch(/^[.:+#@\s]+$/);
+        // Every row is the same width — the property ragged glyphs destroyed.
+        const rows = grid.split("\n");
+        expect(rows).toHaveLength(7);
+        expect(new Set(rows.map((r) => r.length)).size).toBe(1);
     });
 });
 
@@ -804,6 +847,111 @@ describe("TelegramBridge model auth filtering", () => {
         await flush();
         expect(api.lastSend()?.text).toMatch(/no providers are logged in/i);
     });
+
+    // auth.status `providers` is the USABLE set, not the logged-in set: ollama
+    // and bedrock need no login and custom gateways are stored separately, so
+    // none of them have an auth entry. Filtering on logged-in dropped every one
+    // of their models from /model with no error to explain the absence.
+    test("/model offers zero-login and custom-gateway providers, which have no auth entry", async () => {
+        const { rpc, api, bridge } = makeBridge({ chatId: 42 });
+        rpc.handlers["auth.status"] = () => ({
+            providers: ["xai", "ollama", "custom:bifrost"],
+            authorized: ["xai"], // only xai has stored credentials
+            active: "xai",
+        });
+        rpc.handlers["catalog.list"] = (p) => {
+            const all = [
+                { id: "xai/grok-4", provider: "xai", available: true },
+                { id: "ollama/llama3", provider: "ollama", available: true },
+                { id: "custom:bifrost/opus", provider: "custom:bifrost", available: true },
+                { id: "anthropic/claude", provider: "anthropic", available: true },
+            ];
+            return p.provider ? all.filter((m) => m.provider === p.provider) : all;
+        };
+        await bridge.startAndValidate();
+        await bridge.handleUpdate(message(42, "/model"));
+        await flush();
+        const kb = JSON.stringify(api.lastSend()?.keyboard);
+        expect(kb).toContain("prov:ollama");
+        expect(kb).toContain("prov:custom:bifrost");
+        expect(kb).toContain("prov:xai");
+        // Still filtered — a provider that is neither usable nor logged in.
+        expect(kb).not.toContain("prov:anthropic");
+    });
+});
+
+describe("TelegramBridge session pagination", () => {
+    const manySessions = (n: number) =>
+        Array.from({ length: n }, (_, i) => ({
+            id: `s${i}`,
+            name: `session ${i}`,
+            mtime: n - i, // s0 newest
+            running: false,
+            firstUserMessage: "",
+        }));
+
+    test("a long session list is paged, not truncated", async () => {
+        const { rpc, api, bridge } = makeBridge({ chatId: 42 });
+        rpc.handlers["session.list"] = () => manySessions(20);
+        await bridge.startAndValidate();
+        await bridge.handleUpdate(message(42, "/sessions"));
+        await flush();
+        const kb = JSON.stringify(api.lastSend()?.keyboard);
+        // First page: newest 8, plus a nav row — the 9th newest must not be on it.
+        expect(kb).toContain("ses:s0");
+        expect(kb).toContain("ses:s7");
+        expect(kb).not.toContain("ses:s8");
+        expect(kb).toContain("sesp:1");
+        expect(api.lastSend()?.text).toContain("20 total");
+    });
+
+    test("next turns the page in place, reaching sessions the old list cut off", async () => {
+        const { rpc, api, bridge } = makeBridge({ chatId: 42 });
+        rpc.handlers["session.list"] = () => manySessions(20);
+        await bridge.startAndValidate();
+        await bridge.handleUpdate(message(42, "/sessions"));
+        await flush();
+        const menuId = api.lastSend()?.messageId ?? 100;
+        await bridge.handleUpdate(callback(42, "sesp:1", menuId));
+        await flush();
+        const edit = [...api.sent].reverse().find((s) => s.kind === "edit");
+        const kb = JSON.stringify(edit?.keyboard);
+        // s8..s15 — the range the old hard `.slice(0, 10)` could never show.
+        expect(kb).toContain("ses:s8");
+        expect(kb).toContain("ses:s15");
+        expect(kb).not.toContain("ses:s7");
+        expect(kb).toContain("2/3");
+    });
+
+    test("prev from the first page wraps to the last", async () => {
+        const { rpc, api, bridge } = makeBridge({ chatId: 42 });
+        rpc.handlers["session.list"] = () => manySessions(20);
+        await bridge.startAndValidate();
+        await bridge.handleUpdate(message(42, "/sessions"));
+        await flush();
+        const kb = JSON.stringify(api.lastSend()?.keyboard);
+        expect(kb).toContain("sesp:2"); // prev from page 0 of 3
+    });
+
+    test("a page number past the end clamps instead of showing an empty menu", async () => {
+        const { rpc, api, bridge } = makeBridge({ chatId: 42 });
+        // Menu drawn when there were many; sessions deleted since.
+        rpc.handlers["session.list"] = () => manySessions(3);
+        await bridge.startAndValidate();
+        await bridge.handleUpdate(callback(42, "sesp:9", 100));
+        await flush();
+        const edit = [...api.sent].reverse().find((s) => s.kind === "edit");
+        expect(JSON.stringify(edit?.keyboard)).toContain("ses:s0");
+    });
+
+    test("one page of sessions gets no nav row", async () => {
+        const { rpc, api, bridge } = makeBridge({ chatId: 42 });
+        rpc.handlers["session.list"] = () => manySessions(3);
+        await bridge.startAndValidate();
+        await bridge.handleUpdate(message(42, "/sessions"));
+        await flush();
+        expect(JSON.stringify(api.lastSend()?.keyboard)).not.toContain("sesp:");
+    });
 });
 
 describe("TelegramBridge session replay", () => {
@@ -824,5 +972,55 @@ describe("TelegramBridge session replay", () => {
         expect(sends.some((t) => /resumed/i.test(t) && t.includes("my chat"))).toBe(true);
         expect(sends.some((t) => t.includes("hi there"))).toBe(true);
         expect(sends.some((t) => t.includes("hello back"))).toBe(true);
+    });
+
+    // A replay used to be one message per turn — a dozen phone notifications
+    // for one action, with the chat buried under them.
+    test("a replay arrives as ONE message, not one per turn", async () => {
+        const { rpc, api, bridge } = makeBridge({ chatId: 42 });
+        rpc.handlers["session.history"] = () => ({
+            name: "my chat",
+            entries: Array.from({ length: 10 }, (_, i) => [
+                { type: "message", role: "user", content: `question ${i}` },
+                { type: "message", role: "assistant", content: [{ type: "text", text: `answer ${i}` }] },
+            ]).flat(),
+        });
+        await bridge.startAndValidate();
+        await bridge.handleUpdate(callback(42, "ses:s9"));
+        await flush(6);
+        const sends = api.sent.filter((s) => s.kind === "send");
+        expect(sends).toHaveLength(1);
+        const text = sends[0].text ?? "";
+        // …and it still carries the header and every replayed turn.
+        expect(text).toContain("resumed");
+        expect(text).toContain("my chat");
+        expect(text).toContain("answer 9");
+        expect(text).toContain("question 4");
+    });
+
+    test("an over-long replay splits between turns, never mid-entry", async () => {
+        const { rpc, api, bridge } = makeBridge({ chatId: 42 });
+        const big = "x".repeat(1100);
+        rpc.handlers["session.history"] = () => ({
+            name: "long",
+            entries: Array.from({ length: 12 }, (_, i) => ({
+                type: "message",
+                role: "user",
+                content: `${i}-${big}`,
+            })),
+        });
+        await bridge.startAndValidate();
+        await bridge.handleUpdate(callback(42, "ses:s9"));
+        await flush(8);
+        const sends = api.sent.filter((s) => s.kind === "send").map((s) => s.text ?? "");
+        expect(sends.length).toBeGreaterThan(1); // too big for one
+        for (const t of sends) {
+            expect(t.length).toBeLessThanOrEqual(3900);
+            // Splitting inside an entry would orphan a <b> tag and Telegram
+            // would reject the message outright.
+            const open = (t.match(/<b>/g) ?? []).length;
+            const close = (t.match(/<\/b>/g) ?? []).length;
+            expect(open).toBe(close);
+        }
     });
 });

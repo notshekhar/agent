@@ -8,7 +8,7 @@ import { join } from "node:path";
 import { SessionManager, type Session } from "../sessions";
 import { runTurn, CostTracker, runCompact, TURN_EVENT_NAMES, buildContextReport } from "../agent";
 import { THINKING_LEVELS, type ThinkingLevel } from "../agent/thinking";
-import { bustCatalogCache, getCatalog } from "../catalog";
+import { bustCatalogCache, getCatalog, listUsableProviders } from "../catalog";
 import { CommandRegistry, registerBuiltins } from "../commands";
 import { getExtensionHost, setBuiltinEnabled, setRecordEnabled } from "../extensions";
 import { listAuthorizedProviders, getActiveProvider, loginApiKey } from "../auth";
@@ -339,7 +339,16 @@ export class RpcServer {
                 }
             }
             case "auth.status":
-                return { providers: listAuthorizedProviders(), active: getActiveProvider() };
+                // `providers` is what a remote client may OFFER, which includes
+                // the zero-login (ollama, bedrock) and custom gateways that have
+                // no auth entry — returning only logged-in providers here is
+                // what made them vanish from the Telegram and web pickers.
+                // `authorized` keeps the strict "has stored credentials" set.
+                return {
+                    providers: await listUsableProviders(),
+                    authorized: listAuthorizedProviders(),
+                    active: getActiveProvider(),
+                };
             case "auth.login": {
                 const provider = params.provider as ProviderId;
                 const key = String(params.apiKey ?? "");

@@ -51,13 +51,35 @@ export interface SessionRow {
     running?: boolean;
 }
 
-export function sessionsKeyboard(rows: SessionRow[]): InlineKeyboard {
-    return rows.map((row) => [
+/** Sessions shown per page. A phone shows this many rows plus the nav row
+ * without the keyboard becoming a scroll of its own. */
+export const SESSIONS_PAGE_SIZE = 8;
+
+/**
+ * One page of sessions, with a nav row when there is more than one page.
+ * Paging is carried in the callback data (`sesp:<page>`) rather than held as
+ * bridge state, so a menu still works after a restart and two menus open at
+ * once can't fight over a shared cursor.
+ */
+export function sessionsKeyboard(rows: SessionRow[], page = 0, totalPages = 1): InlineKeyboard {
+    const keyboard: InlineKeyboard = rows.map((row) => [
         {
             text: `${truncate(row.label, 40)}${row.running ? " · running" : ""}`,
             callback_data: `ses:${row.id}`,
         },
     ]);
+    if (totalPages > 1) {
+        const nav: InlineKeyboard[number] = [];
+        // Wrap around: on a phone, reaching for a disabled button is worse than
+        // a button that takes you to the other end of a short list.
+        const prev = (page - 1 + totalPages) % totalPages;
+        const next = (page + 1) % totalPages;
+        nav.push({ text: "‹ prev", callback_data: `sesp:${prev}` });
+        nav.push({ text: `${page + 1}/${totalPages}`, callback_data: "nop:" });
+        nav.push({ text: "next ›", callback_data: `sesp:${next}` });
+        keyboard.push(nav);
+    }
+    return keyboard;
 }
 
 /** Thinking levels, three per row, current one marked. */

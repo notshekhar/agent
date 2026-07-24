@@ -605,6 +605,11 @@ smoke_test() {
     exit 1
   fi
   dim "  verified: loop v$v"
+  # Drop the man page on the user manpath so `man loop` just works. Best
+  # effort: a read-only HOME or an unusual manpath must never fail an install.
+  if "$LOOP_HOME/loop" man --install >/dev/null 2>&1; then
+    dim "  man page:  man loop"
+  fi
 }
 
 finish_message() {
@@ -623,6 +628,9 @@ finish_message() {
   printf "  cd <project>  "; dim "# open a directory"
   printf "  loop          "; dim "# run the agent"
   printf "  loop login    "; dim "# add a provider"
+  echo
+  printf "  man loop      "; dim "# the manual"
+  printf "  loop completion zsh > \"\${fpath[1]}/_loop\"  "; dim "# tab completion"
   echo
   dim "Update later with \`loop update\` (or /update inside the TUI)."
   dim "Docs: https://github.com/${REPO_SLUG}#readme"

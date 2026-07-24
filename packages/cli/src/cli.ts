@@ -80,6 +80,36 @@ async function main(): Promise<void> {
         case "background":
             await (await import("./goals/commands")).cmdGoals(args);
             return;
+        case "man": {
+            const { PRODUCT_NAME } = await import("@notshekhar/loop-core");
+            const { installManPage, manPageSource, showManPage } = await import("./manpage");
+            if (args.flags.install) {
+                // Writing it to the user manpath is what makes plain `man loop`
+                // work; the installer calls this too.
+                console.log(`installed ${installManPage(PRODUCT_NAME, VERSION)}`);
+            } else if (args.flags.path) {
+                console.log(manPageSource(PRODUCT_NAME, VERSION));
+            } else {
+                showManPage(PRODUCT_NAME, VERSION);
+            }
+            return;
+        }
+        case "completion": {
+            const { completionScript, installHint, SUPPORTED_SHELLS } = await import("./completion");
+            const shell = args.positional[0];
+            if (!shell || !(SUPPORTED_SHELLS as readonly string[]).includes(shell)) {
+                const { PRODUCT_NAME } = await import("@notshekhar/loop-core");
+                console.error(`Usage: ${PRODUCT_NAME} completion <${SUPPORTED_SHELLS.join("|")}>`);
+                process.exitCode = 1;
+                return;
+            }
+            const s = shell as (typeof SUPPORTED_SHELLS)[number];
+            // Script on stdout, instructions on stderr — so redirecting to a
+            // file gives a file the shell can actually load.
+            console.log(completionScript(s));
+            console.error(installHint(s));
+            return;
+        }
         case "models":
             await (await commands()).cmdModels();
             return;

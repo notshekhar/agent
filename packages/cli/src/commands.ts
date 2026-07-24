@@ -109,6 +109,8 @@ Usage:
   ${PRODUCT_NAME} serve [--host|--port] Web UI + WebSocket RPC (opt-in via /settings; token-locked)
   ${PRODUCT_NAME} gateways [status|stop] Run remote chat gateway daemons (set up in /gateways)
   ${PRODUCT_NAME} mcp <cmd>           Manage MCP servers (add, list, remove, login…)
+  ${PRODUCT_NAME} man                 Open the manual (--install writes it to the manpath)
+  ${PRODUCT_NAME} completion <shell>  Print a tab-completion script (bash, zsh, fish)
   ${PRODUCT_NAME} upgrade             Pull latest and rebuild
   ${PRODUCT_NAME} version | -v        Print version
 

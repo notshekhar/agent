@@ -51,6 +51,7 @@ import {
     modelKeyboard,
     providerKeyboard,
     sessionsKeyboard,
+    SESSIONS_PAGE_SIZE,
     settingsKeyboard,
     thinkingKeyboard,
     type ModelRow,
@@ -864,15 +865,50 @@ export class TelegramBridge {
     // ---- commands -----------------------------------------------------------
 
     /** Models the user can actually run right now: those whose provider is
-     * logged in (auth.status) and that the catalog marks available — mirroring
-     * loop's own model picker, which never offers an unauthenticated provider. */
+     * usable (auth.status `providers` — logged in, or zero-login ollama/bedrock,
+     * or a saved `custom:` gateway) and that the catalog marks available —
+     * mirroring loop's own model picker, which never offers a provider that
+     * would fail. Reading the strict `authorized` set here instead is what
+     * used to hide every ollama and custom-gateway model from /model. */
     private async authorizedModels(provider?: string): Promise<ModelRow[]> {
         const [auth, models] = await Promise.all([
             this.peer.call<{ providers: string[] }>("auth.status"),
             this.peer.call<(ModelRow & { available?: boolean })[]>("catalog.list", provider ? { provider } : undefined),
         ]);
-        const authed = new Set(auth.providers ?? []);
-        return models.filter((m) => authed.has(m.provider) && m.available !== false);
+        const usable = new Set(auth.providers ?? []);
+        return models.filter((m) => usable.has(m.provider) && m.available !== false);
+    }
+
+    /**
+     * One page of the session list, newest first. Re-read on every page turn
+     * rather than cached: the list changes underneath a menu that may sit in
+     * the chat for days, and a stale cursor is worse than a re-fetch of a local
+     * call. Returns undefined when there are no sessions at all.
+     */
+    private async sessionsPage(
+        page: number,
+    ): Promise<{ title: string; keyboard: InlineKeyboard; page: number } | undefined> {
+        const rows = await this.peer.call<SessionListRow[]>("session.list");
+        const sorted = rows.sort((a, b) => b.mtime - a.mtime);
+        if (!sorted.length) return undefined;
+        const totalPages = Math.max(1, Math.ceil(sorted.length / SESSIONS_PAGE_SIZE));
+        // Clamp: sessions may have been deleted since the menu was drawn, so a
+        // page number from an old callback can point past the end.
+        const current = Math.min(Math.max(0, page), totalPages - 1);
+        const slice = sorted.slice(current * SESSIONS_PAGE_SIZE, (current + 1) * SESSIONS_PAGE_SIZE);
+        return {
+            title: totalPages > 1 ? `pick a session — ${sorted.length} total` : "pick a session",
+            keyboard: sessionsKeyboard(
+                slice.map((r) => ({
+                    id: r.id,
+                    label: r.name || r.firstUserMessage || r.id,
+                    running: r.running,
+                })),
+                current,
+                totalPages,
+            ),
+            page: current,
+        };
     }
 
     private async runCommand(name: string, args: string): Promise<void> {
@@ -895,25 +931,26 @@ export class TelegramBridge {
                 this.sessionId = undefined;
                 // A fresh session must not inherit prompts aimed at the old one.
                 this.queue = [];
-                await this.replySafe("new session — send a message to start it");
+                // Name the model the new session will run on. On a phone the
+                // picker is several taps away, and a session started on the
+                // wrong (or an unexpectedly inherited) model is only noticed
+                // after it has already answered.
+                const startingModel = this.model ?? this.defaultModel;
+                await this.replySafe(
+                    startingModel
+                        ? `new session on <b>${escapeHtml(startingModel)}</b> — send a message to start it`
+                        : "new session — send a message to start it (no model set; /model to pick one)",
+                    { html: true },
+                );
                 return;
             }
             case "sessions": {
-                const rows = await this.peer.call<SessionListRow[]>("session.list");
-                const recent = rows.sort((a, b) => b.mtime - a.mtime).slice(0, 10);
-                if (!recent.length) {
+                const page = await this.sessionsPage(0);
+                if (!page) {
                     await this.replySafe("no sessions yet");
                     return;
                 }
-                await this.replySafe("pick a session", {
-                    keyboard: sessionsKeyboard(
-                        recent.map((r) => ({
-                            id: r.id,
-                            label: r.name || r.firstUserMessage || r.id,
-                            running: r.running,
-                        })),
-                    ),
-                });
+                await this.replySafe(page.title, { keyboard: page.keyboard });
                 return;
             }
             case "session": {
@@ -1218,6 +1255,32 @@ export class TelegramBridge {
                         .catch(() => {});
                 }
                 await ack("model set");
+                return;
+            }
+            case "sesp": {
+                const page = await this.sessionsPage(Number(value) || 0);
+                if (!page) {
+                    await ack("no sessions");
+                    return;
+                }
+                if (msg) {
+                    await this.api
+                        .editMessageText({
+                            chatId: chat,
+                            messageId: msg.message_id,
+                            text: page.title,
+                            keyboard: page.keyboard,
+                        })
+                        .catch(() => {});
+                }
+                await ack();
+                return;
+            }
+            // The page indicator between the arrows. Telegram requires every
+            // button to carry callback data, and an unanswered query spins on
+            // the client, so it needs a case even though it does nothing.
+            case "nop": {
+                await ack();
                 return;
             }
             case "ses": {
