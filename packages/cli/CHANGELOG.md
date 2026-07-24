@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.13.2] - 2026-07-24
+
+### Added
+
+- **Vercel AI Gateway provider.** `loop login vercel` (or an `AI_GATEWAY_API_KEY` env var) unlocks the gateway's 200+ chat models as `vercel/<creator>/<model>` — one key across Anthropic, OpenAI, Google, xAI, DeepSeek, and the rest, billed through Vercel. Built on the first-party `@ai-sdk/gateway` package, which speaks the AI SDK's native wire protocol rather than an OpenAI-compatible shim, so reasoning effort, provider options, and usage round-trip cleanly. The catalog comes from models.dev overlaid with the gateway's public `/v1/models` for live availability, filtered to chat models only — the gateway marketplace also lists embedding/rerank/image/video/speech models, which have no business in a coding agent's model picker — plus a curated flagship seed (Claude Opus 4.8 / Sonnet 4.6, GPT-5.5, Gemini 3.1 Pro, GLM-5.2, Kimi K3) at live gateway prices. One deliberate omission: the generic `VERCEL_API_KEY` env is *not* read — that name carries Vercel platform/deploy tokens, which are not gateway keys.
+
+### Changed
+
+- **AI SDK refresh.** `ai` 7.0.37 and provider bumps (@ai-sdk/anthropic 4.0.19, openai 4.0.20, google 4.0.23, amazon-bedrock 5.0.30, gateway 4.0.28), plus a model-catalog regeneration picking up new upstream models and pricing. Tests, typecheck, build, and live streaming verified against the new versions.
+
 ## [0.13.1] - 2026-07-23
 
 ### Added

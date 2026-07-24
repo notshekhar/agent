@@ -99,7 +99,8 @@ End every config task by telling the user which one to do.
 
 Built-in providers: `anthropic`, `openai`, `google`, `xai`, `openrouter`,
 `github-copilot`, `deepseek`, `mistral`, `glm`, `zai`, `kimi`, `groq`,
-`cerebras`, `zenmux`, `bedrock`, `ollama`.
+`cerebras`, `zenmux`, `vercel` (Vercel AI Gateway; key from `login vercel` or
+`AI_GATEWAY_API_KEY`), `bedrock`, `ollama`.
 
 Their models are discovered automatically once the provider is authenticated —
 there is no per-model list to maintain. Two providers need no login at all:

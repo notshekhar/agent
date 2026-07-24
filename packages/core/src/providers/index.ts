@@ -573,6 +573,18 @@ export async function getModel(fullId: string): Promise<LanguageModel> {
             const { createOpenAI } = await import("@ai-sdk/openai");
             return createOpenAI({ apiKey: key, baseURL: "https://zenmux.ai/api/v1" })(model);
         }
+        case "vercel": {
+            // Vercel AI Gateway (creator/model ids) via the first-party
+            // @ai-sdk/gateway provider — it speaks the AI SDK's own wire
+            // protocol, so reasoning/usage/providerOptions round-trip natively
+            // instead of being squeezed through an OpenAI-compatible shim.
+            // Key comes from `login vercel` or AI_GATEWAY_API_KEY (see
+            // getApiKey); LOOP_VERCEL_BASE_URL overrides the endpoint (tests).
+            const key = getApiKey("vercel");
+            if (!key) throw new Error(`No Vercel AI Gateway API key. Run: ${PRODUCT_NAME} login vercel`);
+            const { createGateway } = await import("@ai-sdk/gateway");
+            return createGateway({ apiKey: key, baseURL: process.env["LOOP_VERCEL_BASE_URL"] })(model);
+        }
         case "cerebras": {
             const key = getApiKey("cerebras");
             if (!key) throw new Error(`No Cerebras API key. Run: ${PRODUCT_NAME} login cerebras`);

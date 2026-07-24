@@ -55,6 +55,10 @@ export function loginApiKey(provider: ProviderId, apiKey: string): void {
 export function getApiKey(provider: ProviderId): string | undefined {
     const entry = readProviders()[provider];
     if (entry?.mode === "apikey") return entry.apiKey;
+    // Vercel's canonical env for AI Gateway keys. Deliberately NOT the generic
+    // VERCEL_API_KEY fallback: that name is used for platform/deploy tokens,
+    // which are not gateway keys.
+    if (provider === "vercel") return process.env["AI_GATEWAY_API_KEY"];
     return process.env[`${provider.toUpperCase()}_API_KEY`];
 }
 

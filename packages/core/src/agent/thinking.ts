@@ -30,7 +30,7 @@ export type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "
  * Moonshot K2.x doesn't document that param). They keep the hand-built
  * `providerOptions` path in buildProviderOptions. Everything else
  * (anthropic/openai/google/xai/groq/mistral/deepseek/cerebras, plus the
- * openai-compatible routes: zenmux/github-copilot/chatgpt) uses the native
+ * gateway routes: zenmux/vercel/github-copilot/chatgpt) uses the native
  * `reasoning` param.
  */
 const COMMUNITY_REASONING_PROVIDERS = new Set(["ollama", "glm", "zai", "openrouter", "kimi"]);

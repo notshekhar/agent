@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { GENERATED_MODELS } from "./generated/models";
 import { FALLBACK_MODELS, KIMI_CODE_MODELS, XAI_FALLBACK_MODELS, fallbackModelsForSdk } from "./fallbacks";
+import { isVercelChatModel } from "./vercel";
 import { getApiKey, getAccessToken, listAuthorizedProviders, listCustomProviders, saveCustomProvider } from "../auth";
 import {
     bedrockShortModelId,
@@ -44,6 +45,7 @@ const MODEL_PROVIDERS: ProviderId[] = [
     "mistral",
     "groq",
     "cerebras",
+    "vercel",
 ];
 
 interface RawDevModel {
@@ -63,6 +65,7 @@ async function fetchModelDefs(): Promise<Record<string, ModelInfo> | null> {
         const out: Record<string, ModelInfo> = {};
         for (const provider of MODEL_PROVIDERS) {
             for (const [rawId, m] of Object.entries(all[provider]?.models ?? {})) {
+                if (provider === "vercel" && !isVercelChatModel(rawId, m.modalities?.output)) continue;
                 const id = `${provider}/${rawId}`;
                 out[id] = {
                     id,
@@ -145,6 +148,16 @@ async function fetchAvailability(provider: ProviderId): Promise<Set<string> | nu
             if (!res.ok) return null;
             const body = (await res.json()) as { data?: { id: string }[] };
             return new Set((body.data ?? []).map((m) => `openrouter/${m.id}`));
+        }
+        if (provider === "vercel") {
+            // Public, no key needed. `type` distinguishes chat ("language")
+            // from the marketplace's embedding/image/video/speech listings.
+            const res = await fetch("https://ai-gateway.vercel.sh/v1/models", {
+                signal: AbortSignal.timeout(10_000),
+            });
+            if (!res.ok) return null;
+            const body = (await res.json()) as { data?: { id: string; type?: string }[] };
+            return new Set((body.data ?? []).filter((m) => m.type === "language").map((m) => `vercel/${m.id}`));
         }
         return null;
     } catch {
@@ -337,7 +350,7 @@ let refreshInFlight: Promise<Record<string, string[]>> | null = null;
 async function refreshAvailability(): Promise<Record<string, string[]>> {
     if (refreshInFlight) return refreshInFlight;
     refreshInFlight = (async () => {
-        const providers: ProviderId[] = ["xai", "anthropic", "openai", "openrouter"];
+        const providers: ProviderId[] = ["xai", "anthropic", "openai", "openrouter", "vercel"];
         // Custom-provider rediscovery runs alongside the availability fetches;
         // it persists cfg.models, which getCatalog re-reads when it rebuilds.
         const customRefresh = refreshCustomProviderModels();

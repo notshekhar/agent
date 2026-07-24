@@ -414,6 +414,51 @@ const ZENMUX: ModelInfo[] = [
     m("zenmux", "deepseek/deepseek-v3.2", "ZM · DeepSeek V3.2", 128_000, 64_000, { input: 0.28, output: 0.42 }, true),
 ];
 
+// Vercel AI Gateway — creator/model ids, native protocol per vendor.
+// Curated flagship seed (live gateway prices, 2026-07); the full catalog
+// arrives from models.dev + the gateway's public /v1/models availability.
+const VERCEL: ModelInfo[] = [
+    m(
+        "vercel",
+        "anthropic/claude-opus-4.8",
+        "VG · Claude Opus 4.8",
+        1_000_000,
+        128_000,
+        { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
+        true,
+        ["text", "image"],
+    ),
+    m(
+        "vercel",
+        "anthropic/claude-sonnet-4.6",
+        "VG · Claude Sonnet 4.6",
+        1_000_000,
+        128_000,
+        { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
+        true,
+        ["text", "image"],
+    ),
+    m("vercel", "openai/gpt-5.5", "VG · GPT-5.5", 1_000_000, 128_000, { input: 5, output: 30, cacheRead: 0.5 }, true, [
+        "text",
+        "image",
+    ]),
+    m(
+        "vercel",
+        "google/gemini-3.1-pro-preview",
+        "VG · Gemini 3.1 Pro",
+        1_000_000,
+        64_000,
+        { input: 2, output: 12, cacheRead: 0.2 },
+        true,
+        ["text", "image"],
+    ),
+    m("vercel", "zai/glm-5.2", "VG · GLM-5.2", 1_040_000, 128_000, { input: 1.4, output: 4.4, cacheRead: 0.26 }, true),
+    m("vercel", "moonshotai/kimi-k3", "VG · Kimi K3", 1_000_000, 131_072, { input: 3, output: 15, cacheRead: 0.3 }, true, [
+        "text",
+        "image",
+    ]),
+];
+
 // GitHub Copilot — proxied OpenAI/Anthropic models (subscription-billed)
 const GITHUB_COPILOT: ModelInfo[] = [
     m("github-copilot", "gpt-5", "Copilot · GPT-5", 400_000, 128_000, { input: 0, output: 0 }, true, ["text", "image"]),
@@ -487,6 +532,7 @@ export const FALLBACK_MODELS: ModelInfo[] = [
     ...GROQ,
     ...CEREBRAS,
     ...ZENMUX,
+    ...VERCEL,
     ...GITHUB_COPILOT,
 ];
 

@@ -6,6 +6,7 @@ import { writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ModelInfo, ProviderId } from "../../types";
+import { isVercelChatModel } from "../vercel";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OUT_DIR = join(HERE, "..", "generated");
@@ -20,6 +21,7 @@ const PROVIDERS: ProviderId[] = [
     "mistral",
     "groq",
     "cerebras",
+    "vercel",
 ];
 
 interface RawModel {
@@ -44,6 +46,7 @@ async function main() {
     for (const provider of PROVIDERS) {
         const models = all[provider]?.models ?? {};
         for (const [rawId, m] of Object.entries(models)) {
+            if (provider === "vercel" && !isVercelChatModel(rawId, m.modalities?.output)) continue;
             const id = `${provider}/${rawId}`;
             out[id] = {
                 id,
