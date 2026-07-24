@@ -28,3 +28,5 @@ export * from "./goals";
 export * from "./mcp";
 export * from "./datasources";
 export * from "./extensions";
+export * from "./telegram";
+export * from "./gateway";

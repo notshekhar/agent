@@ -107,6 +107,7 @@ Usage:
   ${PRODUCT_NAME} cost audit          Verify the cost ledger reconciles (self-audit)
   ${PRODUCT_NAME} rpc [--socket|stop] Start JSON-RPC server (stop: end the socket daemon)
   ${PRODUCT_NAME} serve [--host|--port] Web UI + WebSocket RPC (opt-in via /settings; token-locked)
+  ${PRODUCT_NAME} gateways [status|stop] Run remote chat gateway daemons (set up in /gateways)
   ${PRODUCT_NAME} mcp <cmd>           Manage MCP servers (add, list, remove, login…)
   ${PRODUCT_NAME} upgrade             Pull latest and rebuild
   ${PRODUCT_NAME} version | -v        Print version
@@ -277,6 +278,101 @@ export function cmdServe(args: Args): void {
         console.log(`Use --host 127.0.0.1 for a loopback-only bind.`);
     }
     console.log(`\nCtrl+C to stop.`);
+}
+
+/**
+ * `loop gateways` — manage/run remote chat gateway daemons. Each gateway runs
+ * as its own process; setup (tokens, pairing) is done in the TUI: /gateways.
+ *
+ *   loop gateways            spawn detached daemons for all enabled gateways
+ *   loop gateways <id>       run that gateway in the FOREGROUND (the daemon body)
+ *   loop gateways status     show each gateway's config/enabled/running state
+ *   loop gateways stop [id]  stop all gateway daemons, or just one
+ *
+ * `onlyId` is set by the `loop telegram` alias (→ run telegram foreground).
+ */
+export async function cmdGateways(args: Args, onlyId?: string): Promise<void> {
+    const { listGateways, getGateway, listEnabledGateways, liveGatewayPid, stopGatewayDaemon } =
+        await import("@notshekhar/loop-core");
+    const { spawnGatewayDaemon, runGatewayForeground } = await import("./gateway-daemon");
+
+    const sub = onlyId ?? args.positional[0];
+
+    if (!onlyId && sub === "status") {
+        for (const gw of listGateways()) {
+            const st = gw.status();
+            const pid = liveGatewayPid(gw.id);
+            console.log(`${gw.displayName} (${gw.id})`);
+            console.log(`  configured  ${st.configured ? "yes" : "no"}`);
+            console.log(`  enabled     ${st.enabled ? "yes" : "no"}`);
+            console.log(`  running     ${pid ? `yes (pid ${pid})` : "no"}`);
+            for (const line of st.detail) console.log(`  ${line}`);
+        }
+        return;
+    }
+
+    if (!onlyId && sub === "stop") {
+        const target = args.positional[1];
+        const gws = target ? [getGateway(target)].filter(Boolean) : listGateways();
+        if (target && !gws.length) {
+            console.error(`unknown gateway: ${target}`);
+            process.exitCode = 1;
+            return;
+        }
+        for (const gw of gws) {
+            const r = stopGatewayDaemon(gw!.id);
+            console.log(r.stopped ? `stopped ${gw!.id} daemon (pid ${r.pid})` : `${gw!.id} daemon not running`);
+        }
+        return;
+    }
+
+    // A gateway id → run it in the foreground. This IS the daemon body (what the
+    // detached spawn invokes, and what `loop telegram` maps to).
+    const named = sub ? getGateway(sub) : undefined;
+    if (named) {
+        if (!named.isConfigured()) {
+            console.error(
+                `${named.displayName} is not configured. Open ${PRODUCT_NAME}, run /gateways → ${named.displayName},\n` +
+                    `set it up, then re-run: ${PRODUCT_NAME} gateways ${named.id}`,
+            );
+            process.exitCode = 1;
+            return;
+        }
+        if (!named.isEnabled()) named.setEnabled(true); // running the daemon implies enabling
+        console.log(`${PRODUCT_NAME} gateways — ${named.displayName} daemon`);
+        console.log(`WARNING: whoever controls the paired chat runs shell commands as you.\n`);
+        try {
+            await runGatewayForeground(named.id, {
+                cwd: (args.flags.cwd as string) || process.cwd(),
+                log: (line) => console.log(`  ${line}`),
+            });
+        } catch (err) {
+            console.error((err as Error).message);
+            process.exitCode = 1;
+        }
+        return;
+    }
+
+    if (sub) {
+        console.error(`unknown gateway or subcommand: ${sub}`);
+        process.exitCode = 1;
+        return;
+    }
+
+    // No args → spawn detached daemons for all enabled gateways.
+    const enabled = listEnabledGateways();
+    if (!enabled.length) {
+        console.error(`no gateways enabled. Open ${PRODUCT_NAME}, run /gateways to set one up.`);
+        process.exitCode = 1;
+        return;
+    }
+    for (const gw of enabled) {
+        const r = spawnGatewayDaemon(gw.id);
+        console.log(
+            `${gw.id}: ${r === "spawned" ? "daemon started" : r === "already-running" ? "already running" : "failed to start"}`,
+        );
+    }
+    console.log(`\nRunning independently. Stop with: ${PRODUCT_NAME} gateways stop`);
 }
 
 export async function cmdRun(args: Args): Promise<void> {

@@ -62,6 +62,14 @@ async function main(): Promise<void> {
         case "serve":
             (await commands()).cmdServe(args);
             return;
+        case "gateways":
+        case "gateway":
+            await (await commands()).cmdGateways(args);
+            return;
+        case "telegram":
+            // Back-compat alias: run the Telegram gateway daemon in the foreground.
+            await (await commands()).cmdGateways(args, "telegram");
+            return;
         case "mcp":
             await (await import("./mcp-commands")).cmdMcp(process.argv.slice(3));
             return;

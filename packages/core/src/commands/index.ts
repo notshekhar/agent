@@ -84,6 +84,9 @@ export interface CommandContext {
     shareSession(): Promise<void>;
     /** /scoped-models — toggle panel (no args) or `add <id>` / `rm <id>` / bare list. */
     manageScopedModels(args: string): Promise<void> | void;
+    /** /gateways — manage remote chat gateways (Telegram now, more later);
+     * each runs as its own daemon process. */
+    manageGateways(): Promise<void> | void;
 }
 
 /** /init — runs as a normal agent turn via the "run-prompt" emit. */
@@ -495,6 +498,13 @@ export async function registerBuiltins(reg: CommandRegistry, opts: { cwd?: strin
             description: "Enable/disable models for Ctrl+P cycling (panel, or add/rm <id>)",
             handler: async (ctx, args) => {
                 await ctx.manageScopedModels(args.trim());
+            },
+        },
+        {
+            name: "gateways",
+            description: "Set up remote chat gateways — each runs as its own daemon",
+            handler: async (ctx) => {
+                await ctx.manageGateways();
             },
         },
         { name: "quit", description: "Quit loop-agent", handler: (ctx) => ctx.exit() },

@@ -453,10 +453,16 @@ const VERCEL: ModelInfo[] = [
         ["text", "image"],
     ),
     m("vercel", "zai/glm-5.2", "VG · GLM-5.2", 1_040_000, 128_000, { input: 1.4, output: 4.4, cacheRead: 0.26 }, true),
-    m("vercel", "moonshotai/kimi-k3", "VG · Kimi K3", 1_000_000, 131_072, { input: 3, output: 15, cacheRead: 0.3 }, true, [
-        "text",
-        "image",
-    ]),
+    m(
+        "vercel",
+        "moonshotai/kimi-k3",
+        "VG · Kimi K3",
+        1_000_000,
+        131_072,
+        { input: 3, output: 15, cacheRead: 0.3 },
+        true,
+        ["text", "image"],
+    ),
 ];
 
 // GitHub Copilot — proxied OpenAI/Anthropic models (subscription-billed)

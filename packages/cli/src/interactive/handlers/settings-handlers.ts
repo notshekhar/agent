@@ -30,6 +30,7 @@ import { renderSessionBranch } from "../replay";
 import { showWelcomeBanner } from "../welcome";
 import { currentBashAllow, currentBashDeny, runBashAllowManager, runBashDenyManager } from "./bashdeny-handlers";
 import { runPermissionsManager } from "./permission-handlers";
+import { gatewaysStatusLabel, runGatewaysManager } from "./gateway-handlers";
 
 /** Total rule count across the three actions, for the settings row label. */
 function countPermissionRules(): number {
@@ -214,6 +215,12 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                         label: `bash allowlist: ${getProjectBashAllow(canonicalProjectDir(state.cwd)).length + currentBashAllow().length} always-allowed`,
                         description: "commands the approval prompt skips (“always allow” entries)",
                     },
+                    {
+                        value: "gateways",
+                        label: `gateways: ${gatewaysStatusLabel()}`,
+                        description:
+                            "set up remote chat control — each gateway runs as its own daemon; a paired chat controls this machine",
+                    },
                 ];
                 const pick = await searchOnce(items, "Settings (type to filter, Esc to close)", {
                     initialIndex: lastIndex,
@@ -234,6 +241,10 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                 }
                 if (pick.value === "bashAllow") {
                     await runBashAllowManager(deps, state.cwd);
+                    continue;
+                }
+                if (pick.value === "gateways") {
+                    await runGatewaysManager(state, deps);
                     continue;
                 }
                 // Default subagent model: cross-provider picker (subagents may

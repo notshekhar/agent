@@ -79,6 +79,7 @@ import { createTicker } from "./ticker";
 import { registerAppKeybindings } from "./app-keybindings";
 import { installConsoleBridge } from "./console-bridge";
 import { runStartupTrustAndHooks, showWhatsNew, showWorkspaceBanners, startUpdateCheck } from "./startup";
+import { startEnabledGateways } from "./gateway-process";
 import { showWelcomeBanner } from "./welcome";
 import { listUsableProviders } from "./provider-availability";
 import { openBrowser } from "../open-browser";
@@ -482,6 +483,9 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         resetCanvasWash();
         // Tear down MCP transports (stdio subprocesses, sockets) on the way out.
         void getMcpManager().close();
+        // Gateway daemons are separate, independent processes — deliberately
+        // left running when loop exits (stop them in /gateways or `loop
+        // gateways stop`).
         // Run extensions' deactivate() so they can release resources.
         void getExtensionHost().close();
         // Close any open datasource connection pools.
@@ -584,4 +588,9 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     // Trust prompt + SessionStart hooks; the first turn awaits this so
     // hook-injected context isn't lost to a fast first prompt.
     state.startupHooksDone = runStartupTrustAndHooks(state, deps);
+
+    // Gateways: bring up the daemon for each enabled gateway (Telegram, …) as
+    // its own independent process. Not run in this process, and deliberately
+    // left running when loop exits — spawn only, never blocks the UI.
+    startEnabledGateways(deps);
 }
