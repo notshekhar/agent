@@ -151,8 +151,7 @@ describe("multi-client broadcast + seq replay", () => {
                 "\n",
         );
         await until(
-            () =>
-                a.events().some((e) => e.part.type === "error") && b.events().some((e) => e.part.type === "error"),
+            () => a.events().some((e) => e.part.type === "error") && b.events().some((e) => e.part.type === "error"),
             "error event broadcast to a AND b",
         );
         const aEvents = a.events();

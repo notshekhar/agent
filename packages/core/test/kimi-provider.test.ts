@@ -123,7 +123,12 @@ describe("kimi key-kind routing", () => {
             port: 0,
             fetch: () =>
                 Response.json({
-                    usage: { prompt_tokens: 100, prompt_cache_hit_tokens: 60, prompt_cache_miss_tokens: 40, cached_tokens: 60 },
+                    usage: {
+                        prompt_tokens: 100,
+                        prompt_cache_hit_tokens: 60,
+                        prompt_cache_miss_tokens: 40,
+                        cached_tokens: 60,
+                    },
                 }),
         });
         const res = await kimiCacheFetch()(`http://127.0.0.1:${server.port}/v1/chat/completions`);

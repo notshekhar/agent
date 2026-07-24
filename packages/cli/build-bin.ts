@@ -88,7 +88,8 @@ const result = await Bun.build({
         __APP_CHANGELOG__: JSON.stringify(changelog),
         __WEB_UI_HTML__: JSON.stringify(webUiHtml),
     },
-});if (!result.success) {
+});
+if (!result.success) {
     for (const log of result.logs) console.error(log);
     process.exit(1);
 }

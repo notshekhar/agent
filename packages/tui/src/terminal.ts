@@ -455,7 +455,10 @@ export class ProcessTerminal implements Terminal {
             // iTerm2 (OSC 9 = notification popup) never sees it.
             const progressClear = this.progressActive ? TERMINAL_PROGRESS_CLEAR_SEQUENCE : "";
             this.progressActive = false;
-            fs.writeSync(1, `${progressClear}\x1b[<u\x1b[>4;0m\x1b[?2004l\x1b[?1000l\x1b[?1006l\x1b]111\x07\x1b]110\x07\x1b[?25h`);
+            fs.writeSync(
+                1,
+                `${progressClear}\x1b[<u\x1b[>4;0m\x1b[?2004l\x1b[?1000l\x1b[?1006l\x1b]111\x07\x1b]110\x07\x1b[?25h`,
+            );
         } catch {
             // stdout closed/redirected — nothing more we can do.
         }
