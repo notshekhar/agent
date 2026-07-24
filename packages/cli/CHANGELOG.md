@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.14.1] - 2026-07-25
+
+### Fixed
+
+- **Enabling a gateway in 0.14.0 spawned loop processes without end.** Opening loop with a gateway enabled started a daemon that wasn't a daemon at all: inside a release binary the check for "am I running from source?" read the executable's own virtual entry path, which ends in `.js` and so answered yes for every compiled build. The daemon was launched with that path as its command word, which matches no command, so it fell through to the interactive TUI — and starting a TUI starts the daemons for enabled gateways, which started a TUI, roughly one new process every second and a half until the machine ran out of memory. A real Telegram poller never ran at any point, so the pidfile that exists to prevent a second one was never claimed and never applied. The check now reads the executable, matching how the background-task daemon has always done it, and a process running as a gateway daemon is refused permission to spawn a gateway daemon at all — so even if the invocation were to break again, the chain stops at the first process instead of running away. If 0.14.0 left processes behind, `loop gateways stop` and quitting loop now clear them; a `pkill -f "gateways"` will finish off any strays from the old build.
+
+### Changed
+
+- **Gateways now stop when the loop that started them stops.** A gateway still runs as its own separate process — it can't stall the UI and it isn't tangled up in the TUI's state — but it is no longer independent of it: quitting loop shuts down the gateways that loop started, closing the terminal on a `loop gateways <id>` closes that gateway, and a gateway whose loop is killed outright notices within a few seconds and exits on its own. This reverses 0.14.0, where gateways were deliberately left running after you quit. A bridge that outlives every visible sign of itself is a bridge still accepting shell commands from a chat with nobody watching, and that trade is not worth the convenience of a phone that keeps working after you close the terminal. Daemons started explicitly with a bare `loop gateways`, which exits as soon as it has spawned them, still run until `loop gateways stop` — that command has no session to tie them to.
+
 ## [0.14.0] - 2026-07-25
 
 ### Added
