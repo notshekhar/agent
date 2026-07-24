@@ -7,7 +7,7 @@
 import { Box, Container, Markdown, Spacer, Text, type TUI } from "@notshekhar/loop-tui";
 import { normalizePlanText } from "@notshekhar/loop-core";
 import { getLanguageFromPath, getMarkdownTheme, highlightCode, theme } from "./theme";
-import { formatToolArgs, readLineRangeText } from "./tool-summary";
+import { formatToolArgs, readGutterPrefixes, readLineRangeText } from "./tool-summary";
 import { uiRenderers, uiStyle } from "./ui-mode";
 import { markSelectedLines } from "./messages";
 /** Live-streaming preview cap in EXPANDED mode. Highlighting runs on every
@@ -375,7 +375,11 @@ export class ToolExecutionComponent extends Container {
         }
         if (this.toolName === "read") {
             const lang = getLanguageFromPath(String(this.args.path ?? this.args.file_path ?? ""));
-            if (lang) return highlightCode(lines.join("\n"), lang);
+            // Highlight first, then prepend the gutter: the line numbers are
+            // chrome, and feeding them to the highlighter colors them as code.
+            const body = lang ? highlightCode(lines.join("\n"), lang) : lines.map((l) => theme.fg("toolOutput", l));
+            const gutters = readGutterPrefixes(lines, this.args);
+            return body.map((l, i) => (gutters[i] ? theme.fg("dim", gutters[i]) + l : l));
         }
         return lines.map((l) => theme.fg("toolOutput", l));
     }

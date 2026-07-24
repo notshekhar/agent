@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.1] - 2026-07-25
+
+### Fixed
+
+- **`Cmd+V` does not paste an image into the TUI, and 0.15.0 implied it might.** macOS delivers `Cmd+V` to the terminal, not to loop, and the terminal's job for that key is to read the clipboard's _text_ and type it into the program it is running. Raw image data has no text flavour, so there is nothing to type: measured against Ghostty 1.3.1, `Cmd+V` on an image-only clipboard sends **zero bytes** — not the empty bracketed paste 0.15.0 was written to catch, which only some terminals produce. The keystroke never arrives, so nothing inside loop can recover it — 0.15.0's note that `Cmd+V` "attaches too on terminals that report the empty paste" holds only for terminals that send one, which Ghostty does not, and it should not have been read as a working path. `Ctrl+V`, which terminals do forward, is the chord that works, and it is now a _complete_ paste: an image when the clipboard holds one, the clipboard's text when it doesn't, instead of an image-only chord that reported failure on ordinary text and trained you out of the one key that works. And because a paste that silently does nothing teaches you none of this, loop now notices an image sitting on the clipboard and says so — `image in clipboard · Ctrl+V to paste it` on the status line, once per image you copy. The check rides keystrokes that are already being handled, so an idle prompt costs nothing and a session that never copies an image never looks; a copy made in Finder is deliberately ignored, since it carries a file icon alongside the file and the icon is never what you meant to paste.
+- **Noir rendered a partial read as though it were the whole file.** A `read` with an offset and a limit came out as a bare `◆ read src/app.ts`, with nothing to say only sixty lines of it had been looked at. The range was being appended by the default tool box rather than by anything the two modes share, and in noir the row is drawn by the mode — so it was simply absent. The row carries it now (`◆ read src/app.ts:120-180`), and the expanded output is numbered down the left with the file's real line numbers, counting from the offset instead of restarting at 1, so a preview can be matched back to the lines it came from. The numbering runs in both UI modes; the `[Showing lines … ]` notice the tool appends stays unnumbered, as does a result that is only a notice.
+
 ## [0.15.0] - 2026-07-25
 
 ### Added

@@ -730,3 +730,41 @@ describe("canvas wash", () => {
         expect(writes).toHaveLength(4);
     });
 });
+
+describe("noir read rows", () => {
+    test("the row carries the offset/limit range the summary drops", () => {
+        noirOn();
+        const c = new ToolExecutionComponent("read", { path: "/repo/src/a.ts", offset: 120, limit: 3 }, tui, "/repo");
+        c.updateResult({ content: [{ type: "text", text: "x\ny\nz" }], isError: false }, false);
+        const row = c.render(W).map(strip).join("\n");
+        expect(row).toContain("◆ read src/a.ts:120-122");
+    });
+
+    test("a whole-file read has no range suffix", () => {
+        noirOn();
+        const c = new ToolExecutionComponent("read", { path: "/repo/src/a.ts" }, tui, "/repo");
+        c.updateResult({ content: [{ type: "text", text: "x" }], isError: false }, false);
+        expect(c.render(W).map(strip).join("\n")).toContain("◆ read src/a.ts");
+        expect(c.render(W).map(strip).join("\n")).not.toContain(":");
+    });
+
+    test("expanded output is numbered from the offset", () => {
+        noirOn();
+        const c = new ToolExecutionComponent("read", { path: "/repo/src/a.ts", offset: 9, limit: 2 }, tui, "/repo");
+        c.updateResult({ content: [{ type: "text", text: "const x = 1;\nexport default x;" }], isError: false }, false);
+        c.setExpanded(true);
+        const open = c.render(W).map(strip).join("\n");
+        expect(open).toContain("┃  9  const x = 1;");
+        expect(open).toContain("┃ 10  export default x;");
+    });
+
+    test("other tools' output is never numbered", () => {
+        noirOn();
+        const c = new ToolExecutionComponent("bash", { command: "seq 2" }, tui, "/repo");
+        c.updateResult({ content: [{ type: "text", text: "1\n2" }], isError: false }, false);
+        c.setExpanded(true);
+        const open = c.render(W).map(strip).join("\n");
+        expect(open).toContain("┃ 1");
+        expect(open).not.toContain("┃ 1  1");
+    });
+});

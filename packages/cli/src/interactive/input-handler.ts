@@ -33,9 +33,10 @@ import {
     isUp,
 } from "./keys";
 import { isKeyRelease } from "@notshekhar/loop-tui";
-import { copyToClipboard } from "./clipboard";
+import { copyToClipboard, readClipboardText } from "./clipboard";
 import { traceEvent } from "./debug-log";
 import { pickImageFile, readClipboardImageToFile } from "./clipboard-image";
+import { ClipboardImageTip } from "./clipboard-tip";
 import {
     agentExists,
     extractImagesFromInput,
@@ -99,6 +100,19 @@ const SCROLLBACK_HINT =
 
 export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandContext): InputListener {
     const { tui, history, queuedMessages, renderPending, hideWorking, cleanExit, editor, statusLine } = deps;
+
+    const clipboardTip = new ClipboardImageTip();
+
+    /** Would an image attach right now? Gates the tip's pasteboard probe. */
+    const imagePasteEligible = (editorFocused: boolean): boolean => {
+        if (!editorFocused || state.busy || state.scrollbackFocus || deps.getSelectorDepth() !== 0) return false;
+        const probe = filterAttachmentsByModalities(
+            [{ data: Buffer.alloc(0), mediaType: "image/png", path: "x.png" }],
+            getModelSync(state.modelId)?.modalities,
+            state.modelId.split("/")[0],
+        );
+        return probe.allowed.length > 0;
+    };
 
     const enterScrollbackFocus = (): boolean => {
         if (!history.selectLast()) return false;
@@ -290,6 +304,15 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
         // editor has focus.
         const editorFocused = (editor as unknown as { focused?: boolean }).focused === true;
 
+        // Ride this keystroke to notice an image sitting on the pasteboard (and
+        // to drop an already-read tip). Throttled + deduped inside; nothing is
+        // scheduled, so an idle prompt never probes.
+        clipboardTip.onKey(
+            statusLine,
+            () => imagePasteEligible(editorFocused),
+            () => tui.requestRender(),
+        );
+
         // Scrollback focus mode owns navigation keys while active. Selectors
         // (which steal editor focus) suspend it implicitly via the flag reset
         // on exit paths below.
@@ -386,10 +409,16 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
             enterScrollbackFocus();
             return { consume: true };
         }
-        // Cmd+V with an image on the clipboard: the terminal handles Cmd+V
-        // itself and pastes the clipboard's text flavour, which for raw image
-        // data is nothing — so an empty paste is our only signal that the user
-        // asked for one. Checked before Ctrl+V so both routes share the attach.
+        // Cmd+V with an image on the clipboard, in the terminals that report it
+        // at all: the terminal handles Cmd+V itself and pastes the clipboard's
+        // text flavour, which for raw image data is nothing — an empty paste is
+        // then our only signal that the user asked for one.
+        //
+        // Ghostty (measured) sends NOTHING in that case, not an empty paste, so
+        // this arm can't be the whole story — Cmd+V is simply undeliverable to
+        // a raw-mode TUI there. Ctrl+V below is the chord that always arrives,
+        // and clipboardTip nudges the user toward it. Kept because it costs one
+        // comparison and does fire on the terminals that send the empty frame.
         if (editorFocused && isEmptyPaste(data)) {
             const path = readClipboardImageToFile();
             if (path) {
@@ -401,17 +430,28 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
             return { consume: true };
         }
         if (isCtrlV(data)) {
+            clipboardTip.dismiss(statusLine);
             const path = readClipboardImageToFile();
             if (path) {
                 void ctx.attachImage(path);
+                return { consume: true };
+            }
+            // No raster → paste the text flavour instead. Ctrl+V is the only
+            // paste chord a raw-mode TUI reliably receives on macOS, so it has
+            // to be a *complete* paste: an image-only chord that errors on text
+            // trains people not to use the one key that works.
+            const text = readClipboardText();
+            if (text) {
+                editor.insertTextAtCursor(text);
+                tui.requestRender();
                 return { consume: true };
             }
             // Say so rather than no-op: a silent Ctrl+V is indistinguishable
             // from a broken one, which is exactly how this got reported.
             history.addSystem(
                 process.platform === "darwin"
-                    ? "no image in the clipboard — copy one (screenshot, or Cmd+C in Preview/Finder), or press Ctrl+I to pick a file."
-                    : "reading images from the clipboard is macOS-only for now — use Ctrl+I to pick a file, or `/attach <path>`.",
+                    ? "clipboard is empty — copy an image (screenshot, or Cmd+C in Preview/Finder) or some text, or press Ctrl+I to pick a file."
+                    : "clipboard is empty, and reading images from it is macOS-only for now — use Ctrl+I to pick a file, or `/attach <path>`.",
             );
             tui.requestRender();
             return { consume: true };

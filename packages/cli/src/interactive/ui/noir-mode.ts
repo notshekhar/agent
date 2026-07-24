@@ -8,6 +8,7 @@
  */
 import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@notshekhar/loop-tui";
 import type { ThemeJson } from "./themes";
+import { readGutterPrefixes, readLineRangeText } from "./tool-summary";
 import {
     registerUiMode,
     uiStyle,
@@ -263,6 +264,14 @@ function renderTool(state: ToolBlockState, ctx: RenderCtx): string[] | null {
 
     let name = state.toolName;
     let detail = state.summary ? " " + th.fg("muted", state.summary) : "";
+    // `read src/app.ts:120-180` — the offset/limit range rides the row the way
+    // the default box shows it (dim here, since noir's details are dim). Modes
+    // only get `summary`, which is the path alone, so without this an offset
+    // read is indistinguishable from a whole-file one.
+    if (state.toolName === "read") {
+        const range = readLineRangeText(state.args);
+        if (range) detail += th.fg("dim", range);
+    }
     if (isTask) {
         // `task <agent> · <live status | done · stats> · <prompt snippet>` —
         // the same identity line the default box shows, as a grok row.
@@ -344,8 +353,20 @@ function renderTool(state: ToolBlockState, ctx: RenderCtx): string[] | null {
         return lines;
     }
     const color = state.isError ? "toolError" : "toolOutput";
-    for (const raw of state.output.split("\n")) {
-        for (const l of raw ? wrapTextWithAnsi(raw, bodyWidth) : [""]) {
+    const rawLines = state.output.split("\n");
+    // `read` bodies carry absolute line numbers; every other tool's output is
+    // its own text and gets none.
+    const gutters =
+        state.toolName === "read" && !state.isError ? readGutterPrefixes(rawLines, state.args) : rawLines.map(() => "");
+    for (const [i, raw] of rawLines.entries()) {
+        const num = gutters[i];
+        // Only the first visual row of a wrapped source line is numbered; its
+        // continuations are indented to stay under the same column.
+        const numWidth = num.length;
+        let first = true;
+        for (const l of raw ? wrapTextWithAnsi(raw, Math.max(20, bodyWidth - numWidth)) : [""]) {
+            const prefix = num ? (first ? th.fg("dim", num) : " ".repeat(numWidth)) : "";
+            first = false;
             const diff =
                 !state.isError && (state.toolName === "edit" || state.toolName === "write")
                     ? l.startsWith("+")
@@ -354,7 +375,7 @@ function renderTool(state: ToolBlockState, ctx: RenderCtx): string[] | null {
                           ? th.fg("toolDiffRemoved", l)
                           : th.fg("toolDiffContext", l)
                     : th.fg(color, l);
-            lines.push(gutter + diff);
+            lines.push(gutter + prefix + diff);
         }
     }
     return lines;

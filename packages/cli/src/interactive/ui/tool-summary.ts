@@ -66,6 +66,33 @@ export function readLineRangeText(args: Record<string, unknown>): string {
     return `:${start}${end ? `-${end}` : ""}`;
 }
 
+/** A `[…]`-only result line — the read tool's notices, never file content. */
+const READ_NOTICE_RE = /^\[.*\]$/;
+
+/**
+ * Right-aligned absolute line numbers for a `read` result, one prefix per
+ * output line (empty string = don't number this line).
+ *
+ * The numbering starts at the call's `offset`, not at 1: an offset read shows
+ * the file's real line numbers, which is the whole point — a preview that
+ * restarts at 1 can't be matched back to the file it came from.
+ *
+ * The tool appends its own `[Showing lines … ]` / `[N more lines … ]` notice
+ * after a blank line, and a whole-result notice (image file, over-limit line)
+ * is a message rather than a body — neither gets a number.
+ */
+export function readGutterPrefixes(lines: string[], args: Record<string, unknown>): string[] {
+    if (lines.length === 0) return [];
+    if (lines.length === 1 && READ_NOTICE_RE.test(lines[0].trim())) return [""];
+    const base = typeof args.offset === "number" ? args.offset : 1;
+    let bodyEnd = lines.length;
+    if (bodyEnd >= 2 && READ_NOTICE_RE.test(lines[bodyEnd - 1].trim()) && lines[bodyEnd - 2].trim() === "") {
+        bodyEnd -= 2;
+    }
+    const width = String(base + Math.max(0, bodyEnd - 1)).length;
+    return lines.map((_, i) => (i < bodyEnd ? `${String(base + i).padStart(width)}  ` : ""));
+}
+
 /**
  * Full one-line invocation label for a resolved tool call: `toolName summary`.
  * `task` shows its agent + prompt snippet; `read` appends its line range. Used

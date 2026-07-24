@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { formatToolArgs, formatToolInvocation, readLineRangeText } from "../src/interactive/ui/tool-summary";
+import {
+    formatToolArgs,
+    formatToolInvocation,
+    readGutterPrefixes,
+    readLineRangeText,
+} from "../src/interactive/ui/tool-summary";
 
 const CWD = "/repo";
 
@@ -70,5 +75,33 @@ describe("formatToolInvocation", () => {
 
     test("a tool with no summarizable args is just its name", () => {
         expect(formatToolInvocation("read", {}, CWD)).toBe("read");
+    });
+});
+
+describe("readGutterPrefixes", () => {
+    test("numbers from line 1 when the read had no offset", () => {
+        expect(readGutterPrefixes(["a", "b", "c"], {})).toEqual(["1  ", "2  ", "3  "]);
+    });
+
+    test("numbers from the offset, so previews match the file", () => {
+        expect(readGutterPrefixes(["a", "b"], { offset: 120, limit: 2 })).toEqual(["120  ", "121  "]);
+    });
+
+    test("right-aligns to the widest number in the block", () => {
+        const lines = Array.from({ length: 3 }, (_, i) => `l${i}`);
+        expect(readGutterPrefixes(lines, { offset: 99 })).toEqual([" 99  ", "100  ", "101  "]);
+    });
+
+    test("the tool's trailing notice and its blank separator stay unnumbered", () => {
+        const lines = ["a", "b", "", "[Showing lines 1-2 of 900. Use offset=3 to continue.]"];
+        expect(readGutterPrefixes(lines, {})).toEqual(["1  ", "2  ", "", ""]);
+    });
+
+    test("a whole-result notice is a message, not a body", () => {
+        expect(readGutterPrefixes(["[image file: image/png at /tmp/a.png]"], {})).toEqual([""]);
+    });
+
+    test("empty output numbers nothing", () => {
+        expect(readGutterPrefixes([], { offset: 5 })).toEqual([]);
     });
 });

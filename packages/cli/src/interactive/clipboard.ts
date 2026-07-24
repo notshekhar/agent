@@ -5,7 +5,7 @@
  * sees ENOENT, it crashes the process instead), so the outcome is reported
  * through a callback — callers must not claim "copied" before it lands.
  */
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 
 const COMMANDS: string[][] =
     process.platform === "darwin"
@@ -13,6 +13,33 @@ const COMMANDS: string[][] =
         : process.platform === "win32"
           ? [["clip"]]
           : [["wl-copy"], ["xclip", "-selection", "clipboard"], ["xsel", "--clipboard", "--input"]];
+
+/** Read commands, same platform order as {@link COMMANDS}. */
+const READ_COMMANDS: string[][] =
+    process.platform === "darwin"
+        ? [["pbpaste"]]
+        : process.platform === "win32"
+          ? [["powershell", "-NoProfile", "-Command", "Get-Clipboard"]]
+          : [
+                ["wl-paste", "--no-newline"],
+                ["xclip", "-selection", "clipboard", "-o"],
+                ["xsel", "--clipboard"],
+            ];
+
+/**
+ * The clipboard's text flavour, or null when it holds none (an image-only
+ * clipboard reads as empty). Synchronous: this runs on a keystroke, and the
+ * paste has to land in the editor before the next render.
+ */
+export function readClipboardText(): string | null {
+    for (const [cmd, ...args] of READ_COMMANDS) {
+        const res = spawnSync(cmd, args, { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 });
+        if (res.error || res.status !== 0) continue;
+        const text = res.stdout ?? "";
+        return text === "" ? null : text;
+    }
+    return null;
+}
 
 /** Write `text` to the system clipboard; onResult(true) once a tool took it. */
 export function copyToClipboard(text: string, onResult: (ok: boolean) => void): void {
