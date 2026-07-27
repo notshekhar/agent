@@ -1,9 +1,10 @@
 # Publishes site/ to GitHub Pages. The page is plain static HTML with no build
 # step, so the job just uploads the directory.
 #
-# No manual setup needed: configure-pages runs with `enablement: true`, which
-# turns Pages on and points it at Actions the first time this runs. Without it
-# the step 404s on a repo that has never had Pages enabled.
+# Pages must already be enabled on the repo with Actions as the build source
+# (done via the API: POST /repos/:owner/:repo/pages -f build_type=workflow).
+# configure-pages 404s otherwise, and it cannot enable Pages itself — the
+# default GITHUB_TOKEN lacks the scope to create a Pages site.
 name: pages
 
 on:
@@ -36,9 +37,6 @@ jobs:
 
             - id: configure
               uses: actions/configure-pages@v5
-              with:
-                  # Create the Pages site if the repo has none yet.
-                  enablement: true
 
             # .nojekyll stops Pages from running the content through Jekyll,
             # which would drop any file or directory starting with an underscore.
