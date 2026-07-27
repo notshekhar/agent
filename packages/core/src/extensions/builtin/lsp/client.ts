@@ -6,11 +6,25 @@
  * fresh results after an edit.
  */
 import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import { type Diagnostic, type JsonRpcMessage, type PublishDiagnosticsParams, pathToUri } from "./protocol";
 
 interface PendingRequest {
     resolve: (value: unknown) => void;
     reject: (err: Error) => void;
+}
+
+/** Two servers (or push + pull) can report the same problem; show it once. */
+function dedupeDiagnostics(list: Diagnostic[]): Diagnostic[] {
+    const seen = new Set<string>();
+    const out: Diagnostic[] = [];
+    for (const d of list) {
+        const key = `${d.severity ?? 1}|${d.range.start.line}|${d.range.start.character}|${d.message}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(d);
+    }
+    return out;
 }
 
 interface DiagnosticsWaiter {
@@ -35,6 +49,8 @@ export class LspClient {
     private readonly openDocs = new Map<string, number>();
     private initialized = false;
     private crashed = false;
+    /** `capabilities` from the initialize result — decides what we may ask for. */
+    private capabilities: Record<string, unknown> = {};
 
     constructor(
         private readonly spec: LspServerSpec,
@@ -65,23 +81,51 @@ export class LspClient {
         proc.stderr.on("data", () => {});
         proc.stdout.on("data", (chunk: Buffer) => this.onData(chunk));
 
+        // Declare the navigation features the `lsp` tool exposes, not just
+        // document sync — a server only answers what the client asked for.
         const result = (await this.request("initialize", {
             processId: process.pid,
             rootUri: pathToUri(this.rootPath),
+            workspaceFolders: [{ uri: pathToUri(this.rootPath), name: this.spec.name }],
             capabilities: {
                 textDocument: {
                     synchronization: { didSave: true, dynamicRegistration: false },
                     publishDiagnostics: { relatedInformation: false },
+                    definition: { linkSupport: true },
+                    implementation: { linkSupport: true },
+                    references: {},
+                    hover: { contentFormat: ["plaintext", "markdown"] },
+                    documentSymbol: { hierarchicalDocumentSymbolSupport: true },
+                    callHierarchy: {},
                 },
+                workspace: { symbol: {}, workspaceFolders: true },
             },
-        })) as { capabilities?: unknown };
-        void result;
+        })) as { capabilities?: Record<string, unknown> };
+        this.capabilities = result?.capabilities ?? {};
         this.notify("initialized", {});
         this.initialized = true;
     }
 
-    async diagnose(absPath: string, content: string, timeoutMs: number): Promise<Diagnostic[]> {
-        if (!this.isAlive) return [];
+    /** Whether the server advertised a capability, e.g. `hoverProvider`. */
+    supports(capability: string): boolean {
+        const value = this.capabilities[capability];
+        return value !== undefined && value !== false && value !== null;
+    }
+
+    /**
+     * Make the server aware of a file's current content — required before any
+     * position request, since a server only answers about open documents.
+     * Reads from disk when no content is supplied.
+     */
+    async openDocument(absPath: string, content?: string): Promise<void> {
+        if (!this.isAlive) return;
+        const text = content ?? (await readFile(absPath, "utf8").catch(() => null));
+        if (text === null) return;
+        this.syncDocument(absPath, text);
+    }
+
+    /** didOpen the first time, didChange after — returns the new version. */
+    private syncDocument(absPath: string, content: string): number {
         const uri = pathToUri(absPath);
         const existing = this.openDocs.get(uri);
         if (existing === undefined) {
@@ -89,17 +133,74 @@ export class LspClient {
             this.notify("textDocument/didOpen", {
                 textDocument: { uri, languageId: this.spec.languageId(absPath), version: 1, text: content },
             });
-        } else {
-            const version = existing + 1;
-            this.openDocs.set(uri, version);
-            this.notify("textDocument/didChange", {
-                textDocument: { uri, version },
-                contentChanges: [{ text: content }],
-            });
+            return 1;
+        }
+        const version = existing + 1;
+        this.openDocs.set(uri, version);
+        this.notify("textDocument/didChange", {
+            textDocument: { uri, version },
+            contentChanges: [{ text: content }],
+        });
+        return version;
+    }
+
+    /**
+     * Issue an arbitrary LSP request. Errors and server crashes resolve to null
+     * rather than throwing: one unsupported operation must not take down a tool
+     * call that other servers may still answer.
+     */
+    async send<T>(method: string, params: unknown): Promise<T | null> {
+        if (!this.isAlive) return null;
+        try {
+            return (await this.request(method, params)) as T;
+        } catch {
+            return null;
+        }
+    }
+
+    /**
+     * Diagnostics for a file, by whichever mechanism the server implements.
+     *
+     * LSP has two and servers differ: the older PUSH model volunteers
+     * `publishDiagnostics` whenever analysis settles, while the PULL model
+     * (`diagnosticProvider`, what TypeScript 7 and other modern servers use)
+     * answers only when asked. Waiting for a push from a pull-only server just
+     * burns the timeout and reports a clean file, so ask when we can, and merge
+     * with anything already pushed.
+     */
+    async diagnose(absPath: string, content: string, timeoutMs: number): Promise<Diagnostic[]> {
+        if (!this.isAlive) return [];
+        const uri = pathToUri(absPath);
+        this.syncDocument(absPath, content);
+
+        if (this.supports("diagnosticProvider")) {
+            const report = await this.withTimeout(
+                this.send<{ kind?: string; items?: Diagnostic[] }>("textDocument/diagnostic", {
+                    textDocument: { uri },
+                }),
+                timeoutMs,
+            );
+            return dedupeDiagnostics([...(report?.items ?? []), ...(this.diagnostics.get(uri) ?? [])]);
         }
 
         await this.waitForDiagnostics(uri, timeoutMs);
         return this.diagnostics.get(uri) ?? [];
+    }
+
+    /** Resolve null rather than hang if a server never answers. */
+    private withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
+        return new Promise((resolve) => {
+            const timer = setTimeout(() => resolve(null), ms);
+            promise
+                .then((v) => {
+                    clearTimeout(timer);
+                    resolve(v);
+                })
+                .catch(() => {
+                    clearTimeout(timer);
+                    resolve(null);
+                });
+        });
     }
 
     private waitForDiagnostics(uri: string, timeoutMs: number): Promise<void> {

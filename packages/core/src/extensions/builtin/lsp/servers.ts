@@ -5,12 +5,24 @@
  */
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, parse } from "node:path";
 import type { LspServerSpec } from "./client";
-import { ensureProvisioned } from "./provision";
-import { findDef, type LanguageKey, type LanguageServerDef, languageIdFor } from "./registry";
+import { ensureGoInstalled, ensureProvisioned } from "./provision";
+import {
+    defHandles,
+    findDef,
+    getServerDefs,
+    type LanguageKey,
+    type LanguageServerDef,
+    languageIdFor,
+} from "./registry";
 
-export { type LanguageKey, languageKeyFor } from "./registry";
+export { defHandles, type LanguageKey, languageKeyFor, languageKeysFor, getServerDefs, findDef } from "./registry";
+
+function onPath(name: string): string | null {
+    const probe = spawnSync(process.platform === "win32" ? "where" : "which", [name], { stdio: "pipe" });
+    return probe.status === 0 ? name : null;
+}
 
 function resolveBinary(rootPath: string, names: string[]): string | null {
     const isWin = process.platform === "win32";
@@ -19,39 +31,108 @@ function resolveBinary(rootPath: string, names: string[]): string | null {
         if (existsSync(local)) return local;
     }
     for (const name of names) {
-        const probe = spawnSync(isWin ? "where" : "which", [name], { stdio: "pipe" });
-        if (probe.status === 0) return name;
+        if (onPath(name)) return name;
     }
     return null;
 }
 
+/** Every requirement satisfied? A server whose toolchain is missing can't run. */
+function requirementsMet(def: LanguageServerDef): boolean {
+    return (def.requires ?? []).every((bin) => onPath(bin) !== null);
+}
+
 /**
- * Build a launch spec. "node" servers (e.g. typescript-language-server) run with
- * loop's runtime: process.execPath is the loop binary, and BUN_BE_BUN=1 makes it
- * behave as the bun CLI — so no separate node/bun is needed. "native" servers
- * (e.g. gopls) run directly.
+ * The directory a server should treat as its project root: the nearest ancestor
+ * of the file holding one of the server's root markers, else the workspace. A
+ * monorepo with three tsconfigs gets three servers, each scoped to its package,
+ * which is what makes the diagnostics right.
  */
-function specFromExe(def: LanguageServerDef, exe: string): LspServerSpec {
+export function findRoot(def: LanguageServerDef, filePath: string, fallback: string): string {
+    const markers = def.rootMarkers ?? [];
+    if (markers.length === 0) return fallback;
+    const stopAt = parse(filePath).root;
+    let dir = dirname(filePath);
+    for (;;) {
+        for (const marker of markers) {
+            if (existsSync(join(dir, marker))) return dir;
+        }
+        if (dir === stopAt || dir === fallback) break;
+        const parent = dirname(dir);
+        if (parent === dir) break;
+        dir = parent;
+    }
+    return fallback;
+}
+
+/**
+ * A marker that stands this server down — a Deno project must not also be
+ * served by the TypeScript server, which would double every diagnostic.
+ */
+export function isDisqualified(def: LanguageServerDef, filePath: string, fallback: string): boolean {
+    const markers = def.disqualifyMarkers ?? [];
+    if (markers.length === 0) return false;
+    const root = findRoot(def, filePath, fallback);
+    return markers.some((m) => existsSync(join(root, m)));
+}
+
+/**
+ * Build a launch spec. "node" servers (e.g. pyright-langserver) run with loop's
+ * runtime: process.execPath is the loop binary, and BUN_BE_BUN=1 makes it
+ * behave as the bun CLI — so no separate node/bun is needed. "native" servers
+ * (e.g. gopls, TypeScript 7's tsc) run directly.
+ */
+function specFromExe(def: LanguageServerDef, exe: string, forceNative = false): LspServerSpec {
     const languageId = (absPath: string) => languageIdFor(def, absPath);
     const args = def.args ?? [];
-    if (def.runtime === "node") {
+    if (def.runtime === "node" && !forceNative) {
         return { name: def.key, command: process.execPath, args: [exe, ...args], env: { BUN_BE_BUN: "1" }, languageId };
     }
     return { name: def.key, command: exe, args: [...args], languageId };
 }
 
+/** `{platform}`/`{arch}` → this machine, for npmNativeBin. */
+function expandNativePath(template: string): string {
+    return template.replace("{platform}", process.platform).replace("{arch}", process.arch);
+}
+
 export function resolveServer(key: LanguageKey, rootPath: string): LspServerSpec | null {
     const def = findDef(key);
-    if (!def) return null;
+    if (!def || !requirementsMet(def)) return null;
     const exe = resolveBinary(rootPath, def.binNames);
     return exe ? specFromExe(def, exe) : null;
 }
 
 export async function resolveOrProvisionServer(key: LanguageKey, rootPath: string): Promise<LspServerSpec | null> {
+    const def = findDef(key);
+    if (!def || !requirementsMet(def)) return null;
+
     const local = resolveServer(key, rootPath);
     if (local) return local;
-    const def = findDef(key);
-    if (!def?.npm || !def.npmBin) return null;
-    const exe = await ensureProvisioned(key, def.npm, def.npmBin);
-    return exe ? specFromExe(def, exe) : null;
+
+    // npm-provisioned: prefer the native per-platform binary when the package
+    // ships one (TypeScript 7), since the JS bin is only a shim over it.
+    if (def.npm && def.npmBin) {
+        const installed = await ensureProvisioned(key, def.npm, def.npmBin);
+        if (installed) {
+            if (def.npmNativeBin) {
+                const native = join(installed.dir, expandNativePath(def.npmNativeBin));
+                if (existsSync(native)) return specFromExe(def, native, true);
+            }
+            return specFromExe(def, installed.bin);
+        }
+    }
+
+    if (def.goInstall) {
+        const installed = await ensureGoInstalled(def.binNames[0], def.goInstall);
+        if (installed) return specFromExe(def, installed, true);
+    }
+
+    return null;
+}
+
+/** Which servers could serve this file, after disqualification. */
+export function serversFor(filePath: string, fallbackRoot: string): LanguageServerDef[] {
+    return getServerDefs().filter(
+        (def) => defHandles(def, filePath) && !isDisqualified(def, filePath, fallbackRoot) && requirementsMet(def),
+    );
 }

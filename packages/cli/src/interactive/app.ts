@@ -53,6 +53,7 @@ import {
     CONFIG_DIR_NAME,
 } from "@notshekhar/loop-core";
 import { getSelectListTheme, initUiModeAndTheme } from "./ui/theme";
+import { applyExtensionUiModes } from "./ui/ui-mode";
 import { registerNoirMode } from "./ui/noir-mode";
 import { applyCanvasWash, resetCanvasWash } from "./ui/canvas-wash";
 import { ChatHistory } from "./components/chat-history";
@@ -177,6 +178,10 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     // `ui` bridge is injected later, once the TUI selector helpers exist.
     getExtensionHost().setServices({ openExternal: (url) => openBrowser(url) });
     await getExtensionHost().init();
+    // Modes an extension registers must exist before the configured mode is
+    // activated, so drain them and re-resolve the mode + its theme.
+    applyExtensionUiModes();
+    initUiModeAndTheme();
     const commands = new CommandRegistry();
     await registerBuiltins(commands, { cwd: opts.cwd });
     getExtensionHost().applyCommands(commands);

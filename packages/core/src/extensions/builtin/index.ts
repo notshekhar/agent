@@ -25,8 +25,9 @@ export interface BuiltinExtension {
 export const BUILTIN_EXTENSIONS: BuiltinExtension[] = [
     {
         name: "lsp",
-        displayName: "LSP Diagnostics",
-        description: "Appends type/lint errors after write/edit via language servers.",
+        displayName: "LSP",
+        description:
+            "Code intelligence: appends type errors after write/edit, and adds an `lsp` tool for definitions, references, hover, symbols and call hierarchy.",
         module: lsp,
         defaultEnabled: false,
     },

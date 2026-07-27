@@ -110,6 +110,49 @@ export type ToolCallMiddleware = (
  */
 export type ToolResultMiddleware = (result: string, ctx: ToolCallContext) => string | void | Promise<string | void>;
 
+/**
+ * The active color theme, as an extension sees it. Structural on purpose: the
+ * real implementation lives in the CLI, and core must not depend on it. Slot
+ * names are the theme's colour keys (`toolTitle`, `muted`, `success`,
+ * `error`, `warning`, `accent`, `toolOutput`, …); an unknown slot returns the
+ * text unstyled rather than throwing, so a renderer can't break the UI.
+ */
+export interface ExtensionTheme {
+    /** Active theme name, e.g. "dark" / "noir-day". */
+    readonly name: string;
+    fg(slot: string, text: string): string;
+    bg(slot: string, text: string): string;
+    bold(text: string): string;
+    italic(text: string): string;
+    underline(text: string): string;
+}
+
+/** What the TUI knows about a tool call when it draws the summary line. */
+export interface ToolSummaryContext {
+    toolName: string;
+    cwd: string;
+    /**
+     * The active UI mode id — "loop" or "noir" today, and whatever a mode
+     * extension registers. The two modes have different row grammar, so a
+     * renderer that cares should branch on this rather than assume one.
+     */
+    uiMode: string;
+    /** Active theme, so extension output matches the surrounding chrome. */
+    theme: ExtensionTheme;
+}
+
+/**
+ * Renders the one-line summary shown beside a tool call in the TUI — the text
+ * after the tool's name. Without one, a tool loop has no built-in knowledge of
+ * falls back to truncated JSON of its arguments, which is unreadable. Return a
+ * string to use it, or void to accept the default.
+ *
+ * This is how an extension keeps its own presentation: loop holds the generic
+ * seam and knows nothing about any particular tool's arguments. Called on every
+ * repaint — keep it cheap and synchronous.
+ */
+export type ToolSummaryRenderer = (args: Record<string, unknown>, ctx: ToolSummaryContext) => string | void;
+
 /** SDK families loop knows how to drive declaratively (Vercel AI SDK). */
 export type ProviderSdk = "openai" | "anthropic" | "google" | "openai-compatible";
 
@@ -339,6 +382,39 @@ export type StatusLineContributor = (
  */
 export type StatusLineTransform = (lines: string[], ctx: StatusLineContext) => string[] | void;
 
+/**
+ * A theme palette. `colors` maps slot names to a hex string, a 256-colour
+ * index, or a `$var` reference into `vars`; any slot left out inherits from the
+ * builtin dark theme, so a partial palette is valid and won't fail at render.
+ */
+export interface ExtensionThemeJson {
+    name: string;
+    vars?: Record<string, string | number>;
+    colors: Record<string, string | number>;
+}
+
+/**
+ * A UI mode — a named chat "experience" bundling its own themes and a
+ * declarative style spec layered over the builtin `loop` defaults. Registering
+ * one makes it selectable (`/uimode`), and its themes become available while
+ * it's active.
+ *
+ * `style` is passed through to the renderer as-is; every knob it omits keeps
+ * the loop default. The imperative per-block renderers the builtin modes can
+ * use are deliberately NOT part of this surface — they take internal component
+ * and theme types that would pin the extension to loop's rendering internals.
+ */
+export interface ExtensionUiMode {
+    /** Unique id, used in settings (`uiMode`) and the picker. */
+    id: string;
+    /** Picker label; falls back to id. */
+    name?: string;
+    /** Themes this mode owns; [0] is its default. */
+    themes: ExtensionThemeJson[];
+    /** Declarative style knobs layered over the loop defaults. */
+    style?: Record<string, unknown>;
+}
+
 export interface ExtensionInfo {
     /** The extension's own directory (~/.loop/extensions/<name>). */
     readonly dir: string;
@@ -387,6 +463,12 @@ export interface ExtensionAPI {
         /** Intercept/rewrite a matched tool's input, or block it, before it runs. */
         onCall(match: string | string[] | ((name: string) => boolean), mw: ToolCallMiddleware): void;
         onResult(match: string | string[] | ((name: string) => boolean), mw: ToolResultMiddleware): void;
+        /**
+         * Supply the one-line summary the TUI shows beside a matched tool call,
+         * in place of the default JSON dump. An extension that adds a tool owns
+         * how that tool reads.
+         */
+        summary(match: string | string[] | ((name: string) => boolean), fn: ToolSummaryRenderer): void;
     };
 
     settings: {
@@ -395,6 +477,17 @@ export interface ExtensionAPI {
         /** The extension's own namespaced settings (the `extensionSettings.<name>` bag in settings.json). */
         getOwn<T = unknown>(key: string, fallback?: T): T;
         setOwn<T = unknown>(key: string, value: T): void;
+    };
+
+    /**
+     * Chat experiences and palettes. A mode is selectable via `/uimode` and
+     * settings `uiMode`; its themes become available while it is active.
+     * `addThemes` extends a mode loop already has (e.g. another palette for
+     * `noir`) without redefining it.
+     */
+    uiModes: {
+        register(mode: ExtensionUiMode): void;
+        addThemes(modeId: string, ...themes: ExtensionThemeJson[]): void;
     };
 
     providers: { register(provider: ProviderPlugin): void; unregister(id: string): void };

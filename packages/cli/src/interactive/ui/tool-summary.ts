@@ -2,7 +2,41 @@
  * Single source of truth for how a tool call is summarized on one line — used
  * by the live tool box (tool-execution.ts) and the /tree row (entry-display.ts)
  * so both describe a call identically. Pure + uncolored; callers apply theme.
+ *
+ * Tools loop doesn't ship are summarized by their own extension, via the
+ * renderer seam below — nothing here knows about any extension's arguments.
  */
+import { getExtensionHost, type ExtensionTheme } from "@notshekhar/loop-core";
+import { theme } from "./theme";
+import { activeUiMode } from "./ui-mode";
+
+/**
+ * The active theme, adapted to the extension-facing shape. Unknown slots come
+ * back unstyled instead of throwing (the real `Theme` throws), because an
+ * extension naming a slot loop doesn't have must not break a repaint.
+ */
+const extensionTheme: ExtensionTheme = {
+    get name() {
+        return theme.name;
+    },
+    fg: (slot, text) => {
+        try {
+            return theme.fg(slot as never, text);
+        } catch {
+            return text;
+        }
+    },
+    bg: (slot, text) => {
+        try {
+            return theme.bg(slot as never, text);
+        } catch {
+            return text;
+        }
+    },
+    bold: (text) => theme.bold(text),
+    italic: (text) => theme.italic(text),
+    underline: (text) => theme.underline(text),
+};
 
 /** Shorten an absolute path under `cwd` to a repo-relative one (or `.` for cwd). */
 function rel(p: unknown, cwd: string): string {
@@ -16,6 +50,14 @@ function rel(p: unknown, cwd: string): string {
  */
 export function formatToolArgs(toolName: string, args: Record<string, unknown>, cwd: string): string {
     if (Object.keys(args).length === 0) return "";
+    // An extension that contributes a tool owns how it reads: ask first, so
+    // loop needs no knowledge of any tool it doesn't ship itself.
+    const custom = getExtensionHost().renderToolSummary(toolName, args, {
+        cwd,
+        uiMode: activeUiMode().id,
+        theme: extensionTheme,
+    });
+    if (custom !== undefined) return custom;
     const a = args;
     switch (toolName) {
         case "read":

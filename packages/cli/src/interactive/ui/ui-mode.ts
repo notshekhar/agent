@@ -7,6 +7,7 @@
  * mode is activated. Extensions register modes through this registry (the
  * extension SDK surface fronts it in a later phase).
  */
+import { getExtensionHost, type ExtensionThemeJson } from "@notshekhar/loop-core";
 import type { ThemeJson } from "./themes";
 import { DARK_THEME, LIGHT_THEME } from "./themes";
 import type { TaskStatsLike } from "./tool-execution";
@@ -189,6 +190,46 @@ export function unregisterUiMode(id: string): void {
 
 export function listUiModes(): UiModePlugin[] {
     return [...modes.values()];
+}
+
+/**
+ * An extension palette is deliberately PARTIAL — `ThemeJson` demands all ~52
+ * slots, but a mode that only restyles a few would be unusable if it had to
+ * restate the rest. Missing slots are filled from the builtin dark theme when
+ * the theme is loaded (`withDarkFallback` in theme.ts), so the widening here is
+ * sound rather than a papered-over mismatch.
+ */
+function asThemeJson(theme: ExtensionThemeJson): ThemeJson {
+    return theme as unknown as ThemeJson;
+}
+
+/**
+ * Drain extension-contributed modes and palettes into this registry.
+ *
+ * Must run after the extension host has loaded and BEFORE the configured mode
+ * is activated, or a mode an extension provides can't be the one selected at
+ * startup. Re-running is safe: modes replace by id and themes dedupe by name,
+ * so a reload doesn't accumulate duplicates.
+ */
+export function applyExtensionUiModes(): void {
+    const { modes: contributed, themeAdditions } = getExtensionHost().getUiModes();
+    for (const m of contributed) {
+        registerUiMode({
+            id: m.id,
+            name: m.name,
+            themes: (m.themes ?? []).map(asThemeJson),
+            style: m.style as UiModePlugin["style"],
+        });
+    }
+    for (const { modeId, themes } of themeAdditions) {
+        const mode = modes.get(modeId);
+        if (!mode) continue;
+        for (const t of themes.map(asThemeJson)) {
+            const at = mode.themes.findIndex((existing) => existing.name === t.name);
+            if (at === -1) mode.themes.push(t);
+            else mode.themes[at] = t;
+        }
+    }
 }
 
 export function getUiMode(id: string): UiModePlugin | undefined {

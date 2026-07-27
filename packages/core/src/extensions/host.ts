@@ -26,6 +26,10 @@ import type {
     StatusLineTransform,
     ToolCallMiddleware,
     ToolResultMiddleware,
+    ExtensionThemeJson,
+    ExtensionUiMode,
+    ToolSummaryContext,
+    ToolSummaryRenderer,
     TurnMiddleware,
 } from "./api";
 import { EXTENSION_API_VERSION, requiredApiRange } from "./api";
@@ -75,6 +79,9 @@ interface Contributions {
     toolGrants: { agent: string; tool: string }[];
     toolCallMws: { match: (name: string) => boolean; mw: ToolCallMiddleware }[];
     toolResultMws: { match: (name: string) => boolean; mw: ToolResultMiddleware }[];
+    toolSummaries: { match: (name: string) => boolean; fn: ToolSummaryRenderer }[];
+    uiModes: ExtensionUiMode[];
+    themeAdditions: { modeId: string; themes: ExtensionThemeJson[] }[];
     providers: Map<string, ProviderPlugin>;
     modelInfos: ModelInfo[];
     agents: AgentPlugin[];
@@ -112,6 +119,9 @@ function emptyContributions(): Contributions {
         toolGrants: [],
         toolCallMws: [],
         toolResultMws: [],
+        toolSummaries: [],
+        uiModes: [],
+        themeAdditions: [],
         providers: new Map(),
         modelInfos: [],
         agents: [],
@@ -321,6 +331,7 @@ export class ExtensionHost {
                 grant: (agent, tool) => c.toolGrants.push({ agent, tool }),
                 onCall: (match, mw) => c.toolCallMws.push({ match: toMatcher(match), mw }),
                 onResult: (match, mw) => c.toolResultMws.push({ match: toMatcher(match), mw }),
+                summary: (match, fn) => c.toolSummaries.push({ match: toMatcher(match), fn }),
             },
             settings: {
                 get: (key) => settingsStore.get(key as string) as never,
@@ -331,6 +342,11 @@ export class ExtensionHost {
                 }) as ExtensionAPI["settings"]["getOwn"],
                 setOwn: ((key: string, value: unknown) => writeOwn(key, value)) as never,
             },
+            uiModes: {
+                register: (mode) => c.uiModes.push(mode),
+                addThemes: (modeId, ...themes) => c.themeAdditions.push({ modeId, themes }),
+            },
+
             providers: {
                 register: (provider) => c.providers.set(provider.id, provider),
                 unregister: (id) => c.providers.delete(id),
@@ -405,6 +421,42 @@ export class ExtensionHost {
 
     getToolResultMiddleware(): { match: (name: string) => boolean; mw: ToolResultMiddleware }[] {
         return [...this.loaded.values()].flatMap((l) => l.contributions.toolResultMws);
+    }
+
+    /**
+     * The extension-supplied summary for a tool call, or undefined to use the
+     * built-in formatting. First matching renderer that returns a string wins;
+     * a throwing renderer is ignored rather than breaking the repaint.
+     */
+    renderToolSummary(
+        toolName: string,
+        args: Record<string, unknown>,
+        ctx: Omit<ToolSummaryContext, "toolName">,
+    ): string | undefined {
+        for (const l of this.loaded.values()) {
+            for (const { match, fn } of l.contributions.toolSummaries) {
+                if (!match(toolName)) continue;
+                try {
+                    const text = fn(args, { ...ctx, toolName });
+                    if (typeof text === "string") return text;
+                } catch {
+                    // a broken renderer must never take down the UI
+                }
+            }
+        }
+        return undefined;
+    }
+
+    /**
+     * UI modes and extra palettes contributed by extensions. The CLI drains
+     * these into its mode registry after `init()` and after any reload — core
+     * only collects them, since the registry and renderer live in the CLI.
+     */
+    getUiModes(): { modes: ExtensionUiMode[]; themeAdditions: { modeId: string; themes: ExtensionThemeJson[] }[] } {
+        return {
+            modes: [...this.loaded.values()].flatMap((l) => l.contributions.uiModes),
+            themeAdditions: [...this.loaded.values()].flatMap((l) => l.contributions.themeAdditions),
+        };
     }
 
     /** Status-line contributors + transforms, aggregated across extensions. */
