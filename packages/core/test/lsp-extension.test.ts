@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { reportDiagnostics } from "../src/extensions/builtin/lsp/index";
 import { LSP_OPERATIONS, needsPosition } from "../src/extensions/builtin/lsp/operations";
 import { defHandles, getServerDefs, languageKeysFor } from "../src/extensions/builtin/lsp/registry";
-import { findRoot, isDisqualified } from "../src/extensions/builtin/lsp/servers";
+import { findRoot, isDisqualified, resolveServer } from "../src/extensions/builtin/lsp/servers";
 import { hoverText, SYMBOL_KIND } from "../src/extensions/builtin/lsp/protocol";
 import type { Diagnostic } from "../src/extensions/builtin/lsp/protocol";
 
@@ -114,6 +114,41 @@ describe("project root detection", () => {
         writeFileSync(f, "export {};");
         expect(isDisqualified(def("typescript"), f, deno)).toBe(true);
         expect(isDisqualified(def("deno"), f, deno)).toBe(false);
+    });
+});
+
+describe("a discovered binary must be new enough to speak LSP", () => {
+    /** A fake `tsc` in <dir>/node_modules/.bin that reports `version`. */
+    function fakeTsc(version: string): string {
+        const dir = mkdtempSync(join(tmpdir(), "loop-lsp-bin-"));
+        const bin = join(dir, "node_modules", ".bin");
+        mkdirSync(bin, { recursive: true });
+        const path = join(bin, "tsc");
+        writeFileSync(path, `#!/bin/sh\necho "Version ${version}"\n`);
+        chmodSync(path, 0o755);
+        return dir;
+    }
+
+    test("a project's TypeScript 5 is skipped, not launched", () => {
+        // `tsc` has been in node_modules for a decade but only v7 answers
+        // --lsp. Launching v5 fails the handshake and kills the language.
+        expect(resolveServer("typescript", fakeTsc("5.9.3"))).toBeNull();
+    });
+
+    test("a project's TypeScript 7 is used as-is", () => {
+        const dir = fakeTsc("7.0.2");
+        const spec = resolveServer("typescript", dir);
+        expect(spec).not.toBeNull();
+        expect(spec?.command).toBe(join(dir, "node_modules", ".bin", "tsc"));
+        expect(spec?.args).toEqual(["--lsp", "--stdio"]);
+    });
+
+    test("servers with no declared minimum are unaffected", () => {
+        // Only typescript declares one; nothing else should gain a version probe.
+        const withMin = getServerDefs()
+            .filter((d) => d.minMajorVersion !== undefined)
+            .map((d) => d.key);
+        expect(withMin).toEqual(["typescript"]);
     });
 });
 

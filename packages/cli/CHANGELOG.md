@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.15.6] - 2026-07-28
+
+### Fixed
+
+- **The `lsp` extension found no language server in most TypeScript projects.** `tsc` has lived in `node_modules/.bin` for a decade as the compiler, but only TypeScript 7 answers `--lsp`. loop preferred the project's own binary — correct in principle, since a project should get the version it pins — and then launched a TypeScript 5 or 6 with LSP flags it doesn't understand. The handshake failed, the client was dropped, and the whole language went with it: `lsp` reported "no language server available for this file type" and diagnostics silently stopped after every edit. Any project with TypeScript installed locally hit this, which is nearly all of them, and it happened whether loop was started inside the project or above it. A discovered binary is now version-checked before loop speaks LSP to it: a project pinning TypeScript 7 or newer is used as-is, an older one is skipped, and loop falls through to the TypeScript 7 it provisions itself. Only `tsc` declares a minimum today, so no other server pays for the check.
+
 ## [0.15.5] - 2026-07-28
 
 ### Added

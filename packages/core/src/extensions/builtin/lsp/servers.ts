@@ -24,14 +24,45 @@ function onPath(name: string): string | null {
     return probe.status === 0 ? name : null;
 }
 
-function resolveBinary(rootPath: string, names: string[]): string | null {
-    const isWin = process.platform === "win32";
-    for (const name of names) {
-        const local = join(rootPath, "node_modules", ".bin", isWin ? `${name}.cmd` : name);
-        if (existsSync(local)) return local;
+/** `<bin> --version` → major version number, or null if it can't be read. */
+const versionCache = new Map<string, number | null>();
+function majorVersion(bin: string): number | null {
+    const cached = versionCache.get(bin);
+    if (cached !== undefined) return cached;
+    let major: number | null = null;
+    try {
+        const probe = spawnSync(bin, ["--version"], { encoding: "utf8", timeout: 5000 });
+        const text = `${probe.stdout ?? ""}${probe.stderr ?? ""}`;
+        // "Version 5.9.3", "tsc 7.0.2", "gopls v0.16.1" — first number wins.
+        const m = /(\d+)\.\d+/.exec(text);
+        if (m) major = Number(m[1]);
+    } catch {
+        major = null;
     }
-    for (const name of names) {
-        if (onPath(name)) return name;
+    versionCache.set(bin, major);
+    return major;
+}
+
+/**
+ * A candidate is only usable if it's new enough to speak LSP. An unreadable
+ * version is treated as unusable when a minimum is declared: launching a binary
+ * that doesn't understand `--lsp` costs a failed handshake and takes the whole
+ * language down with it, which is worse than falling through to provisioning.
+ */
+function usable(bin: string, def: LanguageServerDef): boolean {
+    if (def.minMajorVersion === undefined) return true;
+    const major = majorVersion(bin);
+    return major !== null && major >= def.minMajorVersion;
+}
+
+function resolveBinary(rootPath: string, def: LanguageServerDef): string | null {
+    const isWin = process.platform === "win32";
+    for (const name of def.binNames) {
+        const local = join(rootPath, "node_modules", ".bin", isWin ? `${name}.cmd` : name);
+        if (existsSync(local) && usable(local, def)) return local;
+    }
+    for (const name of def.binNames) {
+        if (onPath(name) && usable(name, def)) return name;
     }
     return null;
 }
@@ -98,7 +129,7 @@ function expandNativePath(template: string): string {
 export function resolveServer(key: LanguageKey, rootPath: string): LspServerSpec | null {
     const def = findDef(key);
     if (!def || !requirementsMet(def)) return null;
-    const exe = resolveBinary(rootPath, def.binNames);
+    const exe = resolveBinary(rootPath, def);
     return exe ? specFromExe(def, exe) : null;
 }
 

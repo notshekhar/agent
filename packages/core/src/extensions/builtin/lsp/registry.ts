@@ -35,6 +35,15 @@ export interface LanguageServerDef {
     disqualifyMarkers?: string[];
     /** Binaries that must be on PATH for this server to work at all. */
     requires?: string[];
+    /**
+     * Minimum MAJOR version a discovered binary must report before we'll speak
+     * LSP to it, checked with `--version`. Needed where a long-lived command
+     * only grew LSP support recently: `tsc` is TypeScript's compiler and has
+     * been on PATH and in node_modules for a decade, but only v7+ answers
+     * `--lsp`. Without this the project's own TypeScript 5 gets launched, fails
+     * the handshake, and the language dies with it.
+     */
+    minMajorVersion?: number;
     /** npm deps provisioned into ~/.loop/servers/<key>/ when the binary is absent. */
     npm?: Record<string, string>;
     /** Path to the installed binary within that dir (a JS shim; runs under "node"). */
@@ -76,6 +85,9 @@ const BUILTINS: LanguageServerDef[] = [
         runtime: "native",
         binNames: ["tsgo", "tsc"],
         args: ["--lsp", "--stdio"],
+        // `tsc` only speaks LSP from TypeScript 7. A project pinning 7+ is used
+        // as-is; an older local install is skipped so we provision 7 instead.
+        minMajorVersion: 7,
         rootMarkers: ["tsconfig.json", "jsconfig.json", ...NODE_ROOTS],
         disqualifyMarkers: ["deno.json", "deno.jsonc"],
         npm: { typescript: "^7.0.0" },
