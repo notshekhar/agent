@@ -107,7 +107,12 @@ function buildLspTool(cwd: () => string) {
         description: OPERATION_HELP,
         inputSchema: z.object({
             operation: z.enum(LSP_OPERATIONS).describe("The LSP operation to perform"),
-            filePath: z.string().describe("The absolute or relative path to the file"),
+            filePath: z
+                .string()
+                .optional()
+                .describe(
+                    "Path to the file. For workspaceSymbol this may be a directory (or omitted, meaning the workspace) — it only selects which language server answers.",
+                ),
             line: z
                 .number()
                 .int()
@@ -127,19 +132,27 @@ function buildLspTool(cwd: () => string) {
         }),
         execute: async ({ operation, filePath, line, character, query }) => {
             const root = cwd();
-            const abs = isAbsolute(filePath) ? filePath : join(root, filePath);
             const op = operation as LspOperation;
+            // workspaceSymbol is about a whole project, so the path is only a
+            // server selector and may be omitted entirely — default to the cwd.
+            const target = filePath ?? (op === "workspaceSymbol" ? "." : undefined);
+            if (target === undefined) return `[${op} needs filePath]`;
+            const abs = isAbsolute(target) ? target : join(root, target);
 
             if (needsPosition(op) && (line === undefined || character === undefined)) {
                 return `[${op} needs both line and character (1-based)]`;
             }
             const manager = getLspManager(root);
-            const clients = await manager.clientsFor(abs);
+            // Accepts a directory as well as a file: workspaceSymbol is normally
+            // asked about a project, not a particular source file.
+            const clients = await manager.clientsForTarget(abs);
             if (clients.length === 0) {
-                return `[no language server available for ${filePath}. Install one for this file type, or add it to ~/.loop/servers/servers.json]`;
+                return `[no language server available for ${target}. Install one for this file type, or add it to ~/.loop/servers/servers.json]`;
             }
 
-            // A position request only answers about an open document.
+            // A request only answers about an open document — including
+            // workspace/symbol, whose index is built from the loaded project.
+            // A no-op when `abs` is a directory (clientsForTarget primed those).
             await Promise.all(clients.map(({ client }) => client.openDocument(abs)));
 
             const input = { operation: op, file: abs, line: line ?? 1, character: character ?? 1, query };

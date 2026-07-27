@@ -3,6 +3,7 @@ import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { reportDiagnostics } from "../src/extensions/builtin/lsp/index";
+import { sampleFiles } from "../src/extensions/builtin/lsp/manager";
 import { LSP_OPERATIONS, needsPosition } from "../src/extensions/builtin/lsp/operations";
 import { defHandles, getServerDefs, languageKeysFor } from "../src/extensions/builtin/lsp/registry";
 import { findRoot, isDisqualified, resolveServer } from "../src/extensions/builtin/lsp/servers";
@@ -154,6 +155,41 @@ describe("a discovered binary must be new enough to speak LSP", () => {
             .filter((d) => d.minMajorVersion !== undefined)
             .map((d) => d.key);
         expect(withMin).toEqual(["typescript"]);
+    });
+});
+
+describe("a directory is a valid target for workspaceSymbol", () => {
+    // workspaceSymbol is asked about a project, so a directory (or the repo
+    // root) is the natural thing to name — matching servers by file extension
+    // finds nothing for one, which read as "no language server available".
+    const root = mkdtempSync(join(tmpdir(), "loop-lsp-dir-"));
+    mkdirSync(join(root, "src"), { recursive: true });
+    mkdirSync(join(root, "node_modules", "junk"), { recursive: true });
+    writeFileSync(join(root, "src", "main.ts"), "export const x = 1;");
+    writeFileSync(join(root, "README.md"), "# hi");
+    writeFileSync(join(root, "node_modules", "junk", "index.ts"), "export {};");
+
+    test("finds the languages a project is written in", () => {
+        const picked = sampleFiles(root);
+        expect(picked.some((f) => f.endsWith(join("src", "main.ts")))).toBe(true);
+    });
+
+    test("skips node_modules — a dependency's language is not the project's", () => {
+        expect(sampleFiles(root).some((f) => f.includes("node_modules"))).toBe(false);
+    });
+
+    test("returns one file per language, not every file", () => {
+        mkdirSync(join(root, "src", "more"), { recursive: true });
+        writeFileSync(join(root, "src", "more", "a.ts"), "export {};");
+        writeFileSync(join(root, "src", "more", "b.ts"), "export {};");
+        const ts = sampleFiles(root).filter((f) => f.endsWith(".ts"));
+        expect(ts).toHaveLength(1);
+    });
+
+    test("a directory with nothing recognizable yields nothing", () => {
+        const empty = mkdtempSync(join(tmpdir(), "loop-lsp-empty-"));
+        writeFileSync(join(empty, "notes.txt"), "hello");
+        expect(sampleFiles(empty)).toEqual([]);
     });
 });
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.7] - 2026-07-28
+
+### Fixed
+
+- **`lsp workspaceSymbol` refused a directory, which is the natural thing to ask it about.** The operation lists symbols across a whole project, so an agent names the project — `example-ts-snake`, or the repo root — rather than an arbitrary source file inside it. Servers were matched by file extension, a directory has none, and the answer was "no language server available for this file type" even where the project plainly had one. Every other operation worked, so the failure looked arbitrary. A directory target is now resolved by looking inside it: a bounded, breadth-first scan (skipping `node_modules`, `.git`, `dist` and friends) picks one representative file per language and starts those servers, so a polyglot project gets all of them and a huge repo costs no more than a small one. `filePath` is also optional for `workspaceSymbol` now — omitting it means the workspace.
+- **`workspaceSymbol` returned nothing from a server that had just started.** A tsserver-style server builds its program from the documents that have been opened, so querying the symbol index of a freshly spawned server returned an empty result even when the server itself was healthy and the symbol was right there. The representative file is opened before the query, which loads the project.
+
 ## [0.15.6] - 2026-07-28
 
 ### Fixed
