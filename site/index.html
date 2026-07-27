@@ -1,0 +1,598 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>loop — terminal coding agent, bring your own model</title>
+<meta name="description" content="Open source terminal coding agent. One TUI, 15+ model providers. Session trees, background goals, subagents, MCP, and Claude Code-compatible hooks. macOS, Linux, Windows." />
+<meta property="og:title" content="loop — terminal coding agent" />
+<meta property="og:description" content="Open source terminal coding agent. Bring your own model." />
+<meta property="og:type" content="website" />
+<!--
+  __SITE_URL__ is replaced with the real deployment origin by the pages
+  workflow. og:image has to be an absolute URL — crawlers have no base to
+  resolve a relative path against, and it is the most common reason a card
+  renders blank — but the domain should not be hand-maintained here.
+  Everything a browser fetches (icons) stays relative.
+-->
+<meta property="og:url" content="__SITE_URL__/" />
+<meta property="og:site_name" content="loop" />
+<meta property="og:image" content="__SITE_URL__/og.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="loop — terminal coding agent. Bring your own model." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="loop — terminal coding agent" />
+<meta name="twitter:description" content="Open source terminal coding agent. Bring your own model." />
+<meta name="twitter:image" content="__SITE_URL__/og.png" />
+<meta name="theme-color" content="#16181a" />
+
+<link rel="icon" href="favicon.svg" type="image/svg+xml" />
+<link rel="icon" href="favicon-32.png" sizes="32x32" type="image/png" />
+<link rel="icon" href="favicon-16.png" sizes="16x16" type="image/png" />
+<link rel="alternate icon" href="favicon.ico" sizes="48x48 32x32 16x16" />
+<link rel="apple-touch-icon" href="apple-touch-icon.png" />
+
+<!-- Ads and search consolidate on the oboe.chat page; this mirror defers to it. -->
+<link rel="canonical" href="https://oboe.chat/loop" />
+
+<style>
+:root {
+  --bg:     #16181a;
+  --raised: #1c1f21;
+  --line:   #2a2e31;
+  --rule:   #454c50;   /* box-drawing: readable, unlike the hairline borders */
+  --text:   #d4d4d4;
+  --muted:  #808080;
+  --dim:    #505050;
+  --accent: #8abeb7;
+  --green:  #b5bd68;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", "JetBrains Mono", "Fira Code", Menlo, Consolas, monospace;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 15px;
+  line-height: 1.65;
+  font-variant-ligatures: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; text-underline-offset: 3px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+
+/* Inline-only so it never clobbers the block padding these elements set
+   for themselves — .wrap is a class and would win over `section`. */
+.wrap {
+  max-width: 78ch;
+  margin: 0 auto;
+  padding-inline: clamp(1.25rem, 4vw, 2.5rem);
+}
+
+section { padding-block-start: clamp(4rem, 11vw, 7rem); }
+
+.eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--dim);
+  margin: 0 0 1.25rem;
+}
+.eyebrow::before { content: "── "; color: var(--line); }
+
+.lead { margin: 0 0 1.5rem; max-width: 62ch; font-size: 13.5px; color: var(--muted); }
+.lead b { color: var(--text); font-weight: 600; }
+
+code {
+  border: 1px solid var(--line);
+  background: var(--raised);
+  color: var(--text);
+  padding: 0.05em 0.4em;
+  font-size: 12.5px;
+}
+
+/* ---------- nav ---------- */
+.nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-block: 1.75rem;
+  font-size: 13px;
+  color: var(--muted);
+}
+.nav b { color: var(--text); font-weight: 600; }
+.nav .ver { color: var(--dim); }
+
+/* ---------- hero ---------- */
+.hero { padding-block-start: clamp(3rem, 10vw, 6.5rem); }
+
+.wordmark {
+  margin: 0;
+  font-size: clamp(4.5rem, 19vw, 11rem);
+  line-height: 0.82;
+  letter-spacing: -0.055em;
+  font-weight: 700;
+}
+.wordmark .caret { color: var(--accent); font-weight: 400; animation: blink 1.25s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .wordmark .caret { animation: none; } }
+
+.lede {
+  margin: 1.75rem 0 0;
+  max-width: 34ch;
+  font-size: clamp(1.05rem, 2.6vw, 1.35rem);
+  line-height: 1.45;
+  letter-spacing: -0.01em;
+}
+.lede span { display: block; color: var(--muted); }
+
+/* ---------- install ---------- */
+.install { margin-top: 2.5rem; }
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: -1px;
+}
+.tab {
+  appearance: none;
+  background: none;
+  border: 1px solid transparent;
+  border-bottom: none;
+  color: var(--dim);
+  font: inherit;
+  font-size: 12px;
+  padding: 0.45rem 0.9rem;
+  cursor: pointer;
+}
+.tab:hover { color: var(--muted); }
+.tab[aria-selected="true"] {
+  color: var(--accent);
+  border-color: var(--line);
+  background: var(--raised);
+}
+
+.cmdbox {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--line);
+  background: var(--raised);
+  overflow: hidden;
+}
+.cmd {
+  flex: 1;
+  min-width: 0;
+  padding: 0.9rem 1rem;
+  overflow-x: auto;
+  white-space: pre;
+  font-size: 13px;
+  scrollbar-width: thin;
+}
+.cmd .p { color: var(--green); user-select: none; }
+.copy {
+  appearance: none;
+  flex-shrink: 0;
+  border: none;
+  border-left: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  padding: 0 1.1rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.copy:hover { color: var(--accent); background: rgba(138,190,183,0.06); }
+.copy[data-done="1"] { color: var(--green); }
+
+.subnote { margin: 0.9rem 0 0; font-size: 12.5px; color: var(--dim); }
+
+/* ---------- framed terminal block (tree, goals, agents) ---------- */
+.frame { border: 1px solid var(--line); background: var(--raised); overflow-x: auto; }
+.frame-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.6rem 1rem;
+  border-bottom: 1px solid var(--line);
+  font-size: 11.5px;
+  letter-spacing: 0.06em;
+  color: var(--dim);
+  white-space: nowrap;
+}
+.block {
+  margin: 0;
+  padding: 1.15rem 1rem 1.35rem;
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre;
+  min-width: 52ch;
+}
+.b { color: var(--rule); }
+.verb { color: var(--accent); }
+.arg { color: var(--muted); }
+.msg { color: var(--text); }
+.note { color: var(--dim); }
+.ok { color: var(--green); }
+
+.caption { margin: 1.1rem 0 0; max-width: 62ch; font-size: 13.5px; color: var(--muted); }
+.caption b { color: var(--text); font-weight: 600; }
+
+/* ---------- definition rows ---------- */
+.rows { border-top: 1px solid var(--line); margin: 0; }
+.row {
+  display: grid;
+  grid-template-columns: 15ch 1fr;
+  gap: 0 2ch;
+  align-items: start;
+  padding: 1.15rem 0;
+  border-bottom: 1px solid var(--line);
+}
+.row dt { color: var(--accent); font-size: 12.5px; padding-top: 0.12rem; }
+.row dd { margin: 0; color: var(--muted); font-size: 13.5px; }
+.row dd b { color: var(--text); font-weight: 500; }
+@media (max-width: 620px) {
+  .row { grid-template-columns: 1fr; gap: 0.35rem 0; }
+}
+
+/* ---------- chips ---------- */
+.chips { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0; padding: 0; list-style: none; }
+.chips li { border: 1px solid var(--line); color: var(--muted); font-size: 12.5px; padding: 0.3rem 0.7rem; }
+.chips li.on { color: var(--accent); border-color: rgba(138,190,183,0.35); }
+
+/* ---------- migration ---------- */
+.mig {
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--accent);
+  background: var(--raised);
+  padding: 1.35rem 1.5rem;
+}
+.mig p { margin: 0 0 0.85rem; max-width: 62ch; font-size: 13.5px; color: var(--muted); }
+.mig p:last-child { margin-bottom: 0; }
+.mig b { color: var(--text); font-weight: 600; }
+
+/* ---------- closing CTA ---------- */
+.cta { border: 1px solid var(--line); background: var(--raised); padding: 2rem 1.75rem; }
+.cta h2 { margin: 0 0 0.6rem; font-size: 1.35rem; letter-spacing: -0.02em; font-weight: 700; }
+.cta p { margin: 0 0 1.5rem; font-size: 13.5px; color: var(--muted); max-width: 54ch; }
+.cta .cmdbox { background: var(--bg); }
+
+/* ---------- footer ---------- */
+.foot {
+  margin-top: clamp(4.5rem, 12vw, 8rem);
+  border-top: 1px solid var(--line);
+  padding-block: 1.75rem 4rem;
+  font-size: 12.5px;
+  color: var(--dim);
+}
+.foot p { margin: 0 0 0.6rem; max-width: 64ch; }
+.foot a { color: var(--muted); }
+.foot a:hover { color: var(--accent); }
+</style>
+</head>
+<body>
+
+<nav class="nav wrap">
+  <span><b>loop</b> <span class="ver">v0.15.2</span></span>
+  <a href="https://github.com/notshekhar/loop">github.com/notshekhar/loop</a>
+</nav>
+
+<header class="hero wrap">
+  <h1 class="wordmark">loop<span class="caret">_</span></h1>
+  <p class="lede">
+    Terminal coding agent.
+    <span>Bring your own model.</span>
+  </p>
+
+  <div class="install">
+    <div class="tabs" role="tablist" aria-label="Install command by platform">
+      <button class="tab" role="tab" aria-selected="true"  data-os="mac">macOS / Linux / WSL</button>
+      <button class="tab" role="tab" aria-selected="false" data-os="pwsh">Windows PowerShell</button>
+      <button class="tab" role="tab" aria-selected="false" data-os="cmd">Windows cmd</button>
+    </div>
+    <div class="cmdbox">
+      <div class="cmd"><span class="p">$ </span><span class="cmdtext">curl -fsSL https://raw.githubusercontent.com/notshekhar/loop/main/install.sh | bash</span></div>
+      <button class="copy" type="button">copy</button>
+    </div>
+    <p class="subnote">Prebuilt binaries, no Node required. Then <code>loop login</code> and <code>loop</code>.</p>
+  </div>
+</header>
+
+<!-- signature: the session tree -->
+<section class="wrap">
+  <p class="eyebrow">Sessions are trees</p>
+  <div class="frame">
+    <div class="frame-head"><span>/tree</span><span>fold · filter · search · bookmark</span></div>
+<pre class="block" aria-label="Example loop session tree"><span class="msg">refactor auth to use sessions</span>
+<span class="b">├─ </span><span class="verb">Read</span><span class="arg">  src/auth/session.ts</span>
+<span class="b">├─ </span><span class="verb">Edit</span><span class="arg">  src/auth/session.ts</span>
+<span class="b">├─ </span><span class="verb">Bash</span><span class="arg">  bun test  </span><span class="ok">712 pass</span>
+<span class="b">│</span>
+<span class="b">├─ </span><span class="verb">fork</span><span class="msg">  "what if we move to postgres?"</span>
+<span class="b">│  ├─ </span><span class="verb">Edit</span><span class="arg">  src/db/schema.ts</span>
+<span class="b">│  └─ </span><span class="note">abandoned · 12 messages summarized back into context</span>
+<span class="b">│</span>
+<span class="b">└─ </span><span class="verb">fork</span><span class="msg">  "keep sqlite, add WAL"</span><span class="note">          ← leaf</span>
+<span class="b">   ├─ </span><span class="verb">Edit</span><span class="arg">  src/db/sqlite.ts</span>
+<span class="b">   └─ </span><span class="verb">Bash</span><span class="arg">  bun test  </span><span class="ok">712 pass</span></pre>
+  </div>
+  <p class="caption">Every entry has a parent, so a session is a tree rather than a transcript. <b>Branch from any earlier message</b> and keep both paths — when you leave a branch, loop offers to summarize it back so its context survives the switch. <code>/fork</code> copies a path into a new session; <code>/clone</code> duplicates the current one.</p>
+</section>
+
+<!-- background tasks -->
+<section class="wrap">
+  <p class="eyebrow">Background tasks</p>
+  <p class="lead">A background task is tied to a directory and runs <b>headless, detached from your session</b>. <code>/background</code> is the manager: add, edit, run now, or hand it to the scheduler.</p>
+  <div class="frame">
+    <div class="frame-head"><span>/background</span><span>on demand · once · cron</span></div>
+<pre class="block" aria-label="Background task schedules"><span class="verb">/background</span><span class="note">   + add background task…</span>
+<span class="b">   ├─ </span><span class="msg">on demand  </span><span class="note">no schedule — run it when you say so</span>
+<span class="b">   ├─ </span><span class="msg">once       </span><span class="note">10m · 18:30 · 2026-06-15 09:00</span>
+<span class="b">   └─ </span><span class="msg">cron       </span><span class="note">0 9 * * 1-5   (weekdays at 9:00)</span></pre>
+  </div>
+  <dl class="rows" style="margin-top:1.75rem">
+    <div class="row">
+      <dt>edit</dt>
+      <dd>Change the text, schedule, model, or agent per task. Run one now as a headless background run, or reopen its last run as a session.</dd>
+    </div>
+    <div class="row">
+      <dt>scheduler</dt>
+      <dd><b>Scheduled tasks run on an OS timer</b> — launchd, systemd, or Task Scheduler — so they fire even when loop is closed. Install it from <code>/daemon</code> or <code>loop goals daemon install</code>.</dd>
+    </div>
+    <div class="row">
+      <dt>from the shell</dt>
+      <dd><code>loop background</code> (alias <code>loop goals</code>) does the same from scripts: <code>list</code>, <code>add</code>, <code>rm</code>, <code>run</code>, <code>tick</code>, <code>daemon</code>.</dd>
+    </div>
+  </dl>
+</section>
+
+<!-- goal mode -->
+<section class="wrap">
+  <p class="eyebrow">Goal mode</p>
+  <p class="lead">Different thing: <code>/goal</code> drives <b>the current session</b> autonomously until an adversarial verifier agrees the objective is actually met.</p>
+  <div class="frame">
+    <div class="frame-head"><span>/goal</span><span>plan → continue → verify</span></div>
+<pre class="block" aria-label="Goal mode flow"><span class="verb">/goal</span><span class="msg"> ship the auth refactor</span>
+<span class="b">   ├─ </span><span class="msg">planner    </span><span class="note">writes a frozen plan — no plan, no goal</span>
+<span class="b">   ├─ </span><span class="msg">turn       </span><span class="note">objective runs with the goal rules injected</span>
+<span class="b">   ├─ </span><span class="msg">continue   </span><span class="note">unchecked plan boxes → next directive</span>
+<span class="b">   └─ </span><span class="msg">verifier   </span><span class="note">read-only audit of the workspace</span>
+<span class="b">      └─ </span><span class="ok">clean verdict → done</span><span class="note">   · refuted → gaps feed the next turn</span></pre>
+  </div>
+  <p class="caption">Esc pauses; pick it back up with <code>/goal resume</code>. Step caps and stalls <b>auto-pause instead of burning tokens forever</b>.</p>
+</section>
+
+<!-- agents -->
+<section class="wrap">
+  <p class="eyebrow">Agents &amp; subagents</p>
+  <dl class="rows">
+    <div class="row">
+      <dt>built-ins</dt>
+      <dd><code>default</code> with the full toolset, <code>plan</code> as a read-only investigator, and <code>data-analyst</code> for SQL-first work via <code>/datasource</code>. Tab on an empty prompt cycles them.</dd>
+    </div>
+    <div class="row">
+      <dt>your own</dt>
+      <dd>Build one with <code>/agents</code> — custom system prompt, tool allowlist, optional pinned model. It registers as <code>/&lt;name&gt;</code> for one-shot use.</dd>
+    </div>
+    <div class="row">
+      <dt>plans ship</dt>
+      <dd><b>The plan agent treats a plan as a deliverable.</b> When it's final the agent calls the <code>plan</code> tool, which ends the turn and renders the plan as markdown. Then you either hand it to an agent to implement, or keep refining it.</dd>
+    </div>
+    <div class="row">
+      <dt>subagents</dt>
+      <dd>The <code>task</code> tool forks the current agent into a fresh context window. Activity streams live in the task box; <b>only the final report enters your context.</b></dd>
+    </div>
+  </dl>
+</section>
+
+<!-- what it does -->
+<section class="wrap">
+  <p class="eyebrow">What else</p>
+  <dl class="rows">
+    <div class="row">
+      <dt>models</dt>
+      <dd>One TUI, many models. Switch with <code>/model</code>, pin per-agent models with <code>/scoped-models</code>, tune reasoning with <code>/thinking</code>.</dd>
+    </div>
+    <div class="row">
+      <dt>hooks</dt>
+      <dd><b>Your existing <code>~/.claude</code> hooks and plugins load as-is.</b> Claude Code-compatible lifecycle hooks, so switching costs you nothing.</dd>
+    </div>
+    <div class="row">
+      <dt>extend</dt>
+      <dd>MCP servers over stdio and http/sse with OAuth included, plus a JS extension system for custom tools, providers, and middleware.</dd>
+    </div>
+    <div class="row">
+      <dt>scripting</dt>
+      <dd>One-shot with <code>loop run "..."</code>, pipe from stdin, cap work with <code>--max-steps</code>, or drive it over JSON-RPC.</dd>
+    </div>
+    <div class="row">
+      <dt>context</dt>
+      <dd><code>/compact</code> summarizes, <code>/context</code> shows what's loaded, <code>/memory</code> keeps durable facts, and queued messages run after the current turn.</dd>
+    </div>
+  </dl>
+</section>
+
+<!-- commands -->
+<section class="wrap">
+  <p class="eyebrow">Commands</p>
+  <div class="frame">
+    <div class="frame-head"><span>loop help</span><span>cli</span></div>
+<pre class="block" aria-label="CLI commands"><span class="verb">loop</span><span class="note">                              interactive TUI</span>
+<span class="verb">loop run</span><span class="msg"> "explain this repo"</span><span class="note">      one-shot</span>
+<span class="verb">loop login</span><span class="msg"> [provider]</span><span class="note">            auth</span>
+<span class="verb">loop sessions</span><span class="note">                     list sessions in cwd</span>
+<span class="verb">loop background</span><span class="msg"> &lt;cmd&gt;</span><span class="note">           list, add, rm, run, daemon</span>
+<span class="verb">loop mcp</span><span class="msg"> &lt;cmd&gt;</span><span class="note">                  add, list, remove, login</span>
+<span class="verb">loop extensions</span><span class="note">                   installed JS extensions</span>
+<span class="verb">loop models</span><span class="note">                       list the catalog</span>
+<span class="verb">loop cost audit</span><span class="note">                   verify the cost ledger</span>
+<span class="verb">loop upgrade</span><span class="note">                      self-update</span>
+<span class="verb">loop rpc</span><span class="msg"> [--socket]</span><span class="note">              JSON-RPC</span></pre>
+  </div>
+
+  <dl class="rows" style="margin-top:1.75rem">
+    <div class="row">
+      <dt>sessions</dt>
+      <dd><code>/new</code> <code>/resume</code> <code>/session</code> <code>/name</code> <code>/export</code> <code>/import</code> <code>/share</code> <code>/compact</code> <code>/context</code></dd>
+    </div>
+    <div class="row">
+      <dt>tree</dt>
+      <dd><code>/tree</code> <code>/fork</code> <code>/clone</code></dd>
+    </div>
+    <div class="row">
+      <dt>models</dt>
+      <dd><code>/model</code> <code>/provider</code> <code>/thinking</code> <code>/scoped-models</code></dd>
+    </div>
+    <div class="row">
+      <dt>automation</dt>
+      <dd><code>/background</code> <code>/goal</code> <code>/daemon</code> <code>/reminder</code> <code>/timer</code> <code>/recap</code></dd>
+    </div>
+    <div class="row">
+      <dt>setup</dt>
+      <dd><code>/login</code> <code>/settings</code> <code>/mcp</code> <code>/extensions</code> <code>/hooks</code> <code>/bashdeny</code> <code>/doctor</code></dd>
+    </div>
+  </dl>
+</section>
+
+<!-- providers -->
+<section class="wrap">
+  <p class="eyebrow">Providers</p>
+  <ul class="chips">
+    <li class="on">xAI · Grok</li>
+    <li>Anthropic</li>
+    <li>OpenAI</li>
+    <li>Google Gemini</li>
+    <li>OpenRouter</li>
+    <li>Vercel AI Gateway</li>
+    <li>GitHub Copilot</li>
+    <li>AWS Bedrock</li>
+    <li>DeepSeek</li>
+    <li>Mistral</li>
+    <li>GLM</li>
+    <li>Z.AI</li>
+    <li>Groq</li>
+    <li>Cerebras</li>
+    <li>ZenMux</li>
+    <li>Ollama · local</li>
+    <li>Any OpenAI/Anthropic/Google-compatible gateway</li>
+  </ul>
+  <p class="subnote">Bring your own key, sign in with OAuth, or point loop at a custom gateway like Bifrost or LiteLLM. Six auth methods: API key, bearer token, OAuth/SSO, environment variable, key-helper command, or headers only. Bedrock and Ollama are auto-detected.</p>
+
+  <dl class="rows" style="margin-top:1.75rem">
+    <div class="row">
+      <dt>subscriptions</dt>
+      <dd><b>Already pay for SuperGrok? Sign in with it.</b> <code>loop login xai</code> runs an OAuth flow straight into your xAI plan — no API key to paste, no per-token bill. Grok is the default model (<code>xai/grok-build-0.1</code>).</dd>
+    </div>
+    <div class="row">
+      <dt>copilot</dt>
+      <dd>A GitHub Copilot subscription works the same way — <code>loop login github-copilot</code> uses the device flow and bills against your existing plan.</dd>
+    </div>
+    <div class="row">
+      <dt>local</dt>
+      <dd>Or pay nothing: loop auto-detects a running Ollama daemon and uses your local models.</dd>
+    </div>
+  </dl>
+</section>
+
+<!-- migration -->
+<section class="wrap">
+  <p class="eyebrow">Coming from Gemini CLI</p>
+  <div class="mig">
+    <p>Gemini CLI stopped serving individual accounts on <b>18 June 2026</b>, and its replacement is closed source.</p>
+    <p>loop is open source, installs in one command, and <b>still runs Gemini models</b> with your own API key — alongside Grok, Claude, GPT-5, local Ollama models, and anything else you already pay for.</p>
+  </div>
+</section>
+
+<!-- closing CTA -->
+<section class="wrap">
+  <div class="cta">
+    <h2>Install it in one line.</h2>
+    <p>Prebuilt binaries for darwin-x64, darwin-arm64, linux-x64, linux-arm64, and windows-x64. No Node, no build step.</p>
+    <div class="cmdbox">
+      <div class="cmd"><span class="p">$ </span><span class="cmdtext">curl -fsSL https://raw.githubusercontent.com/notshekhar/loop/main/install.sh | bash</span></div>
+      <button class="copy" type="button">copy</button>
+    </div>
+  </div>
+</section>
+
+<footer class="foot wrap">
+  <p>MIT licensed. Built on top of <a href="https://github.com/earendil-works/pi">pi</a> — the TUI renderer is an in-repo fork of pi-mono's <code>pi-tui</code>, and the message renderers, theme engine, session tree, and skills loader are ports of pi-mono's components.</p>
+  <p><a href="https://github.com/notshekhar/loop">github.com/notshekhar/loop</a></p>
+</footer>
+
+<script>
+(function () {
+  "use strict";
+
+  var COMMANDS = {
+    mac:  "curl -fsSL https://raw.githubusercontent.com/notshekhar/loop/main/install.sh | bash",
+    pwsh: "irm https://raw.githubusercontent.com/notshekhar/loop/main/install.ps1 | iex",
+    cmd:  "curl -fsSLo %TEMP%\\loop-install.cmd https://raw.githubusercontent.com/notshekhar/loop/main/install.cmd && %TEMP%\\loop-install.cmd"
+  };
+
+  var tabs = Array.prototype.slice.call(document.querySelectorAll(".tab"));
+  var current = "mac";
+
+  /* The hero tab strip drives the hero command; the closing CTA always shows
+     the shell one-liner, so only the hero's text node follows the tabs. */
+  var heroText = document.querySelector(".install .cmdtext");
+
+  tabs.forEach(function (tab) {
+    tab.addEventListener("click", function () {
+      current = tab.dataset.os;
+      tabs.forEach(function (t) { t.setAttribute("aria-selected", String(t === tab)); });
+      heroText.textContent = COMMANDS[current];
+    });
+  });
+
+  Array.prototype.forEach.call(document.querySelectorAll(".copy"), function (btn) {
+    var box = btn.closest(".cmdbox");
+
+    function reset() {
+      btn.textContent = "copy";
+      btn.removeAttribute("data-done");
+    }
+
+    function done() {
+      btn.textContent = "copied";
+      btn.setAttribute("data-done", "1");
+      setTimeout(reset, 2000);
+    }
+
+    btn.addEventListener("click", function () {
+      var text = box.querySelector(".cmdtext").textContent;
+
+      function fallback() {
+        var ta = document.createElement("textarea");
+        ta.value = text;
+        ta.setAttribute("readonly", "");
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        try { document.execCommand("copy"); done(); } catch (e) { /* clipboard unavailable */ }
+        document.body.removeChild(ta);
+      }
+
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done, fallback);
+      } else {
+        fallback();
+      }
+    });
+  });
+})();
+</script>
+
+</body>
+</html>

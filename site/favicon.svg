@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="loop">
+  <!--
+    Reduction of the wordmark: the monospace "l" with its teal caret.
+    Drawn as rects rather than text so it never depends on a font being
+    present, and stays legible at 16px — hence the heavy strokes and the
+    caret being wider than the wordmark's proportions would suggest.
+  -->
+  <rect width="64" height="64" rx="13" fill="#16181a"/>
+
+  <g fill="#d4d4d4">
+    <!-- top-left flag of the "l" -->
+    <rect x="12" y="9" width="13" height="10"/>
+    <!-- stem -->
+    <rect x="25" y="9" width="13" height="27"/>
+    <!-- foot -->
+    <rect x="25" y="36" width="24" height="10"/>
+  </g>
+
+  <!-- caret -->
+  <rect x="12" y="51" width="37" height="8" fill="#8abeb7"/>
+</svg>
