@@ -111,6 +111,9 @@ code {
 }
 .nav b { color: var(--text); font-weight: 600; }
 .nav .ver { color: var(--dim); }
+/* Gap, not a separator glyph: the links wrap onto their own line on a phone,
+   and a trailing "·" left hanging at the end of a line reads as a typo. */
+.navlinks { display: flex; flex-wrap: wrap; gap: 0.5rem 1.5rem; }
 
 /* ---------- hero ---------- */
 .hero { padding-block-start: clamp(3rem, 10vw, 6.5rem); }
@@ -284,7 +287,10 @@ code {
 
 <nav class="nav wrap">
   <span><b>loop</b> <span class="ver">v0.15.2</span></span>
-  <a href="https://github.com/notshekhar/loop">github.com/notshekhar/loop</a>
+  <span class="navlinks">
+    <a href="docs/">docs</a>
+    <a href="https://github.com/notshekhar/loop">github.com/notshekhar/loop</a>
+  </span>
 </nav>
 
 <header class="hero wrap">
@@ -304,7 +310,7 @@ code {
       <div class="cmd"><span class="p">$ </span><span class="cmdtext">curl -fsSL https://raw.githubusercontent.com/notshekhar/loop/main/install.sh | bash</span></div>
       <button class="copy" type="button">copy</button>
     </div>
-    <p class="subnote">Prebuilt binaries, no Node required. Then <code>loop login</code> and <code>loop</code>.</p>
+    <p class="subnote">Prebuilt binaries, no Node required. Then <code>loop login</code> and <code>loop</code>. Full walkthrough in the <a href="docs/">docs</a>.</p>
   </div>
 </header>
 
@@ -527,7 +533,7 @@ code {
 
 <footer class="foot wrap">
   <p>MIT licensed. Built on top of <a href="https://github.com/earendil-works/pi">pi</a> — the TUI renderer is an in-repo fork of pi-mono's <code>pi-tui</code>, and the message renderers, theme engine, session tree, and skills loader are ports of pi-mono's components.</p>
-  <p><a href="https://github.com/notshekhar/loop">github.com/notshekhar/loop</a></p>
+  <p><a href="docs/">docs</a> · <a href="https://github.com/notshekhar/loop">github.com/notshekhar/loop</a></p>
 </footer>
 
 <script>

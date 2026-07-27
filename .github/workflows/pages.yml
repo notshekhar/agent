@@ -12,6 +12,7 @@ on:
         branches: [main]
         paths:
             - "site/**"
+            - "scripts/build-docs.ts"
             - ".github/workflows/pages.yml"
     workflow_dispatch:
 
@@ -38,6 +39,16 @@ jobs:
             - id: configure
               uses: actions/configure-pages@v5
 
+            # The guide is authored as markdown in site/docs/ and rendered to
+            # static HTML here, so the published pages need no JS and the
+            # committed tree keeps only the sources.
+            - uses: oven-sh/setup-bun@v2
+              with:
+                  bun-version: latest
+
+            - name: Render docs
+              run: bun scripts/build-docs.ts
+
             # .nojekyll stops Pages from running the content through Jekyll,
             # which would drop any file or directory starting with an underscore.
             - name: Disable Jekyll processing
@@ -56,10 +67,12 @@ jobs:
                   fi
                   # Trailing slash would double up against the "/og.png" suffix.
                   base="${BASE_URL%/}"
-                  sed -i "s#__SITE_URL__#${base}#g" site/index.html
+                  # Every page carries the placeholder, not just the landing
+                  # page — each doc page has its own og:url.
+                  find site -name '*.html' -print0 | xargs -0 sed -i "s#__SITE_URL__#${base}#g"
                   echo "site URL: $base"
 
-                  if grep -q '__SITE_URL__' site/index.html; then
+                  if grep -rq '__SITE_URL__' site; then
                       echo "placeholder left unreplaced" >&2
                       exit 1
                   fi
