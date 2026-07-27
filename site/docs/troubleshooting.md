@@ -4,11 +4,9 @@
 
 ## Start here
 
-```
-loop doctor        # or /doctor in the TUI
-```
+Start loop and run `/doctor`. It checks install, PATH, credentials, catalog, daemons, and project trust in one pass, and most of what follows is faster to find that way.
 
-`/doctor` checks install, PATH, credentials, catalog, daemons, and project trust in one pass. Most of what follows is faster to find that way.
+`/doctor` is a TUI command — there is no `loop doctor` on the CLI. From the shell you get the pieces separately:
 
 ```
 loop whoami        # which providers you're signed in to, which is active
@@ -68,4 +66,4 @@ Covered in full on the [Telegram page](telegram.html#when-it-isn-t-working). The
 
 ## Reporting a bug
 
-`loop doctor` output plus `loop version` is most of what's needed. Issues go to [github.com/notshekhar/loop](https://github.com/notshekhar/loop/issues).
+`/doctor` output plus `loop version` is most of what's needed. Issues go to [github.com/notshekhar/loop](https://github.com/notshekhar/loop/issues).

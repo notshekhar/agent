@@ -53,10 +53,11 @@ Knobs: `$env:LOOP_VERSION`, `$env:LOOP_FORCE`, `$env:LOOP_HOME`, `$env:LOOP_UNIN
 
 ```
 loop version
-loop doctor
 ```
 
 `loop` on its own starts the TUI. If the command isn't found, the installer's PATH line didn't get applied — open a new shell or add it to your profile.
+
+Once you're in the TUI, `/doctor` checks the rest — PATH, credentials, catalog, daemons, project trust.
 
 ## Updating
 
