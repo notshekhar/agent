@@ -123,8 +123,12 @@ const ANTHROPIC_ADAPTIVE_EFFORT: Record<Exclude<ThinkingLevel, "off">, "low" | "
  * Opus 4.6/4.7/4.8 and Sonnet 4.6 are adaptive-capable but omitting `thinking`
  * there yields NO thinking — they need an explicit thinking:{type:"adaptive"} —
  * so they are deliberately NOT in this set and keep the explicit shape.
+ *
+ * This set is a SEED, not the contract: whatever it gets wrong (a model shipped
+ * after this build, a gateway that mangles the field) is corrected from the
+ * endpoint's own rejection and remembered — see providers/anthropic-shape.ts.
  */
-const ANTHROPIC_ADAPTIVE_WHEN_OMITTED = /claude-(sonnet-5|fable-5|mythos-(5|preview))/;
+const ANTHROPIC_ADAPTIVE_WHEN_OMITTED = /claude-(opus-5|sonnet-5|fable-5|mythos-(5|preview))/;
 
 /**
  * providerOptions for an Anthropic adaptive-thinking model. Setting `thinking`/
@@ -141,16 +145,24 @@ function anthropicThinkingOptions(
         if (/claude-(fable-5|mythos-(5|preview))/.test(modelShortId)) return undefined;
         return { anthropic: { thinking: { type: "disabled" } } };
     }
-    // "xhigh" effort exists on Opus 4.7+, Sonnet 5, and Fable/Mythos 5, but not on
-    // Opus 4.6 / Sonnet 4.6 — there it falls back to "max".
-    const supportsXhigh = /claude-(opus-4-[7-9]|sonnet-5|fable-5|mythos-(5|preview))/.test(modelShortId);
+    // "xhigh" effort exists on Opus 5, Opus 4.7+, Sonnet 5, and Fable/Mythos 5,
+    // but not on Opus 4.6 / Sonnet 4.6 — there it falls back to "max".
+    const supportsXhigh = /claude-(opus-5|opus-4-[7-9]|sonnet-5|fable-5|mythos-(5|preview))/.test(modelShortId);
     const effort = level === "xhigh" && !supportsXhigh ? "max" : ANTHROPIC_ADAPTIVE_EFFORT[level];
     // Send effort ONLY (no `thinking` field) where omitting it defaults to
     // adaptive — equivalent on Anthropic, and proxy-safe (see the note above).
+    // The cost of that shape: `display` lives INSIDE `thinking`, so these
+    // models fall back to the API default of "omitted" — they still think (and
+    // still bill for it), but the reasoning text streams empty and the UI shows
+    // a silent pause. Nothing we can send fixes that without the field.
     if (ANTHROPIC_ADAPTIVE_WHEN_OMITTED.test(modelShortId)) {
         return { anthropic: { effort } };
     }
-    return { anthropic: { thinking: { type: "adaptive" }, effort } };
+    // `display` defaults to "omitted" from Opus 4.7 on, which would leave loop's
+    // reasoning pane blank on the very models that think the most. loop renders
+    // reasoning, so ask for the summary explicitly — visibility only, thinking
+    // is billed the same either way.
+    return { anthropic: { thinking: { type: "adaptive", display: "summarized" }, effort } };
 }
 
 /**

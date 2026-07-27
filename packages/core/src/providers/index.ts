@@ -19,6 +19,7 @@ import {
 import { accountIdFromIdToken, CODEX_BASE_URL, OPENAI_CHATGPT_HEADERS } from "../auth/oauth/openai-chatgpt";
 import type { CustomProviderConfig, ProviderId } from "../types";
 import { getExtensionHost, type ProviderPlugin } from "../extensions";
+import { anthropicShapeFetch } from "./anthropic-shape";
 import { bedrockRegion } from "./bedrock";
 
 export {
@@ -348,7 +349,10 @@ async function customModel(cfg: CustomProviderConfig, model: string): Promise<La
         }
         case "anthropic": {
             const { createAnthropic } = await import("@ai-sdk/anthropic");
-            return createAnthropic({ apiKey, baseURL, fetch: fetchOverride })(model);
+            // Gateways are exactly where the thinking params get rewritten in
+            // flight — see anthropic-shape.ts. Learned per custom provider.
+            const shaped = anthropicShapeFetch(`custom:${cfg.name}`, fetchOverride ?? fetch);
+            return createAnthropic({ apiKey, baseURL, fetch: shaped })(model);
         }
         case "google": {
             const { createGoogleGenerativeAI } = await import("@ai-sdk/google");
@@ -499,7 +503,10 @@ export async function getModel(fullId: string): Promise<LanguageModel> {
             const key = getApiKey("anthropic");
             if (!key) throw new Error(`No Anthropic API key. Run: ${PRODUCT_NAME} login anthropic`);
             const { createAnthropic } = await import("@ai-sdk/anthropic");
-            return createAnthropic({ apiKey: key })(model);
+            // First-party too: a model newer than the installed SDK's table
+            // still gets its thinking shape corrected from the API's own
+            // rejection instead of failing the turn (see anthropic-shape.ts).
+            return createAnthropic({ apiKey: key, fetch: anthropicShapeFetch("anthropic") })(model);
         }
         case "openai": {
             const key = getApiKey("openai");

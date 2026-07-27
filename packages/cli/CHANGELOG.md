@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.15.2] - 2026-07-27
+
+### Fixed
+
+- **Claude Opus 5 through a gateway failed every turn with an error naming a request loop never sent.** `"thinking.type.enabled" is not supported for this model. Use "thinking.type.adaptive" and "output_config.effort"` — except loop was already sending `thinking.type.adaptive`. The rewrite happens in flight: a gateway with its own model table (measured against bifrost) parses the request into its internal form and re-serializes it, and for a model that postdates its table it downgrades adaptive thinking to the retired `enabled` shape, which Anthropic then rejects. The error blames the shape that arrived, so the log points at loop and the fix isn't there. Opus 5 now sends `output_config.effort` with no `thinking` field at all, which is equivalent on that model — thinking is on by default from Opus 5 onward — and is the one form a proxy has nothing to rewrite. `xhigh` on Opus 5 also stopped quietly arriving as `max`.
+- **A rejected thinking shape is now corrected from the rejection instead of ending the turn.** No table can describe the failure above, because the fault is in the transport rather than the model — so loop no longer relies only on guessing up front. When an Anthropic-shaped endpoint refuses the thinking parameters, loop reads what it objected to, rewrites the request into the next form (`adaptive` → effort-only → `budget_tokens` → neither, carrying your effort across, translated to a budget where the older form needs one), and re-issues it **once**, transparently — the turn simply runs. The shape that worked is remembered per provider and model in `~/.loop/model-shapes.json`, so every later request starts there and costs one round trip, this session and the next. Only recognized thinking complaints are touched: an auth failure, a rate limit, or a bad `max_tokens` reaches you unchanged, and a correction that doesn't help surfaces the original error rather than its own. This covers the mirror case too — a model or gateway older than the installed build, where the modern shape is the one that gets refused.
+
+### Changed
+
+- **Reasoning is visible again on the models that think the most.** From Opus 4.7 onward Anthropic changed the default for `thinking.display` to `omitted`: the model still thinks, and still bills for it, but the reasoning text comes back empty unless the request asks for a summary. loop never asked, so Opus 4.7, Opus 4.8, and Sonnet 5 streamed a thinking block with nothing in it and the pane sat blank through the pause. loop now sends `display: "summarized"` — visibility only, the thinking and its cost are unchanged — and an endpoint that rejects the field costs you the reasoning text rather than the turn. One model can't be helped: where `thinking` has to be omitted entirely to survive a gateway (Opus 5 above), `display` has nowhere to ride, so it thinks silently until the gateway learns the model.
+
 ## [0.15.1] - 2026-07-25
 
 ### Fixed

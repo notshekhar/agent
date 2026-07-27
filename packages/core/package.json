@@ -1,6 +1,6 @@
 {
     "name": "@notshekhar/loop-core",
-    "version": "0.15.1",
+    "version": "0.15.2",
     "description": "Core engine for loop — auth, providers, catalog, sessions, agent loop, tools, RPC.",
     "license": "MIT",
     "type": "module",
@@ -27,8 +27,8 @@
         "clean": "rm -rf dist"
     },
     "dependencies": {
-        "@ai-sdk/amazon-bedrock": "^5.0.31",
-        "@ai-sdk/anthropic": "^4.0.20",
+        "@ai-sdk/amazon-bedrock": "^5.0.32",
+        "@ai-sdk/anthropic": "^4.0.21",
         "@ai-sdk/cerebras": "^3.0.14",
         "@ai-sdk/deepseek": "^3.0.13",
         "@ai-sdk/gateway": "^4.0.28",
