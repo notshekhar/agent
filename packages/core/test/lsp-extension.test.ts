@@ -132,7 +132,12 @@ describe("a discovered binary must be new enough to speak LSP", () => {
     test("a project's TypeScript 5 is skipped, not launched", () => {
         // `tsc` has been in node_modules for a decade but only v7 answers
         // --lsp. Launching v5 fails the handshake and kills the language.
-        expect(resolveServer("typescript", fakeTsc("5.9.3"))).toBeNull();
+        // Falling through to a usable `tsc` elsewhere is fine and expected —
+        // what must never happen is picking the v5 one. (Asserting null here
+        // would only hold on machines with no TypeScript on PATH.)
+        const dir = fakeTsc("5.9.3");
+        const spec = resolveServer("typescript", dir);
+        expect(spec?.command).not.toBe(join(dir, "node_modules", ".bin", "tsc"));
     });
 
     test("a project's TypeScript 7 is used as-is", () => {
