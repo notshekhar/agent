@@ -110,7 +110,10 @@ export function createWebsearchTool(ctx: WebsearchToolContext) {
             const controller = new AbortController();
             const timer = setTimeout(() => controller.abort(), SEARCH_TIMEOUT_MS);
             const onParentAbort = () => controller.abort();
-            parentSignal?.addEventListener("abort", onParentAbort, { once: true });
+            // Already-aborted signals never fire their listener — check first,
+            // or a cancelled turn still issues the search (see fetch-url.ts).
+            if (parentSignal?.aborted) controller.abort();
+            else parentSignal?.addEventListener("abort", onParentAbort, { once: true });
             try {
                 const res = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, {
                     signal: controller.signal,

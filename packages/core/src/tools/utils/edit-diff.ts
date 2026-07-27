@@ -54,20 +54,97 @@ export function normalizeForFuzzyMatch(text: string): string {
     );
 }
 
-export interface FuzzyMatchResult {
-    /** Whether a match was found */
-    found: boolean;
-    /** The index where the match starts (in the content that should be used for replacement) */
-    index: number;
-    /** Length of the matched text */
-    matchLength: number;
-    /** Whether fuzzy matching was used (false = exact match) */
+/**
+ * One code point's fuzzy-normalized form, borrowed from the function above so
+ * the fold tables have exactly one definition. That function strips trailing
+ * whitespace per line, which would erase a lone whitespace code point, so the
+ * input is folded between two digits and unwrapped: "0" is stable under NFKC
+ * and no combining mark composes with it.
+ */
+function normalizeCodePoint(cp: string): string {
+    if (cp === "\n") return "\n";
+    return normalizeForFuzzyMatch(`0${cp}0`).slice(1, -1);
+}
+
+interface NormalizedWithMap {
+    text: string;
+    /** Per output char, the [start, end) span of the source that produced it. */
+    spanStart: number[];
+    spanEnd: number[];
+}
+
+/**
+ * Fuzzy-normalize while recording where every output character came from.
+ *
+ * The map is what keeps a fuzzy match honest. The match is found in normalized
+ * space, then translated back to the exact span it covers in the REAL content,
+ * so only that span is ever rewritten. Normalizing the file and writing the
+ * result back instead would reflow every smart quote, dash, half-width kana and
+ * trailing space in it — changes the model never asked for, and invisible in
+ * the diff, since the diff would be computed against the normalized copy too.
+ */
+function normalizeWithMap(text: string): NormalizedWithMap {
+    const out: string[] = [];
+    const spanStart: number[] = [];
+    const spanEnd: number[] = [];
+    let lineStart = 0;
+    let index = 0;
+    const dropTrailingSpace = () => {
+        while (out.length > lineStart && /\s/.test(out[out.length - 1])) {
+            out.pop();
+            spanStart.pop();
+            spanEnd.pop();
+        }
+    };
+    // Iterating a string yields whole code points, so surrogate pairs stay intact.
+    for (const cp of text) {
+        const next = index + cp.length;
+        if (cp === "\n") {
+            dropTrailingSpace();
+            out.push("\n");
+            spanStart.push(index);
+            spanEnd.push(next);
+            lineStart = out.length;
+        } else {
+            for (const ch of normalizeCodePoint(cp)) {
+                out.push(ch);
+                spanStart.push(index);
+                spanEnd.push(next);
+            }
+        }
+        index = next;
+    }
+    dropTrailingSpace();
+    return { text: out.join(""), spanStart, spanEnd };
+}
+
+/** Fuzzy-folded text, folded identically to the mapped normalizer. */
+function fuzzyText(text: string): string {
+    return normalizeWithMap(text).text;
+}
+
+/** Where an edit landed — always a span of the real, unnormalized content. */
+export interface MatchSpan {
+    start: number;
+    end: number;
     usedFuzzyMatch: boolean;
-    /**
-     * The content to use for replacement operations.
-     * When exact match: original content. When fuzzy match: normalized content.
-     */
-    contentForReplacement: string;
+}
+
+/**
+ * Locate `oldText` in `content`, exact first then fuzzy. The returned span is
+ * always an offset range into `content` itself, never into a normalized copy,
+ * so a replacement can only ever touch the region that actually matched.
+ */
+export function findMatchSpan(content: string, oldText: string): MatchSpan | null {
+    const exact = content.indexOf(oldText);
+    if (exact !== -1) return { start: exact, end: exact + oldText.length, usedFuzzyMatch: false };
+
+    const map = normalizeWithMap(content);
+    const needle = fuzzyText(oldText);
+    if (needle.length === 0) return null;
+    const at = map.text.indexOf(needle);
+    if (at === -1) return null;
+    return { start: map.spanStart[at], end: map.spanEnd[at + needle.length - 1], usedFuzzyMatch: true };
 }
 
 export interface Edit {
@@ -87,61 +164,33 @@ export interface AppliedEditsResult {
     newContent: string;
 }
 
-/**
- * Find oldText in content, trying exact match first, then fuzzy match.
- * When fuzzy matching is used, the returned contentForReplacement is the
- * fuzzy-normalized version of the content (trailing whitespace stripped,
- * Unicode quotes/dashes normalized to ASCII).
- */
-export function fuzzyFindText(content: string, oldText: string): FuzzyMatchResult {
-    // Try exact match first
-    const exactIndex = content.indexOf(oldText);
-    if (exactIndex !== -1) {
-        return {
-            found: true,
-            index: exactIndex,
-            matchLength: oldText.length,
-            usedFuzzyMatch: false,
-            contentForReplacement: content,
-        };
-    }
-
-    // Try fuzzy match - work entirely in normalized space
-    const fuzzyContent = normalizeForFuzzyMatch(content);
-    const fuzzyOldText = normalizeForFuzzyMatch(oldText);
-    const fuzzyIndex = fuzzyContent.indexOf(fuzzyOldText);
-
-    if (fuzzyIndex === -1) {
-        return {
-            found: false,
-            index: -1,
-            matchLength: 0,
-            usedFuzzyMatch: false,
-            contentForReplacement: content,
-        };
-    }
-
-    // When fuzzy matching, we work in the normalized space for replacement.
-    // This means the output will have normalized whitespace/quotes/dashes,
-    // which is acceptable since we're fixing minor formatting differences anyway.
-    return {
-        found: true,
-        index: fuzzyIndex,
-        matchLength: fuzzyOldText.length,
-        usedFuzzyMatch: true,
-        contentForReplacement: fuzzyContent,
-    };
-}
-
 /** Strip UTF-8 BOM if present, return both the BOM (if any) and the text without it */
 export function stripBom(content: string): { bom: string; text: string } {
     return content.startsWith("\uFEFF") ? { bom: "\uFEFF", text: content.slice(1) } : { bom: "", text: content };
 }
 
-function countOccurrences(content: string, oldText: string): number {
-    const fuzzyContent = normalizeForFuzzyMatch(content);
-    const fuzzyOldText = normalizeForFuzzyMatch(oldText);
-    return fuzzyContent.split(fuzzyOldText).length - 1;
+/** Non-overlapping occurrences, without allocating: split() on a large file
+ * builds an array holding every piece of it just to count the separators. */
+function countIn(haystack: string, needle: string): number {
+    if (needle.length === 0) return 0;
+    let count = 0;
+    for (let at = haystack.indexOf(needle); at !== -1; at = haystack.indexOf(needle, at + needle.length)) count++;
+    return count;
+}
+
+/**
+ * How many places an edit could land, counted in the space the match was
+ * actually made in.
+ *
+ * An exact match must be counted exactly: folding first (smart quotes, dashes,
+ * NBSP) can fuse text that is distinct in the file, so a literally unique
+ * oldText would be rejected as ambiguous — and no amount of added context can
+ * fix that, because the collision only exists after folding. A fuzzy match has
+ * no exact anchor, so its ambiguity is judged in fuzzy space, where the
+ * model's approximate text is what has to be resolved.
+ */
+function countOccurrences(content: string, oldText: string, fuzzy: boolean): number {
+    return fuzzy ? countIn(fuzzyText(content), fuzzyText(oldText)) : countIn(content, oldText);
 }
 
 function getNotFoundError(path: string, editIndex: number, totalEdits: number): Error {
@@ -186,9 +235,9 @@ function getNoChangeError(path: string, totalEdits: number): Error {
  * Apply one or more exact-text replacements to LF-normalized content.
  *
  * All edits are matched against the same original content. Replacements are
- * then applied in reverse order so offsets remain stable. If any edit needs
- * fuzzy matching, the operation runs in fuzzy-normalized content space to
- * preserve current single-edit behavior.
+ * then applied in reverse order so offsets remain stable. Fuzzy matches are
+ * resolved back to the span they cover in that same content, so the file is
+ * never rewritten in normalized space and untouched regions stay byte-identical.
  */
 export function applyEditsToNormalizedContent(
     normalizedContent: string,
@@ -206,28 +255,26 @@ export function applyEditsToNormalizedContent(
         }
     }
 
-    const initialMatches = normalizedEdits.map((edit) => fuzzyFindText(normalizedContent, edit.oldText));
-    const baseContent = initialMatches.some((match) => match.usedFuzzyMatch)
-        ? normalizeForFuzzyMatch(normalizedContent)
-        : normalizedContent;
+    // The file as it actually is — never a normalized copy of it.
+    const baseContent = normalizedContent;
 
     const matchedEdits: MatchedEdit[] = [];
     for (let i = 0; i < normalizedEdits.length; i++) {
         const edit = normalizedEdits[i];
-        const matchResult = fuzzyFindText(baseContent, edit.oldText);
-        if (!matchResult.found) {
+        const span = findMatchSpan(baseContent, edit.oldText);
+        if (!span) {
             throw getNotFoundError(path, i, normalizedEdits.length);
         }
 
-        const occurrences = countOccurrences(baseContent, edit.oldText);
+        const occurrences = countOccurrences(baseContent, edit.oldText, span.usedFuzzyMatch);
         if (occurrences > 1) {
             throw getDuplicateError(path, i, normalizedEdits.length, occurrences);
         }
 
         matchedEdits.push({
             editIndex: i,
-            matchIndex: matchResult.index,
-            matchLength: matchResult.matchLength,
+            matchIndex: span.start,
+            matchLength: span.end - span.start,
             newText: edit.newText,
         });
     }

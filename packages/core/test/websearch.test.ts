@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { formatSearchResults, parseSearchResults } from "../src/tools/websearch";
+import { createWebsearchTool, formatSearchResults, parseSearchResults } from "../src/tools/websearch";
 
 const here = dirname(fileURLToPath(import.meta.url));
 // A real html.duckduckgo.com response for "bun ffi dlopen" (2026-07-06),
@@ -42,6 +42,30 @@ describe("parseSearchResults", () => {
     test("returns [] for non-result HTML", () => {
         expect(parseSearchResults("<html><body>challenge page</body></html>", 10)).toEqual([]);
         expect(parseSearchResults("", 10)).toEqual([]);
+    });
+});
+
+describe("websearch abort handling", () => {
+    test("a signal that aborted before the call cancels the search", async () => {
+        const controller = new AbortController();
+        controller.abort();
+        const real = globalThis.fetch;
+        let seen: AbortSignal | undefined;
+        globalThis.fetch = (async (_url: unknown, init?: { signal?: AbortSignal }) => {
+            seen = init?.signal;
+            if (init?.signal?.aborted) throw new DOMException("aborted", "AbortError");
+            return new Response(FIXTURE, { headers: { "content-type": "text/html" } });
+        }) as typeof fetch;
+        try {
+            const tool = createWebsearchTool({ abortSignal: controller.signal });
+            const exec = (tool as unknown as { execute: (i: unknown, o: unknown) => Promise<string> }).execute;
+            // Already-aborted signals never fire their listener, so the search
+            // used to go out anyway after the turn was cancelled.
+            expect(await exec({ query: "bun ffi" }, {} as never)).toBe('[websearch timed out or aborted: "bun ffi"]');
+            expect(seen?.aborted).toBe(true);
+        } finally {
+            globalThis.fetch = real;
+        }
     });
 });
 

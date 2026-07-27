@@ -43,7 +43,11 @@ export async function fetchUrlAsText(url: string, abortSignal?: AbortSignal): Pr
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     const onParentAbort = () => controller.abort();
-    abortSignal?.addEventListener("abort", onParentAbort, { once: true });
+    // A signal that aborted before this call never fires its listener, so an
+    // already-cancelled turn would still put the request on the wire. Check
+    // first, subscribe second (the shape bash.ts uses).
+    if (abortSignal?.aborted) controller.abort();
+    else abortSignal?.addEventListener("abort", onParentAbort, { once: true });
     try {
         const res = await fetch(url, {
             signal: controller.signal,

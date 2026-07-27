@@ -26,7 +26,7 @@
  * boundary — the OS sandbox is the jail.
  */
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, sep } from "node:path";
 import { CONFIG_DIR_NAME } from "../../brand";
 import { isTrusted } from "../../agent/trust";
 import { getSetting } from "../../settings";
@@ -356,11 +356,19 @@ export async function enforcePathPermission(opts: {
     dir?: boolean;
     signal?: AbortSignal;
 }): Promise<void> {
-    const cwdPrefix = opts.cwd.endsWith("/") ? opts.cwd : `${opts.cwd}/`;
+    // Use the platform separator: on Windows a `C:\proj` cwd never prefixes as
+    // `C:\proj/`, so the cwd-relative form was never generated and a relative
+    // deny rule could be dodged by passing the absolute path. Rules are written
+    // with forward slashes, so the relative form is offered both ways.
+    const cwdPrefix = opts.cwd.endsWith(sep) ? opts.cwd : `${opts.cwd}${sep}`;
     const candidates = new Set<string>();
     for (const p of opts.paths) {
         candidates.add(p);
-        if (p.startsWith(cwdPrefix)) candidates.add(p.slice(cwdPrefix.length));
+        if (p.startsWith(cwdPrefix)) {
+            const rel = p.slice(cwdPrefix.length);
+            candidates.add(rel);
+            if (sep !== "/") candidates.add(rel.split(sep).join("/"));
+        }
     }
     if (opts.dir) {
         for (const p of [...candidates]) {

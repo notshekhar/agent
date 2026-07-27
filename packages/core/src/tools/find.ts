@@ -108,13 +108,16 @@ export function createFindTool(ctx: FindToolContext) {
                         resolve("No files found matching pattern");
                         return;
                     }
+                    // Root ("/", "C:\") already ends in a separator, so the
+                    // prefix must be built rather than assumed one char longer.
+                    const searchPrefix = searchPath.endsWith(path.sep) ? searchPath : searchPath + path.sep;
                     const relativized: string[] = [];
                     for (const raw of lines) {
                         const line = raw.replace(/\r$/, "").trim();
                         if (!line) continue;
                         const hadTrailingSlash = line.endsWith("/") || line.endsWith("\\");
                         let rel = line;
-                        if (line.startsWith(searchPath)) rel = line.slice(searchPath.length + 1);
+                        if (line.startsWith(searchPrefix)) rel = line.slice(searchPrefix.length);
                         else rel = path.relative(searchPath, line);
                         if (hadTrailingSlash && !rel.endsWith("/")) rel += "/";
                         relativized.push(toPosixPath(rel));

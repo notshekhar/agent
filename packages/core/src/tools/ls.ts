@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, statSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { tool } from "ai";
 import { z } from "zod";
@@ -15,7 +15,7 @@ export interface LsToolContext {
 
 export function createLsTool(ctx: LsToolContext) {
     return tool({
-        description: `List directory contents. Returns entries sorted alphabetically, with '/' suffix for directories. Includes dotfiles. Output is truncated to ${DEFAULT_LIMIT} entries or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first).`,
+        description: `List directory contents. Returns entries sorted alphabetically, with '/' suffix for directories and '@' for broken symlinks. Includes dotfiles. Output is truncated to ${DEFAULT_LIMIT} entries or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first).`,
         inputSchema: z.object({
             path: z.string().optional().describe("Directory to list (default: current directory)"),
             limit: z
@@ -67,7 +67,15 @@ export function createLsTool(ctx: LsToolContext) {
                     const entryStat = statSync(fullPath);
                     if (entryStat.isDirectory()) suffix = "/";
                 } catch {
-                    continue;
+                    // stat follows symlinks, so a dangling one throws — as does an
+                    // entry we may not stat. Never drop it from the listing: a
+                    // missing name reads as "this file doesn't exist". Mark a
+                    // broken link with '@' and leave anything else bare.
+                    try {
+                        if (lstatSync(fullPath).isSymbolicLink()) suffix = "@";
+                    } catch {
+                        // unreadable even without following — list the bare name
+                    }
                 }
                 results.push(entry + suffix);
             }

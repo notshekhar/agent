@@ -54,7 +54,9 @@ export function createWriteTool(ctx: WriteToolContext) {
                 if (signal?.aborted) throw new Error("Operation aborted");
                 await writeFile(absolutePath, content);
                 recordModified(absolutePath, ctx.sessionId);
-                return `Successfully wrote ${content.length} bytes to ${path}`;
+                // Byte length, not string length: `content.length` counts UTF-16
+                // code units, so any non-ASCII file under-reports its own size.
+                return `Successfully wrote ${Buffer.byteLength(content, "utf-8")} bytes to ${path}`;
             });
         },
     });
