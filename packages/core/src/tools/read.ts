@@ -1,5 +1,5 @@
 import { PRODUCT_NAME } from "../brand";
-import { access as fsAccess, readFile as fsReadFile } from "node:fs/promises";
+import { access as fsAccess, stat as fsStat } from "node:fs/promises";
 import { constants } from "node:fs";
 import { tool } from "ai";
 import { z } from "zod";
@@ -8,9 +8,15 @@ import { enforcePathPermission } from "./utils/permission-rules";
 import { recordRead } from "./utils/read-registry";
 import { fetchUrlAsText, isHttpUrl } from "./utils/fetch-url";
 import { getDoc, renderDocsIndex } from "../docs";
-import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, truncateHead } from "./utils/truncate";
+import { looksBinary, selectLines } from "./utils/read-file-lines";
+import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize } from "./utils/truncate";
 
 const IMAGE_EXT_RE = /\.(jpe?g|png|gif|webp)$/i;
+
+/** Single-quote a path for the bash hints in truncation messages. */
+function shellQuote(value: string): string {
+    return `'${value.replace(/'/g, `'\\''`)}'`;
+}
 
 function detectImageMimeType(path: string): string | null {
     const m = path.match(IMAGE_EXT_RE);
@@ -90,50 +96,56 @@ IMPORTANT: when the user asks to add or change a model, custom provider, hook, M
                 signal,
             });
             await fsAccess(absolutePath, constants.R_OK);
+            // Stat before reading: the mtime recorded for read-before-modify has
+            // to predate the content, and directories need their own message.
+            const stat = await fsStat(absolutePath);
+            if (stat.isDirectory()) {
+                throw new Error(
+                    `${path} is a directory, not a file. Use ls to list its contents, or glob to match files inside it.`,
+                );
+            }
             const mime = detectImageMimeType(absolutePath);
             if (mime) {
                 return `[image file: ${mime} at ${absolutePath}. Image rendering not supported in this tool result; use bash 'file' or vision-capable read elsewhere.]`;
             }
-            const buf = await fsReadFile(absolutePath);
-            // Unlocks edit/write for this file (read-before-modify enforcement).
-            recordRead(absolutePath, ctx.sessionId);
-            const textContent = buf.toString("utf-8");
-            const allLines = textContent.split("\n");
-            const totalFileLines = allLines.length;
-            const startLine = offset ? Math.max(0, offset - 1) : 0;
-            const startLineDisplay = startLine + 1;
-            if (startLine >= allLines.length) {
-                throw new Error(`Offset ${offset} is beyond end of file (${allLines.length} lines total)`);
+            if (await looksBinary(absolutePath)) {
+                return `[binary file: ${formatSize(stat.size)} at ${absolutePath}. Not printed as text; inspect it with bash (file, xxd, strings).]`;
             }
-            let selectedContent: string;
-            let userLimitedLines: number | undefined;
-            if (limit !== undefined) {
-                const endLine = Math.min(startLine + limit, allLines.length);
-                selectedContent = allLines.slice(startLine, endLine).join("\n");
-                userLimitedLines = endLine - startLine;
-            } else {
-                selectedContent = allLines.slice(startLine).join("\n");
+            const selection = await selectLines(absolutePath, { offset, limit, size: stat.size, signal });
+            const startLineDisplay = selection.startLine;
+            // Unlocks edit for this file; write needs coverage of the whole file,
+            // which successive offset= reads accumulate (read-before-modify).
+            recordRead(absolutePath, ctx.sessionId, {
+                mtimeMs: stat.mtimeMs,
+                range: selection.lines.length
+                    ? [startLineDisplay, startLineDisplay + selection.lines.length - 1]
+                    : undefined,
+                sawEof: !selection.hasMore,
+            });
+
+            if (selection.firstLineBytes !== undefined) {
+                const size = formatSize(selection.firstLineBytes);
+                const measured = selection.firstLineClipped ? `over ${size}` : `${size}`;
+                return `[Line ${startLineDisplay} is ${measured}, exceeds ${formatSize(DEFAULT_MAX_BYTES)} limit. Use bash: sed -n '${startLineDisplay}p' ${shellQuote(path)} | head -c ${DEFAULT_MAX_BYTES}]`;
             }
-            const truncation = truncateHead(selectedContent);
-            let outputText: string;
-            if (truncation.firstLineExceedsLimit) {
-                const firstLineSize = formatSize(Buffer.byteLength(allLines[startLine], "utf-8"));
-                outputText = `[Line ${startLineDisplay} is ${firstLineSize}, exceeds ${formatSize(DEFAULT_MAX_BYTES)} limit. Use bash: sed -n '${startLineDisplay}p' ${path} | head -c ${DEFAULT_MAX_BYTES}]`;
-            } else if (truncation.truncated) {
-                const endLineDisplay = startLineDisplay + truncation.outputLines - 1;
-                const nextOffset = endLineDisplay + 1;
-                outputText = truncation.content;
-                if (truncation.truncatedBy === "lines") {
-                    outputText += `\n\n[Showing lines ${startLineDisplay}-${endLineDisplay} of ${totalFileLines}. Use offset=${nextOffset} to continue.]`;
-                } else {
-                    outputText += `\n\n[Showing lines ${startLineDisplay}-${endLineDisplay} of ${totalFileLines} (${formatSize(DEFAULT_MAX_BYTES)} limit). Use offset=${nextOffset} to continue.]`;
-                }
-            } else if (userLimitedLines !== undefined && startLine + userLimitedLines < allLines.length) {
-                const remaining = allLines.length - (startLine + userLimitedLines);
-                const nextOffset = startLine + userLimitedLines + 1;
-                outputText = `${truncation.content}\n\n[${remaining} more lines in file. Use offset=${nextOffset} to continue.]`;
+            let outputText = selection.lines.join("\n");
+            if (selection.trailingNewline) outputText += "\n";
+            if (!selection.hasMore) return outputText;
+
+            const endLineDisplay = startLineDisplay + selection.lines.length - 1;
+            const nextOffset = endLineDisplay + 1;
+            // `of N` only when the file was scanned end to end — a streamed read
+            // of a huge file stops early and never learns the total.
+            const ofTotal = selection.totalLines === undefined ? "" : ` of ${selection.totalLines}`;
+            if (selection.truncatedBy === "lines") {
+                outputText += `\n\n[Showing lines ${startLineDisplay}-${endLineDisplay}${ofTotal}. Use offset=${nextOffset} to continue.]`;
+            } else if (selection.truncatedBy === "bytes") {
+                outputText += `\n\n[Showing lines ${startLineDisplay}-${endLineDisplay}${ofTotal} (${formatSize(DEFAULT_MAX_BYTES)} limit). Use offset=${nextOffset} to continue.]`;
+            } else if (selection.totalLines !== undefined) {
+                const remaining = selection.totalLines - endLineDisplay;
+                outputText += `\n\n[${remaining} more line${remaining === 1 ? "" : "s"} in file. Use offset=${nextOffset} to continue.]`;
             } else {
-                outputText = truncation.content;
+                outputText += `\n\n[More lines in file. Use offset=${nextOffset} to continue.]`;
             }
             return outputText;
         },

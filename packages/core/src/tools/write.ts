@@ -19,7 +19,7 @@ export interface WriteToolContext {
 export function createWriteTool(ctx: WriteToolContext) {
     return tool({
         description:
-            "Write content to a file, overwriting if it exists. Creates parent directories as needed. Use edit for targeted modifications of existing files.",
+            "Write content to a file, overwriting if it exists. Creates parent directories as needed. Overwriting an existing file requires having read all of it first (continue with offset= until the end). Use edit for targeted modifications of existing files.",
         inputSchema: z.object({
             path: z.string().describe("Path to write (relative or absolute)"),
             content: z.string().describe("Full file contents to write"),
@@ -41,10 +41,13 @@ export function createWriteTool(ctx: WriteToolContext) {
             const dir = dirname(absolutePath);
             return withFileMutationQueue(absolutePath, async () => {
                 if (signal?.aborted) throw new Error("Operation aborted");
-                // Overwriting an existing file requires having read it this
-                // session; new files/paths pass freely.
+                // Overwriting an existing file requires having read all of it
+                // this session; new files/paths pass freely.
                 if (existsSync(absolutePath)) {
-                    const readError = checkReadBeforeModify(absolutePath, path, ctx.sessionId);
+                    const readError = checkReadBeforeModify(absolutePath, path, ctx.sessionId, {
+                        requireComplete: true,
+                        verb: ["write", "writing"],
+                    });
                     if (readError) throw new Error(`${readError} (write would overwrite the existing file)`);
                 }
                 await mkdir(dir, { recursive: true });
