@@ -29,15 +29,18 @@ Options for `add`: `--transport/-t <stdio\|http\|sse>`, `--scope/-s <user\|proje
 
 ## Extensions
 
-JS extensions can add tools, slash commands, providers, status-line segments, and tool/turn middleware.
+JS extensions can add tools, slash commands, providers, UI modes and themes, status-line segments, and tool/turn middleware. An extension that adds a tool also renders it: `api.tools.summary()` receives the active UI mode and theme, so its rows match the rest of the chat.
 
 ```
 loop install <spec>       # install an extension
-loop extensions           # list installed ones
+loop extensions           # list installed and built-in ones
+loop enable <name>        # turn one on
 loop link                 # develop one from a local folder
 ```
 
-`/extensions` toggles them from the TUI. They live in `~/.loop/extensions/`.
+`/extensions` toggles them from the TUI. Installed ones live in `~/.loop/extensions/`.
+
+Five extensions are **bundled with the binary** and disabled until you enable them — language servers (`lsp`), token compression (`rtk`), and three that shape how the agent writes and replies. See [Built-in extensions](extensions.html).
 
 ## Hooks
 

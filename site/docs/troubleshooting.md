@@ -1,5 +1,5 @@
 <!-- title: Troubleshooting -->
-<!-- order: 9 -->
+<!-- order: 10 -->
 <!-- blurb: What to check first, and fixes for the problems people actually hit. -->
 
 ## Start here

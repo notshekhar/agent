@@ -1,5 +1,5 @@
 <!-- title: Configuration -->
-<!-- order: 8 -->
+<!-- order: 9 -->
 <!-- blurb: What lives in ~/.loop, the settings worth knowing, per-project config, and adding a model the catalog doesn't have. -->
 
 ## Where things live
