@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.15.8] - 2026-07-28
+
+### Added
+
+- **Seven more language servers install themselves, instead of asking you to.** `clangd`, `zls`, `lua-language-server`, `terraform-ls`, `texlab`, `tinymist` and `jdtls` ship as prebuilt release archives rather than npm packages, so until now they had to already be on your PATH — open a `.c` or `.java` file without them and the `lsp` extension simply had nothing to say. loop now fetches the build for your platform on first use and unpacks it into `~/.loop/servers/`. The previous release drew this line at "downloading a compiler's language server behind your back is worse than saying it isn't there", which was the right instinct aimed at the wrong target: the line is really between a self-contained editor tool and a face of a toolchain you installed on purpose. `rust-analyzer`, `dart`, `julia` and `sourcekit-lsp` are still found and never fetched, because installing our own beside your rustup one buys a version skew you would then have to debug.
+- **Nothing is downloaded that your machine could not have run.** `zls` is version-locked to the Zig compiler, so it is only installed if `zig` is already present; `jdtls` needs a Java 21 runtime and is only installed if `java` reports one — a check that costs milliseconds and saves a 28MB download on a machine where the server could never have started. Platform support is decided before any network call, so an architecture upstream doesn't publish for is a quiet "no server" rather than a failed download.
+- **`LOOP_DISABLE_LSP_DOWNLOAD=1` turns every install route off.** For an airgapped machine, a locked-down CI image, or simply a preference to manage your own toolchain. Discovery in `node_modules/.bin` and on PATH is unaffected — loop just stops installing anything, including the npm and `go install` routes it already had.
+- **You can add downloadable servers yourself.** `~/.loop/servers/servers.json` entries take a `download` block — a release source (a GitHub repository, HashiCorp's build index, or a fixed URL), an asset-name template, and the platform and architecture words that project happens to use. A new `java` runtime covers servers that are an executable jar rather than an executable. See the extensions documentation for a worked example.
+
+### Fixed
+
+- **`jdtls` was launched with a configuration for the wrong architecture.** Recent Eclipse snapshots ship `config_mac_arm` and `config_linux_arm` beside the x86 ones; loop now probes for the architecture-specific directory and falls back to the generic one, rather than handing an Apple Silicon JVM an x86 configuration and watching it fail to load its native components.
+- **A slow download mirror was treated as a broken one.** Eclipse serves the jdtls snapshot from mirrors that run at around 120KB/s, so a healthy transfer of it takes about four minutes. Downloads are now bounded by silence rather than by total elapsed time: a connection that stops sending for a minute is abandoned, while one that is merely slow is left alone to finish.
+
 ## [0.15.7] - 2026-07-28
 
 ### Fixed

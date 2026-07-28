@@ -3,10 +3,12 @@
  * project-local/PATH server first (uses the project's own toolchain), else
  * provision one into ~/.loop/servers. Everything is driven by the registry.
  */
+import { brandEnv } from "../../../brand";
 import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { dirname, join, parse } from "node:path";
 import type { LspServerSpec } from "./client";
+import { ensureDownloaded, javaConfigDir, javaDataDir } from "./download";
 import { ensureGoInstalled, ensureProvisioned } from "./provision";
 import {
     defHandles,
@@ -67,9 +69,21 @@ function resolveBinary(rootPath: string, def: LanguageServerDef): string | null 
     return null;
 }
 
-/** Every requirement satisfied? A server whose toolchain is missing can't run. */
+/**
+ * Every requirement satisfied? A server whose toolchain is missing can't run —
+ * and, for the ones with a download route, this is also what stops us pulling
+ * 50MB onto a machine that could never launch it. Checked before any network.
+ */
 function requirementsMet(def: LanguageServerDef): boolean {
-    return (def.requires ?? []).every((bin) => onPath(bin) !== null);
+    for (const bin of def.requires ?? []) {
+        if (onPath(bin) === null) return false;
+        const min = def.requiresMinVersion?.[bin];
+        // An unreadable version fails closed, exactly as it does for the server
+        // binary itself: a wrong guess costs a failed handshake and takes the
+        // whole language down, which is worse than reporting no server.
+        if (min !== undefined && (majorVersion(bin) ?? 0) < min) return false;
+    }
+    return true;
 }
 
 /**
@@ -121,6 +135,27 @@ function specFromExe(def: LanguageServerDef, exe: string, forceNative = false): 
     return { name: def.key, command: exe, args: [...args], languageId };
 }
 
+/**
+ * A jar is not an executable: `runtime: "java"` servers are launched by the
+ * user's own JVM, with the JVM flags ahead of `-jar` where the JVM will read
+ * them, and the templated paths resolved against the unpacked archive.
+ *
+ * Only reached for a DOWNLOADED server. A `jdtls` found on PATH is a launcher
+ * script that already does all of this, so it is run directly.
+ */
+export function specFromJar(def: LanguageServerDef, jar: string, dir: string): LspServerSpec | null {
+    const configDir = javaConfigDir(dir);
+    if (!configDir) return null;
+    const vars: Record<string, string> = { configDir, dataDir: javaDataDir(), dir, jar };
+    const args = (def.args ?? []).map((a) => a.replace(/\{(\w+)\}/g, (whole, n: string) => vars[n] ?? whole));
+    return {
+        name: def.key,
+        command: "java",
+        args: [...(def.jvmArgs ?? []), "-jar", jar, ...args],
+        languageId: (absPath: string) => languageIdFor(def, absPath),
+    };
+}
+
 /** `{platform}`/`{arch}` → this machine, for npmNativeBin. */
 function expandNativePath(template: string): string {
     return template.replace("{platform}", process.platform).replace("{arch}", process.arch);
@@ -130,7 +165,22 @@ export function resolveServer(key: LanguageKey, rootPath: string): LspServerSpec
     const def = findDef(key);
     if (!def || !requirementsMet(def)) return null;
     const exe = resolveBinary(rootPath, def);
-    return exe ? specFromExe(def, exe) : null;
+    // A binary found on PATH is always run directly: for a "java" server that
+    // binary is the distribution's own launcher script, which builds the JVM
+    // command line itself.
+    return exe ? specFromExe(def, exe, def.runtime === "java") : null;
+}
+
+/**
+ * Installing a language server reaches the network and writes to the user's
+ * disk. That is the right default — a server the agent can't start is a feature
+ * that silently doesn't work — but an airgapped box, a locked-down CI image or
+ * anyone who simply wants to manage their own toolchain needs one switch that
+ * turns all of it off. Discovery from node_modules/.bin and PATH is unaffected.
+ */
+export function downloadsDisabled(): boolean {
+    const raw = brandEnv("DISABLE_LSP_DOWNLOAD");
+    return raw !== undefined && raw !== "" && raw !== "0" && raw.toLowerCase() !== "false";
 }
 
 export async function resolveOrProvisionServer(key: LanguageKey, rootPath: string): Promise<LspServerSpec | null> {
@@ -139,6 +189,7 @@ export async function resolveOrProvisionServer(key: LanguageKey, rootPath: strin
 
     const local = resolveServer(key, rootPath);
     if (local) return local;
+    if (downloadsDisabled()) return null;
 
     // npm-provisioned: prefer the native per-platform binary when the package
     // ships one (TypeScript 7), since the JS bin is only a shim over it.
@@ -156,6 +207,18 @@ export async function resolveOrProvisionServer(key: LanguageKey, rootPath: strin
     if (def.goInstall) {
         const installed = await ensureGoInstalled(def.binNames[0], def.goInstall);
         if (installed) return specFromExe(def, installed, true);
+    }
+
+    // Last route: a prebuilt release archive for this machine. Cheapest to
+    // check on a repeat run (a marker file, no network) and the only one that
+    // can decline before opening a socket, so it goes after the others.
+    if (def.download) {
+        const installed = await ensureDownloaded(key, def.download);
+        if (installed) {
+            return def.runtime === "java"
+                ? specFromJar(def, installed.bin, installed.dir)
+                : specFromExe(def, installed.bin, true);
+        }
     }
 
     return null;

@@ -1,12 +1,20 @@
 import { describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { javaConfigDir, locateBinary, resolveTarget } from "../src/extensions/builtin/lsp/download";
 import { reportDiagnostics } from "../src/extensions/builtin/lsp/index";
 import { sampleFiles } from "../src/extensions/builtin/lsp/manager";
 import { LSP_OPERATIONS, needsPosition } from "../src/extensions/builtin/lsp/operations";
 import { defHandles, getServerDefs, languageKeysFor } from "../src/extensions/builtin/lsp/registry";
-import { findRoot, isDisqualified, resolveServer } from "../src/extensions/builtin/lsp/servers";
+import {
+    downloadsDisabled,
+    findRoot,
+    isDisqualified,
+    resolveOrProvisionServer,
+    resolveServer,
+    specFromJar,
+} from "../src/extensions/builtin/lsp/servers";
 import { hoverText, SYMBOL_KIND } from "../src/extensions/builtin/lsp/protocol";
 import type { Diagnostic } from "../src/extensions/builtin/lsp/protocol";
 
@@ -250,5 +258,239 @@ describe("operations", () => {
     test("symbol kinds are named, not numbered", () => {
         expect(SYMBOL_KIND[12]).toBe("function");
         expect(SYMBOL_KIND[5]).toBe("class");
+    });
+});
+
+/**
+ * The download route decides everything about WHICH archive to fetch before it
+ * opens a socket, so all of this is testable offline by pretending to be another
+ * machine. The asset names asserted here were checked against the live releases.
+ */
+describe("download targets", () => {
+    /** Run `fn` as if on another platform/arch. */
+    function asMachine<T>(platform: string, arch: string, fn: () => T): T {
+        const real = { platform: process.platform, arch: process.arch };
+        Object.defineProperty(process, "platform", { value: platform, configurable: true });
+        Object.defineProperty(process, "arch", { value: arch, configurable: true });
+        try {
+            return fn();
+        } finally {
+            Object.defineProperty(process, "platform", { value: real.platform, configurable: true });
+            Object.defineProperty(process, "arch", { value: real.arch, configurable: true });
+        }
+    }
+
+    const spec = (key: string) => def(key).download!;
+    /** The asset name a machine would ask for, or null if it declines. */
+    const assetFor = (key: string, platform: string, arch: string) =>
+        asMachine(platform, arch, () => {
+            const t = resolveTarget(spec(key));
+            if (!t) return null;
+            const s = spec(key);
+            return (s.asset ?? "{target}").replace(/\{(\w+)\}/g, (w, n) =>
+                n === "target" ? t.target : n === "arch" ? t.arch : n === "ext" ? t.ext : n === "version" ? "1.2.3" : w,
+            );
+        });
+
+    test("zls asset names match the vocabulary upstream publishes", () => {
+        expect(assetFor("zig", "darwin", "arm64")).toBe("zls-aarch64-macos.tar.xz");
+        expect(assetFor("zig", "linux", "x64")).toBe("zls-x86_64-linux.tar.xz");
+        // Windows is always a zip, whatever `format` says.
+        expect(assetFor("zig", "win32", "arm64")).toBe("zls-aarch64-windows.zip");
+        expect(assetFor("zig", "linux", "ia32")).toBe("zls-x86-linux.tar.xz");
+    });
+
+    test("tinymist is named by rust target triple", () => {
+        expect(assetFor("typst", "darwin", "arm64")).toBe("tinymist-aarch64-apple-darwin.tar.gz");
+        expect(assetFor("typst", "linux", "x64")).toBe("tinymist-x86_64-unknown-linux-gnu.tar.gz");
+        expect(assetFor("typst", "win32", "x64")).toBe("tinymist-x86_64-pc-windows-msvc.zip");
+    });
+
+    test("clangd ships one build per OS, not per arch", () => {
+        expect(assetFor("clangd", "darwin", "arm64")).toBe("clangd-mac-1.2.3.zip");
+        expect(assetFor("clangd", "darwin", "x64")).toBe("clangd-mac-1.2.3.zip");
+        expect(assetFor("clangd", "win32", "x64")).toBe("clangd-windows-1.2.3.zip");
+    });
+
+    test("lua-language-server carries the version in the asset name", () => {
+        expect(assetFor("lua", "darwin", "arm64")).toBe("lua-language-server-1.2.3-darwin-arm64.tar.gz");
+        expect(assetFor("lua", "win32", "ia32")).toBe("lua-language-server-1.2.3-win32-ia32.zip");
+    });
+
+    test("a machine upstream doesn't build for declines before any network call", () => {
+        // Named by the maps, but not actually published.
+        expect(assetFor("zig", "darwin", "ia32")).toBeNull();
+        expect(assetFor("lua", "linux", "ia32")).toBeNull();
+        // Not in the arch map at all — texlab publishes no 32-bit unix build.
+        expect(assetFor("latex", "linux", "ia32")).toBeNull();
+        // Not a platform anyone here builds for.
+        expect(assetFor("typst", "freebsd", "x64")).toBeNull();
+    });
+
+    test("jdtls is arch- and OS-independent, so every machine resolves", () => {
+        for (const [platform, arch] of [
+            ["darwin", "arm64"],
+            ["linux", "x64"],
+            ["win32", "x64"],
+        ]) {
+            expect(asMachine(platform, arch, () => resolveTarget(spec("java")))).not.toBeNull();
+        }
+    });
+
+    test("every download spec names a binary and covers the three platforms", () => {
+        for (const d of getServerDefs()) {
+            if (!d.download) continue;
+            expect(d.download.bin, `${d.key} declares no bin`).toBeTruthy();
+            if (!d.download.targets) continue;
+            for (const platform of ["darwin", "linux", "win32"]) {
+                expect(d.download.targets[platform], `${d.key} has no ${platform} target`).toBeTruthy();
+            }
+        }
+    });
+});
+
+describe("installation can be switched off entirely", () => {
+    test("LOOP_DISABLE_LSP_DOWNLOAD stops provisioning but not discovery", async () => {
+        const dir = mkdtempSync(join(tmpdir(), "loop-nodl-"));
+        const previous = process.env.LOOP_DISABLE_LSP_DOWNLOAD;
+        process.env.LOOP_DISABLE_LSP_DOWNLOAD = "1";
+        try {
+            // texlab is download-only, so with the switch on there is nothing to
+            // fall back to — and crucially this returns without touching the
+            // network, which is what makes it usable on an airgapped machine.
+            expect(await resolveOrProvisionServer("latex", dir)).toBeNull();
+        } finally {
+            if (previous === undefined) delete process.env.LOOP_DISABLE_LSP_DOWNLOAD;
+            else process.env.LOOP_DISABLE_LSP_DOWNLOAD = previous;
+        }
+    });
+
+    test("only a meaningfully-set value counts as off", () => {
+        const previous = process.env.LOOP_DISABLE_LSP_DOWNLOAD;
+        const withValue = (value: string | undefined) => {
+            if (value === undefined) delete process.env.LOOP_DISABLE_LSP_DOWNLOAD;
+            else process.env.LOOP_DISABLE_LSP_DOWNLOAD = value;
+            return downloadsDisabled();
+        };
+        try {
+            expect(withValue("1")).toBe(true);
+            expect(withValue("true")).toBe(true);
+            // A variable exported as empty, or explicitly switched off, must not
+            // silently disable installs — that failure mode is invisible.
+            expect(withValue(undefined)).toBe(false);
+            expect(withValue("")).toBe(false);
+            expect(withValue("0")).toBe(false);
+            expect(withValue("false")).toBe(false);
+        } finally {
+            if (previous === undefined) delete process.env.LOOP_DISABLE_LSP_DOWNLOAD;
+            else process.env.LOOP_DISABLE_LSP_DOWNLOAD = previous;
+        }
+    });
+});
+
+describe("locating the binary inside an unpacked archive", () => {
+    const unpack = (layout: Record<string, string>) => {
+        const dir = mkdtempSync(join(tmpdir(), "loop-dl-"));
+        for (const [rel, body] of Object.entries(layout)) {
+            const full = join(dir, rel);
+            mkdirSync(join(full, ".."), { recursive: true });
+            writeFileSync(full, body);
+        }
+        return dir;
+    };
+    const spec = (bin: string) => ({ source: { kind: "static" as const }, url: "x", bin });
+
+    test("finds the binary exactly where the registry says", () => {
+        const dir = unpack({ "bin/lua-language-server": "#!" });
+        expect(locateBinary(dir, spec("bin/lua-language-server{exe}"), { exe: "" })).toBe(
+            join(dir, "bin/lua-language-server"),
+        );
+    });
+
+    test("resolves a glob, for a jar with a build stamp in its name", () => {
+        const dir = unpack({ "plugins/org.eclipse.equinox.launcher_1.7.0.v2026.jar": "x", "plugins/other.jar": "x" });
+        expect(locateBinary(dir, spec("plugins/org.eclipse.equinox.launcher_*.jar"), {})).toBe(
+            join(dir, "plugins/org.eclipse.equinox.launcher_1.7.0.v2026.jar"),
+        );
+    });
+
+    /**
+     * The case that would otherwise be a silent breakage: tinymist really does
+     * wrap its contents in a target-triple directory, and projects add or drop
+     * that wrapper between releases.
+     */
+    test("still finds a binary the archive moved into a top-level directory", () => {
+        const dir = unpack({ "tinymist-aarch64-apple-darwin/tinymist": "#!" });
+        expect(locateBinary(dir, spec("tinymist{exe}"), { exe: "" })).toBe(
+            join(dir, "tinymist-aarch64-apple-darwin/tinymist"),
+        );
+    });
+
+    test("reports nothing rather than guessing when the binary truly isn't there", () => {
+        expect(locateBinary(unpack({ "README.md": "x" }), spec("texlab"), {})).toBeNull();
+    });
+});
+
+describe("java servers are launched by the user's JVM", () => {
+    /** A jdtls tree carrying every config directory the snapshot really ships. */
+    function unpackedJdtls(names = ["config_mac", "config_mac_arm", "config_linux", "config_linux_arm", "config_win"]) {
+        const dir = mkdtempSync(join(tmpdir(), "loop-jdtls-"));
+        for (const name of names) mkdirSync(join(dir, name), { recursive: true });
+        return dir;
+    }
+
+    /**
+     * Recent snapshots ship arm-specific configurations beside the x86 ones.
+     * Picking config_mac on Apple Silicon starts a JVM that fails to load the
+     * native bits, so the arm variant wins wherever it exists — and where it
+     * doesn't, the plain one still has to be found.
+     */
+    test("prefers the arm configuration on arm, and falls back when absent", () => {
+        const platform = process.platform;
+        const base = platform === "darwin" ? "config_mac" : platform === "win32" ? "config_win" : "config_linux";
+
+        const full = unpackedJdtls();
+        expect(javaConfigDir(full)).toBe(join(full, process.arch === "arm64" ? `${base}_arm` : base));
+
+        // An older snapshot with no arm variants still has to resolve.
+        const plain = unpackedJdtls(["config_mac", "config_linux", "config_win"]);
+        expect(javaConfigDir(plain)).toBe(join(plain, base));
+
+        // Nothing usable: report it rather than building a broken command line.
+        expect(javaConfigDir(unpackedJdtls([]))).toBeNull();
+    });
+
+    test("JVM flags go before -jar, where the JVM will read them", () => {
+        const dir = unpackedJdtls();
+        const jar = join(dir, "launcher.jar");
+        writeFileSync(jar, "");
+
+        const spec = specFromJar(def("java"), jar, dir)!;
+        expect(spec.command).toBe("java");
+
+        const jarAt = spec.args.indexOf("-jar");
+        expect(jarAt).toBeGreaterThan(0);
+        expect(spec.args[jarAt + 1]).toBe(jar);
+        // Every -D and --add-* is a JVM flag, so all of them precede -jar.
+        for (const [i, arg] of spec.args.entries()) {
+            if (arg.startsWith("-D") || arg.startsWith("--add-")) expect(i).toBeLessThan(jarAt);
+        }
+        // And each --add-opens is a single argv element, not a string with a
+        // space in it, which the JVM would read as one oddly-named flag.
+        for (const arg of spec.args) expect(arg).not.toContain(" ");
+    });
+
+    test("the templated config and data directories are resolved, not passed through", () => {
+        const dir = unpackedJdtls();
+        writeFileSync(join(dir, "launcher.jar"), "");
+
+        const spec = specFromJar(def("java"), join(dir, "launcher.jar"), dir)!;
+        expect(spec.args.join(" ")).not.toContain("{");
+        const data = spec.args[spec.args.indexOf("-data") + 1];
+        expect(existsSync(data)).toBe(true);
+    });
+
+    test("an unpacked tree with no usable config directory yields no server", () => {
+        expect(specFromJar(def("java"), "/nope/launcher.jar", mkdtempSync(join(tmpdir(), "loop-empty-")))).toBeNull();
     });
 });

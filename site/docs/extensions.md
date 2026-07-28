@@ -65,7 +65,13 @@ TypeScript · JavaScript · JSX/TSX · Vue · Svelte · Astro · JSON · YAML ·
 
 **TypeScript needs nothing installed.** TypeScript 7 is a native binary that speaks the protocol itself, so loop provisions it on first use and talks to it directly — no `typescript-language-server` wrapper, no Node process in between.
 
-Ten more install themselves on demand (Vue, Svelte, Astro, Python, PHP, Bash, YAML, JSON, Dockerfile, Prisma), and `gopls` installs via `go install` if you already have Go. **Everything else has to be on your PATH.** That's deliberate: `rust-analyzer`, `clangd`, `jdtls` and friends belong to toolchains you manage, and downloading a compiler's language server behind your back is worse than saying it isn't there. If a server is missing, the tool tells you so and the diagnostics half stays quiet.
+Ten more install themselves on demand as npm packages (Vue, Svelte, Astro, Python, PHP, Bash, YAML, JSON, Dockerfile, Prisma), and `gopls` installs via `go install` if you already have Go.
+
+Seven arrive as a prebuilt release archive for your platform, unpacked into `~/.loop/servers/`: **clangd, zls, lua-language-server, terraform-ls, texlab, tinymist and jdtls**. Two of those only install when the toolchain they belong to is already present — `zls` needs `zig`, and `jdtls` needs a Java 21 or newer runtime — so loop never pulls down a server your machine could not have run anyway.
+
+**Everything else has to be on your PATH.** That's deliberate, and the line is whether the server is a self-contained editor tool or a face of a compiler you installed on purpose: fetching our own `rust-analyzer` beside your rustup one buys a version skew we would then have to explain. So `rust-analyzer`, `dart`, `julia`, `sourcekit-lsp` and friends are found, never fetched. If a server is missing, the tool tells you so and the diagnostics half stays quiet.
+
+To install nothing at all and use only what is already on the machine — an airgapped box, a locked-down CI image, or simply a preference — set `LOOP_DISABLE_LSP_DOWNLOAD=1`. Discovery in `node_modules/.bin` and on `PATH` still works; every install route is switched off.
 
 ### How servers are chosen
 
@@ -87,7 +93,33 @@ A project's own `node_modules/.bin` wins over anything global, so you get the ve
 }
 ```
 
-`runtime` may be `native` (default) or `node` (run under loop's own runtime). Add `npm` + `npmBin` to have loop install it for you.
+`runtime` may be `native` (default), `node` (run under loop's own runtime), or `java` (run as `java -jar`). Add `npm` + `npmBin` to have loop install it from npm, `goInstall` for a Go package, or a `download` block for a release archive:
+
+```json
+{
+    "gleam": {
+        "extensions": [".gleam"],
+        "languageId": "gleam",
+        "binNames": ["gleam"],
+        "args": ["lsp"],
+        "rootMarkers": ["gleam.toml"],
+        "download": {
+            "source": { "kind": "github", "repo": "gleam-lang/gleam" },
+            "asset": "gleam-v{version}-{target}.{ext}",
+            "targets": {
+                "darwin": "{arch}-apple-darwin",
+                "linux": "{arch}-unknown-linux-musl",
+                "win32": "{arch}-pc-windows-msvc"
+            },
+            "archs": { "x64": "x86_64", "arm64": "aarch64" },
+            "format": "tar.gz",
+            "bin": "gleam{exe}"
+        }
+    }
+}
+```
+
+`{version}` is the release tag with any leading `v` stripped, `{target}` your platform's entry with `{arch}` filled in, `{ext}` the archive extension (always `zip` on Windows), and `{exe}` the `.exe` suffix on Windows. Templates that name no published asset simply resolve to no server, without a network call — so a machine upstream doesn't build for is a quiet no, not an error. `source` may also be `{"kind": "hashicorp", "product": "..."}` for HashiCorp's build index, or `{"kind": "static"}` with a fixed `url`.
 
 ---
 

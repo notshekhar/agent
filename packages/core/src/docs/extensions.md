@@ -81,6 +81,15 @@ panel). They can be enabled/disabled/reloaded but not uninstalled.
 | `caveman`  | Ultra-terse replies, fewer tokens. `/caveman lite\|full\|ultra\|wenyan-…\|off`.                   |
 | `rtk`      | Rewrites bash commands through the `rtk` binary to compress output. No-op if `rtk` isn't on PATH. |
 
+`lsp` finds a language server in the project's `node_modules/.bin`, then on
+`PATH`. Only if neither has one does it install: npm packages and `go install`
+into `~/.loop/servers/`, or a prebuilt release archive for your platform (zls,
+clangd, lua-language-server, terraform-ls, texlab, tinymist, jdtls). Servers
+belonging to a toolchain you manage yourself — rust-analyzer, dart, julia — are
+never downloaded. Set `LOOP_DISABLE_LSP_DOWNLOAD=1` to turn every install route
+off and use only what's already on the machine. Add or override servers in
+`~/.loop/servers/servers.json`.
+
 These are also the reference implementations — read their source under
 `packages/core/src/extensions/builtin/` to see real extensions using the API
 (tool-result middleware, `onSystemPrompt` personas, `onCall` command rewriting,
