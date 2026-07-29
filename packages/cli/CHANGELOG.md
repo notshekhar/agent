@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.9] - 2026-07-29
+
+### Fixed
+
+- **Thinking never appeared for OpenAI models reached through a gateway.** `@ai-sdk/openai` decides whether a model reasons by matching its id against a prefix allowlist — `gpt-5`, `o1`, `o3`, `o4-mini` — and gateways such as bifrost and LiteLLM advertise their catalogue with a vendor segment in front, `openai/gpt-5.6-terra`. loop persists the ids a custom provider's `/v1/models` discovery hands back, so the id that reached the SDK stopped starting with `gpt-5` and the allowlist quietly stopped matching. From there the SDK drops the whole `reasoning` block out of the request and files a warning nothing surfaces: the model still thinks, still bills for the reasoning tokens, and returns an encrypted reasoning item with no summary attached — so the pane stays blank and the request looks, from every angle loop could see, like it succeeded. The failure was invisible precisely because nothing errored.
+- **The fix is the provider's own escape hatch, not a workaround around it.** `@ai-sdk/openai` documents `forceReasoning` for exactly this case ("useful for 'stealth' reasoning models (e.g. via a custom baseURL)"), so loop now sets it rather than rewriting model ids or second-guessing the gateway's naming. It is gated twice — the catalogue must positively know the model reasons, and the id must actually carry a vendor segment — because forcing the flag onto a model that does not reason earns a 400. Unprefixed ids and first-party OpenAI models therefore send byte-identical requests to before; only the ids that were already broken change. Thinking level is unaffected and, as before, rides across provider and model switches untouched.
+
 ## [0.15.8] - 2026-07-28
 
 ### Added

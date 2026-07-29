@@ -177,6 +177,9 @@ export function buildReasoningParams(
     modelShortId: string,
     level: ThinkingLevel,
     reasoningCapable: boolean,
+    /** Catalog POSITIVELY knows this model reasons — gates forceReasoning, which
+     * must never be guessed onto a non-reasoning model (it would 400). */
+    knownReasoningModel = false,
 ): { reasoning?: ReasoningEffort; providerOptions?: Record<string, Record<string, unknown>> } {
     if (!reasoningCapable) return {};
     if (provider === "anthropic" && anthropicUsesAdaptiveThinking(modelShortId)) {
@@ -184,8 +187,27 @@ export function buildReasoningParams(
     }
     return {
         reasoning: reasoningEffort(provider, level, modelShortId),
-        providerOptions: buildProviderOptions(provider, level),
+        providerOptions: buildProviderOptions(provider, level, {
+            forceReasoning: knownReasoningModel && isVendorPrefixed(modelShortId),
+        }),
     };
+}
+
+/**
+ * True for gateway-style ids carrying a vendor segment ("openai/gpt-5.6-sol").
+ *
+ * @ai-sdk/openai decides reasoning support by a literal prefix match on the
+ * model id (`startsWith("gpt-5" | "o1" | "o3" | "o4-mini")`), which a vendor
+ * prefix defeats: the SDK then silently DROPS the whole `reasoning` block and
+ * only records a warning, so thinking disappears with no error. Bifrost- and
+ * LiteLLM-style `/v1/models` discovery returns exactly these ids (and loop
+ * persists them into the provider's model list), so a custom provider can lose
+ * thinking purely from how its gateway names models. `forceReasoning` is the
+ * SDK's documented escape hatch for this — "useful for 'stealth' reasoning
+ * models (e.g. via a custom baseURL)".
+ */
+function isVendorPrefixed(modelShortId: string): boolean {
+    return modelShortId.includes("/");
 }
 
 /**
@@ -202,6 +224,7 @@ export function buildReasoningParams(
 export function buildProviderOptions(
     provider: ProviderId | string,
     level: ThinkingLevel,
+    opts: { forceReasoning?: boolean } = {},
 ): Record<string, Record<string, unknown>> | undefined {
     const on = level !== "off";
     switch (provider) {
@@ -209,7 +232,11 @@ export function buildProviderOptions(
         case "github-copilot":
             // Effort comes from the native `reasoning` param; this only adds the
             // human-readable summary stream. Skip when reasoning is off.
-            return on ? { openai: { reasoningSummary: "auto" } } : undefined;
+            // forceReasoning overrides the SDK's id-prefix capability guess for
+            // gateway-prefixed ids it can't recognize (see isVendorPrefixed).
+            return on
+                ? { openai: { reasoningSummary: "auto", ...(opts.forceReasoning ? { forceReasoning: true } : {}) } }
+                : undefined;
         case "openrouter":
             return on
                 ? { openrouter: { reasoning: { effort: OPENROUTER_EFFORT[level as Exclude<ThinkingLevel, "off">] } } }

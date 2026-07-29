@@ -56,6 +56,7 @@ export function buildAgentCallConfig(opts: {
         opts.modelShortId,
         opts.thinkingLevel,
         opts.modelInfo?.reasoning !== false,
+        opts.modelInfo?.reasoning === true,
     );
     return {
         effectiveProvider,
