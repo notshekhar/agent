@@ -3,7 +3,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { javaConfigDir, locateBinary, resolveTarget } from "../src/extensions/builtin/lsp/download";
-import { reportDiagnostics } from "../src/extensions/builtin/lsp/index";
+import { reportDiagnostics, resolveColumn } from "../src/extensions/builtin/lsp/index";
 import { sampleFiles } from "../src/extensions/builtin/lsp/manager";
 import { LSP_OPERATIONS, needsPosition } from "../src/extensions/builtin/lsp/operations";
 import { defHandles, getServerDefs, languageKeysFor } from "../src/extensions/builtin/lsp/registry";
@@ -258,6 +258,60 @@ describe("operations", () => {
     test("symbol kinds are named, not numbered", () => {
         expect(SYMBOL_KIND[12]).toBe("function");
         expect(SYMBOL_KIND[5]).toBe("class");
+    });
+});
+
+/**
+ * The model never sees columns — only line numbers, from `read` and `grep`. So
+ * a position is named by its symbol and the column is found here; these are the
+ * ways that lookup can go wrong.
+ */
+describe("resolving a position from a symbol name", () => {
+    const dir = mkdtempSync(join(tmpdir(), "lsp-symbol-"));
+    const file = join(dir, "sample.ts");
+    writeFileSync(
+        file,
+        [
+            "export function runTurn(x: number) {",
+            "    return rerun(runTurn, x);",
+            "}",
+            "const y = runTurn(runTurn(1));",
+            "",
+        ].join("\n"),
+    );
+
+    test("finds the symbol's 1-based column on the given line", async () => {
+        expect(await resolveColumn(file, 1, "runTurn")).toEqual({ character: 17 });
+    });
+
+    test("word boundaries keep a short name out of a longer one", async () => {
+        // `rerun` contains "run", and sits left of the real `runTurn` on line 2.
+        expect(await resolveColumn(file, 2, "runTurn")).toEqual({ character: 18 });
+    });
+
+    test("the first occurrence on the line wins", async () => {
+        // Line 4 names runTurn twice; `character` is the escape hatch for the second.
+        expect(await resolveColumn(file, 4, "runTurn")).toEqual({ character: 11 });
+    });
+
+    test("a symbol with non-word edges still matches", async () => {
+        expect(await resolveColumn(file, 1, "(x:")).toEqual({ character: 24 });
+    });
+
+    test("a miss quotes the line back, so the next attempt can be right", async () => {
+        const out = await resolveColumn(file, 3, "runTurn");
+        expect(out).toHaveProperty("error");
+        expect((out as { error: string }).error).toContain('"runTurn" is not on line 3');
+    });
+
+    test("a line past the end says so rather than reporting a missing symbol", async () => {
+        const out = await resolveColumn(file, 99, "runTurn");
+        expect((out as { error: string }).error).toContain("past the end");
+    });
+
+    test("an unreadable file is an error, not a throw", async () => {
+        const out = await resolveColumn(join(dir, "nope.ts"), 1, "x");
+        expect((out as { error: string }).error).toContain("cannot read");
     });
 });
 

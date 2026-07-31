@@ -46,37 +46,46 @@ export function reportDiagnostics(cwd: string, absPath: string, diagnostics: Dia
     return `<diagnostics file="${rel}">\n${shown.map(prettyDiagnostic).join("\n")}${suffix}\n</diagnostics>`;
 }
 
-const OPERATION_HELP = `Interact with Language Server Protocol (LSP) servers to get code intelligence features.
+const OPERATION_HELP = `Answer a question about code exactly, from the compiler's own model of the
+project. Use it whenever you need to be precisely right about a symbol rather
+than approximately right:
 
-Supported operations:
-- goToDefinition: Find where a symbol is defined
-- findReferences: Find all references to a symbol
-- hover: Get hover information (documentation, type info) for a symbol
-- documentSymbol: Get all symbols (functions, classes, variables) in a document
-- workspaceSymbol: List project-wide symbols matching a query string
-- goToImplementation: Find implementations of an interface or abstract method
-- prepareCallHierarchy: Get call hierarchy item at a position (functions/methods)
-- incomingCalls: Find all functions/methods that call the function at a position
-- outgoingCalls: Find all functions/methods called by the function at a position
+- Where is this defined? -> goToDefinition
+- Who uses this / what breaks if I change it? -> findReferences, incomingCalls
+- What type is this, what does it do? -> hover (signature, type, doc comment)
+- What implements this interface or abstract method? -> goToImplementation
+- What does this function call? -> outgoingCalls
+- What is in this file? -> documentSymbol (outline of every symbol, with lines)
+- Where is the symbol named X, anywhere in the project? -> workspaceSymbol
 
-Prefer this over grep for "where is this defined", "what calls this" and "what
-does this type resolve to": it answers from the compiler's model of the code, so
-it skips comments, strings and unrelated same-named symbols.
+Reach for it whenever precision is what the task needs: before renaming a
+symbol, changing a function signature, deleting something that looks dead, or
+tracing how a value flows. Every answer resolves the real symbol, so it covers
+that symbol's re-exports and aliases and leaves out everything that merely
+shares its spelling — and incomingCalls answers a question no text search can
+express.
 
-Position operations need filePath, line and character, all 1-based exactly as an
-editor shows them and as the read tool's line numbers imply. documentSymbol needs
-only filePath; workspaceSymbol needs only query (an empty string requests all
-symbols, and filePath is used solely to pick which server answers).
+Positions: pass filePath, line (1-based, exactly as read and grep report it) and
+symbol — the name at that line — and the column is resolved for you, so never
+count characters. Pass character only when you already know the exact 1-based
+column; symbol wins if both are given.
 
-A language server must be configured for the file type; if none is available an
-error is returned.`;
+documentSymbol needs only filePath. workspaceSymbol needs only query (empty
+string requests every symbol); its filePath merely picks which server answers
+and may be a directory or omitted. prepareCallHierarchy just resolves the
+callable at a position — incomingCalls and outgoingCalls do that step
+themselves, so you rarely want it directly.
+
+A language server must be configured for the file type; if none is available the
+tool says so.`;
 
 /**
  * The one-line summary shown beside an `lsp` call. The default for a tool loop
  * doesn't ship is a truncated JSON dump of the arguments, which for a 5-field
  * call is unreadable — so the extension renders its own:
  *
- *   goToDefinition · src/main.ts:4:23
+ *   goToDefinition · src/main.ts:4 greet
+ *   findReferences · src/main.ts:4:23
  *   workspaceSymbol · "greet"
  *   documentSymbol · src/main.ts
  *
@@ -92,8 +101,14 @@ export function summarizeLspCall(args: Record<string, unknown>, ctx: ToolSummary
     if (operation === "workspaceSymbol") {
         const query = typeof args.query === "string" ? args.query : "";
         target = query ? `"${query}"` : "(all symbols)";
+    } else if (typeof args.line === "number" && typeof args.symbol === "string") {
+        // The column is resolved inside execute, so the symbol is all we can
+        // name here — and it reads better than a column would have.
+        target = `${rel}:${args.line} ${args.symbol}`;
     } else if (typeof args.line === "number" && typeof args.character === "number") {
         target = `${rel}:${args.line}:${args.character}`;
+    } else if (typeof args.line === "number") {
+        target = `${rel}:${args.line}`;
     } else {
         target = rel;
     }
@@ -102,11 +117,52 @@ export function summarizeLspCall(args: Record<string, unknown>, ctx: ToolSummary
     return target ? `${op} ${ctx.theme.fg("muted", "·")} ${target}` : op;
 }
 
+/**
+ * Turn `symbol` into a 1-based column on `line`.
+ *
+ * The model is handed line numbers by `read` and `grep` but never columns, so
+ * asking it for `character` asks it to count into a line by eye. A wrong guess
+ * lands on whitespace and comes back "No results found", which reads like the
+ * tool failing rather than the position being off — and one of those is enough
+ * to send it back to grep for the rest of the session. Naming the symbol
+ * removes the guess.
+ */
+export async function resolveColumn(
+    file: string,
+    line: number,
+    symbol: string,
+): Promise<{ character: number } | { error: string }> {
+    let text: string;
+    try {
+        text = await readFile(file, "utf8");
+    } catch {
+        return { error: `[cannot read ${file} to locate "${symbol}"]` };
+    }
+    const lines = text.split(/\r?\n/);
+    const target = lines[line - 1];
+    if (target === undefined) {
+        return { error: `[line ${line} is past the end of ${file} (${lines.length} lines)]` };
+    }
+    // Word boundaries stop `run` from matching inside `runTurn`, but only help
+    // where the symbol's own edges are word characters: `#private` or `foo!`
+    // would never match with \b bolted on regardless.
+    const escaped = symbol.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const left = /^\w/.test(symbol) ? "\\b" : "";
+    const right = /\w$/.test(symbol) ? "\\b" : "";
+    const match = new RegExp(`${left}${escaped}${right}`).exec(target);
+    if (!match) {
+        return { error: `["${symbol}" is not on line ${line}, which reads: ${target.trim()}]` };
+    }
+    return { character: match.index + 1 };
+}
+
 function buildLspTool(cwd: () => string) {
     return tool({
         description: OPERATION_HELP,
         inputSchema: z.object({
-            operation: z.enum(LSP_OPERATIONS).describe("The LSP operation to perform"),
+            operation: z
+                .enum(LSP_OPERATIONS)
+                .describe("Which question to answer — see the description for what each operation resolves"),
             filePath: z
                 .string()
                 .optional()
@@ -118,19 +174,29 @@ function buildLspTool(cwd: () => string) {
                 .int()
                 .min(1)
                 .optional()
-                .describe("The line number (1-based, as shown in editors). Required for position operations."),
+                .describe(
+                    "Line number, 1-based, exactly as read and grep report it. Required for position operations.",
+                ),
+            symbol: z
+                .string()
+                .optional()
+                .describe(
+                    'The name at that line to point at, e.g. "runTurn" — its column is resolved for you, so you never have to count characters. First occurrence on the line wins. Preferred over character.',
+                ),
             character: z
                 .number()
                 .int()
                 .min(1)
                 .optional()
-                .describe("The character offset (1-based, as shown in editors). Required for position operations."),
+                .describe(
+                    "Column, 1-based. Only needed when you already know the exact column — e.g. to reach the second occurrence of a name on one line. Otherwise pass symbol instead.",
+                ),
             query: z
                 .string()
                 .optional()
                 .describe("Search query for workspaceSymbol. Empty string requests all symbols."),
         }),
-        execute: async ({ operation, filePath, line, character, query }) => {
+        execute: async ({ operation, filePath, line, symbol, character, query }) => {
             const root = cwd();
             const op = operation as LspOperation;
             // workspaceSymbol is about a whole project, so the path is only a
@@ -139,8 +205,21 @@ function buildLspTool(cwd: () => string) {
             if (target === undefined) return `[${op} needs filePath]`;
             const abs = isAbsolute(target) ? target : join(root, target);
 
-            if (needsPosition(op) && (line === undefined || character === undefined)) {
-                return `[${op} needs both line and character (1-based)]`;
+            // `symbol` is the intended way in; `character` outranks nothing and
+            // survives only as the escape hatch for a repeated name on one line.
+            let column = character;
+            if (needsPosition(op)) {
+                if (line === undefined) {
+                    return `[${op} needs line, plus symbol (the name at that line) or character]`;
+                }
+                if (symbol !== undefined) {
+                    const resolved = await resolveColumn(abs, line, symbol);
+                    if ("error" in resolved) return resolved.error;
+                    column = resolved.character;
+                }
+                if (column === undefined) {
+                    return `[${op} needs symbol (the name at line ${line}) or character (1-based column)]`;
+                }
             }
             const manager = getLspManager(root);
             // Accepts a directory as well as a file: workspaceSymbol is normally
@@ -155,7 +234,7 @@ function buildLspTool(cwd: () => string) {
             // A no-op when `abs` is a directory (clientsForTarget primed those).
             await Promise.all(clients.map(({ client }) => client.openDocument(abs)));
 
-            const input = { operation: op, file: abs, line: line ?? 1, character: character ?? 1, query };
+            const input = { operation: op, file: abs, line: line ?? 1, character: column ?? 1, query };
             const results = await Promise.all(
                 clients.map(async ({ key, client }) => ({ key, ...(await runOperation(client, input, root)) })),
             );

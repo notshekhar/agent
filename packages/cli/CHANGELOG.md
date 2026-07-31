@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.15.10] - 2026-08-01
+
+### Changed
+
+- **The `lsp` tool asked for a column number, which is the one thing an agent cannot see.** Every position operation — `goToDefinition`, `findReferences`, `hover`, the call hierarchy — required `character`, a 1-based column. But `read` and `grep` report line numbers and nothing else, so supplying a column meant counting characters into a line by eye. A guess that landed a few characters off hit whitespace or a comma and the server answered "No results found", which is indistinguishable from the symbol genuinely having no definition. The tool looked broken rather than mis-aimed, and one such miss is enough for an agent to fall back to text search for the rest of a session — the operations were there, correct, and largely unused. Position operations now take `symbol` instead: the name at that line, whose column is resolved from the line's own text. `lsp({ operation: "findReferences", filePath: "src/agent/turn.ts", line: 142, symbol: "runTurn" })`. Word boundaries are applied only where the symbol's own edges are word characters, so `run` will not match inside `rerun` while `#private` and `foo!` still match at all. `character` is unchanged and still accepted — it is now the way to reach the second occurrence of a name on one line, since the first wins otherwise — and `symbol` takes precedence when both are given.
+- **A missed position now says what went wrong.** `["runTurn" is not on line 3, which reads: }]` quotes the line back, so an off-by-one line number corrects itself on the next call instead of being read as an empty result.
+- **The tool's description was a list of nine operations and their arguments.** It described the mechanism and never the job, so nothing in it told an agent which question each operation answers or when the answer is worth a call. It now opens with the questions themselves — where is this defined, who uses this, what breaks if I change it, what implements this interface — and names the moments precision is what the task needs: before renaming a symbol, changing a signature, deleting something that looks dead, or tracing how a value flows. `prepareCallHierarchy` is explicitly demoted, since `incomingCalls` and `outgoingCalls` already perform that step themselves and exposing it as a peer only added a choice with no use.
+- **The call summary follows the new shape.** A symbol-named position renders as `goToDefinition · src/main.ts:4 greet`, and a call carrying a line but no column no longer degrades to the bare file path.
+
 ## [0.15.9] - 2026-07-29
 
 ### Fixed

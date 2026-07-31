@@ -55,7 +55,15 @@ The agent sees the mistake immediately rather than discovering it later, or not 
 | `incomingCalls`        | What calls this function?                 |
 | `outgoingCalls`        | What does this function call?             |
 
-The difference from `grep` is that answers come from the compiler's model of the program, so a search for a common name doesn't drown in comments, strings, and unrelated symbols that share a spelling — and `incomingCalls` is a question `grep` cannot express at all. Line and character are 1-based, exactly as your editor shows them. The read-only `plan` agent gets the tool too, since navigation is most of what planning does.
+The difference from `grep` is that answers come from the compiler's model of the program, so a search for a common name doesn't drown in comments, strings, and unrelated symbols that share a spelling — and `incomingCalls` is a question `grep` cannot express at all. The read-only `plan` agent gets the tool too, since navigation is most of what planning does.
+
+**Positions are named, not counted.** An agent is handed line numbers by `read` and `grep` but never columns, so asking it for one asks it to count into a line by eye — and a guess that lands on whitespace comes back "No results found", which reads like the tool being broken rather than the position being off. One of those is enough to send it back to `grep` for the rest of the session. So the position operations take `symbol` instead: the name at that line, whose column is resolved from the line's text.
+
+```json
+{ "operation": "findReferences", "filePath": "src/agent/turn.ts", "line": 142, "symbol": "runTurn" }
+```
+
+`character` still works, 1-based exactly as your editor shows it, and is the way to reach the second occurrence of a name on one line — the first wins otherwise. `symbol` takes precedence when both are given.
 
 ### Languages
 
