@@ -74,12 +74,13 @@ newly added **slash commands** need `/reload`.
 install step; the user enables the ones they want (`{{name}} enable <name>` or the
 panel). They can be enabled/disabled/reloaded but not uninstalled.
 
-| name       | what it does                                                                                      |
-| ---------- | ------------------------------------------------------------------------------------------------- |
-| `lsp`      | Appends type/lint diagnostics after `write`/`edit` via language servers (auto-provisioned).       |
-| `ponytail` | "Lazy senior dev" persona — write the minimal solution. `/ponytail lite\|full\|ultra\|off`.       |
-| `caveman`  | Ultra-terse replies, fewer tokens. `/caveman lite\|full\|ultra\|wenyan-…\|off`.                   |
-| `rtk`      | Rewrites bash commands through the `rtk` binary to compress output. No-op if `rtk` isn't on PATH. |
+| name        | what it does                                                                                      |
+| ----------- | ------------------------------------------------------------------------------------------------- |
+| `lsp`       | Appends type/lint diagnostics after `write`/`edit` via language servers (auto-provisioned).       |
+| `ponytail`  | "Lazy senior dev" persona — write the minimal solution. `/ponytail lite\|full\|ultra\|off`.       |
+| `caveman`   | Ultra-terse replies, fewer tokens. `/caveman lite\|full\|ultra\|wenyan-…\|off`.                   |
+| `wayfinder` | Charts a big, foggy effort as a map of decision tickets. `/wayfinder <idea\|map url>`.            |
+| `rtk`       | Rewrites bash commands through the `rtk` binary to compress output. No-op if `rtk` isn't on PATH. |
 
 `lsp` finds a language server in the project's `node_modules/.bin`, then on
 `PATH`. Only if neither has one does it install: npm packages and `go install`
@@ -95,8 +96,8 @@ These are also the reference implementations — read their source under
 (tool-result middleware, `onSystemPrompt` personas, `onCall` command rewriting,
 external-process lifecycle). Because they're statically bundled, built-ins carry
 no per-extension `node_modules`: a built-in either uses only the runtime/`ai`
-SDK or embeds its assets (e.g. ponytail/caveman embed their skill text as a TS
-constant). Third-party extensions you `{{name}} install` get their own `node_modules`.
+SDK or embeds its assets (e.g. ponytail/caveman/wayfinder embed their skill text
+as a TS constant). Third-party extensions you `{{name}} install` get their own `node_modules`.
 
 ## The `api` object
 

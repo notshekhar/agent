@@ -18,6 +18,7 @@ loop disable <name>        # turn it back off
 | `rtk`               | Rewrites bash commands to cut output tokens 60–90%        |
 | `caveman`           | Ultra-terse replies, same technical substance             |
 | `ponytail`          | "Lazy senior dev" — the smallest change that solves it    |
+| `wayfinder`         | Charts a big, foggy effort as a map of decision tickets   |
 | `statusline-themes` | Six status-line layouts and a colour picker               |
 
 ---
@@ -190,6 +191,31 @@ The "lazy senior dev" persona: prefer the smallest change that actually solves t
 **"stop ponytail"** or **"normal mode"** turns it off too. Persists across sessions.
 
 `caveman` shapes _how much it says_; `ponytail` shapes _how much it builds_. They're independent and compose — running both gives you short answers about small changes.
+
+---
+
+## wayfinder — chart the way through a big, foggy effort
+
+```
+loop enable wayfinder
+```
+
+A port of Matt Pocock's [`/wayfinder`](https://www.aihero.dev/skills-wayfinder) skill. You reach for it when an effort is **too big for one agent session** and the way to the goal is still foggy — you can feel the shape of the work but can't write it down as a spec yet.
+
+It charts the effort as a **map**: one issue labelled `wayfinder:map`, with **decision tickets** as its children. Each ticket is a question to settle, not a slice of a build — the map is done when nothing is left to decide before someone goes and builds the thing. Tickets are either **HITL** (grilling, prototype — resolved with you, in conversation) or **AFK** (research — fired off as parallel subagents). Whatever you can't yet phrase sharply stays as **fog** on the map until an answer clears it.
+
+```
+/wayfinder <a loose idea>          # chart a new map
+/wayfinder <map url or number>     # work the next ticket on an existing map
+/wayfinder tracker                 # show where maps are written
+/wayfinder tracker github|markdown|auto
+```
+
+Unlike `caveman` and `ponytail` this isn't a persona — the model never reaches for it on its own; it runs only when you type `/wayfinder`.
+
+**Where the map lives.** `auto` (the default) uses **GitHub Issues** via the `gh` CLI when the repo has a github.com remote and `gh` is authenticated, and otherwise falls back to **local markdown** in `.wayfinder/` (`map.md` plus one file per ticket, committed like any other repo file). Force either with `/wayfinder tracker github|markdown`.
+
+The skill also names sibling skills (`/grilling`, `/domain-modeling`, `/research`, `/prototype`) that don't ship with loop. The extension substitutes loop's own equivalents — one-question-at-a-time turns for the HITL tickets, the `task` tool for research subagents — and defers to the real skills if you've installed them.
 
 ---
 

@@ -10,6 +10,7 @@ import type { ExtensionModule } from "../api";
 import lsp from "./lsp/index";
 import ponytail from "./ponytail/index";
 import caveman from "./caveman/index";
+import wayfinder from "./wayfinder/index";
 import rtk from "./rtk/index";
 import statuslineThemes from "./statusline-themes/index";
 
@@ -43,6 +44,14 @@ export const BUILTIN_EXTENSIONS: BuiltinExtension[] = [
         displayName: "Caveman",
         description: "Ultra-terse replies — fewer tokens, full substance (lite/full/ultra). /caveman",
         module: caveman,
+        defaultEnabled: false,
+    },
+    {
+        name: "wayfinder",
+        displayName: "Wayfinder",
+        description:
+            "Charts an effort too big for one session as a map of decision tickets on your issue tracker. /wayfinder",
+        module: wayfinder,
         defaultEnabled: false,
     },
     {
