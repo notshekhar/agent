@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.15.11] - 2026-08-02
+
+### Added
+
+- **A sixth built-in extension, `wayfinder`** — a port of Matt Pocock's [`/wayfinder`](https://www.aihero.dev/skills-wayfinder) skill, for the effort that is too big for one agent session and still wrapped in fog: you can feel the shape of the work but cannot yet write it down as a spec. It charts the effort as a **map** — one issue labelled `wayfinder:map` whose children are **decision tickets** — and then works those tickets one per session until the way to the destination is clear. Every ticket resolves a _decision_, not a slice of a build, so the map is finished when nothing is left to decide before someone goes and builds the thing. Tickets are either HITL (grilling, prototype — resolved in conversation with you) or AFK (research — fired off as parallel subagents), and whatever cannot yet be phrased sharply stays on the map as fog until an answer clears it. `loop enable wayfinder`, then `/wayfinder <a loose idea>` to chart a map or `/wayfinder <map url>` to work the next ticket.
+- **It is a command, not a persona — which is why it is built differently from `ponytail` and `caveman`.** Those two shape every turn through `onSystemPrompt`. Wayfinder ships `disable-model-invocation: true` upstream, meaning the model must never reach for it on its own, so it registers a slash command that emits the same `inject-skill` event loop's own `/skill:<name>` commands use: the skill body renders as a skill card and submits as a turn, and nothing about it touches a session you did not ask it to.
+- **The skill's missing dependencies are supplied rather than left to fail.** Upstream expects a "Wayfinding operations" doc laid down by a companion setup skill, and calls out to `/grilling`, `/domain-modeling`, `/research` and `/prototype` — none of which exist here, so the skill would have run aground on its first ticket. The extension appends its own operations section instead: **GitHub Issues** through the `gh` CLI (labels, sub-issues, `--add-assignee @me` to claim a ticket, a frontier query for what is takeable), or **local markdown** under `.wayfinder/` when there is no tracker to speak to. `/wayfinder tracker github|markdown|auto` chooses; `auto` probes for a github.com remote and an authenticated `gh` and falls back to markdown when either is missing, because a half-working `gh` fails in the middle of a map rather than up front. The four sibling skills are mapped onto what loop actually has — one-question-at-a-time turns for the human-in-the-loop tickets, the `task` tool for research subagents — and the mapping defers to the real skills if you install them later.
+
+### Changed
+
+- AI SDK packages upgraded (`ai` 7.0.40 → 7.0.48 and every `@ai-sdk/*` provider alongside it). Verified against the checks that exist because of the v7 field rename: the tool-input stream parts still carry `id` and `delta`, and a live run confirms `tool-input-start` arrives with its id before the `tool-call` and the deltas carry bytes — the write/edit live preview is intact.
+- Model catalog refreshed from models.dev.
+
 ## [0.15.10] - 2026-08-01
 
 ### Changed
