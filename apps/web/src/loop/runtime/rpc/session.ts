@@ -1,15 +1,29 @@
-import { type ServerConfig, WS_METHODS } from "@loop/contracts";
+/**
+ * PORTED FOR loop. Upstream opened a WebSocket to a t3code server here; loop
+ * has no such server, so the client is wired **straight to in-process
+ * handlers** with `RpcServer.makeNoSerialization` +
+ * `RpcClient.makeNoSerialization`. No socket, no server process.
+ *
+ * This is the whole seam. Every one of the ~150 atoms above this file is a
+ * thin wrapper over `RpcClient.make(WsRpcGroup)`, so all of the coupling to
+ * upstream's server lived in the transport — replacing this one file leaves
+ * the rest of the UI untouched, streams, acks and interrupts included.
+ *
+ * The client/server wiring is inlined from `effect/unstable/rpc/RpcTest.ts`
+ * (the `let client` closure is what breaks the server↔client cycle) rather
+ * than imported, because that module is documented as a test harness.
+ */
+import { type ServerConfig, WsRpcGroup, WS_METHODS } from "@loop/contracts";
 import * as Context from "effect/Context";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Schedule from "effect/Schedule";
 import type * as Scope from "effect/Scope";
 import * as RpcClient from "effect/unstable/rpc/RpcClient";
-import * as RpcSerialization from "effect/unstable/rpc/RpcSerialization";
-import * as Socket from "effect/unstable/socket/Socket";
+import * as RpcServer from "effect/unstable/rpc/RpcServer";
 
-import { makeWsRpcProtocolClient, type WsRpcProtocolClient } from "./protocol.ts";
+import { makeHandlers } from "../../handlers/index.ts";
+import type { WsRpcProtocolClient } from "./protocol.ts";
 import type {
   ConnectionAttemptError,
   ConnectionTransientError,
@@ -19,8 +33,6 @@ import {
   ConnectionBlockedError,
   ConnectionTransientError as ConnectionTransientErrorClass,
 } from "../connection/model.ts";
-
-const SOCKET_OPEN_TIMEOUT = "15 seconds";
 
 export interface RpcSession {
   readonly client: WsRpcProtocolClient;
@@ -65,9 +77,45 @@ function mapSessionRpcError(error: InitialConfigError | ProbeError): ConnectionA
   }
 }
 
-export const make = Effect.gen(function* () {
-  const webSocketConstructor = yield* Socket.WebSocketConstructor;
+/**
+ * A client bound directly to handlers in this process.
+ *
+ * Inlined from `RpcTest.makeClient`: the server writes responses into the
+ * client and the client writes requests into the server, so `client` has to be
+ * declared before the server that closes over it.
+ */
+const makeClient = () =>
+  RpcClient.makeNoSerialization(WsRpcGroup, {
+    supportsAck: true,
+    onFromClient: () => Effect.void,
+  });
 
+const makeInProcessClient = Effect.fnUntraced(function* (connection: PreparedConnection) {
+  const handlers = makeHandlers({
+    environmentId: connection.environmentId,
+    label: connection.label,
+    // Replaced by the folder loop reports from `server.info`; only used when
+    // that call fails.
+    cwd: "/",
+  });
+
+  // oxlint-disable-next-line prefer-const -- the server/client cycle needs it.
+  let client: Effect.Success<ReturnType<typeof makeClient>>;
+  const server = yield* RpcServer.makeNoSerialization(WsRpcGroup, {
+    onFromServer(response) {
+      return client.write(response);
+    },
+  }).pipe(Effect.provide(handlers));
+  client = yield* RpcClient.makeNoSerialization(WsRpcGroup, {
+    supportsAck: true,
+    onFromClient({ message }) {
+      return server.write(0, message);
+    },
+  });
+  return client.client as WsRpcProtocolClient;
+});
+
+export const make = Effect.gen(function* () {
   const connect = Effect.fnUntraced(function* (connection: PreparedConnection) {
     yield* Effect.annotateCurrentSpan({
       "connection.environment.id": connection.environmentId,
@@ -75,45 +123,10 @@ export const make = Effect.gen(function* () {
 
     const connected = yield* Deferred.make<void>();
     const disconnected = yield* Deferred.make<never, ConnectionTransientError>();
-    const hooks = RpcClient.ConnectionHooks.of({
-      onConnect: Deferred.succeed(connected, undefined).pipe(Effect.asVoid),
-      onDisconnect: Deferred.isDone(connected).pipe(
-        Effect.flatMap((wasConnected) =>
-          Deferred.fail(
-            disconnected,
-            new ConnectionTransientErrorClass({
-              reason: "transport",
-              detail: wasConnected
-                ? `${connection.label} disconnected.`
-                : `${connection.label} could not establish a WebSocket connection.`,
-            }),
-          ),
-        ),
-        Effect.asVoid,
-      ),
-    });
-    const socketLayer = Socket.layerWebSocket(connection.socketUrl, {
-      openTimeout: SOCKET_OPEN_TIMEOUT,
-    }).pipe(Layer.provide(Layer.succeed(Socket.WebSocketConstructor, webSocketConstructor)));
-    const protocolLayer = Layer.effect(
-      RpcClient.Protocol,
-      RpcClient.makeProtocolSocket({
-        retryTransientErrors: false,
-        retryPolicy: Schedule.recurs(0),
-      }),
-    ).pipe(
-      Layer.provide(
-        Layer.mergeAll(
-          socketLayer,
-          RpcSerialization.layerJson,
-          Layer.succeed(RpcClient.ConnectionHooks, hooks),
-        ),
-      ),
-    );
-    const protocolContext = yield* Layer.build(protocolLayer).pipe(
-      Effect.withSpan("environment.websocket.connect"),
-    );
-    const client = yield* makeWsRpcProtocolClient.pipe(Effect.provide(protocolContext));
+    const client = yield* makeInProcessClient(connection);
+    // There is no socket to open, so the connection is live the moment the
+    // handlers are wired. The supervisor above still waits on this deferred.
+    yield* Deferred.succeed(connected, undefined);
     const initialConfig = yield* Effect.cached(
       client[WS_METHODS.serverGetConfig]({}).pipe(
         Effect.mapError(mapSessionRpcError),
