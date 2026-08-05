@@ -1,0 +1,85 @@
+import * as Effect from "effect/Effect";
+import { describe, expect, it } from "vite-plus/test";
+
+import { buildShellSnapshot, type LoopSessionRow } from "./shell.ts";
+
+const globals = globalThis as { window?: Window & typeof globalThis };
+
+/** Answers `session.list` with the given rows through the desktop bridge. */
+async function snapshotOf(rows: readonly Partial<LoopSessionRow>[]) {
+  const hadWindow = globals.window !== undefined;
+  globals.window ??= globals as unknown as Window & typeof globalThis;
+  const previous = window.loop;
+  window.loop = {
+    call: (method) =>
+      method === "session.list"
+        ? Promise.resolve(rows)
+        : Promise.reject(new Error(`unexpected ${method}`)),
+    onEvent: () => () => {},
+    anchorCwd: () => Promise.resolve(undefined),
+  };
+  try {
+    return await Effect.runPromise(buildShellSnapshot());
+  } finally {
+    if (previous === undefined) delete window.loop;
+    else window.loop = previous;
+    if (!hadWindow) delete globals.window;
+  }
+}
+
+const row = (over: Partial<LoopSessionRow>): Partial<LoopSessionRow> => ({
+  id: "01SESSION",
+  cwd: "/Users/someone/project",
+  createdAt: 1_700_000_000_000,
+  mtime: 1_700_000_100_000,
+  provider: "kimi",
+  model: "kimi/k3",
+  ...over,
+});
+
+describe("the shell snapshot", () => {
+  it("groups sessions into one project per cwd", async () => {
+    const snapshot = await snapshotOf([
+      row({ id: "a", cwd: "/w/one" }),
+      row({ id: "b", cwd: "/w/one" }),
+      row({ id: "c", cwd: "/w/two" }),
+    ]);
+    expect(snapshot.projects.map((project) => project.id).toSorted()).toEqual(["/w/one", "/w/two"]);
+    expect(snapshot.projects.find((project) => project.id === "/w/two")?.title).toBe("two");
+    expect(snapshot.threads).toHaveLength(3);
+  });
+
+  it("drops a session whose cwd is unusable instead of losing every project", async () => {
+    // loop's RPC does not validate cwd on session.create, so a row like this
+    // really can be in the store. ProjectId is a non-empty string and
+    // `projects` is a plain array, so letting it through fails the decode of
+    // the WHOLE snapshot and the sidebar renders empty.
+    const snapshot = await snapshotOf([
+      row({ id: "good", cwd: "/w/one" }),
+      row({ id: "empty-cwd", cwd: "" }),
+      row({ id: "blank-cwd", cwd: "   " }),
+    ]);
+    expect(snapshot.projects.map((project) => project.id)).toEqual(["/w/one"]);
+    expect(snapshot.threads.map((thread) => thread.id)).toEqual(["good"]);
+  });
+
+  it("survives provider ids the contract's slug rules reject", async () => {
+    const snapshot = await snapshotOf([row({ id: "a", provider: "custom:pronto-gpt" })]);
+    expect(snapshot.threads[0]?.modelSelection.instanceId).toBe("custom__pronto-gpt");
+  });
+
+  it("keeps a session with no model or first message renderable", async () => {
+    const snapshot = await snapshotOf([row({ id: "a", model: "", provider: "" })]);
+    expect(snapshot.threads).toHaveLength(1);
+    expect(snapshot.threads[0]?.title).toBe("Untitled");
+  });
+
+  it("orders threads newest first", async () => {
+    const snapshot = await snapshotOf([
+      row({ id: "old", mtime: 1_000 }),
+      row({ id: "new", mtime: 9_000 }),
+      row({ id: "mid", mtime: 5_000 }),
+    ]);
+    expect(snapshot.threads.map((thread) => thread.id)).toEqual(["new", "mid", "old"]);
+  });
+});

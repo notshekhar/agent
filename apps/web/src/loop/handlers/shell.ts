@@ -59,8 +59,16 @@ export const buildShellSnapshot = Effect.fnUntraced(function* () {
     loopCall<readonly LoopSessionRow[]>("session.list").catch(() => [] as readonly LoopSessionRow[]),
   );
 
+  // One unusable row must not cost the whole sidebar. `ProjectId` is a
+  // non-empty string and `projects` is a plain array (not a
+  // ForwardCompatibleArray), so a single session whose cwd is "" fails the
+  // decode of the entire snapshot and the user sees no projects at all.
+  // loop's RPC does not validate cwd on `session.create`, so such rows do
+  // reach the store — they are dropped here rather than allowed to blank it.
+  const usable = rows.filter((row) => typeof row.cwd === "string" && row.cwd.trim() !== "");
+
   const projects = new Map<string, { created: number; updated: number }>();
-  for (const row of rows) {
+  for (const row of usable) {
     const existing = projects.get(row.cwd);
     if (existing) {
       existing.created = Math.min(existing.created, row.createdAt);
@@ -70,7 +78,7 @@ export const buildShellSnapshot = Effect.fnUntraced(function* () {
     }
   }
 
-  const newestFirst = [...rows].sort((a, b) => b.mtime - a.mtime);
+  const newestFirst = [...usable].sort((a, b) => b.mtime - a.mtime);
 
   return yield* decodeSnapshot({
     // One derived snapshot per read; there is no incremental sequence to

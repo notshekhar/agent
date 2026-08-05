@@ -20,13 +20,16 @@
 import {
   AuthOrchestrationReadScope,
   EnvironmentAuthorizationError,
+  OrchestrationDispatchCommandError,
   WsRpcGroup,
 } from "@loop/contracts";
 import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
 
+import { dispatchCommand } from "./dispatch.ts";
 import { buildServerConfig, type BuildServerConfigOptions } from "./serverConfig.ts";
 import { initialShellItems } from "./shell.ts";
+import { threadStream } from "./thread.ts";
 
 const notPorted = (method: string) =>
   new EnvironmentAuthorizationError({
@@ -146,7 +149,17 @@ export const makeHandlers = (options: HandlerOptions) =>
   "previewAutomation.focusHost": () => fail("previewAutomation.focusHost"),
   "subscribePreviewEvents": idle,
   "subscribeDiscoveredLocalServers": idle,
-  "orchestration.dispatchCommand": () => fail("orchestration.dispatchCommand"),
+    "orchestration.dispatchCommand": (command) =>
+      dispatchCommand(command).pipe(
+        Effect.catchCause((cause) =>
+          Effect.fail(
+            new OrchestrationDispatchCommandError({
+              message: `loop could not run ${command.type}`,
+              cause,
+            }),
+          ),
+        ),
+      ),
   "orchestration.getTurnDiff": () => fail("orchestration.getTurnDiff"),
   "orchestration.getFullThreadDiff": () => fail("orchestration.getFullThreadDiff"),
   "orchestration.searchThreads": () => fail("orchestration.searchThreads"),
@@ -166,7 +179,12 @@ export const makeHandlers = (options: HandlerOptions) =>
           ),
         ),
       ).pipe(Stream.flattenIterable, Stream.concat(Stream.never)),
-  "orchestration.subscribeThread": () => failStream("orchestration.subscribeThread"),
+    // A snapshot now, then a fresh one whenever the live turn moves. loop's
+    // event vocabulary (text-delta, tool-call, reasoning) does not line up
+    // one-for-one with the contract's command-echo events, so re-deriving the
+    // whole thread is both simpler and impossible to get subtly out of sync.
+    // The rebuild is coalesced, or a fast model would rebuild per token.
+    "orchestration.subscribeThread": (input) => threadStream(input.threadId),
   "subscribeTerminalEvents": idle,
   "subscribeTerminalMetadata": idle,
   "subscribeServerLifecycle": idle,
