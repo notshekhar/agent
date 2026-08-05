@@ -7,7 +7,16 @@ import type {
   AuthSessionId,
   AuthSessionState,
 } from "@loop/contracts";
-import { EnvironmentHttpCommonError, PRIMARY_LOCAL_ENVIRONMENT_ID } from "@loop/contracts";
+import {
+  AuthAccessReadScope,
+  AuthAccessWriteScope,
+  AuthOrchestrationOperateScope,
+  AuthOrchestrationReadScope,
+  AuthReviewWriteScope,
+  AuthTerminalOperateScope,
+  EnvironmentHttpCommonError,
+  PRIMARY_LOCAL_ENVIRONMENT_ID,
+} from "@loop/contracts";
 import type { EnvironmentHttpCommonError as EnvironmentHttpCommonErrorType } from "@loop/contracts";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -186,21 +195,35 @@ function getDesktopBootstrapCredential(): string | null {
     : null;
 }
 
+/**
+ * PORTED FOR loop. Upstream asked its server over HTTP who you are; loop has
+ * no auth server, and by the time this runs the connection is already trusted
+ * — `loop serve` checks its token on the WebSocket upgrade, and the desktop
+ * shell talks to a `loop rpc` process it spawned itself. So the session is
+ * granted locally with every scope, and no HTTP request is made.
+ *
+ * This is the second data path in the app: RPC traffic goes through the
+ * in-process handler layer (`src/loop/handlers`), and this is the only other
+ * place that reached for upstream's server before anything could render.
+ */
 export async function fetchSessionState(): Promise<AuthSessionState> {
-  return retryTransientBootstrap(async () => {
-    try {
-      return await runPrimaryHttp(
-        PrimaryEnvironmentHttpClient.pipe(
-          Effect.flatMap((client) => client.auth.session({ headers: {} })),
-        ),
-      );
-    } catch (error) {
-      throw PrimaryEnvironmentRequestError.fromCause({
-        operation: "fetch-session-state",
-        cause: error,
-      });
-    }
-  });
+  return {
+    authenticated: true,
+    auth: {
+      policy: "desktop-managed-local",
+      bootstrapMethods: [],
+      sessionMethods: [],
+      sessionCookieName: "loop-session",
+    },
+    scopes: [
+      AuthOrchestrationReadScope,
+      AuthOrchestrationOperateScope,
+      AuthTerminalOperateScope,
+      AuthReviewWriteScope,
+      AuthAccessReadScope,
+      AuthAccessWriteScope,
+    ],
+  };
 }
 
 function readHttpApiStatus(error: unknown): number | null {
@@ -318,12 +341,15 @@ function isTransientBootstrapError(error: unknown): boolean {
 }
 
 async function bootstrapServerAuth(): Promise<ServerAuthGateState> {
-  const bootstrapCredential = getDesktopBootstrapCredential();
   const currentSession = await fetchSessionState();
   if (currentSession.authenticated) {
     return { status: "authenticated" };
   }
 
+  // Read after the authenticated check, not before: with loop's local session
+  // this path never runs, and reaching for `window.desktopBridge` eagerly makes
+  // the gate depend on a browser global it does not otherwise need.
+  const bootstrapCredential = getDesktopBootstrapCredential();
   if (!bootstrapCredential) {
     return {
       status: "requires-auth",

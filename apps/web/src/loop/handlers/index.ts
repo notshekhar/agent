@@ -26,6 +26,7 @@ import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
 
 import { buildServerConfig, type BuildServerConfigOptions } from "./serverConfig.ts";
+import { initialShellItems } from "./shell.ts";
 
 const notPorted = (method: string) =>
   new EnvironmentAuthorizationError({
@@ -108,7 +109,18 @@ export const makeHandlers = (options: HandlerOptions) =>
   "git.runStackedAction": () => failStream("git.runStackedAction"),
   "git.resolvePullRequest": () => fail("git.resolvePullRequest"),
   "git.preparePullRequestThread": () => fail("git.preparePullRequestThread"),
-  "vcs.listRefs": () => fail("vcs.listRefs"),
+    // Git is not backed yet. The UI polls this on its own — nobody asked for
+    // it — and a failure here puts it into a visible retry loop, so report
+    // "this is not a repo" instead. User-triggered git actions below still
+    // fail loudly, because there the user is owed an answer.
+    "vcs.listRefs": () =>
+      Effect.succeed({
+        refs: [],
+        isRepo: false,
+        hasPrimaryRemote: false,
+        nextCursor: null,
+        totalCount: 0,
+      }),
   "vcs.createWorktree": () => fail("vcs.createWorktree"),
   "vcs.removeWorktree": () => fail("vcs.removeWorktree"),
   "vcs.createRef": () => fail("vcs.createRef"),
@@ -139,7 +151,21 @@ export const makeHandlers = (options: HandlerOptions) =>
   "orchestration.getFullThreadDiff": () => fail("orchestration.getFullThreadDiff"),
   "orchestration.searchThreads": () => fail("orchestration.searchThreads"),
   "orchestration.getArchivedShellSnapshot": () => fail("orchestration.getArchivedShellSnapshot"),
-  "orchestration.subscribeShell": () => failStream("orchestration.subscribeShell"),
+    // Projects and threads, derived from loop's sessions. Emits the snapshot
+    // and the completion marker the client waits on, then holds the stream
+    // open — loop pushes no shell deltas, so a re-subscribe is the refresh.
+    "orchestration.subscribeShell": () =>
+      Stream.fromEffect(
+        initialShellItems().pipe(
+          Effect.mapError(
+            () =>
+              new EnvironmentAuthorizationError({
+                message: "loop could not list its sessions",
+                requiredScope: AuthOrchestrationReadScope,
+              }),
+          ),
+        ),
+      ).pipe(Stream.flattenIterable, Stream.concat(Stream.never)),
   "orchestration.subscribeThread": () => failStream("orchestration.subscribeThread"),
   "subscribeTerminalEvents": idle,
   "subscribeTerminalMetadata": idle,

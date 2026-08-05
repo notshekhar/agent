@@ -30,6 +30,7 @@ import {
   type DesktopBridge,
   type DesktopEnvironmentBootstrap,
   type DesktopSshEnvironmentTarget,
+  EnvironmentId,
   PRIMARY_LOCAL_ENVIRONMENT_ID,
 } from "@loop/contracts";
 import * as Clock from "effect/Clock";
@@ -42,6 +43,7 @@ import * as Ref from "effect/Ref";
 import * as Stream from "effect/Stream";
 import { FetchHttpClient } from "effect/unstable/http";
 
+import { APP_BASE_NAME } from "../branding";
 import { readDesktopPrimaryBearerToken } from "../environments/primary/desktopAuth";
 import { primaryEnvironmentHttpLayer } from "../environments/primary/httpLayer";
 import {
@@ -283,16 +285,23 @@ const capabilitiesLayer = Layer.effectContext(
   }),
 );
 
+/**
+ * PORTED FOR loop. Upstream fetched a descriptor over HTTP to learn the
+ * environment's id and label. loop has exactly one environment — the machine
+ * the agent runs on — so it is described locally and the registration is
+ * always available, with no request to fail and no retry loop.
+ *
+ * The URLs are still carried on the target because the connection layer above
+ * expects them, but nothing dials them: RPC is answered in-process (see
+ * `src/loop/runtime/rpc/session.ts`).
+ */
 const loadPrimaryConnectionRegistration = Effect.fn(
   "web.connectionPlatform.loadPrimaryConnectionRegistration",
 )(function* (resolved: PrimaryEnvironmentTarget) {
-  const descriptor = yield* fetchRemoteEnvironmentDescriptor({
-    httpBaseUrl: resolved.target.httpBaseUrl,
-  }).pipe(Effect.provide(primaryEnvironmentHttpLayer), Effect.mapError(mapRemoteEnvironmentError));
   return new PrimaryConnectionRegistration({
     target: new PrimaryConnectionTarget({
-      environmentId: descriptor.environmentId,
-      label: descriptor.label,
+      environmentId: EnvironmentId.make(PRIMARY_LOCAL_ENVIRONMENT_ID),
+      label: APP_BASE_NAME,
       httpBaseUrl: resolved.target.httpBaseUrl,
       wsBaseUrl: resolved.target.wsBaseUrl,
     }),

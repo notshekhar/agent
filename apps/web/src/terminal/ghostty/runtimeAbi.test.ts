@@ -2,7 +2,9 @@ import { describe, expect, it } from "vite-plus/test";
 
 import wasmDataUrl from "./vendor/ghostty-vt.wasm?inline";
 import writePtyWasmDataUrl from "./vendor/ghostty-write-pty.wasm?inline";
-import pinnedVersion from "../../../../../native/libghostty-vt/VERSION?raw";
+// Vendored alongside the wasm: loop has no native/ tree to pin against, so
+// the recorded revision travels with the binary it describes.
+import pinnedVersion from "./vendor/VERSION?raw";
 import { ghosttyKeyForCode } from "./keyCodes";
 
 type WasmFunction = (...args: number[]) => number;

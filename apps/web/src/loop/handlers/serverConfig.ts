@@ -13,6 +13,8 @@ import { ServerConfig, type ServerProvider } from "@loop/contracts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
+import { APP_VERSION } from "../../branding.ts";
+import { toInstanceId } from "./ids.ts";
 import { loopCall } from "../transport.ts";
 
 /**
@@ -53,12 +55,11 @@ interface LoopAuthStatus {
 
 const decodeConfig = Schema.decodeUnknownEffect(ServerConfig);
 
-/**
- * Report the app's own version as the server version. Any other value trips
- * the client/server skew banner, which is meaningless when the UI and the
- * agent ship as one artifact.
- */
-const APP_VERSION = (import.meta.env?.VITE_APP_VERSION as string | undefined) ?? "0.0.0";
+// The server version is reported as the app's own — see APP_VERSION's import
+// above. Anything else trips the client/server skew banner, which is
+// meaningless when the UI and the agent ship as one artifact, and it must come
+// from the same constant the client compares against or the banner nags about
+// a version nobody can install.
 
 function platformOs(): "darwin" | "linux" | "windows" | "unknown" {
   const ua = globalThis.navigator?.userAgent ?? "";
@@ -98,8 +99,8 @@ function toProviders(
 
   const authorized = new Set(auth.authorized ?? []);
   return [...byProvider].map(([id, models]) => ({
-    instanceId: id,
-    driver: id,
+    instanceId: toInstanceId(id),
+    driver: toInstanceId(id),
     displayName: id,
     enabled: true,
     installed: true,
@@ -137,7 +138,7 @@ function defaultModelSelection(
 ): { instanceId: string; model: string } | undefined {
   // loop's own `defaultModel` setting wins whenever the catalog can place it.
   const exact = configured ? catalog.find((model) => model.id === configured) : undefined;
-  if (exact) return { instanceId: exact.provider, model: exact.id };
+  if (exact) return { instanceId: toInstanceId(exact.provider), model: exact.id };
 
   const authorized = new Set(auth.authorized ?? []);
   const active = auth.active ?? undefined;
@@ -146,7 +147,7 @@ function defaultModelSelection(
     catalog.find((m) => authorized.has(m.provider) && m.available !== false) ??
     catalog[0];
   if (!pick) return undefined;
-  return { instanceId: pick.provider, model: pick.id };
+  return { instanceId: toInstanceId(pick.provider), model: pick.id };
 }
 
 export interface BuildServerConfigOptions {

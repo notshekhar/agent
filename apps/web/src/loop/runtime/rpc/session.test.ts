@@ -1,386 +1,158 @@
-import {
-  DEFAULT_SERVER_SETTINGS,
-  EnvironmentId,
-  ServerConfig,
-  type ServerConfig as ServerConfigType,
-  WS_METHODS,
-} from "@loop/contracts";
+/**
+ * PORTED FOR loop. Upstream's version of this file drove a fake WebSocket and
+ * asserted the transport opened, closed and timed out correctly. There is no
+ * WebSocket in the RPC path any more — the client is bound to handlers in this
+ * process — so those assertions cannot hold, and the interesting question has
+ * changed with them: not "did we dial correctly", but "does a session resolve
+ * against loop without any transport at all".
+ *
+ * loop is faked at the one seam that exists for it, the `window.loop` desktop
+ * bridge, which is also the shape the Electron shell has to implement.
+ */
+import { EnvironmentId } from "@loop/contracts";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
-import * as Fiber from "effect/Fiber";
-import * as Layer from "effect/Layer";
-import * as Schema from "effect/Schema";
-import * as TestClock from "effect/testing/TestClock";
-import * as Socket from "effect/unstable/socket/Socket";
 
-import {
-  ConnectionTransientError,
-  PrimaryConnectionTarget,
-  type PreparedConnection,
-} from "../connection/model.ts";
+import { PrimaryConnectionTarget, type PreparedConnection } from "../connection/model.ts";
 import * as RpcSession from "./session.ts";
 
-type SocketEventType = "open" | "message" | "close" | "error";
-type SocketEvent = {
-  readonly code?: number;
-  readonly data?: unknown;
-  readonly reason?: string;
-  readonly type: SocketEventType;
-};
-type SocketListener = (event: SocketEvent) => void;
+const CWD = "/Users/someone/project";
 
-class TestWebSocket {
-  static readonly CONNECTING = 0;
-  static readonly OPEN = 1;
-  static readonly CLOSING = 2;
-  static readonly CLOSED = 3;
-
-  readyState = TestWebSocket.CONNECTING;
-  readonly sent: string[] = [];
-  readonly url: string;
-  private readonly listeners = new Map<SocketEventType, Set<SocketListener>>();
-
-  constructor(url: string) {
-    this.url = url;
-  }
-
-  addEventListener(type: SocketEventType, listener: SocketListener) {
-    const listeners = this.listeners.get(type) ?? new Set<SocketListener>();
-    listeners.add(listener);
-    this.listeners.set(type, listeners);
-  }
-
-  removeEventListener(type: SocketEventType, listener: SocketListener) {
-    this.listeners.get(type)?.delete(listener);
-  }
-
-  send(data: string) {
-    this.sent.push(data);
-  }
-
-  close(code = 1000, reason = "") {
-    if (this.readyState === TestWebSocket.CLOSED) {
-      return;
-    }
-    this.readyState = TestWebSocket.CLOSED;
-    this.emit("close", { code, reason, type: "close" });
-  }
-
-  open() {
-    this.readyState = TestWebSocket.OPEN;
-    this.emit("open", { type: "open" });
-  }
-
-  serverMessage(data: string) {
-    this.emit("message", { data, type: "message" });
-  }
-
-  private emit(type: SocketEventType, event: SocketEvent) {
-    for (const listener of this.listeners.get(type) ?? []) {
-      listener(event);
-    }
-  }
+interface BridgeCall {
+  readonly method: string;
+  readonly cwd: string | undefined;
 }
 
-const TARGET = new PrimaryConnectionTarget({
-  environmentId: EnvironmentId.make("environment-1"),
-  label: "Test environment",
-  httpBaseUrl: "https://environment.example.test",
-  wsBaseUrl: "wss://environment.example.test",
-});
+/** Installs a fake loop and returns the calls it received. */
+function installFakeLoop(
+  responses: Record<string, unknown> = {},
+): { calls: BridgeCall[]; restore: () => void } {
+  const calls: BridgeCall[] = [];
+  // The unit project runs in node, where the app's `window` does not exist.
+  // The bridge lives on `window` because that is where a preload script puts
+  // it, so the test supplies just enough of one.
+  const globals = globalThis as { window?: Window & typeof globalThis };
+  const hadWindow = globals.window !== undefined;
+  globals.window ??= globals as unknown as Window & typeof globalThis;
+  const previous = window.loop;
+  window.loop = {
+    call(method, _params, cwd) {
+      calls.push({ method, cwd });
+      if (method in responses) return Promise.resolve(responses[method]);
+      return Promise.reject(new Error(`unexpected loop call: ${method}`));
+    },
+    onEvent() {
+      return () => {};
+    },
+    anchorCwd() {
+      return Promise.resolve(CWD);
+    },
+  };
+  return {
+    calls,
+    restore: () => {
+      if (previous === undefined) delete window.loop;
+      else window.loop = previous;
+      if (!hadWindow) delete globals.window;
+    },
+  };
+}
 
-const PREPARED: PreparedConnection = {
-  environmentId: TARGET.environmentId,
-  label: TARGET.label,
-  httpBaseUrl: TARGET.httpBaseUrl,
-  socketUrl: "wss://environment.example.test/ws?wsTicket=test",
+const connection: PreparedConnection = {
+  environmentId: EnvironmentId.make("primary"),
+  label: "loop",
+  httpBaseUrl: "http://localhost/",
+  socketUrl: "ws://localhost/ws",
   httpAuthorization: null,
-  target: TARGET,
+  target: new PrimaryConnectionTarget({
+    environmentId: EnvironmentId.make("primary"),
+    label: "loop",
+    httpBaseUrl: "http://localhost/",
+    wsBaseUrl: "ws://localhost/",
+  }),
 };
 
-const SERVER_CONFIG: ServerConfigType = {
-  environment: {
-    environmentId: TARGET.environmentId,
-    label: TARGET.label,
-    platform: {
-      os: "darwin",
-      arch: "arm64",
-    },
-    serverVersion: "0.0.0-test",
-    capabilities: {
-      repositoryIdentity: true,
-      connectionProbe: true,
-    },
-  },
-  auth: {
-    policy: "loopback-browser",
-    bootstrapMethods: ["one-time-token"],
-    sessionMethods: ["browser-session-cookie", "bearer-access-token"],
-    sessionCookieName: "t3_session",
-  },
-  cwd: "/tmp/workspace",
-  keybindingsConfigPath: "/tmp/workspace/keybindings.json",
-  keybindings: [],
-  issues: [],
-  providers: [],
-  availableEditors: [],
-  observability: {
-    logsDirectoryPath: "/tmp/logs",
-    localTracingEnabled: false,
-    otlpTracesEnabled: false,
-    otlpMetricsEnabled: false,
-  },
-  settings: DEFAULT_SERVER_SETTINGS,
-};
-
-const RpcRequest = Schema.TaggedStruct("Request", {
-  id: Schema.Union([Schema.String, Schema.Number]),
-  payload: Schema.Unknown,
-  tag: Schema.String,
-});
-const decodeJson = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
-const decodeRpcRequest = Schema.decodeUnknownSync(RpcRequest);
-const encodeJson = Schema.encodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
-const encodeServerConfig = Schema.encodeSync(ServerConfig);
-const ENCODED_SERVER_CONFIG = encodeServerConfig(SERVER_CONFIG);
-const LEGACY_SERVER_CONFIG = {
-  ...ENCODED_SERVER_CONFIG,
-  environment: {
-    ...ENCODED_SERVER_CONFIG.environment,
-    capabilities: {
-      repositoryIdentity: true,
-    },
-  },
-};
-
-const makeFactory = Effect.fn("TestRpcSessionFactory.make")(function* () {
-  const sockets: TestWebSocket[] = [];
-  const constructorLayer = Layer.succeed(Socket.WebSocketConstructor, (url) => {
-    const socket = new TestWebSocket(url);
-    sockets.push(socket);
-    return socket as unknown as globalThis.WebSocket;
-  });
-  const layer = RpcSession.layer.pipe(Layer.provide(constructorLayer));
-  const factory = yield* RpcSession.RpcSessionFactory.pipe(Effect.provide(layer));
-  return { factory, sockets };
-});
-
-const awaitSocket = Effect.fn("TestRpcSessionFactory.awaitSocket")(function* (
-  sockets: ReadonlyArray<TestWebSocket>,
-) {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    const socket = sockets[0];
-    if (socket) {
-      return socket;
-    }
-    yield* Effect.yieldNow;
-  }
-  return yield* Effect.die(new Error("Expected the RPC protocol to create a websocket."));
-});
-
-const awaitRequest = Effect.fn("TestRpcSessionFactory.awaitRequest")(function* (
-  socket: TestWebSocket,
-  index = 0,
-) {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    const request = socket.sent[index];
-    if (request) {
-      return decodeRpcRequest(decodeJson(request));
-    }
-    yield* Effect.yieldNow;
-  }
-  return yield* Effect.die(new Error("Expected the RPC protocol to send a request."));
-});
-
-const completeInitialConfig = Effect.fn("TestRpcSessionFactory.completeInitialConfig")(function* (
-  socket: TestWebSocket,
-  config: unknown = ENCODED_SERVER_CONFIG,
-) {
-  const request = yield* awaitRequest(socket);
-  expect(request).toMatchObject({
-    _tag: "Request",
-    tag: WS_METHODS.serverGetConfig,
-    payload: {},
-  });
-  socket.serverMessage(
-    encodeJson({
-      _tag: "Exit",
-      requestId: request.id,
-      exit: {
-        _tag: "Success",
-        value: config,
-      },
-    }),
-  );
+const connectSession = Effect.gen(function* () {
+  const factory = yield* RpcSession.make;
+  return yield* factory.connect(connection);
 });
 
 describe("RpcSessionFactory", () => {
-  it.effect("owns one scoped websocket attempt and exposes readiness and closure", () =>
-    Effect.gen(function* () {
-      const { factory, sockets } = yield* makeFactory();
-      const session = yield* factory.connect(PREPARED);
-      const readyFiber = yield* Effect.forkChild(session.ready);
-      const socket = yield* awaitSocket(sockets);
-
-      expect(socket.url).toBe(PREPARED.socketUrl);
-      socket.open();
-      yield* completeInitialConfig(socket);
-      yield* Fiber.join(readyFiber);
-
-      const config = yield* session.initialConfig;
-      expect(config).toEqual(SERVER_CONFIG);
-      expect(socket.sent).toHaveLength(1);
-
-      const probeFiber = yield* Effect.forkChild(session.probe);
-      const probeRequest = yield* awaitRequest(socket, 1);
-      expect(probeRequest).toMatchObject({
-        _tag: "Request",
-        tag: WS_METHODS.serverProbe,
-        payload: {},
-      });
-      socket.serverMessage(
-        encodeJson({
-          _tag: "Exit",
-          requestId: probeRequest.id,
-          exit: {
-            _tag: "Success",
-            value: {},
-          },
-        }),
+  it("resolves the config from loop, with no socket involved", async () => {
+    const loop = installFakeLoop({
+      "server.info": { defaults: { cwd: CWD, model: "kimi/k3" } },
+      "catalog.list": [{ id: "kimi/k3", provider: "kimi", name: "K3", available: true }],
+      "auth.status": { providers: ["kimi"], authorized: ["kimi"], active: "kimi" },
+    });
+    try {
+      const config = await Effect.runPromise(
+        Effect.scoped(
+          connectSession.pipe(Effect.flatMap((session) => session.initialConfig)),
+        ),
       );
-      yield* Fiber.join(probeFiber);
 
-      expect(socket.sent.map((request) => decodeRpcRequest(decodeJson(request)).tag)).toEqual([
-        WS_METHODS.serverGetConfig,
-        WS_METHODS.serverProbe,
+      expect(config.cwd).toBe(CWD);
+      expect(config.environment.environmentId).toBe("primary");
+      expect(config.providers.map((provider) => provider.instanceId)).toEqual(["kimi"]);
+      // The picker must offer loop's model, never upstream's codex default.
+      expect(config.settings.textGenerationModelSelection).toEqual({
+        instanceId: "kimi",
+        model: "kimi/k3",
+      });
+      expect(loop.calls.map((call) => call.method).toSorted()).toEqual([
+        "auth.status",
+        "catalog.list",
+        "server.info",
       ]);
+    } finally {
+      loop.restore();
+    }
+  });
 
-      socket.close(1012, "service restart");
-      const error = yield* Effect.flip(session.closed);
-
-      expect(error).toBeInstanceOf(ConnectionTransientError);
-      expect(error).toMatchObject({
-        reason: "transport",
-        message: "Test environment disconnected.",
-      });
-      yield* Effect.yieldNow;
-      expect(sockets).toHaveLength(1);
-    }),
-  );
-
-  it.effect("closes the websocket when the session scope is released", () =>
-    Effect.gen(function* () {
-      const { factory, sockets } = yield* makeFactory();
-
-      yield* Effect.scoped(
-        Effect.gen(function* () {
-          const session = yield* factory.connect(PREPARED);
-          const readyFiber = yield* Effect.forkChild(session.ready);
-          const socket = yield* awaitSocket(sockets);
-          socket.open();
-          yield* completeInitialConfig(socket);
-          yield* Fiber.join(readyFiber);
-        }),
+  it("is ready as soon as it is connected, because there is nothing to dial", async () => {
+    const loop = installFakeLoop({
+      "server.info": {},
+      "catalog.list": [],
+      "auth.status": {},
+    });
+    try {
+      await Effect.runPromise(
+        Effect.scoped(connectSession.pipe(Effect.flatMap((session) => session.ready))),
       );
+    } finally {
+      loop.restore();
+    }
+  });
 
-      expect(sockets[0]?.readyState).toBe(TestWebSocket.CLOSED);
-    }),
-  );
-
-  it.effect("reaches ready when a newer server sends unknown config members", () =>
-    Effect.gen(function* () {
-      const { factory, sockets } = yield* makeFactory();
-      const session = yield* factory.connect(PREPARED);
-      const readyFiber = yield* Effect.forkChild(session.ready);
-      const socket = yield* awaitSocket(sockets);
-      socket.open();
-
-      const shortcut = {
-        key: "p",
-        metaKey: false,
-        ctrlKey: false,
-        shiftKey: false,
-        altKey: false,
-        modKey: true,
-      };
-      yield* completeInitialConfig(socket, {
-        ...ENCODED_SERVER_CONFIG,
-        keybindings: [
-          { command: "someFuture.toggle", shortcut },
-          { command: "terminal.toggle", shortcut },
-        ],
-        issues: [{ kind: "keybindings.future-issue", message: "From a newer server" }],
-        availableEditors: ["some-future-editor", "zed"],
-      });
-      yield* Fiber.join(readyFiber);
-
-      const config = yield* session.initialConfig;
-      expect(config.keybindings).toEqual([{ command: "terminal.toggle", shortcut }]);
-      expect(config.issues).toEqual([]);
-      expect(config.availableEditors).toEqual(["zed"]);
-    }),
-  );
-
-  it.effect("uses the legacy config RPC for probes when the server lacks the capability", () =>
-    Effect.scoped(
-      Effect.gen(function* () {
-        const { factory, sockets } = yield* makeFactory();
-        const session = yield* factory.connect(PREPARED);
-        const readyFiber = yield* Effect.forkChild(session.ready);
-        const socket = yield* awaitSocket(sockets);
-
-        socket.open();
-        yield* completeInitialConfig(socket, LEGACY_SERVER_CONFIG);
-        yield* Fiber.join(readyFiber);
-
-        const probeFiber = yield* Effect.forkChild(session.probe);
-        const probeRequest = yield* awaitRequest(socket, 1);
-        expect(probeRequest).toMatchObject({
-          _tag: "Request",
-          tag: WS_METHODS.serverGetConfig,
-          payload: {},
-        });
-        socket.serverMessage(
-          encodeJson({
-            _tag: "Exit",
-            requestId: probeRequest.id,
-            exit: {
-              _tag: "Success",
-              value: LEGACY_SERVER_CONFIG,
-            },
-          }),
-        );
-        yield* Fiber.join(probeFiber);
-
-        expect(socket.sent.map((request) => decodeRpcRequest(decodeJson(request)).tag)).toEqual([
-          WS_METHODS.serverGetConfig,
-          WS_METHODS.serverGetConfig,
-        ]);
-      }),
-    ),
-  );
-
-  it.effect("fails readiness when the websocket never opens", () =>
-    Effect.gen(function* () {
-      const { factory, sockets } = yield* makeFactory();
-
-      const error = yield* Effect.scoped(
-        Effect.gen(function* () {
-          const session = yield* factory.connect(PREPARED);
-          const readyFiber = yield* Effect.forkChild(Effect.flip(session.ready));
-          yield* awaitSocket(sockets);
-
-          yield* TestClock.adjust("15 seconds");
-          return yield* Fiber.join(readyFiber);
-        }),
+  it("probes without reaching for the network", async () => {
+    const loop = installFakeLoop({
+      "server.info": {},
+      "catalog.list": [],
+      "auth.status": {},
+    });
+    try {
+      await Effect.runPromise(
+        Effect.scoped(connectSession.pipe(Effect.flatMap((session) => session.probe))),
       );
+    } finally {
+      loop.restore();
+    }
+  });
 
-      expect(error).toBeInstanceOf(ConnectionTransientError);
-      expect(error).toMatchObject({
-        reason: "transport",
-        message: "Test environment could not establish a WebSocket connection.",
-      });
-      expect(sockets[0]?.readyState).toBe(TestWebSocket.CLOSED);
-    }).pipe(Effect.provide(TestClock.layer())),
-  );
+  it("still produces a usable config when loop answers nothing", async () => {
+    // Every input is best-effort: a loop that is up but has no catalog and no
+    // credentials must still render an app, not a connection failure.
+    const loop = installFakeLoop();
+    try {
+      const config = await Effect.runPromise(
+        Effect.scoped(
+          connectSession.pipe(Effect.flatMap((session) => session.initialConfig)),
+        ),
+      );
+      expect(config.providers).toEqual([]);
+      expect(config.environment.serverVersion.length).toBeGreaterThan(0);
+    } finally {
+      loop.restore();
+    }
+  });
 });
