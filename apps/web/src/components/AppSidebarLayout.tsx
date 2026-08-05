@@ -15,8 +15,7 @@ import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings"
 import { cn, isMacPlatform } from "../lib/utils";
 import { primaryServerKeybindingsAtom } from "../state/server";
 import { useEnvironmentIdentificationMode, useSidebarV2Enabled } from "../hooks/useSettings";
-import ThreadSidebar from "./Sidebar";
-import ThreadSidebarV2 from "./SidebarV2";
+import ProjectSidebar from "./loop/ProjectSidebar";
 import { useSidebarStageBackdropVariant } from "./SidebarStageBackdrop";
 import {
   resolveInitialThreadSidebarWidth,
@@ -200,7 +199,11 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
           onResize: setSidebarWidth,
         }}
       >
-        {useSidebarV2 ? <ThreadSidebarV2 /> : <ThreadSidebar />}
+        {/* loop's sidebar lists projects only; sessions live in the project
+            view. Upstream's two thread-tree sidebars are no longer rendered —
+            the files stay until the pruning pass, because deleting them means
+            unpicking the spine rather than dropping a leaf. */}
+        <ProjectSidebar />
         <SidebarRail />
       </Sidebar>
       {children}
