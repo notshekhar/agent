@@ -2,9 +2,42 @@
     "name": "loop-monorepo",
     "private": true,
     "type": "module",
-    "workspaces": [
-        "packages/*"
-    ],
+    "workspaces": {
+        "packages": [
+            "packages/*",
+            "apps/*"
+        ],
+        "catalog": {
+            "@clerk/electron": "0.0.24",
+            "@clerk/react": "6.12.9",
+            "@clerk/shared": "4.25.9",
+            "@effect/atom-react": "4.0.0-beta.103",
+            "@effect/platform-node": "4.0.0-beta.103",
+            "@effect/tsgo": "0.13.2",
+            "@effect/vitest": "4.0.0-beta.103",
+            "@noble/curves": "1.9.1",
+            "@noble/hashes": "1.8.0",
+            "@pierre/diffs": "1.3.0-beta.10",
+            "@typescript/native-preview": "7.0.0-dev.20260604.1",
+            "effect": "4.0.0-beta.103",
+            "jose": "6.2.2",
+            "vite": "npm:@voidzero-dev/vite-plus-core@0.2.2",
+            "vite-plus": "0.2.2",
+            "yaml": "^2.9.0"
+        }
+    },
+    "patchedDependencies": {
+        "@effect/vitest@4.0.0-beta.103": "patches/@effect__vitest@4.0.0-beta.103.patch",
+        "@pierre/diffs@1.3.0-beta.10": "patches/@pierre%2Fdiffs@1.3.0-beta.10.patch",
+        "effect@4.0.0-beta.103": "patches/effect@4.0.0-beta.103.patch"
+    },
+    "overrides": {
+        "@effect/atom-react": "4.0.0-beta.103",
+        "@effect/platform-node": "4.0.0-beta.103",
+        "@effect/vitest": "4.0.0-beta.103",
+        "effect": "4.0.0-beta.103",
+        "vite": "npm:@voidzero-dev/vite-plus-core@0.2.2"
+    },
     "scripts": {
         "dev": "bun packages/cli/src/cli.ts",
         "build": "bun run gen:catalog && bun run gen:docs && bun run --filter @notshekhar/loop-sandbox build && bun run --filter @notshekhar/loop-web build && bun run --filter @notshekhar/loop-core build && bun run --filter @notshekhar/loop-tui build && bun run --filter @notshekhar/loop build",
@@ -23,7 +56,7 @@
         "prettier": "^3.9.5"
     },
     "engines": {
-        "bun": ">=1.2.0"
+        "bun": ">=1.4.0"
     },
-    "packageManager": "bun@1.2.0"
+    "packageManager": "bun@1.4.0"
 }
