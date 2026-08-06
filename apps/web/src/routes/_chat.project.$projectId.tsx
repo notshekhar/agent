@@ -6,7 +6,8 @@
  * screen — every thread lived in the sidebar tree — so it is new rather than
  * adapted.
  */
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { scopeProjectRef } from "@loop/runtime/environment";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { CircleDashedIcon, FolderIcon, PlusIcon } from "lucide-react";
 import { useCallback, useMemo } from "react";
 
@@ -14,6 +15,7 @@ import { decodeProjectRouteId } from "../components/loop/projectRoute";
 import { Button } from "../components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "../components/ui/empty";
 import { SidebarInset } from "../components/ui/sidebar";
+import { useNewThreadHandler } from "../hooks/useHandleNewThread";
 import { useProjects, useThreadShells } from "../state/entities";
 import { formatRelativeTimeLabel } from "../timestampFormat";
 import { cn } from "~/lib/utils";
@@ -21,7 +23,6 @@ import { COLLAPSED_SIDEBAR_TITLEBAR_INSET_CLASS } from "~/workspaceTitlebar";
 
 function ProjectRouteView() {
   const { projectId: encodedProjectId } = Route.useParams();
-  const navigate = useNavigate();
   const projectId = useMemo(() => decodeProjectRouteId(encodedProjectId), [encodedProjectId]);
   const projects = useProjects();
   const threads = useThreadShells();
@@ -39,9 +40,14 @@ function ProjectRouteView() {
     [projectId, threads],
   );
 
+  // Starts the draft already pointed at this folder. Routing to "/" instead
+  // would drop the one thing the user just told us — which project they are in
+  // — and make them pick it again in the composer.
+  const startNewThread = useNewThreadHandler();
   const openNewThread = useCallback(() => {
-    void navigate({ to: "/" });
-  }, [navigate]);
+    if (project === null) return;
+    void startNewThread(scopeProjectRef(project.environmentId, project.id));
+  }, [project, startNewThread]);
 
   if (projectId === null || project === null) {
     return (

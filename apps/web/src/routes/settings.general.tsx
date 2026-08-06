@@ -1,9 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
 
-import { GeneralSettingsPanel } from "../components/settings/SettingsPanels";
+import { LoopGeneralSettings } from "../components/loop/LoopGeneralSettings";
 
 function SettingsGeneralRoute() {
-  return <GeneralSettingsPanel />;
+  // Upstream's GeneralSettingsPanel configured a t3code server; loop's General
+  // panel is built from loop's own settings.list. See LoopGeneralSettings.
+  return <LoopGeneralSettings />;
 }
 
 export const Route = createFileRoute("/settings/general")({

@@ -56,15 +56,33 @@ const SETTINGS_SECTION_ICONS: Readonly<
   "/settings/archived": ArchiveIcon,
 };
 
+/**
+ * The sections loop can actually fill.
+ *
+ * The others configure things loop does not have — pairing and relays
+ * (Connections), t3code's own experiments (Beta), its worktree/PR workflow
+ * (Source Control) — or read from a config loop reports empty (Keybindings).
+ * Listing a section that renders nothing is worse than not listing it, so the
+ * nav is an allowlist. The routes still exist; they are simply not advertised
+ * until something backs them.
+ */
+const LOOP_SETTINGS_PATHS: ReadonlySet<SettingsPath> = new Set([
+  "/settings/general",
+  "/settings/appearance",
+  "/settings/providers",
+]);
+
 export const SETTINGS_NAV_ITEMS: ReadonlyArray<{
   label: string;
   to: SettingsPath;
   icon: ComponentType<{ className?: string }>;
-}> = (Object.keys(SETTINGS_SECTION_LABELS) as SettingsPath[]).map((to) => ({
-  to,
-  label: SETTINGS_SECTION_LABELS[to],
-  icon: SETTINGS_SECTION_ICONS[to],
-}));
+}> = (Object.keys(SETTINGS_SECTION_LABELS) as SettingsPath[])
+  .filter((to) => LOOP_SETTINGS_PATHS.has(to))
+  .map((to) => ({
+    to,
+    label: SETTINGS_SECTION_LABELS[to],
+    icon: SETTINGS_SECTION_ICONS[to],
+  }));
 
 function SettingsSectionIcon({ to }: { to: SettingsPath }) {
   const Icon = SETTINGS_SECTION_ICONS[to];
