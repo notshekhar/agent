@@ -1,0 +1,21 @@
+{
+  "name": "@loop/desktop",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "dist/main/index.cjs",
+  "scripts": {
+    "build": "bun build.ts",
+    "start": "bun build.ts && electron .",
+    "typecheck": "tsgo --noEmit"
+  },
+  "dependencies": {
+    "electron": "40.10.6"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/node": "^26.1.1",
+    "@typescript/native-preview": "catalog:",
+    "typescript": "~6.0.3"
+  }
+}

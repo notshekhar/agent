@@ -75,6 +75,13 @@ export interface PrimaryEnvironmentTarget {
 
 const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "::1", "localhost"]);
 
+/** The custom scheme apps/desktop registers for the renderer. */
+const DESKTOP_SHELL_PROTOCOL = "app:";
+
+function isDesktopShellOrigin(protocol: string): boolean {
+  return protocol === DESKTOP_SHELL_PROTOCOL;
+}
+
 function getDesktopLocalEnvironmentBootstrap(): DesktopEnvironmentBootstrap | null {
   // The primary (Windows-native) backend keeps the "primary" id. The
   // plural list may include a second WSL entry; the primary-target
@@ -220,6 +227,16 @@ function resolveWindowOriginPrimaryTarget(): PrimaryEnvironmentTarget {
     url.protocol = "ws:";
   } else if (url.protocol === "https:") {
     url.protocol = "wss:";
+  } else if (isDesktopShellOrigin(url.protocol)) {
+    // PORTED FOR loop. The desktop shell serves the renderer over its own
+    // `app:` scheme and answers RPC in-process through the preload bridge, so
+    // there is no URL to derive and nothing dials these values. Upstream threw
+    // here because every one of its transports was a socket; throwing now
+    // just stops the app booting inside its own shell.
+    return {
+      source: "window-origin",
+      target: { httpBaseUrl, wsBaseUrl: httpBaseUrl },
+    };
   } else {
     throw new PrimaryEnvironmentProtocolUnsupportedError({
       source: "window-origin",

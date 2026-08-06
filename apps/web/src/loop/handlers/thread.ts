@@ -27,7 +27,7 @@ import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
-import { loopSessionIdFor } from "./dispatch.ts";
+import { draftIntent, loopSessionIdFor, recentUserMessageId } from "./dispatch.ts";
 import { toInstanceId } from "./ids.ts";
 import { clearLiveTurn, onLiveTurnChange, readLiveTurn, type LiveToolCall } from "./liveTurn.ts";
 import { loopCall } from "../transport.ts";
@@ -142,7 +142,7 @@ function pushToolActivity(
 }
 
 /** Walk loop's persisted transcript into messages, activities and plans. */
-function foldHistory(history: LoopHistory): Accumulator {
+function foldHistory(history: LoopHistory, sessionId: string): Accumulator {
   const out: Accumulator = { messages: [], activities: [], plans: [] };
   // Tool results arrive as their own `role: "tool"` entries, after the
   // assistant message that called them, so calls are indexed while walking and
@@ -158,7 +158,9 @@ function foldHistory(history: LoopHistory): Accumulator {
       const text = textOf(entry.content);
       if (text.trim() === "") continue;
       out.messages.push({
-        id: entryId,
+        // Reuse the id the client already rendered this message under, or it
+        // appears twice: once optimistically, once from the transcript.
+        id: recentUserMessageId(sessionId, text) ?? entryId,
         role: "user",
         text,
         turnId: null,
@@ -336,12 +338,52 @@ function foldLiveTurn(out: Accumulator, sessionId: string): { running: boolean; 
   return { running: live.running, turnId };
 }
 
+/**
+ * A thread loop has never heard of.
+ *
+ * The composer opens a draft the moment you click New thread, with a
+ * client-generated id, and loop is told nothing until the first turn — asking
+ * it for that transcript gets "Unknown sessionId", which is correct of loop and
+ * fatal here: the failure killed the thread stream and the composer rendered
+ * as a broken thread instead of an empty one.
+ *
+ * A draft is simply a thread with no messages yet.
+ */
+const emptyThread = (threadId: string, intent: { cwd: string; provider: string; model: string }) => {
+  const now = new Date().toISOString();
+  return decodeThread({
+    id: threadId,
+    projectId: intent.cwd,
+    title: "New thread",
+    modelSelection: {
+      instanceId: toInstanceId(intent.provider),
+      model: intent.model || "unknown",
+    },
+    runtimeMode: "full-access",
+    branch: null,
+    worktreePath: null,
+    latestTurn: null,
+    createdAt: now,
+    updatedAt: now,
+    archivedAt: null,
+    deletedAt: null,
+    messages: [],
+    proposedPlans: [],
+    activities: [],
+    checkpoints: [],
+    session: null,
+  });
+};
+
 export const buildThread = Effect.fnUntraced(function* (loopSessionId: string) {
+  const intent = draftIntent(loopSessionId);
+  if (intent) return yield* emptyThread(loopSessionId, intent);
+
   const history = yield* Effect.promise(() =>
     loopCall<LoopHistory>("session.history", { sessionId: loopSessionId }),
   );
 
-  const out = foldHistory(history);
+  const out = foldHistory(history, loopSessionId);
   const live = foldLiveTurn(out, loopSessionId);
   const running = history.running || live.running;
 
@@ -427,11 +469,22 @@ const snapshotItem = (thread: unknown): OrchestrationThreadStreamItem =>
 export function threadStream(
   threadId: string,
 ): Stream.Stream<OrchestrationThreadStreamItem, EnvironmentAuthorizationError> {
-  const loopSessionId = loopSessionIdFor(threadId);
+  /**
+   * Resolved on every use, never captured.
+   *
+   * A draft subscribes before loop has a session for it, and the id only
+   * appears when the first turn creates one. Capturing it at subscribe time
+   * left the stream watching a session that would never exist: loop ran the
+   * turn and finished it, and the UI sat on "Working for 1m 40s" because it
+   * was listening for the wrong id.
+   */
+  const currentSessionId = () => loopSessionIdFor(threadId);
 
   const initial = Effect.gen(function* () {
-    yield* attach(loopSessionId);
-    const thread = yield* buildThread(loopSessionId);
+    const sessionId = currentSessionId();
+    // A draft has nothing to attach to yet; the first rebuild does it.
+    if (draftIntent(sessionId) === undefined) yield* attach(sessionId);
+    const thread = yield* buildThread(sessionId);
     return [snapshotItem(thread), { kind: "synchronized" as const }];
   }).pipe(Effect.mapError(() => authFailure(`loop could not open thread ${threadId}`)));
 
@@ -439,11 +492,20 @@ export function threadStream(
     Effect.acquireRelease(
       Effect.sync(() => {
         let timer: ReturnType<typeof setTimeout> | null = null;
+        let attached: string | null = null;
         const unsubscribe = onLiveTurnChange((changed) => {
-          if (changed !== loopSessionId || timer !== null) return;
+          if (changed !== currentSessionId() || timer !== null) return;
           timer = setTimeout(() => {
             timer = null;
-            void Effect.runPromise(buildThread(loopSessionId))
+            const sessionId = currentSessionId();
+            const ready =
+              attached === sessionId
+                ? Promise.resolve()
+                : Effect.runPromise(attach(sessionId)).then(() => {
+                    attached = sessionId;
+                  });
+            void ready
+              .then(() => Effect.runPromise(buildThread(sessionId)))
               .then((thread) => Queue.offerUnsafe(queue, snapshotItem(thread)))
               .catch(() => undefined);
           }, REBUILD_COALESCE_MS);

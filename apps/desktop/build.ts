@@ -1,0 +1,69 @@
+/**
+ * Bundles the desktop shell.
+ *
+ * Electron's main and preload both run in CommonJS, so Bun's `cjs` format is
+ * not optional here: an ESM preload silently fails to load and the renderer
+ * comes up with no `window.loop` at all — a symptom that looks like a broken
+ * transport rather than a broken build.
+ *
+ * The renderer is copied in rather than referenced, so `dist/` is the whole
+ * app and electron-builder has one directory to package. The three paths below
+ * are the ones `src/main.ts` resolves against; they move together.
+ */
+import { cp, mkdir, rm, stat } from "node:fs/promises";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const dist = join(here, "dist");
+const webDist = join(here, "..", "web", "dist");
+
+async function exists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+await rm(dist, { recursive: true, force: true });
+await mkdir(dist, { recursive: true });
+
+const main = await Bun.build({
+  entrypoints: [join(here, "src", "main.ts")],
+  outdir: join(dist, "main"),
+  target: "node",
+  format: "cjs",
+  naming: "[dir]/index.cjs",
+  // Electron resolves its own module at runtime; bundling it produces a
+  // second, non-functional copy.
+  external: ["electron"],
+});
+if (!main.success) {
+  throw new Error(`main bundle failed:\n${main.logs.map(String).join("\n")}`);
+}
+
+const preload = await Bun.build({
+  entrypoints: [join(here, "src", "preload.ts")],
+  outdir: join(dist, "preload"),
+  target: "node",
+  format: "cjs",
+  naming: "[dir]/index.cjs",
+  external: ["electron"],
+});
+if (!preload.success) {
+  throw new Error(`preload bundle failed:\n${preload.logs.map(String).join("\n")}`);
+}
+
+if (!(await exists(webDist))) {
+  throw new Error(
+    `apps/web is not built (${webDist} is missing). Run \`bun run --filter @loop/web build\` first.`,
+  );
+}
+await cp(webDist, join(dist, "renderer"), { recursive: true });
+
+console.log("desktop bundle ready:");
+console.log(`  main     ${join(dist, "main", "index.cjs")}`);
+console.log(`  preload  ${join(dist, "preload", "index.cjs")}`);
+console.log(`  renderer ${join(dist, "renderer")}`);
