@@ -28,7 +28,7 @@ import * as Stream from "effect/Stream";
 
 import { dispatchCommand } from "./dispatch.ts";
 import { buildServerConfig, type BuildServerConfigOptions } from "./serverConfig.ts";
-import { initialShellItems } from "./shell.ts";
+import { shellStream } from "./shell.ts";
 import { threadStream } from "./thread.ts";
 
 const notPorted = (method: string) =>
@@ -164,21 +164,12 @@ export const makeHandlers = (options: HandlerOptions) =>
   "orchestration.getFullThreadDiff": () => fail("orchestration.getFullThreadDiff"),
   "orchestration.searchThreads": () => fail("orchestration.searchThreads"),
   "orchestration.getArchivedShellSnapshot": () => fail("orchestration.getArchivedShellSnapshot"),
-    // Projects and threads, derived from loop's sessions. Emits the snapshot
-    // and the completion marker the client waits on, then holds the stream
-    // open — loop pushes no shell deltas, so a re-subscribe is the refresh.
-    "orchestration.subscribeShell": () =>
-      Stream.fromEffect(
-        initialShellItems().pipe(
-          Effect.mapError(
-            () =>
-              new EnvironmentAuthorizationError({
-                message: "loop could not list its sessions",
-                requiredScope: AuthOrchestrationReadScope,
-              }),
-          ),
-        ),
-      ).pipe(Stream.flattenIterable, Stream.concat(Stream.never)),
+    // Projects and threads, derived from loop's sessions: the snapshot, the
+    // completion marker the client waits on, then a fresh snapshot whenever a
+    // turn moves. That refresh is not cosmetic — a draft only becomes a real
+    // thread once the shell reports it, so without it the composer would sit
+    // on "Working" while the turn completed underneath.
+    "orchestration.subscribeShell": () => shellStream(),
     // A snapshot now, then a fresh one whenever the live turn moves. loop's
     // event vocabulary (text-delta, tool-call, reasoning) does not line up
     // one-for-one with the contract's command-echo events, so re-deriving the

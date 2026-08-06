@@ -11,13 +11,19 @@
  * path and a loop session id are legal ids as-is.
  */
 import {
+  AuthOrchestrationReadScope,
+  EnvironmentAuthorizationError,
   type OrchestrationShellSnapshot,
   type OrchestrationShellStreamItem,
   OrchestrationShellSnapshot as OrchestrationShellSnapshotSchema,
 } from "@loop/contracts";
 import * as Effect from "effect/Effect";
+import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
+import * as Stream from "effect/Stream";
 
+import { clientThreadIdFor } from "./dispatch.ts";
+import { onLiveTurnChange } from "./liveTurn.ts";
 import { toInstanceId } from "./ids.ts";
 import { loopCall } from "../transport.ts";
 
@@ -94,7 +100,9 @@ export const buildShellSnapshot = Effect.fnUntraced(function* () {
       updatedAt: iso(times.updated),
     })),
     threads: newestFirst.map((row) => ({
-      id: row.id,
+      // Reported under the id the client knows, which for a thread it just
+      // created is its own draft id rather than loop's session id.
+      id: clientThreadIdFor(row.id),
       projectId: row.cwd,
       title: threadTitle(row),
       modelSelection: { instanceId: toInstanceId(row.provider), model: row.model || "unknown" },
@@ -126,3 +134,51 @@ export const initialShellItems = Effect.fnUntraced(function* () {
     { kind: "synchronized" as const },
   ] satisfies OrchestrationShellStreamItem[];
 });
+
+/** How long to gather changes before rebuilding the shell. */
+const SHELL_COALESCE_MS = 120;
+
+/**
+ * The shell as a stream.
+ *
+ * loop has no shell deltas to push, so changes are inferred from turn
+ * activity: a turn starting is what creates a session, and a turn ending is
+ * what changes its title and timestamp. Rebuilding the whole snapshot is
+ * cheap enough (one `session.list`) and cannot drift from a partial update.
+ */
+export function shellStream(): Stream.Stream<
+  OrchestrationShellStreamItem,
+  EnvironmentAuthorizationError
+> {
+  const failed = () =>
+    new EnvironmentAuthorizationError({
+      message: "loop could not list its sessions",
+      requiredScope: AuthOrchestrationReadScope,
+    });
+
+  const initial = initialShellItems().pipe(Effect.mapError(failed));
+
+  const updates = Stream.callback<OrchestrationShellStreamItem>((queue) =>
+    Effect.acquireRelease(
+      Effect.sync(() => {
+        let timer: ReturnType<typeof setTimeout> | null = null;
+        const unsubscribe = onLiveTurnChange(() => {
+          if (timer !== null) return;
+          timer = setTimeout(() => {
+            timer = null;
+            void Effect.runPromise(buildShellSnapshot())
+              .then((snapshot) => Queue.offerUnsafe(queue, { kind: "snapshot" as const, snapshot }))
+              .catch(() => undefined);
+          }, SHELL_COALESCE_MS);
+        });
+        return () => {
+          if (timer !== null) clearTimeout(timer);
+          unsubscribe();
+        };
+      }),
+      (dispose) => Effect.sync(dispose),
+    ).pipe(Effect.asVoid),
+  );
+
+  return Stream.fromEffect(initial).pipe(Stream.flattenIterable, Stream.concat(updates));
+}

@@ -37,6 +37,23 @@ export function loopSessionIdFor(threadId: string): string {
 }
 
 /**
+ * The reverse: the id the client knows a session by.
+ *
+ * This is what lets a draft finish becoming a thread. The draft route watches
+ * the shell for a thread whose id matches the draft's own client-generated id,
+ * and navigates when it appears. loop names the session something else
+ * entirely, so a shell that reported loop's id would never satisfy that match
+ * — the composer would sit on "Working" forever while the turn completed
+ * perfectly well underneath.
+ */
+export function clientThreadIdFor(loopSessionId: string): string {
+  for (const [threadId, sessionId] of bindings) {
+    if (sessionId === loopSessionId) return threadId;
+  }
+  return loopSessionId;
+}
+
+/**
  * True while a thread exists only in the UI.
  *
  * The composer creates a draft as soon as it opens, with a client-generated
