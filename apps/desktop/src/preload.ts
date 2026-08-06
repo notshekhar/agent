@@ -48,6 +48,10 @@ contextBridge.exposeInMainWorld("loop", {
       return ipcRenderer.invoke("loop:fs.browse", { partialPath, cwd });
     },
   },
+  git: {
+    refs: (cwd: string) => ipcRenderer.invoke("loop:git.refs", { cwd }),
+    status: (cwd: string) => ipcRenderer.invoke("loop:git.status", { cwd }),
+  },
   pty: {
     open: (input: unknown) => ipcRenderer.invoke("loop:pty.open", input),
     snapshot: (threadId: string, terminalId: string) =>

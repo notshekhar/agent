@@ -28,6 +28,7 @@ import * as Stream from "effect/Stream";
 
 import { dispatchCommand } from "./dispatch.ts";
 import { browse, listEntries, readFile, searchEntries } from "./files.ts";
+import { listRefs, refreshStatus, statusStream } from "./git.ts";
 import { buildServerConfig, type BuildServerConfigOptions } from "./serverConfig.ts";
 import { shellStream } from "./shell.ts";
 import {
@@ -116,24 +117,13 @@ export const makeHandlers = (options: HandlerOptions) =>
   "shell.openInEditor": () => fail("shell.openInEditor"),
     "filesystem.browse": (input) => browse(input),
   "assets.createUrl": () => fail("assets.createUrl"),
-  "subscribeVcsStatus": idle,
+    "subscribeVcsStatus": (input) => statusStream(input.cwd),
   "vcs.pull": () => fail("vcs.pull"),
-  "vcs.refreshStatus": () => fail("vcs.refreshStatus"),
+    "vcs.refreshStatus": (input) => refreshStatus(input),
   "git.runStackedAction": () => failStream("git.runStackedAction"),
   "git.resolvePullRequest": () => fail("git.resolvePullRequest"),
   "git.preparePullRequestThread": () => fail("git.preparePullRequestThread"),
-    // Git is not backed yet. The UI polls this on its own — nobody asked for
-    // it — and a failure here puts it into a visible retry loop, so report
-    // "this is not a repo" instead. User-triggered git actions below still
-    // fail loudly, because there the user is owed an answer.
-    "vcs.listRefs": () =>
-      Effect.succeed({
-        refs: [],
-        isRepo: false,
-        hasPrimaryRemote: false,
-        nextCursor: null,
-        totalCount: 0,
-      }),
+    "vcs.listRefs": (input) => listRefs(input),
   "vcs.createWorktree": () => fail("vcs.createWorktree"),
   "vcs.removeWorktree": () => fail("vcs.removeWorktree"),
   "vcs.createRef": () => fail("vcs.createRef"),

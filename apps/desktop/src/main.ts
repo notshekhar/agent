@@ -12,6 +12,7 @@ import { homedir } from "node:os";
 import { extname, join, normalize, resolve } from "node:path";
 
 import { LoopProcess, resolveLoopBinary } from "./loopProcess.js";
+import { listRefs, status as gitStatus } from "./git.js";
 import { TerminalManager } from "./terminals.js";
 import { browseFilesystem, listWorkspaceEntries, readWorkspaceFile } from "./workspaceFiles.js";
 
@@ -189,6 +190,9 @@ app.whenReady().then(() => {
   ipcMain.handle("loop:fs.read", (_event, payload: { cwd: string; relativePath: string }) =>
     readWorkspaceFile(payload.cwd, payload.relativePath),
   );
+  ipcMain.handle("loop:git.refs", (_event, p: { cwd: string }) => listRefs(p.cwd));
+  ipcMain.handle("loop:git.status", (_event, p: { cwd: string }) => gitStatus(p.cwd));
+
   terminals.on("output", (event) => forwardToRenderer("loop:terminal", event));
   ipcMain.handle("loop:pty.open", (_event, input) => terminals.open(input));
   ipcMain.handle("loop:pty.snapshot", (_event, p: { threadId: string; terminalId: string }) =>

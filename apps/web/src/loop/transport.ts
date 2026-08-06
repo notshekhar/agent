@@ -98,6 +98,42 @@ export interface LoopPtyBridge {
   onOutput(listener: (event: TerminalOutput) => void): () => void;
 }
 
+export interface GitRef {
+  readonly name: string;
+  readonly isRemote: boolean;
+  readonly remoteName?: string;
+  readonly current: boolean;
+  readonly isDefault: boolean;
+  readonly worktreePath: string | null;
+}
+
+export interface GitStatus {
+  readonly isRepo: boolean;
+  readonly hasPrimaryRemote: boolean;
+  readonly isDefaultRef: boolean;
+  readonly refName: string | null;
+  readonly hasWorkingTreeChanges: boolean;
+  readonly workingTree: {
+    readonly files: ReadonlyArray<{ path: string; insertions: number; deletions: number }>;
+    readonly insertions: number;
+    readonly deletions: number;
+  };
+  readonly hasUpstream: boolean;
+  readonly aheadCount: number;
+  readonly behindCount: number;
+}
+
+/** Read-only git, from the shell. Writing is the agent's job, not the UI's. */
+export interface LoopGitBridge {
+  refs(cwd: string): Promise<{
+    refs: readonly GitRef[];
+    isRepo: boolean;
+    hasPrimaryRemote: boolean;
+    totalCount: number;
+  }>;
+  status(cwd: string): Promise<GitStatus>;
+}
+
 /** The preload bridge. Kept structural so the renderer needs no Electron types. */
 interface LoopDesktopBridge {
   call(method: string, params: unknown, cwd: string | undefined): Promise<unknown>;
@@ -106,6 +142,7 @@ interface LoopDesktopBridge {
   anchorCwd(): Promise<string | undefined>;
   fs?: LoopFilesystemBridge;
   pty?: LoopPtyBridge;
+  git?: LoopGitBridge;
 }
 
 declare global {
@@ -325,4 +362,9 @@ export function loopFilesystem(): LoopFilesystemBridge | null {
 /** The PTY bridge, or null in a browser. See loopFilesystem for the rationale. */
 export function loopPty(): LoopPtyBridge | null {
   return (typeof window !== "undefined" ? window.loop?.pty : undefined) ?? null;
+}
+
+/** The git bridge, or null in a browser. See loopFilesystem for the rationale. */
+export function loopGit(): LoopGitBridge | null {
+  return (typeof window !== "undefined" ? window.loop?.git : undefined) ?? null;
 }
