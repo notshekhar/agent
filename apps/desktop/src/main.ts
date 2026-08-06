@@ -12,6 +12,7 @@ import { homedir } from "node:os";
 import { extname, join, normalize, resolve } from "node:path";
 
 import { LoopProcess, resolveLoopBinary } from "./loopProcess.js";
+import { TerminalManager } from "./terminals.js";
 import { browseFilesystem, listWorkspaceEntries, readWorkspaceFile } from "./workspaceFiles.js";
 
 const RENDERER_SCHEME = "app";
@@ -108,6 +109,8 @@ const loop = new LoopProcess({
   cwd: process.env["LOOP_ANCHOR_CWD"] ?? homedir(),
 });
 
+const terminals = new TerminalManager();
+
 let mainWindow: BrowserWindow | null = null;
 
 function createWindow(): void {
@@ -186,6 +189,27 @@ app.whenReady().then(() => {
   ipcMain.handle("loop:fs.read", (_event, payload: { cwd: string; relativePath: string }) =>
     readWorkspaceFile(payload.cwd, payload.relativePath),
   );
+  terminals.on("output", (event) => forwardToRenderer("loop:terminal", event));
+  ipcMain.handle("loop:pty.open", (_event, input) => terminals.open(input));
+  ipcMain.handle("loop:pty.snapshot", (_event, p: { threadId: string; terminalId: string }) =>
+    terminals.snapshot(p.threadId, p.terminalId),
+  );
+  ipcMain.handle("loop:pty.write", (_event, p: { threadId: string; terminalId: string; data: string }) => {
+    terminals.write(p.threadId, p.terminalId, p.data);
+  });
+  ipcMain.handle(
+    "loop:pty.resize",
+    (_event, p: { threadId: string; terminalId: string; cols: number; rows: number }) => {
+      terminals.resize(p.threadId, p.terminalId, p.cols, p.rows);
+    },
+  );
+  ipcMain.handle("loop:pty.clear", (_event, p: { threadId: string; terminalId: string }) => {
+    terminals.clear(p.threadId, p.terminalId);
+  });
+  ipcMain.handle("loop:pty.close", (_event, p: { threadId: string; terminalId?: string }) => {
+    terminals.close(p.threadId, p.terminalId);
+  });
+
   ipcMain.handle(
     "loop:fs.browse",
     (_event, payload: { partialPath: string; cwd: string | undefined }) =>
@@ -204,5 +228,6 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
+  terminals.closeAll();
   loop.stop();
 });

@@ -10,7 +10,8 @@
     "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
-    "electron": "40.10.6"
+    "electron": "40.10.6",
+    "node-pty": "^1.1.0-beta42"
   },
   "devDependencies": {
     "@types/bun": "latest",

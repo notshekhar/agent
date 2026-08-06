@@ -37,8 +37,9 @@ const main = await Bun.build({
   format: "cjs",
   naming: "[dir]/index.cjs",
   // Electron resolves its own module at runtime; bundling it produces a
-  // second, non-functional copy.
-  external: ["electron"],
+  // second, non-functional copy. node-pty is a native addon and cannot be
+  // bundled at all — it must be require()d from node_modules.
+  external: ["electron", "node-pty"],
 });
 if (!main.success) {
   throw new Error(`main bundle failed:\n${main.logs.map(String).join("\n")}`);

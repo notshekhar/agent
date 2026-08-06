@@ -20,6 +20,11 @@ ipcRenderer.on("loop:event", (_event, payload: LoopEvent) => {
   for (const listener of listeners) listener(payload);
 });
 
+const terminalListeners = new Set<(event: unknown) => void>();
+ipcRenderer.on("loop:terminal", (_event, payload: unknown) => {
+  for (const listener of terminalListeners) listener(payload);
+});
+
 contextBridge.exposeInMainWorld("loop", {
   call(method: string, params: unknown, cwd: string | undefined): Promise<unknown> {
     // `cwd` rides as a parameter rather than picking a process: one loop child
@@ -41,6 +46,23 @@ contextBridge.exposeInMainWorld("loop", {
     },
     browse(partialPath: string, cwd: string | undefined) {
       return ipcRenderer.invoke("loop:fs.browse", { partialPath, cwd });
+    },
+  },
+  pty: {
+    open: (input: unknown) => ipcRenderer.invoke("loop:pty.open", input),
+    snapshot: (threadId: string, terminalId: string) =>
+      ipcRenderer.invoke("loop:pty.snapshot", { threadId, terminalId }),
+    write: (threadId: string, terminalId: string, data: string) =>
+      ipcRenderer.invoke("loop:pty.write", { threadId, terminalId, data }),
+    resize: (threadId: string, terminalId: string, cols: number, rows: number) =>
+      ipcRenderer.invoke("loop:pty.resize", { threadId, terminalId, cols, rows }),
+    clear: (threadId: string, terminalId: string) =>
+      ipcRenderer.invoke("loop:pty.clear", { threadId, terminalId }),
+    close: (threadId: string, terminalId: string | undefined) =>
+      ipcRenderer.invoke("loop:pty.close", { threadId, terminalId }),
+    onOutput(listener: (event: unknown) => void): () => void {
+      terminalListeners.add(listener);
+      return () => terminalListeners.delete(listener);
     },
   },
   anchorCwd(): Promise<string | undefined> {

@@ -56,6 +56,48 @@ export interface LoopFilesystemBridge {
   ): Promise<{ parentPath: string; entries: readonly { name: string; fullPath: string }[] } | null>;
 }
 
+export interface TerminalSnapshot {
+  readonly threadId: string;
+  readonly terminalId: string;
+  readonly cwd: string;
+  readonly worktreePath: string | null;
+  readonly status: "starting" | "running" | "exited" | "error";
+  readonly pid: number | null;
+  readonly history: string;
+  readonly exitCode: number | null;
+  readonly exitSignal: number | null;
+  readonly label: string;
+  readonly updatedAt: string;
+}
+
+export interface TerminalOutput {
+  readonly threadId: string;
+  readonly terminalId: string;
+  readonly type: "output" | "exited" | "closed";
+  readonly data?: string;
+  readonly exitCode?: number | null;
+  readonly exitSignal?: number | null;
+}
+
+/** PTYs, which like the filesystem only the desktop shell can provide. */
+export interface LoopPtyBridge {
+  open(input: {
+    threadId: string;
+    terminalId: string;
+    cwd: string;
+    worktreePath?: string | null;
+    cols?: number;
+    rows?: number;
+    env?: Record<string, string>;
+  }): Promise<TerminalSnapshot>;
+  snapshot(threadId: string, terminalId: string): Promise<TerminalSnapshot | null>;
+  write(threadId: string, terminalId: string, data: string): Promise<void>;
+  resize(threadId: string, terminalId: string, cols: number, rows: number): Promise<void>;
+  clear(threadId: string, terminalId: string): Promise<void>;
+  close(threadId: string, terminalId: string | undefined): Promise<void>;
+  onOutput(listener: (event: TerminalOutput) => void): () => void;
+}
+
 /** The preload bridge. Kept structural so the renderer needs no Electron types. */
 interface LoopDesktopBridge {
   call(method: string, params: unknown, cwd: string | undefined): Promise<unknown>;
@@ -63,6 +105,7 @@ interface LoopDesktopBridge {
   /** Folder-less calls route here. */
   anchorCwd(): Promise<string | undefined>;
   fs?: LoopFilesystemBridge;
+  pty?: LoopPtyBridge;
 }
 
 declare global {
@@ -277,4 +320,9 @@ export function connectToLoop(): void {
  */
 export function loopFilesystem(): LoopFilesystemBridge | null {
   return (typeof window !== "undefined" ? window.loop?.fs : undefined) ?? null;
+}
+
+/** The PTY bridge, or null in a browser. See loopFilesystem for the rationale. */
+export function loopPty(): LoopPtyBridge | null {
+  return (typeof window !== "undefined" ? window.loop?.pty : undefined) ?? null;
 }

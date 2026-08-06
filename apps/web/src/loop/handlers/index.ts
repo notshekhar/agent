@@ -30,6 +30,15 @@ import { dispatchCommand } from "./dispatch.ts";
 import { browse, listEntries, readFile, searchEntries } from "./files.ts";
 import { buildServerConfig, type BuildServerConfigOptions } from "./serverConfig.ts";
 import { shellStream } from "./shell.ts";
+import {
+  attachTerminal,
+  clearTerminal,
+  closeTerminal,
+  openTerminal,
+  resizeTerminal,
+  terminalEventStream,
+  writeTerminal,
+} from "./terminal.ts";
 import { threadStream } from "./thread.ts";
 
 const notPorted = (method: string) =>
@@ -131,13 +140,13 @@ export const makeHandlers = (options: HandlerOptions) =>
   "vcs.switchRef": () => fail("vcs.switchRef"),
   "vcs.init": () => fail("vcs.init"),
   "review.getDiffPreview": () => fail("review.getDiffPreview"),
-  "terminal.open": () => fail("terminal.open"),
-  "terminal.attach": () => failStream("terminal.attach"),
-  "terminal.write": () => fail("terminal.write"),
-  "terminal.resize": () => fail("terminal.resize"),
-  "terminal.clear": () => fail("terminal.clear"),
+    "terminal.open": (input) => openTerminal(input),
+    "terminal.attach": (input) => attachTerminal(input),
+    "terminal.write": (input) => writeTerminal(input),
+    "terminal.resize": (input) => resizeTerminal(input),
+    "terminal.clear": (input) => clearTerminal(input),
   "terminal.restart": () => fail("terminal.restart"),
-  "terminal.close": () => fail("terminal.close"),
+    "terminal.close": (input) => closeTerminal(input),
   "preview.open": () => fail("preview.open"),
   "preview.navigate": () => fail("preview.navigate"),
   "preview.resize": () => fail("preview.resize"),
@@ -177,7 +186,7 @@ export const makeHandlers = (options: HandlerOptions) =>
     // whole thread is both simpler and impossible to get subtly out of sync.
     // The rebuild is coalesced, or a fast model would rebuild per token.
     "orchestration.subscribeThread": (input) => threadStream(input.threadId),
-  "subscribeTerminalEvents": idle,
+    "subscribeTerminalEvents": () => terminalEventStream(),
   "subscribeTerminalMetadata": idle,
   "subscribeServerLifecycle": idle,
   "subscribeAuthAccess": idle,
