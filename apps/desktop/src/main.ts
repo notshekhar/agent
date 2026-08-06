@@ -12,6 +12,7 @@ import { homedir } from "node:os";
 import { extname, join, normalize, resolve } from "node:path";
 
 import { LoopProcess, resolveLoopBinary } from "./loopProcess.js";
+import { browseFilesystem, listWorkspaceEntries, readWorkspaceFile } from "./workspaceFiles.js";
 
 const RENDERER_SCHEME = "app";
 const RENDERER_ORIGIN = `${RENDERER_SCHEME}://loop`;
@@ -176,6 +177,20 @@ app.whenReady().then(() => {
   ipcMain.handle("loop:call", async (_event, payload: { method: string; params: unknown }) => {
     return await loop.call(payload.method, payload.params);
   });
+
+  // Filesystem reads live here rather than in loop: loop speaks an agent
+  // protocol and has no file operations, and the renderer has no filesystem.
+  ipcMain.handle("loop:fs.list", (_event, payload: { cwd: string }) =>
+    listWorkspaceEntries(payload.cwd),
+  );
+  ipcMain.handle("loop:fs.read", (_event, payload: { cwd: string; relativePath: string }) =>
+    readWorkspaceFile(payload.cwd, payload.relativePath),
+  );
+  ipcMain.handle(
+    "loop:fs.browse",
+    (_event, payload: { partialPath: string; cwd: string | undefined }) =>
+      browseFilesystem(payload.partialPath, payload.cwd),
+  );
 
   createWindow();
 

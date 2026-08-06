@@ -8,11 +8,12 @@
  *
  * Two shells run the same UI:
  *
- *   - `loop serve`: one WebSocket to the server, which owns sessions across
- *     every cwd. `cwd` on a call is a filter, not a routing key.
- *   - Electron: `loop rpc` is spawned **once per project folder**, so `cwd` is
- *     the routing key — it picks the process. Calls with no folder (settings,
- *     the catalog) go to whichever process is the current anchor.
+ *   - `loop serve`: one WebSocket to the server.
+ *   - Electron: one `loop rpc` child, spoken to over the preload bridge.
+ *
+ * In both, `cwd` rides as a call parameter rather than selecting a backend:
+ * loop's sessions carry their own cwd, so a single agent process serves every
+ * project (see apps/desktop/src/loopProcess.ts).
  *
  * The Electron bridge is injected on `window.loop` by the preload script; when
  * it is absent we are in a browser and take the socket path.
@@ -24,12 +25,44 @@ export interface LoopEvent {
   readonly part: unknown;
 }
 
+export interface WorkspaceEntry {
+  readonly path: string;
+  readonly kind: "file" | "directory";
+}
+
+export type ReadWorkspaceFileResult =
+  | {
+      readonly ok: true;
+      readonly relativePath: string;
+      readonly contents: string;
+      readonly byteLength: number;
+      readonly truncated: boolean;
+    }
+  | { readonly ok: false; readonly failure: string };
+
+/**
+ * Filesystem access, which only the desktop shell has.
+ *
+ * loop speaks an agent protocol with no file operations, and a browser has no
+ * filesystem, so this is the one capability that genuinely differs between the
+ * two shells rather than merely being routed differently.
+ */
+export interface LoopFilesystemBridge {
+  list(cwd: string): Promise<{ entries: readonly WorkspaceEntry[]; truncated: boolean }>;
+  read(cwd: string, relativePath: string): Promise<ReadWorkspaceFileResult>;
+  browse(
+    partialPath: string,
+    cwd: string | undefined,
+  ): Promise<{ parentPath: string; entries: readonly { name: string; fullPath: string }[] } | null>;
+}
+
 /** The preload bridge. Kept structural so the renderer needs no Electron types. */
 interface LoopDesktopBridge {
   call(method: string, params: unknown, cwd: string | undefined): Promise<unknown>;
   onEvent(listener: (event: LoopEvent) => void): () => void;
   /** Folder-less calls route here. */
   anchorCwd(): Promise<string | undefined>;
+  fs?: LoopFilesystemBridge;
 }
 
 declare global {
@@ -232,4 +265,16 @@ export function onLoopConnectionChange(listener: (state: ConnectionState) => voi
 /** Open the connection eagerly so the first call does not pay for the handshake. */
 export function connectToLoop(): void {
   if (!isDesktopShell()) socket.connect();
+}
+
+/**
+ * The filesystem bridge, or null in a browser.
+ *
+ * Returning null rather than a stub is deliberate: a caller has to decide what
+ * "no filesystem here" means for its feature, and a stub that answers with an
+ * empty directory would make an unavailable capability look like an empty
+ * project.
+ */
+export function loopFilesystem(): LoopFilesystemBridge | null {
+  return (typeof window !== "undefined" ? window.loop?.fs : undefined) ?? null;
 }

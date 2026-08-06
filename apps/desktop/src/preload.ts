@@ -32,6 +32,17 @@ contextBridge.exposeInMainWorld("loop", {
     listeners.add(listener);
     return () => listeners.delete(listener);
   },
+  fs: {
+    list(cwd: string) {
+      return ipcRenderer.invoke("loop:fs.list", { cwd });
+    },
+    read(cwd: string, relativePath: string) {
+      return ipcRenderer.invoke("loop:fs.read", { cwd, relativePath });
+    },
+    browse(partialPath: string, cwd: string | undefined) {
+      return ipcRenderer.invoke("loop:fs.browse", { partialPath, cwd });
+    },
+  },
   anchorCwd(): Promise<string | undefined> {
     return ipcRenderer
       .invoke("loop:call", { method: "server.info", params: {} })

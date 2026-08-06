@@ -27,6 +27,7 @@ import * as Effect from "effect/Effect";
 import * as Stream from "effect/Stream";
 
 import { dispatchCommand } from "./dispatch.ts";
+import { browse, listEntries, readFile, searchEntries } from "./files.ts";
 import { buildServerConfig, type BuildServerConfigOptions } from "./serverConfig.ts";
 import { shellStream } from "./shell.ts";
 import { threadStream } from "./thread.ts";
@@ -98,13 +99,13 @@ export const makeHandlers = (options: HandlerOptions) =>
   "sourceControl.lookupRepository": () => fail("sourceControl.lookupRepository"),
   "sourceControl.cloneRepository": () => fail("sourceControl.cloneRepository"),
   "sourceControl.publishRepository": () => fail("sourceControl.publishRepository"),
-  "projects.searchEntries": () => fail("projects.searchEntries"),
+    "projects.searchEntries": (input) => searchEntries(input),
   "projects.searchContents": () => fail("projects.searchContents"),
-  "projects.listEntries": () => fail("projects.listEntries"),
-  "projects.readFile": () => fail("projects.readFile"),
+    "projects.listEntries": (input) => listEntries(input.cwd),
+    "projects.readFile": (input) => readFile(input),
   "projects.writeFile": () => fail("projects.writeFile"),
   "shell.openInEditor": () => fail("shell.openInEditor"),
-  "filesystem.browse": () => fail("filesystem.browse"),
+    "filesystem.browse": (input) => browse(input),
   "assets.createUrl": () => fail("assets.createUrl"),
   "subscribeVcsStatus": idle,
   "vcs.pull": () => fail("vcs.pull"),
