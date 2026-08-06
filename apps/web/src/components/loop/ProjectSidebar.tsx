@@ -14,13 +14,14 @@
  */
 import { FolderIcon, SearchIcon, SquarePenIcon } from "lucide-react";
 import { memo, useMemo } from "react";
-import { Link, useParams } from "@tanstack/react-router";
+import { Link, useLocation, useParams } from "@tanstack/react-router";
 
 import { openCommandPalette } from "../../commandPaletteBus";
 import { isElectron } from "../../env";
 import { useProjects, useThreadShells } from "../../state/entities";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
 import { cn } from "../../lib/utils";
+import { SettingsSidebarNav } from "../settings/SettingsSidebarNav";
 import { SidebarChromeFooter, SidebarChromeHeader } from "../sidebar/SidebarChrome";
 import {
   SidebarContent,
@@ -124,6 +125,22 @@ export default function ProjectSidebar() {
   const rows = useProjectRows();
   const params = useParams({ strict: false }) as { projectId?: string };
   const activeId = params.projectId;
+  const pathname = useLocation({ select: (location) => location.pathname });
+
+  // Settings replaces the whole list with its own section nav — the same swap
+  // upstream did inside its sidebar. Without it the settings page shows a
+  // project list and no way to move between sections, which is exactly what
+  // happened once the old sidebar (the only thing mounting this nav) stopped
+  // rendering.
+  const isOnSettings = pathname === "/settings" || pathname.startsWith("/settings/");
+  if (isOnSettings) {
+    return (
+      <>
+        <SidebarChromeHeader isElectron={isElectron} />
+        <SettingsSidebarNav pathname={pathname} />
+      </>
+    );
+  }
 
   return (
     <>
