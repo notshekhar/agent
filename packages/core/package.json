@@ -1,6 +1,6 @@
 {
   "name": "@notshekhar/loop-core",
-  "version": "0.16.4",
+  "version": "0.16.5",
   "description": "Core engine for loop \u2014 auth, providers, catalog, sessions, agent loop, tools, RPC.",
   "license": "MIT",
   "type": "module",

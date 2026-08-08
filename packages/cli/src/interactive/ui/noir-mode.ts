@@ -24,8 +24,74 @@ import {
  * close together as they do in the desktop app. See `palette.ts` for how the
  * theme slots are derived from these primitives.
  */
+/**
+ * Noir's ink.
+ *
+ * Loop mode keeps the classic vivid palette, which is right for a mode drawing
+ * on whatever background your terminal happens to have. Noir washes its own
+ * canvas, so it can afford one deliberate set instead: every colour sits at a
+ * single lightness and a shared chroma, with hues spread far enough apart to
+ * stay distinguishable. A message renders tonal rather than primary — no
+ * colour shouts over its neighbours.
+ *
+ * Two exceptions carry extra chroma rather than extra brightness, because both
+ * have a job beyond looking pleasant: a heading has to lead its section, and an
+ * error has to alert. Each hue is still anchored to what it MEANS — success is
+ * green, error is red, a number is cool — so the set is normalised, not
+ * arbitrary.
+ */
+const NIGHT_INK = {
+    // The brand blue, held at the set's lightness. Full-chroma primary sat
+    // outside the family badly: as a list bullet or a prompt it was the one
+    // vivid mark on an otherwise tonal screen.
+    accent: "#77a0dc",
+    heading: "#d5bb7b",
+    warning: "#dcb77f",
+    error: "#f5a5a7",
+    success: "#a0cba5",
+    inlineCode: "#d5afd7",
+    codeBlock: "#a0cba5",
+    accentLift: "#a2c0eb",
+    thinkingPeak: "#beb6e8",
+    syntax: {
+        comment: "#6f6f6f",
+        keyword: "#e6a9c5",
+        function: "#beb6e8",
+        variable: "#e2b293",
+        string: "#a0cba5",
+        number: "#87cbd5",
+        type: "#d5afd7",
+        operator: "#8a8a8a",
+        punctuation: "#8a8a8a",
+    },
+} as const;
+
+const DAY_INK = {
+    accent: "#3463a6",
+    heading: "#7c5f00",
+    warning: "#835b06",
+    error: "#9a444a",
+    success: "#3f7047",
+    inlineCode: "#7c527e",
+    codeBlock: "#3f7047",
+    accentLift: "#446493",
+    thinkingPeak: "#645a90",
+    syntax: {
+        comment: "#767676",
+        keyword: "#8c4a6b",
+        function: "#645a90",
+        variable: "#885531",
+        string: "#3f7047",
+        number: "#04707c",
+        type: "#7c527e",
+        operator: "#6b6b6b",
+        punctuation: "#6b6b6b",
+    },
+} as const;
+
 export const NIGHT_PALETTE: Palette = {
     ...DARK_INK,
+    ...NIGHT_INK,
     name: "night",
     wash: true,
     bg: "#141414",
@@ -37,6 +103,7 @@ export const NIGHT_PALETTE: Palette = {
 
 export const DAY_PALETTE: Palette = {
     ...LIGHT_INK,
+    ...DAY_INK,
     name: "day",
     wash: true,
     bg: "#fcfcfc",

@@ -170,6 +170,13 @@ export interface Palette {
      */
     heading: string;
     inlineCode: string;
+    /**
+     * Fenced blocks whose language loop cannot identify — anything it can goes
+     * through the syntax palette instead. Defaults to `success`, which is the
+     * long-standing choice; a palette overrides it when its markdown wants to
+     * read as its own set rather than borrowing a semantic colour.
+     */
+    codeBlock?: string;
 
     syntax: SyntaxPalette;
     /** Top rung of the thinking-effort ladder — deliberately off-hue from the
@@ -274,9 +281,7 @@ export function themeFromPalette(p: Palette): ThemeJson {
             mdLink: p.accentLift,
             mdLinkUrl: p.dim,
             mdCode: p.inlineCode,
-            // Fenced blocks whose language is unknown — anything loop can
-            // identify goes through the syntax palette instead.
-            mdCodeBlock: p.success,
+            mdCodeBlock: p.codeBlock ?? p.success,
             mdCodeBlockBorder: p.dim,
             mdQuote: p.muted,
             mdQuoteBorder: p.dim,

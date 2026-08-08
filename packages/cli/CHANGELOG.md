@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.16.5] - 2026-08-09
+
+### Changed
+
+- **Noir has its own ink now, not loop's colours on a darker background.** `loop` mode keeps the classic vivid palette — gold heading, magenta inline span, green block — which is right for a mode drawing on whatever background your terminal happens to have. Noir washes its own canvas, so it can afford one deliberate set: every colour sits at a single lightness and a shared chroma, with hues spread far enough apart to stay distinguishable. Markdown, syntax highlighting, the semantic colours, the `/context` chart and the list bullet all come from it, so a screen reads tonal rather than primary and nothing shouts over its neighbours.
+- **Two colours are deliberately louder than the rest.** A heading has to lead its section and an error has to alert, so both carry extra chroma — never extra brightness, which would break the single-lightness rule the set depends on. Every hue is still anchored to what it means: success green, error red, numbers cool. The set is normalised, not arbitrary.
+- **The brand blue got the same treatment in noir.** At full chroma it was the one vivid mark on an otherwise tonal screen — as a list bullet, a prompt, or a typed `/command` it read as a mistake. It now sits at the set's lightness, still unmistakably the brand blue.
+
+### Fixed
+
+- **The same missing git identity, one file further along.** The web app's seam test drives the desktop's real git action against a real repo, so it failed on CI for exactly the reason the desktop's own tests did — the code under test spawns its own git and has no identity to use on a fresh runner. Fixed the same way, in the repo's own config. Both suites now pass with no ambient git config at all, which is the condition CI actually runs in.
+
 ## [0.16.4] - 2026-08-09
 
 ### Changed

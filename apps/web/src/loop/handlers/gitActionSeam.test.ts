@@ -45,6 +45,13 @@ async function repoWithHook(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "loop-seam-"));
   made.push(dir);
   await run("git", ["init", "--initial-branch=main"], { cwd: dir, env: { ...process.env, ...AUTHOR } });
+  // The identity goes in the repo's own config, not just the env above: the
+  // action under test spawns its own git and inherits none of it. A developer
+  // machine has a global identity to fall back on and a fresh CI runner does
+  // not, so without this the commit fails with "Author identity unknown" on
+  // CI alone.
+  await run("git", ["config", "user.name", AUTHOR.GIT_AUTHOR_NAME], { cwd: dir });
+  await run("git", ["config", "user.email", AUTHOR.GIT_AUTHOR_EMAIL], { cwd: dir });
   // A hook that writes to both streams, so hook_output is exercised for real
   // rather than assumed.
   await run("git", ["config", "core.hooksPath", ".hooks"], { cwd: dir });

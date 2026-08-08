@@ -635,7 +635,9 @@ describe("noir mode rendering", () => {
         const t = new Theme(DAY_THEME);
         expect(t.raw("bgBase")).toBe("#fcfcfc");
         expect(t.raw("muted")).toBe("#71717b");
-        expect(t.raw("selectionBorder")).toBe("#2f58b9");
+        // Noir holds the brand blue at its own set's lightness rather than the
+        // full-chroma primary loop mode uses.
+        expect(t.raw("selectionBorder")).toBe("#3463a6");
     });
 
     test("plan keeps the default box look in noir mode (approval surface)", () => {
