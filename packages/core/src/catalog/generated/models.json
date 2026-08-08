@@ -6806,9 +6806,9 @@
     "contextWindow": 1048576,
     "maxOutput": 128000,
     "cost": {
-      "input": 0.182,
-      "output": 0.572,
-      "cacheRead": 0.0338,
+      "input": 0.154,
+      "output": 0.484,
+      "cacheRead": 0.0286,
       "cacheWrite": 0
     },
     "reasoning": true,
