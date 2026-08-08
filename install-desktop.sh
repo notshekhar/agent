@@ -144,6 +144,36 @@ if ! curl -fSL --progress-bar -o "$TMP/$ASSET" "$URL"; then
   exit 1
 fi
 
+# Verify against the published checksum. The transport is TLS, but the archive
+# is ~170 MB of code that is about to be given a place in /Applications — a
+# truncated download is the likely case and would otherwise install a bundle
+# that fails much later, somewhere unrelated to the download.
+verify_sha256() {
+  local want have sum_cmd
+  want="$(curl -fsSL "${URL}.sha256" 2>/dev/null | awk '{print $1}' | head -1)"
+  if [ -z "$want" ]; then
+    dim "  (no published checksum for ${ASSET} — skipping verification)"
+    return 0
+  fi
+  if command -v sha256sum >/dev/null 2>&1; then
+    sum_cmd="sha256sum"
+  elif command -v shasum >/dev/null 2>&1; then
+    sum_cmd="shasum -a 256"
+  else
+    dim "  (no sha256 tool available — skipping verification)"
+    return 0
+  fi
+  have="$($sum_cmd "$TMP/$ASSET" | awk '{print $1}')"
+  if [ "$have" != "$want" ]; then
+    err "checksum mismatch for ${ASSET}"
+    err "  expected $want"
+    err "  got      $have"
+    exit 1
+  fi
+  dim "  checksum ok"
+}
+verify_sha256
+
 # ── Install ───────────────────────────────────────────────────────────────
 if [ "$OS" = "darwin" ]; then
   unzip -q "$TMP/$ASSET" -d "$TMP/x"

@@ -291,7 +291,14 @@ jobs:
                   tag="${{ needs.prepare.outputs.tag }}"
                   ver="${tag#v}"
                   major="v${ver%%.*}"
-                  git fetch origin "refs/tags/$tag:refs/tags/$tag" --no-tags
+                  # Forced, because git refuses to move an existing tag ref and
+                  # the checkout above may already hold this one — a tag-push
+                  # run checks out the very tag being fetched here, so the
+                  # unforced fetch dies with "would clobber existing tag" AFTER
+                  # the release has already been published. The float is then
+                  # silently a release behind, which is invisible until someone
+                  # on `uses: notshekhar/loop@v0` reports running old code.
+                  git fetch --force origin "refs/tags/$tag:refs/tags/$tag" --no-tags
                   git tag -f "$major" "refs/tags/$tag"
                   git push -f origin "refs/tags/$major"
 
