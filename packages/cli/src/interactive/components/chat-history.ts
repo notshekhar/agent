@@ -14,10 +14,7 @@ import {
 } from "../ui/messages";
 import { ToolExecutionComponent } from "../ui/tool-execution";
 import { matchSessionHookContext } from "@notshekhar/loop-core";
-import chalk from "chalk";
 import { accentTitle, dim, err } from "../ui/text";
-
-const HOOK_ORANGE = chalk.hex("#e09956");
 
 interface PiAssistantMessage {
     role: "assistant";
@@ -402,7 +399,9 @@ export class ChatHistory extends Container {
         const hookCtx = matchSessionHookContext(text);
         if (hookCtx) {
             const lines = hookCtx.context.split("\n").length;
-            this.addChild(new Text(HOOK_ORANGE(`session-start hook context attached (${lines} lines)`), 1, 0));
+            this.addChild(
+                new Text(theme.fg("hookAccent", `session-start hook context attached (${lines} lines)`), 1, 0),
+            );
             text = hookCtx.rest;
             if (!text) {
                 this.assistantTurn = null;
@@ -596,7 +595,7 @@ export class ChatHistory extends Container {
     /** Hook-related lines get their own orange accent, like tools get grey/green. */
     addHook(text: string): void {
         this.markDirty();
-        this.addChild(new Text(HOOK_ORANGE(text), 1, 0));
+        this.addChild(new Text(theme.fg("hookAccent", text), 1, 0));
     }
 
     /** Echo an executed slash command: highlighted /name, dim args. */

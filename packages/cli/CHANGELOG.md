@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.16.4] - 2026-08-09
+
+### Changed
+
+- **The charts are themed too, and generate their colours rather than storing them.** `/context`'s category grid carried its own seven hexes, `/steak`'s usage wall was pinned to GitHub's greens, and injected context — session-start hook output, the active agent badge — had an orange of its own. All three now come from the theme. The categorical swatches cycle through seven hues the palette already keeps distinct because each is doing another job elsewhere (heading gold, link blue, type magenta, number cyan, success, error, variable orange), so no theme has to declare chart colours and a custom one gets a matching chart for free. The usage ramp walks the theme's own success colour out of the canvas, which also means it finally reads correctly on a light background — the fixed dark greens used to sit on white looking like four shades of the same square.
+
+### Fixed
+
+- **The desktop app's git tests only passed on a machine that already had a git identity.** They create real repos and commit into them, and while the test helper set an author through its env, the code under test spawns its own git and inherits none of it — so a developer machine quietly fell back on its global `user.email` while a fresh CI runner failed nine tests with "Author identity unknown". Each temp repo now carries the identity in its own config, so the tests bring what they need. They had never actually run on CI before this: the job hung ahead of them.
+
 ## [0.16.3] - 2026-08-09
 
 ### Changed

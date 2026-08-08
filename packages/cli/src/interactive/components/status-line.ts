@@ -1,9 +1,9 @@
 import { getExtensionHost, getModelSync, parseModelId } from "@notshekhar/loop-core";
 import type { StatusLineContext, StatusSegment } from "@notshekhar/loop-core";
 import type { Component } from "@notshekhar/loop-tui";
-import chalk from "chalk";
 import { formatClock, formatCountdown } from "../time";
 import { accent, dim, err, ok, warn } from "../ui/text";
+import { theme } from "../ui/theme";
 
 function fmtTokens(n: number): string {
     if (n < 1000) return String(n);
@@ -138,7 +138,7 @@ export class StatusLine implements Component {
         // Two rows: agent/model identity on top, usage below.
         const agentStr =
             (this.agent && this.agent !== "default"
-                ? chalk.hex("#e09956")(`agent ${this.agent}`)
+                ? theme.fg("hookAccent", `agent ${this.agent}`)
                 : dim("agent default")) + dim(" (shift+tab)");
         const identity = [agentStr, accent(modelLabel)];
         if (this.planMode) identity.push(warn("plan mode (read-only)"));

@@ -33,6 +33,13 @@ async function makeRepo(options: { commit?: boolean } = {}): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), "loop-gitactions-"));
   made.push(dir);
   await git(dir, "init", "--initial-branch=main");
+  // The identity goes in the repo's own config, not just this helper's env:
+  // the code under test spawns its own git, which inherits none of it. A
+  // developer machine has a global identity to fall back on and a fresh CI
+  // runner does not, so without this every commit here fails with "Author
+  // identity unknown" on CI alone.
+  await git(dir, "config", "user.name", AUTHOR.GIT_AUTHOR_NAME);
+  await git(dir, "config", "user.email", AUTHOR.GIT_AUTHOR_EMAIL);
   if (options.commit !== false) {
     await writeFile(join(dir, "base.txt"), "base\n");
     await git(dir, "add", ".");

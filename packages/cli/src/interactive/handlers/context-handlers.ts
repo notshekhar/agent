@@ -10,15 +10,13 @@ import { buildContextReport, getModelSync, type CommandContext } from "@notshekh
 import type { AppDeps } from "../deps";
 import type { AppState } from "../state";
 import { dim } from "../ui/text";
+import { theme } from "../ui/theme";
 
 type ContextHandlers = Pick<CommandContext, "showContext">;
 
 const GRID_ROWS = 10;
 const GRID_COLS = 20;
 const CELLS = GRID_ROWS * GRID_COLS;
-
-/** One color per category, in report order (free space is dim). */
-const CATEGORY_COLORS = ["#e5c07b", "#61afef", "#c678dd", "#56b6c2", "#98c379", "#e06c75", "#d19a66"];
 
 const fmtTok = (n: number) =>
     n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1_000 ? `${(n / 1_000).toFixed(1)}k` : String(n);
@@ -72,16 +70,15 @@ export function createContextHandlers(state: AppState, deps: AppDeps): ContextHa
             // Paint the flat cell list, then slice into rows.
             const cells: string[] = [];
             for (let i = 0; i < report.categories.length && cells.length < CELLS; i++) {
-                const color = CATEGORY_COLORS[i % CATEGORY_COLORS.length];
                 for (let k = 0; k < cellsFor[i] && cells.length < usedCells; k++) {
-                    cells.push(chalk.hex(color)("■"));
+                    cells.push(theme.series(i, "■"));
                 }
             }
             while (cells.length < CELLS) cells.push(dim("·"));
 
             const pct = (n: number) => `${((n / window) * 100).toFixed(n > 0 && n / window < 0.001 ? 2 : 1)}%`;
             const legend = report.categories.map((c, i) => {
-                const sw = chalk.hex(CATEGORY_COLORS[i % CATEGORY_COLORS.length])("■");
+                const sw = theme.series(i, "■");
                 return `${sw} ${c.label}: ${fmtTok(c.tokens)} tokens (${pct(c.tokens)})`;
             });
             const compactAt = Math.floor(window * report.autoCompactThreshold);

@@ -74,6 +74,8 @@ export interface ThemeColors {
      * `/command` token as it is typed. */
     inputBorder: string | number;
     inputCommand: string | number;
+    /** Injected context: session-start hook output, the active agent badge. */
+    hookAccent: string | number;
     /** UI-mode slots — optional ("" = terminal default). Modes that wash the
      * canvas or draw per-block accents define these in their own themes; the
      * loop themes carry neutral values so any renderer can reference them. */
@@ -307,6 +309,10 @@ export function themeFromPalette(p: Palette): ThemeJson {
             bashMode: p.success,
             inputBorder: p.line,
             inputCommand: p.accent,
+            // Content loop injected rather than the model or you writing it —
+            // session-start hook output, the non-default agent badge. Orange
+            // because it is the one hue nothing else in the transcript uses.
+            hookAccent: p.syntax.variable,
 
             bgBase: p.wash ? p.bg : "",
             bgRaised: p.bgRaised,

@@ -25,6 +25,7 @@ import { startLogin, startLogout } from "../login-flow";
 import { loadChangelogEntries } from "../../changelog";
 import { resolveAvailableUpdate, runUpgrade } from "../../commands";
 import { accent, dim, warn } from "../ui/text";
+import { theme } from "../ui/theme";
 
 type MiscHandlers = Pick<
     CommandContext,
@@ -59,10 +60,11 @@ export function createMiscHandlers(state: AppState, deps: AppDeps): MiscHandlers
         const opts = /^\d{4}$/.test(trimmed) ? { year: Number(trimmed) } : {};
         const grid = buildSteakGrid(manager.dailyTokens(), opts);
 
-        // GitHub dark palette: [no-usage, q1..q4]. Intensity is relative, so the
-        // wall reads the same whether you burn 10k or 10M a day.
-        const ramp = ["#2d333b", "#0e4429", "#006d32", "#26a641", "#39d353"];
-        const square = (lvl: number) => (lvl < 0 ? " " : chalk.hex(ramp[lvl])("■"));
+        // Intensity is relative, so the wall reads the same whether you burn
+        // 10k or 10M a day. The ramp walks the theme's success colour out of
+        // the canvas rather than pinning GitHub's greens, which sat oddly on
+        // any theme that was not GitHub dark.
+        const square = (lvl: number) => (lvl < 0 ? " " : theme.heat(lvl, "■"));
         const GUTTER = 4; // "Mon " etc.
 
         const period = "year" in opts ? String(opts.year) : "the last year";
@@ -86,7 +88,7 @@ export function createMiscHandlers(state: AppState, deps: AppDeps): MiscHandlers
             history.addSystem(line);
         }
 
-        const legend = [0, 1, 2, 3, 4].map((l) => chalk.hex(ramp[l])("■")).join("");
+        const legend = [0, 1, 2, 3, 4].map((l) => theme.heat(l, "■")).join("");
         history.addSystem("");
         history.addSystem(`${" ".repeat(GUTTER)}${dim("Less ")}${legend}${dim(" More")}`);
 

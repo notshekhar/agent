@@ -10,7 +10,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { MarkdownTheme, SelectListTheme } from "@notshekhar/loop-tui";
 import chalk from "chalk";
-import { luminance } from "./palette";
+import { luminance, mix } from "./palette";
 import { DARK_THEME, type ThemeColors, type ThemeJson } from "./themes";
 import { activeUiMode, setActiveUiMode } from "./ui-mode";
 
@@ -127,14 +127,36 @@ const BG_KEYS: ReadonlySet<string> = new Set<ThemeBg>([
     "bgRaised",
 ]);
 
+/**
+ * The slots `series` cycles through, in order: gold, blue, magenta, cyan,
+ * green, red, orange. Seven hues that every built-in theme already keeps
+ * distinct from one another, because each is doing a different job elsewhere.
+ */
+const SERIES_SLOTS: readonly ThemeColor[] = [
+    "mdHeading",
+    "mdLink",
+    "syntaxType",
+    "syntaxNumber",
+    "success",
+    "error",
+    "syntaxVariable",
+];
+
+/** How far along success each activity level sits, from the canvas outward. */
+const HEAT_STEPS = [0.3, 0.55, 0.78, 1] as const;
+
 export class Theme {
     readonly name: string;
     private fgColors = new Map<string, string>();
     private bgColors = new Map<string, string>();
     private rawColors = new Map<string, ColorValue>();
+    /** Escapes computed from the palette rather than read from a slot. */
+    private derived = new Map<string, string>();
+    private readonly mode: ColorMode;
 
     constructor(json: ThemeJson, mode: ColorMode = detectColorMode()) {
         this.name = json.name;
+        this.mode = mode;
         const vars = json.vars ?? {};
         for (const [key, raw] of Object.entries(json.colors)) {
             const value = resolveVarRefs(raw, vars);
@@ -160,6 +182,51 @@ export class Theme {
         const ansi = this.bgColors.get(color);
         if (!ansi) throw new Error(`Unknown theme background color: ${color}`);
         return `${ansi}${text}\x1b[49m`;
+    }
+
+    /**
+     * The i-th categorical swatch, cycling. Chart colours are not their own
+     * slots: they reuse hues the palette already carries and already keeps
+     * distinct, so a theme that never heard of the context chart still paints
+     * a legible one — and a custom theme gets a matching chart for free rather
+     * than seven more slots to fill in.
+     */
+    series(i: number, text: string): string {
+        return this.fg(SERIES_SLOTS[i % SERIES_SLOTS.length], text);
+    }
+
+    /** How many distinct swatches `series` can hand out before repeating. */
+    get seriesLength(): number {
+        return SERIES_SLOTS.length;
+    }
+
+    /**
+     * A step on the activity ramp, 0 (nothing) through `HEAT_STEPS.length`
+     * (busiest) — the usage wall's squares. Built by walking the success
+     * colour out of the canvas, so it reads as one colour deepening rather
+     * than the fixed GitHub greens sitting on whatever background it lands on.
+     */
+    heat(level: number, text: string): string {
+        if (level <= 0) return this.fg("thinkingOff", text);
+        const key = `heat${level}`;
+        let ansi = this.derived.get(key);
+        if (!ansi) {
+            const success = this.rawColors.get("success");
+            const floor = this.isLight ? "#ffffff" : "#000000";
+            const step = HEAT_STEPS[Math.min(level, HEAT_STEPS.length) - 1];
+            ansi =
+                typeof success === "string" && success.startsWith("#")
+                    ? fgAnsi(mix(floor, success, step), this.mode)
+                    : (this.fgColors.get("success") ?? "");
+            this.derived.set(key, ansi);
+        }
+        return `${ansi}${text}\x1b[39m`;
+    }
+
+    /** True when this theme paints dark text, i.e. it is built for a light terminal. */
+    get isLight(): boolean {
+        const text = this.rawColors.get("text");
+        return typeof text === "string" && text.startsWith("#") ? luminance(text) < 0.5 : false;
     }
 
     bold(text: string): string {
@@ -209,9 +276,7 @@ export function fgHex(hex: string, text: string): string {
  * custom themes and extension modes classify correctly too.
  */
 export function isLightTheme(): boolean {
-    const text = activeTheme?.raw("text");
-    if (typeof text !== "string" || !text.startsWith("#")) return false;
-    return luminance(text) < 0.5;
+    return activeTheme?.isLight ?? false;
 }
 
 function customThemesDir(): string {
