@@ -100,6 +100,7 @@ describe("RpcSessionFactory", () => {
         model: "kimi/k3",
       });
       expect(loop.calls.map((call) => call.method).toSorted()).toEqual([
+        "agent.list",
         "auth.status",
         "catalog.list",
         "server.info",

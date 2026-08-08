@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { askInputSchema, createAskTool, formatAskAnswers } from "../src/tools/ask";
 import {
     getAskUserBridge,
@@ -22,6 +22,11 @@ const q = (over: Partial<AskQuestion> = {}): AskQuestion => ({
 const execute = async (tool: ReturnType<typeof createAskTool>, questions: AskQuestion[], signal?: AbortSignal) =>
     (await tool.execute!({ questions }, { toolCallId: "t1", messages: [], abortSignal: signal } as never)) as string;
 
+// The bridge is a module global and this file asserts what it starts as, so
+// it has to own that starting state: constructing an RpcServer registers one
+// (that is what makes the ask tool exist for RPC clients), and bun shares a
+// process across test files.
+beforeEach(() => setAskUserBridge(null));
 afterEach(() => setAskUserBridge(null));
 
 describe("ask bridge registry", () => {

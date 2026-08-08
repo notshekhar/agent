@@ -1,5 +1,5 @@
 import { getConfigDir, PRODUCT_NAME } from "../brand";
-import { Database } from "bun:sqlite";
+import { openSqlite, sleepSyncMs, type SqliteDatabase as Database } from "./sqlite";
 import { mkdirSync, renameSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { debugLog } from "../debug";
@@ -12,9 +12,14 @@ import { debugLog } from "../debug";
  * The path must come from getConfigDir(): inside a compiled binary
  * `import.meta.dir` is the read-only /$bunfs bundle and opening a DB there
  * fails with SQLITE_CANTOPEN.
+ *
+ * The handle itself comes from ./sqlite, which hands back the real
+ * `bun:sqlite` Database under Bun and a thin `node:sqlite` adapter under Node
+ * — so core works as a library inside Electron's main process without the CLI
+ * changing behaviour at all.
  */
 
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS meta (
@@ -31,7 +36,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     name       TEXT,
     parent_pub TEXT,
     created_at INTEGER NOT NULL,
-    updated_at INTEGER NOT NULL
+    updated_at INTEGER NOT NULL,
+    archived_at INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_cwd ON sessions(cwd, updated_at DESC);
 
@@ -156,7 +162,7 @@ function openDb(path: string, recovered = false): Database {
     for (let attempt = 0; attempt < 20; attempt++) {
         let candidate: Database | null = null;
         try {
-            candidate = new Database(path, { create: true });
+            candidate = openSqlite(path, { create: true });
             candidate.exec("PRAGMA busy_timeout = 5000");
             candidate.exec("PRAGMA journal_mode = WAL");
             candidate.exec("PRAGMA synchronous = NORMAL");
@@ -190,6 +196,10 @@ function openDb(path: string, recovered = false): Database {
                 // v5 → v6: projects.bash_allow (JSON string array — the
                 // per-project "always allow" grants the bash approval prompt
                 // persists; was the global settings.bashAllow key).
+                // v6 → v7: sessions.archived_at (epoch ms; NULL = active).
+                // Archiving is deliberately a timestamp rather than a flag —
+                // "when did I put this away" is the question an archive list
+                // sorts by, and a boolean cannot answer it.
                 // Two processes can race an ALTER — the loser's
                 // duplicate-column error is the success case, everything else
                 // still throws.
@@ -204,6 +214,7 @@ function openDb(path: string, recovered = false): Database {
                     ...(version < 3 ? ["ALTER TABLE projects ADD COLUMN provider_models TEXT"] : []),
                     ...(version < 5 ? ["ALTER TABLE goals ADD COLUMN agent TEXT"] : []),
                     ...(version < 6 ? ["ALTER TABLE projects ADD COLUMN bash_allow TEXT"] : []),
+                    ...(version < 7 ? ["ALTER TABLE sessions ADD COLUMN archived_at INTEGER"] : []),
                 ];
                 for (const alter of alters) {
                     try {
@@ -249,7 +260,7 @@ function openDb(path: string, recovered = false): Database {
                 return recoverCorruptDb(path);
             }
             if (!/SQLITE_BUSY|database is locked/i.test(msg)) throw err;
-            Bun.sleepSync(25);
+            sleepSyncMs(25);
         }
     }
     throw lastErr instanceof Error ? lastErr : new Error(`could not open session db at ${path}: ${lastErr}`);
@@ -296,7 +307,7 @@ function recoverCorruptDb(path: string): Database {
 function salvageCorruptDb(corruptPath: string, fresh: Database): void {
     let damaged: Database | null = null;
     try {
-        damaged = new Database(corruptPath);
+        damaged = openSqlite(corruptPath);
         for (const table of ["sessions", "entries", "cost_ledger", "projects", "reminders", "goals"]) {
             try {
                 const select = damaged.query(`SELECT * FROM ${table}`);
@@ -315,7 +326,7 @@ function salvageCorruptDb(corruptPath: string, fresh: Database): void {
                     try {
                         for (const row of select.iterate() as IterableIterator<Record<string, unknown>>) {
                             try {
-                                insert.run(...(cols.map((c) => row[c]) as never[]));
+                                insert.run(...(cols.map((c: string) => row[c]) as never[]));
                                 copied++;
                             } catch {
                                 // FK parent lost to the corruption — skip the child.

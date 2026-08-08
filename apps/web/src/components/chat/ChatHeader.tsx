@@ -15,6 +15,8 @@ import ProjectScriptsControl, {
   type ProjectScriptActionResult,
 } from "../ProjectScriptsControl";
 import { OpenInPicker } from "./OpenInPicker";
+import { SessionInsights } from "../loop/SessionInsights";
+import { SessionTreeDialog } from "../loop/SessionTreeDialog";
 import { usePrimaryEnvironmentId } from "../../state/environments";
 import { useT3ProjectFileScripts } from "~/hooks/useT3ProjectFileScripts";
 import { ProjectFavicon } from "../ProjectFavicon";
@@ -34,6 +36,15 @@ interface ChatHeaderProps {
   availableEditors: ReadonlyArray<EditorId>;
   rightPanelOpen: boolean;
   gitCwd: string | null;
+  /** loop's own session id for this thread, or null while it is still a draft
+   * loop has never been told about. */
+  loopSessionId: string | null;
+  /** A turn is in flight: the usage numbers move constantly and loop refuses
+   * to compact. */
+  isTurnRunning: boolean;
+  /** Open a session the tree forked off — a different loop session, so only
+   * the app knows how to route to it. */
+  onOpenLoopSession: (sessionId: string, prompt?: string) => void | Promise<void>;
   onNewThreadInProject: () => void;
   onRunProjectScript: (script: ProjectScript) => void;
   onAddProjectScript: (input: NewProjectScriptInput) => Promise<ProjectScriptActionResult>;
@@ -70,6 +81,9 @@ export const ChatHeader = memo(function ChatHeader({
   availableEditors,
   rightPanelOpen,
   gitCwd,
+  loopSessionId,
+  isTurnRunning,
+  onOpenLoopSession,
   onNewThreadInProject,
   onRunProjectScript,
   onAddProjectScript,
@@ -140,7 +154,10 @@ export const ChatHeader = memo(function ChatHeader({
           rightPanelOpen ? "pr-0" : "pr-16",
         )}
       >
-        {activeProjectScripts && (
+        {/* An empty array is truthy, and loop reports no project scripts at
+            all — so this rendered a "Build" control that ran nothing. Show it
+            only when there is something to run. */}
+        {activeProjectScripts && (activeProjectScripts.length > 0 || fileScripts.length > 0) && (
           <ProjectScriptsControl
             scripts={activeProjectScripts}
             fileScripts={fileScripts}
@@ -152,6 +169,15 @@ export const ChatHeader = memo(function ChatHeader({
             onDeleteScript={onDeleteProjectScript}
           />
         )}
+        {/* Ahead of the per-project controls, because it is about THIS
+            conversation rather than the project it lives in. */}
+        <SessionInsights cwd={activeProjectCwd} running={isTurnRunning} sessionId={loopSessionId} />
+        <SessionTreeDialog
+          cwd={activeProjectCwd}
+          onOpenSession={onOpenLoopSession}
+          running={isTurnRunning}
+          sessionId={loopSessionId}
+        />
         {showOpenInPicker && (
           <OpenInPicker
             environmentId={activeThreadEnvironmentId}

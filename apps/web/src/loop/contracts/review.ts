@@ -27,7 +27,12 @@ export type ReviewDiffPreviewSource = typeof ReviewDiffPreviewSource.Type;
 
 export const ReviewDiffPreviewResult = Schema.Struct({
   cwd: TrimmedNonEmptyString,
-  generatedAt: Schema.DateTimeUtc,
+  // Wire-shaped on purpose: this crosses the RPC boundary as JSON, so the
+  // encoded side has to be a string. Bare `DateTimeUtc` expects a live
+  // `DateTime.Utc` instance and rejected the handler's ISO string, which the
+  // handler then reported as "git returned an unexpected diff preview" — the
+  // review pane never rendered a diff at all.
+  generatedAt: Schema.DateTimeUtcFromString,
   sources: Schema.Array(ReviewDiffPreviewSource),
 });
 export type ReviewDiffPreviewResult = typeof ReviewDiffPreviewResult.Type;

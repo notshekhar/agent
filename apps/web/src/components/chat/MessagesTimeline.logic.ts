@@ -175,7 +175,7 @@ export type MessagesTimelineRow =
       createdAt: string;
       proposedPlan: ProposedPlan;
     }
-  | { kind: "working"; id: string; createdAt: string | null };
+  | { kind: "working"; id: string; createdAt: string | null; label?: string };
 
 export interface StableMessagesTimelineRowsState {
   byId: Map<string, MessagesTimelineRow>;
@@ -407,6 +407,27 @@ export function deriveMessagesTimelineRows(input: {
   latestTurn?: TimelineLatestTurn | null;
   runningTurnId?: TurnId | null;
   expandedTurnIds?: ReadonlySet<TurnId>;
+  /**
+   * Whether a settled turn folds behind a "Worked for 12s" row.
+   *
+   * Upstream does. loop does not: its terminal keeps every `◆` row in the
+   * transcript and has no such summary, and that visible history is the thing
+   * people read a session back from. With this off no fold row is emitted at
+   * all and nothing is hidden.
+   */
+  foldSettledTurns?: boolean;
+  /**
+   * Whether consecutive work entries are gathered into one group that hides
+   * its overflow behind "+N previous log entries".
+   *
+   * Upstream does. loop does not: the terminal prints one `◆` row per call in
+   * the order they happened, and nothing about a run is hidden from the
+   * transcript. With this off every entry is its own row and no toggle is
+   * emitted.
+   */
+  groupWorkEntries?: boolean;
+  /** Whether an in-flight turn appends a "Working for 12s" row. */
+  showWorkingRow?: boolean;
   expandedWorkGroupIds?: ReadonlySet<string>;
   isWorking: boolean;
   activeTurnStartedAt: string | null;
@@ -422,15 +443,19 @@ export function deriveMessagesTimelineRows(input: {
     input.latestTurn ?? null,
     input.runningTurnId ?? null,
   );
-  const foldsByAnchorEntryId = deriveTurnFolds({
-    timelineEntries: input.timelineEntries,
-    terminalAssistantMessageIds,
-    latestTurn: input.latestTurn ?? null,
-    unsettledTurnId,
-  });
+  const foldsByAnchorEntryId =
+    input.foldSettledTurns === false
+      ? new Map<string, TurnFold>()
+      : deriveTurnFolds({
+          timelineEntries: input.timelineEntries,
+          terminalAssistantMessageIds,
+          latestTurn: input.latestTurn ?? null,
+          unsettledTurnId,
+        });
+  const isTurnExpanded = (turnId: TurnId) => input.expandedTurnIds?.has(turnId) ?? false;
   const collapsedEntryIds = new Set<string>();
   for (const fold of foldsByAnchorEntryId.values()) {
-    if (!input.expandedTurnIds?.has(fold.turnId)) {
+    if (!isTurnExpanded(fold.turnId)) {
       for (const entryId of fold.hiddenEntryIds) {
         collapsedEntryIds.add(entryId);
       }
@@ -451,7 +476,7 @@ export function deriveMessagesTimelineRows(input: {
         createdAt: turnFold.createdAt,
         turnId: turnFold.turnId,
         label: turnFold.label,
-        expanded: input.expandedTurnIds?.has(turnFold.turnId) ?? false,
+        expanded: isTurnExpanded(turnFold.turnId),
       });
     }
 
@@ -460,6 +485,18 @@ export function deriveMessagesTimelineRows(input: {
     }
 
     if (timelineEntry.kind === "work") {
+      if (input.groupWorkEntries === false) {
+        // One row per entry, in order, nothing hidden.
+        if (!workEntryIndicatesToolNeutralStatus(timelineEntry.entry)) {
+          nextRows.push({
+            kind: "work",
+            id: timelineEntry.id,
+            createdAt: timelineEntry.createdAt,
+            groupedEntries: [timelineEntry.entry],
+          });
+        }
+        continue;
+      }
       const groupedEntries = [timelineEntry.entry];
       let cursor = index + 1;
       while (cursor < input.timelineEntries.length) {
@@ -563,15 +600,42 @@ export function deriveMessagesTimelineRows(input: {
     });
   }
 
-  if (input.isWorking) {
+  if (input.isWorking && input.showWorkingRow !== false) {
+    const label = deriveWorkingLabel(input.timelineEntries);
     nextRows.push({
       kind: "working",
       id: "working-indicator-row",
       createdAt: input.activeTurnStartedAt,
+      ...(label === undefined ? {} : { label }),
     });
   }
 
   return nextRows;
+}
+
+/**
+ * What the turn is doing, in the terminal's own words.
+ *
+ * The TUI's status line names the activity — `Running write…`, `Generating` —
+ * rather than only asserting that something is happening, and that difference
+ * is the whole value of the row: "Working for 14s" with nothing above it is
+ * indistinguishable from a hang. Read from the last entry rather than from
+ * turn state because that is what the reader's eye is already on.
+ */
+function deriveWorkingLabel(
+  entries: ReadonlyArray<TimelineEntry>,
+): string | undefined {
+  for (let index = entries.length - 1; index >= 0; index -= 1) {
+    const entry = entries[index];
+    if (!entry || entry.kind !== "work") continue;
+    const tool = (entry.entry as { loop?: { tool?: { name?: unknown; isPartial?: unknown } } }).loop
+      ?.tool;
+    if (!tool || typeof tool.name !== "string") return undefined;
+    // Only a call still in flight names itself. A settled one means the model
+    // has the result back and is composing whatever comes next.
+    return tool.isPartial === true ? `Running ${tool.name}` : "Generating";
+  }
+  return undefined;
 }
 
 export function computeStableMessagesTimelineRows(
@@ -600,7 +664,10 @@ function isRowUnchanged(a: MessagesTimelineRow, b: MessagesTimelineRow): boolean
 
   switch (a.kind) {
     case "working":
-      return a.createdAt === (b as typeof a).createdAt;
+      // `label` too, or the row keeps whichever activity it first named: the
+      // memo hands back the previous object and "Running write" never becomes
+      // "Generating".
+      return a.createdAt === (b as typeof a).createdAt && a.label === (b as typeof a).label;
 
     case "turn-fold": {
       const bf = b as typeof a;

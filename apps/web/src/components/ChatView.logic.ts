@@ -1,6 +1,5 @@
 import {
   type EnvironmentId,
-  isProviderDriverKind,
   ProjectId,
   type ModelSelection,
   type ProviderDriverKind,
@@ -14,7 +13,7 @@ import { type ChatMessage, type SessionPhase, type Thread, type ThreadShell } fr
 import { type ComposerImageAttachment, type DraftThreadState } from "../composerDraftStore";
 import * as Schema from "effect/Schema";
 import { appAtomRegistry } from "../rpc/atomRegistry";
-import { environmentThreadDetails } from "../state/threads";
+import { environmentThreadDetails, environmentThreadShells } from "../state/threads";
 import {
   filterTerminalContextsWithText,
   stripInlineTerminalContextPlaceholders,
@@ -369,27 +368,28 @@ export function threadHasStarted(thread: Thread | null | undefined): boolean {
 // "unknown driver -> unlocked" semantics. Callers that want the lock to track
 // a custom instance's underlying driver kind should resolve the instance id
 // upstream and pass the correlated kind.
-export function deriveLockedProvider(input: {
+/**
+ * Which provider the composer is pinned to, if any.
+ *
+ * Upstream pins a started thread to the provider its session opened with,
+ * because the agents it drives cannot change provider mid-conversation.
+ *
+ * **loop can, so nothing is pinned here.** It has no `provider` parameter at
+ * all: `session.send` takes a model id, the id carries its provider
+ * (`xai/composer-2.5`), and `runTurn` resolves it per turn — which is exactly
+ * what `/model` does in the terminal. Inheriting the lock made the picker
+ * refuse every provider but the one the session started on, which is the
+ * "cannot switch provider" report.
+ *
+ * Kept as a function rather than deleted: it is the seam where a future
+ * provider that genuinely cannot switch would say so.
+ */
+export function deriveLockedProvider(_input: {
   thread: Thread | null | undefined;
   selectedProvider: string | null;
   threadProvider: string | null;
 }): ProviderDriverKind | null {
-  if (!threadHasStarted(input.thread)) {
-    return null;
-  }
-  const sessionProvider = input.thread?.session?.providerName ?? null;
-  if (sessionProvider && isProviderDriverKind(sessionProvider)) {
-    return sessionProvider;
-  }
-  const narrowedThreadProvider =
-    input.threadProvider && isProviderDriverKind(input.threadProvider)
-      ? input.threadProvider
-      : null;
-  const narrowedSelectedProvider =
-    input.selectedProvider && isProviderDriverKind(input.selectedProvider)
-      ? input.selectedProvider
-      : null;
-  return narrowedThreadProvider ?? narrowedSelectedProvider ?? null;
+  return null;
 }
 
 export function getStartedThreadModelChangeBlockReason(input: {
@@ -472,6 +472,49 @@ export async function waitForStartedServerThread(
     timeoutId = globalThis.setTimeout(() => {
       finish(false);
     }, timeoutMs);
+  });
+}
+
+/**
+ * Resolve once the environment's shell carries this thread.
+ *
+ * A thread loop has just created — a fork off the session tree — exists in
+ * loop and not yet in the app: the shell is rebuilt from `session.list` and
+ * that rebuild is asynchronous. `resolveThreadRouteRenderState` renders a
+ * thread with no shell entry and no detail as **missing**, so routing to a
+ * fresh fork before the snapshot lands shows "thread not found" and the fork
+ * looks broken.
+ *
+ * Resolves `false` on timeout rather than hanging: the caller navigates
+ * anyway, because the route recovers on its own once the snapshot arrives and
+ * a brief "loading" beats never opening the thread at all.
+ */
+export async function waitForThreadInShell(
+  threadRef: ScopedThreadRef,
+  timeoutMs = 2_000,
+): Promise<boolean> {
+  const shellAtom = environmentThreadShells.threadShellAtom(threadRef);
+  const present = () => appAtomRegistry.get(shellAtom) !== null;
+  if (present()) return true;
+
+  return await new Promise<boolean>((resolve) => {
+    let settled = false;
+    let timeoutId: ReturnType<typeof globalThis.setTimeout> | null = null;
+    const finish = (result: boolean) => {
+      if (settled) return;
+      settled = true;
+      if (timeoutId !== null) globalThis.clearTimeout(timeoutId);
+      unsubscribe();
+      resolve(result);
+    };
+    const unsubscribe = appAtomRegistry.subscribe(shellAtom, () => {
+      if (present()) finish(true);
+    });
+    if (present()) {
+      finish(true);
+      return;
+    }
+    timeoutId = globalThis.setTimeout(() => finish(false), timeoutMs);
   });
 }
 
@@ -563,4 +606,24 @@ export function hasServerAcknowledgedLocalDispatch(input: {
     input.localDispatch.sessionStatus !== (session?.status ?? null) ||
     input.localDispatch.sessionUpdatedAt !== (session?.updatedAt ?? null)
   );
+}
+
+/**
+ * Terminals the bottom drawer could actually show.
+ *
+ * Two things make an id unusable here, and both used to be missed:
+ *
+ * - It is not live. The terminal UI store is persisted to localStorage, so it
+ *   keeps ids from earlier app runs whose PTYs died with the process. Treating
+ *   those as open terminals made the drawer refuse to start a real one and then
+ *   render nothing, so the toggle looked dead in exactly the threads that had
+ *   used a terminal before a restart.
+ * - It is docked in the right panel. The drawer filters those out when it
+ *   renders, so counting them as the drawer's leaves it empty.
+ */
+export function drawerTerminalIds(
+  liveTerminalIds: readonly string[],
+  panelTerminalIds: ReadonlySet<string>,
+): readonly string[] {
+  return liveTerminalIds.filter((id) => !panelTerminalIds.has(id));
 }

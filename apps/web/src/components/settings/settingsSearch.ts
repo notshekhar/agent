@@ -1,5 +1,9 @@
 export type SettingsPath =
   | "/settings/general"
+  | "/settings/agents"
+  | "/settings/usage"
+  | "/settings/mcp"
+  | "/settings/datasources"
   | "/settings/appearance"
   | "/settings/keybindings"
   | "/settings/providers"
@@ -21,6 +25,10 @@ export interface SettingsSearchItem {
  */
 export const SETTINGS_SECTION_LABELS: Readonly<Record<SettingsPath, string>> = {
   "/settings/general": "General",
+  "/settings/agents": "Agents",
+  "/settings/usage": "Usage",
+  "/settings/mcp": "MCP",
+  "/settings/datasources": "Databases",
   "/settings/appearance": "Appearance",
   "/settings/keybindings": "Keybindings",
   "/settings/providers": "Providers",

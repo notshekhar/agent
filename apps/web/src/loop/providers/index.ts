@@ -1,0 +1,206 @@
+/**
+ * loop's providers, as the UI sees them.
+ *
+ * Two halves, deliberately kept apart:
+ *
+ *   - **What exists and what is connected** comes from loop at runtime
+ *     (`auth.providers`). loop is the only thing that knows which providers
+ *     this build ships, which have credentials, and which gateways the user
+ *     added — so nothing here hard-codes that.
+ *   - **How a provider looks and what its login asks for** comes from
+ *     `catalog.json`. Presentation is a UI concern and has no business
+ *     round-tripping through an RPC.
+ *
+ * A provider loop reports that this file has never heard of still renders: it
+ * falls back to a lettermark and a generic API-key form. That is the whole
+ * point of the split — adding a provider to loop must not require a UI change
+ * to make it usable.
+ */
+import type { Icon } from "../../components/Icons";
+import {
+  AnthropicIcon,
+  BedrockIcon,
+  CerebrasIcon,
+  CopilotIcon,
+  DeepSeekIcon,
+  GoogleAiIcon,
+  GroqIcon,
+  MistralIcon,
+  MoonshotIcon,
+  OllamaIcon,
+  OpenAiIcon,
+  OpenRouterIcon,
+  VercelIcon,
+  XaiIcon,
+  ZenMuxIcon,
+  ZhipuIcon,
+} from "../../components/LoopProviderIcons";
+import catalog from "./catalog.json";
+
+/** How a provider is signed in to. Mirrors core's `AuthMethod`. */
+export type LoopAuthMethod = "oauth" | "apikey" | "detect";
+
+export interface LoopLoginMethod {
+  readonly method: LoopAuthMethod;
+  readonly label: string;
+  readonly hint?: string;
+  readonly placeholder?: string;
+}
+
+export interface LoopProviderPresentation {
+  readonly id: string;
+  readonly label: string;
+  readonly tagline?: string;
+  readonly icon?: Icon;
+  readonly keysUrl?: string;
+  readonly login: readonly LoopLoginMethod[];
+}
+
+const ICONS: Record<string, Icon> = {
+  anthropic: AnthropicIcon,
+  openai: OpenAiIcon,
+  google: GoogleAiIcon,
+  xai: XaiIcon,
+  openrouter: OpenRouterIcon,
+  "github-copilot": CopilotIcon,
+  deepseek: DeepSeekIcon,
+  mistral: MistralIcon,
+  // loop's `glm` (China) and `zai` (international) are two endpoints in front
+  // of the same Zhipu models, and models.dev serves them a byte-identical
+  // mark — so one component backs both catalog entries.
+  zhipuai: ZhipuIcon,
+  zai: ZhipuIcon,
+  moonshotai: MoonshotIcon,
+  groq: GroqIcon,
+  cerebras: CerebrasIcon,
+  zenmux: ZenMuxIcon,
+  vercel: VercelIcon,
+  "amazon-bedrock": BedrockIcon,
+  ollama: OllamaIcon,
+};
+
+interface CatalogEntry {
+  readonly id: string;
+  readonly label: string;
+  readonly tagline?: string;
+  readonly icon?: string;
+  readonly keysUrl?: string;
+  readonly login?: ReadonlyArray<{
+    readonly method: string;
+    readonly label: string;
+    readonly hint?: string;
+    readonly placeholder?: string;
+  }>;
+}
+
+function isAuthMethod(value: string): value is LoopAuthMethod {
+  return value === "oauth" || value === "apikey" || value === "detect";
+}
+
+const ENTRIES: ReadonlyMap<string, LoopProviderPresentation> = new Map(
+  (catalog.providers as ReadonlyArray<CatalogEntry>).map((entry) => {
+    const icon = entry.icon ? ICONS[entry.icon] : undefined;
+    return [
+      entry.id,
+      {
+        id: entry.id,
+        label: entry.label,
+        ...(entry.tagline === undefined ? {} : { tagline: entry.tagline }),
+        ...(icon === undefined ? {} : { icon }),
+        ...(entry.keysUrl === undefined ? {} : { keysUrl: entry.keysUrl }),
+        login: (entry.login ?? [])
+          .filter((method) => isAuthMethod(method.method))
+          .map((method) => ({
+            method: method.method as LoopAuthMethod,
+            label: method.label,
+            ...(method.hint === undefined ? {} : { hint: method.hint }),
+            ...(method.placeholder === undefined ? {} : { placeholder: method.placeholder }),
+          })),
+      },
+    ] as const;
+  }),
+);
+
+/** Every provider the catalog describes, in file order. */
+export const LOOP_PROVIDER_CATALOG: readonly LoopProviderPresentation[] = [...ENTRIES.values()];
+
+/** The name of a custom gateway (`custom:bifrost` → `bifrost`), or null. */
+export function customProviderName(loopProviderId: string): string | null {
+  return loopProviderId.startsWith("custom:") ? loopProviderId.slice("custom:".length) : null;
+}
+
+/**
+ * Presentation for one loop provider id. Never returns undefined — an unknown
+ * id gets a title-cased label and an API-key form, which is the right guess
+ * for an extension-registered provider and harmless for anything else.
+ */
+export function providerPresentation(loopProviderId: string): LoopProviderPresentation {
+  const known = ENTRIES.get(loopProviderId);
+  if (known) return known;
+  const custom = customProviderName(loopProviderId);
+  if (custom !== null) {
+    return {
+      id: loopProviderId,
+      label: custom,
+      tagline: "Custom gateway.",
+      login: [],
+    };
+  }
+  return {
+    id: loopProviderId,
+    label: titleCase(loopProviderId),
+    login: [{ method: "apikey", label: "API key" }],
+  };
+}
+
+function titleCase(id: string): string {
+  return id
+    .split(/[-_]/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+/** Two-letter fallback mark for a provider with no brand icon. */
+export function providerInitials(label: string): string {
+  const words = label.replace(/[_:-]+/g, " ").split(/\s+/u).filter(Boolean);
+  if (words.length === 0) return "?";
+  if (words.length === 1) return words[0]!.slice(0, 2).toUpperCase();
+  return words
+    .slice(0, 2)
+    .map((word) => word[0]!.toUpperCase())
+    .join("");
+}
+
+/**
+ * The login methods to offer for a provider, intersected with what loop says
+ * it actually supports.
+ *
+ * loop is authoritative — it knows a Copilot key is meaningless and that
+ * Bedrock has nothing to type — so a method loop does not report is dropped
+ * even when the catalog describes it. The catalog only supplies the wording.
+ * When loop reports a method the catalog has no copy for, a plain row is
+ * synthesized rather than hiding a login the user could have used.
+ */
+export function loginMethodsFor(
+  loopProviderId: string,
+  supported: readonly LoopAuthMethod[],
+): readonly LoopLoginMethod[] {
+  const described = providerPresentation(loopProviderId).login;
+  const offered = described.filter((method) => supported.includes(method.method));
+  const missing = supported.filter(
+    (method) => !offered.some((candidate) => candidate.method === method),
+  );
+  return [...offered, ...missing.map(fallbackLoginMethod)];
+}
+
+function fallbackLoginMethod(method: LoopAuthMethod): LoopLoginMethod {
+  switch (method) {
+    case "oauth":
+      return { method, label: "Sign in with a browser" };
+    case "detect":
+      return { method, label: "Detect credentials" };
+    default:
+      return { method, label: "API key" };
+  }
+}

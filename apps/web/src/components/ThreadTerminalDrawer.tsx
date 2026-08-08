@@ -131,6 +131,45 @@ function normalizeComputedColor(value: string | null | undefined, fallback: stri
   return value ?? fallback;
 }
 
+/** `#rrggbb` -> the renderer's color triple. */
+function hexColor(value: string): GhosttyColor {
+  return {
+    r: Number.parseInt(value.slice(1, 3), 16),
+    g: Number.parseInt(value.slice(3, 5), 16),
+    b: Number.parseInt(value.slice(5, 7), 16),
+  };
+}
+
+/**
+ * ANSI 0-15 for the app's dark theme.
+ *
+ * Ghostty's own default palette, written down rather than inherited so the two
+ * themes are decided in the same place and dark keeps the look it has today.
+ */
+const DARK_TERMINAL_PALETTE = [
+  "#1d1f21", "#cc6666", "#b5bd68", "#f0c674", "#81a2be", "#b294bb", "#8abeb7", "#c5c8c6",
+  "#666666", "#d54e53", "#b9ca4a", "#e7c547", "#7aa6da", "#c397d8", "#70c0b1", "#eaeaea",
+].map(hexColor);
+
+/**
+ * ANSI 0-15 for the app's light theme.
+ *
+ * A dark-background palette on a white surface is the whole light-mode
+ * complaint: Ghostty's default `yellow` (#f0c674), `green` (#b5bd68) and both
+ * whites (#c5c8c6 / #eaeaea) are pale enough to vanish, so anything using them
+ * — a prompt, `git status`, npm's warnings — read as blank space.
+ *
+ * These are VS Code's Light+ terminal colors, which are designed for exactly
+ * this background, with two changes: bright green is darkened (#14ce14 is
+ * fluorescent on white) and bright white pulled down from #a5a5a5, which is
+ * unreadable as text. Both whites stay light enough to still work as a
+ * BACKGROUND, since programs use 7/15 for both.
+ */
+const LIGHT_TERMINAL_PALETTE = [
+  "#24292f", "#cd3131", "#00875f", "#946b00", "#0451a5", "#a626a4", "#0b7285", "#6e7781",
+  "#57606a", "#c5221f", "#0f9d58", "#8a6100", "#1a63c4", "#8f39a8", "#0e7490", "#8b949e",
+].map(hexColor);
+
 function terminalThemeFromApp(mountElement?: HTMLElement | null): GhosttyTheme {
   const isDark = document.documentElement.classList.contains("dark");
   const fallbackBackground = isDark ? "rgb(14, 18, 24)" : "rgb(255, 255, 255)";
@@ -163,6 +202,7 @@ function terminalThemeFromApp(mountElement?: HTMLElement | null): GhosttyTheme {
     // Matches the xterm selection overlays this renderer replaced; the text
     // color underneath is left unchanged for contrast in both themes.
     selectionBackground: isDark ? "rgba(180, 203, 255, 0.25)" : "rgba(37, 63, 99, 0.2)",
+    palette: isDark ? DARK_TERMINAL_PALETTE : LIGHT_TERMINAL_PALETTE,
   };
 }
 
@@ -366,6 +406,7 @@ export function TerminalViewport({
   useEffect(() => {
     keybindingsRef.current = keybindings;
   }, [keybindings]);
+
 
   useEffect(() => {
     const mount = containerRef.current;

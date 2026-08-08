@@ -9,13 +9,15 @@ import {
 } from "react";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 
-import { isElectron } from "../env";
+import { isDesktopShell } from "../env";
+import { loopWindow } from "../loop/transport";
 import { getLocalStorageItem } from "../hooks/useLocalStorage";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import { cn, isMacPlatform } from "../lib/utils";
 import { primaryServerKeybindingsAtom } from "../state/server";
 import { useEnvironmentIdentificationMode, useSidebarV2Enabled } from "../hooks/useSettings";
 import ProjectSidebar from "./loop/ProjectSidebar";
+import SidebarV2 from "./SidebarV2";
 import { useSidebarStageBackdropVariant } from "./SidebarStageBackdrop";
 import {
   resolveInitialThreadSidebarWidth,
@@ -124,19 +126,20 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const isOnSettings = pathname === "/settings" || pathname.startsWith("/settings/");
   const useSidebarV2 = sidebarV2Enabled && !isOnSettings;
   const useSidebarV2Theme = useSidebarV2 || isOnSettings;
-  const isMacosDesktop = isElectron && isMacPlatform(navigator.platform);
+  // isDesktopShell, not isElectron: loop's preload exposes `window.loop` and
+  // never upstream's `window.desktopBridge`, so isElectron is false here and
+  // the traffic lights would be left sitting on the sidebar header.
+  const isMacosDesktop = isDesktopShell && isMacPlatform(navigator.platform);
   const [sidebarWidth, setSidebarWidth] = useState(readInitialThreadSidebarWidth);
   // Subscribed rather than read once: the clamp must track live window size,
   // and a clamped drag ends with an unchanged width, which skips the re-render
   // that would otherwise refresh a render-time snapshot.
   const viewportWidth = useSyncExternalStore(subscribeToViewportWidth, readViewportWidth);
   const sidebarMaximumWidth = resolveThreadSidebarMaximumWidth(viewportWidth);
-  const [isWindowFullscreen, setIsWindowFullscreen] = useState(() => {
-    const getWindowFullscreenState = window.desktopBridge?.getWindowFullscreenState;
-    return isMacosDesktop && typeof getWindowFullscreenState === "function"
-      ? getWindowFullscreenState()
-      : false;
-  });
+  // Starts false and is corrected on mount: loop's bridge answers this
+  // asynchronously over IPC, and false is the right guess anyway — the inset
+  // is only wrong while fullscreen, which a fresh window is not.
+  const [isWindowFullscreen, setIsWindowFullscreen] = useState(false);
   const sidebarProviderStyle = {
     "--sidebar-width": `${sidebarWidth}px`,
     ...(isMacosDesktop && !isWindowFullscreen
@@ -146,19 +149,28 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!isMacosDesktop) return;
-    const bridge = window.desktopBridge;
-    if (!bridge) return;
-    const { getWindowFullscreenState, onWindowFullscreenStateChange } = bridge;
-    if (
-      typeof getWindowFullscreenState !== "function" ||
-      typeof onWindowFullscreenStateChange !== "function"
-    ) {
-      return;
-    }
+    const host = loopWindow();
+    if (!host) return;
 
-    const unsubscribe = onWindowFullscreenStateChange(setIsWindowFullscreen);
-    setIsWindowFullscreen(getWindowFullscreenState());
-    return unsubscribe;
+    // Subscribe before asking, so a transition during the round trip is not
+    // missed — and let it win, because the reply describes the window as it
+    // was when the question was asked.
+    let cancelled = false;
+    let transitioned = false;
+    const unsubscribe = host.onFullscreenChange((fullscreen) => {
+      transitioned = true;
+      setIsWindowFullscreen(fullscreen);
+    });
+    void host
+      .isFullscreen()
+      .then((fullscreen) => {
+        if (!cancelled && !transitioned) setIsWindowFullscreen(fullscreen);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
   }, [isMacosDesktop]);
 
   useEffect(() => {
@@ -199,11 +211,17 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
           onResize: setSidebarWidth,
         }}
       >
-        {/* loop's sidebar lists projects only; sessions live in the project
-            view. Upstream's two thread-tree sidebars are no longer rendered —
-            the files stay until the pruning pass, because deleting them means
-            unpicking the spine rather than dropping a leaf. */}
-        <ProjectSidebar />
+        {/* Upstream's own sidebar, driven by loop.
+
+            The hand-written projects-only list it replaces was missing
+            everything this does — removing and renaming a project, the row
+            context menus, search, multi-select, jump hints, project grouping —
+            and re-implementing all of that would be rewriting this file badly.
+            Vendored from the same commit as the rest of the fork so it agrees
+            with the runtime; nightly's version wants a `threadPinning`
+            capability and pinned-reorder helpers that came after our base.
+            Settings still swaps in the section nav below. */}
+        {isOnSettings ? <ProjectSidebar /> : <SidebarV2 />}
         <SidebarRail />
       </Sidebar>
       {children}

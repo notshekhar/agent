@@ -539,6 +539,24 @@ describe("deriveMessagesTimelineRows", () => {
     expect(
       expandedRows.find((row) => row.kind === "turn-fold" && row.expanded === true),
     ).toBeDefined();
+
+    // loop's transcript is the terminal's: no "Worked for 22s" row at all,
+    // and nothing hidden behind one.
+    const loopRows = deriveMessagesTimelineRows({
+      timelineEntries,
+      foldSettledTurns: false,
+      isWorking: false,
+      activeTurnStartedAt: null,
+      turnDiffSummaryByAssistantMessageId: new Map(),
+      revertTurnCountByUserMessageId: new Map(),
+    });
+    expect(loopRows.map((row) => row.id)).toEqual([
+      "user-entry",
+      "assistant-thought-entry",
+      "work-entry-1",
+      "assistant-final-entry",
+    ]);
+    expect(loopRows.some((row) => row.kind === "turn-fold")).toBe(false);
   });
 
   it("derives a sane duration for a steer-superseded turn with one instant commentary message", () => {
@@ -1010,6 +1028,15 @@ describe("deriveMessagesTimelineRows", () => {
     expect(expandedRows.find((row) => row.kind === "work-toggle")).toMatchObject({
       expanded: true,
     });
+
+    // loop prints one row per call in the order it happened and hides none of
+    // them, so there is no group and no "+2 previous log entries" toggle.
+    const loopRows = deriveMessagesTimelineRows({ ...baseInput, groupWorkEntries: false });
+    expect(loopRows.map((row) => row.id)).toEqual(["work-entry-1", "work-entry-2", "work-entry-3"]);
+    expect(loopRows.some((row) => row.kind === "work-toggle")).toBe(false);
+    expect(loopRows.every((row) => row.kind === "work" && row.groupedEntries.length === 1)).toBe(
+      true,
+    );
   });
 });
 
@@ -1169,5 +1196,101 @@ describe("computeStableMessagesTimelineRows", () => {
 
     expect(reordered).not.toBe(initial);
     expect(reordered.result).toEqual([initial.result[1], initial.result[0]]);
+  });
+});
+
+/**
+ * The silent gap.
+ *
+ * MEASURED against both providers: xAI sends a tool call's whole input in ONE
+ * `tool-input-delta`, 68-352ms before `tool-call` — so while the model spends
+ * ten-plus seconds composing a `write`, loop receives nothing at all. (The same
+ * write on OpenAI arrives as 565 deltas over 11.8s.) With no row for a turn
+ * that is demonstrably working, the transcript sat completely still and the
+ * only sign of life was the composer's Stop button.
+ */
+describe("a turn that is working but has nothing to stream", () => {
+  const base = {
+    foldSettledTurns: false as const,
+    groupWorkEntries: false as const,
+    activeTurnStartedAt: "2026-01-01T00:00:00.000Z",
+    turnDiffSummaryByAssistantMessageId: new Map(),
+    revertTurnCountByUserMessageId: new Map(),
+  };
+
+  it("still shows a row, so a silent turn is not an apparently frozen one", () => {
+    const rows = deriveMessagesTimelineRows({
+      ...base,
+      timelineEntries: [],
+      isWorking: true,
+    });
+    expect(rows.some((row) => row.kind === "working")).toBe(true);
+  });
+
+  it("shows nothing extra once the turn is over", () => {
+    const rows = deriveMessagesTimelineRows({
+      ...base,
+      timelineEntries: [],
+      isWorking: false,
+    });
+    expect(rows.some((row) => row.kind === "working")).toBe(false);
+  });
+
+  it("names the tool that is running, the way the terminal's status line does", () => {
+    const rows = deriveMessagesTimelineRows({
+      ...base,
+      timelineEntries: [
+        {
+          id: "w1",
+          kind: "work",
+          createdAt: "2026-01-01T00:00:01.000Z",
+          entry: {
+            id: "w1",
+            label: "write",
+            createdAt: "2026-01-01T00:00:01.000Z",
+            tone: "tool",
+            loop: { tool: { name: "write", isPartial: true } },
+          },
+        } as never,
+      ],
+      isWorking: true,
+    });
+    const working = rows.find((row) => row.kind === "working");
+    expect(working && "label" in working ? working.label : undefined).toBe("Running write");
+  });
+
+  it("says it is generating once the call has come back", () => {
+    // The gap after a result is the model composing its next move — which on
+    // xAI is silent for as long as the next tool call takes to write.
+    const rows = deriveMessagesTimelineRows({
+      ...base,
+      timelineEntries: [
+        {
+          id: "w1",
+          kind: "work",
+          createdAt: "2026-01-01T00:00:01.000Z",
+          entry: {
+            id: "w1",
+            label: "write",
+            createdAt: "2026-01-01T00:00:01.000Z",
+            tone: "tool",
+            loop: { tool: { name: "write", isPartial: false } },
+          },
+        } as never,
+      ],
+      isWorking: true,
+    });
+    const working = rows.find((row) => row.kind === "working");
+    expect(working && "label" in working ? working.label : undefined).toBe("Generating");
+  });
+
+  it("lets the label change as the turn moves on", () => {
+    // The memo hands back the previous row object when it compares equal, so a
+    // comparison that ignored `label` would pin the first activity it named.
+    const running = { kind: "working" as const, id: "w", createdAt: "t", label: "Running write" };
+    const generating = { kind: "working" as const, id: "w", createdAt: "t", label: "Generating" };
+    const first = computeStableMessagesTimelineRows([running], { byId: new Map(), result: [] });
+    const second = computeStableMessagesTimelineRows([generating], first);
+    expect((second.result[0] as { label?: string }).label).toBe("Generating");
   });
 });

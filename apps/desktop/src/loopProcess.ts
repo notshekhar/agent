@@ -16,7 +16,7 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 
 /** Where an installed loop lives, in the order worth trying. */
 const LOOP_BINARY_CANDIDATES = [
@@ -26,8 +26,45 @@ const LOOP_BINARY_CANDIDATES = [
   join(homedir(), ".local", "bin", "loop"),
 ];
 
-export function resolveLoopBinary(override?: string): string {
+const BINARY_NAME = process.platform === "win32" ? "loop.exe" : "loop";
+
+/**
+ * The loop this app ships with, laid down by build.ts next to the renderer.
+ *
+ * `appPath` is `app.getAppPath()` — the same handle main.ts resolves the
+ * renderer and preload against, for the same reason (see the note there: Bun
+ * rewrites `__dirname` and `import.meta.url` to the wrong directories in the
+ * bundled CommonJS output).
+ *
+ * **An executable cannot be spawned from inside an asar archive** — the
+ * archive is a virtual filesystem the OS loader knows nothing about. Packaging
+ * therefore has to `asarUnpack` this path, and the real file then sits in
+ * `app.asar.unpacked`. Both spellings are probed so the same code works
+ * unpackaged (development), packaged-with-asar, and packaged-without.
+ */
+function bundledBinary(appPath: string): string | null {
+  const packed = join(appPath, "dist", "bin", BINARY_NAME);
+  const unpacked = packed.replace(`app.asar${sep}`, `app.asar.unpacked${sep}`);
+  return [unpacked, packed].find((candidate) => existsSync(candidate)) ?? null;
+}
+
+/**
+ * Which loop to spawn.
+ *
+ * Order matters and is deliberate: an explicit `LOOP_BINARY` wins (that is how
+ * you point the app at a source checkout), then **the bundled one**, then
+ * whatever is installed on the machine.
+ *
+ * Preferring the bundle over an installed loop is the whole point of shipping
+ * it: the app and its agent are one artifact at one version, so the renderer
+ * can never call an RPC the binary predates. That mismatch is what produced
+ * every `Method not found: <new method>` — the UI shipped, the binary did not,
+ * and the only cure was noticing and reinstalling.
+ */
+export function resolveLoopBinary(override?: string, appPath?: string): string {
   if (override && existsSync(override)) return override;
+  const bundled = appPath ? bundledBinary(appPath) : null;
+  if (bundled) return bundled;
   const found = LOOP_BINARY_CANDIDATES.find((candidate) => existsSync(candidate));
   // Falling back to the bare name lets PATH resolve it; if that fails too, the
   // spawn error surfaces with the name it tried rather than a silent hang.

@@ -16,6 +16,8 @@ export { CostTracker, stampUsageCost, type AddContext } from "./cost";
 export { buildSteakGrid, type SteakGrid, type SteakOptions, type SteakStats } from "./steak";
 export { runCompact, CompactAbortedError } from "./compact";
 export { runRecap, isRecapPayload, RECAP_KIND, type RecapPayload } from "./recap";
+export { cancelRecap, scheduleRecap, RECAP_DELAY_MS } from "./recap-schedule";
+export { generateCommitMessage, trimDiffForPrompt } from "./commit-message";
 export { parseGoalInput, toGoalSchedule, type ParsedGoal } from "./goal-parse";
 export {
     GOAL_MAX_ROUNDS,

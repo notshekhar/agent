@@ -13,6 +13,31 @@ import type { TUI } from "@notshekhar/loop-tui";
  */
 // Pin the color pipeline before the theme module reads COLORTERM.
 process.env.COLORTERM = "truecolor";
+/**
+ * ...and before chalk reads FORCE_COLOR, for the same reason.
+ *
+ * These two halves of "colour" come from different places: the theme's `fg`/
+ * `bg` build truecolor escapes by hand and always emit them, while `bold`/
+ * `italic`/`underline` go through chalk, which emits NOTHING at level 0.
+ * Under `bun test` stdout is not a TTY, so chalk sits at 0 — which is the
+ * state these snapshots were captured in.
+ *
+ * `FORCE_COLOR` overrides that, and a developer who exports it (or a CI that
+ * sets it) got chalk at level 3 and 16 of 26 snapshots failing on bold/italic
+ * bytes alone, with nothing in the repo changed. Pinning it makes the gate
+ * compare like with like whoever runs it.
+ *
+ * The cost, stated plainly: at level 0 the bold/italic paths render as plain
+ * text, so these snapshots do not cover them. `theme-attributes.test.ts` does.
+ *
+ * Set on the instance, not via the env var: chalk reads `FORCE_COLOR` when it
+ * is imported, and ES imports hoist above this file's statements — so
+ * assigning `process.env.FORCE_COLOR` here happens strictly too late and
+ * changes nothing. `chalk.level` is read per call, so this lands.
+ */
+import chalk from "chalk";
+
+chalk.level = 0;
 
 import { ChatHistory } from "../src/interactive/components/chat-history";
 import {
@@ -27,7 +52,15 @@ import {
 import { ToolExecutionComponent } from "../src/interactive/ui/tool-execution";
 import { initTheme } from "../src/interactive/ui/theme";
 
-beforeAll(() => initTheme("dark"));
+beforeAll(() => {
+    initTheme("dark");
+    // Re-asserted here, not only at module scope: chalk is a singleton and bun
+    // shares it across every test file in the process, so a file that raises
+    // the level (theme-attributes.test.ts) could otherwise leave it raised
+    // depending on load order — and these snapshots would fail for a reason
+    // that has nothing to do with them.
+    chalk.level = 0;
+});
 
 const tui = { requestRender() {} } as unknown as TUI;
 const CWD = "/repo";

@@ -151,8 +151,23 @@ export function resolveFileDiffPath(fileDiff: FileDiffMetadata): string {
   return raw;
 }
 
+/**
+ * A file's identity within a rendered patch — its PATH, not its contents.
+ *
+ * `cacheKey` looks like the obvious answer and is the wrong one: pierre
+ * derives it from a hash of the whole patch, so re-reading a working tree the
+ * agent has just written gives every file a new key. Downstream that reads as
+ * "these are different files" — CodeView tears every record down and rebuilds
+ * it, which throws away scroll position, and the panel's collapsed-file set
+ * (keyed by this) silently stops matching, so every file springs back open.
+ * The panel re-reads the diff several times during a turn, and all of that
+ * churn is visible.
+ *
+ * Content still reaches the renderer: the item's `version` carries
+ * `cacheKey`, which is what tells CodeView a reused record must repaint.
+ */
 export function buildFileDiffRenderKey(fileDiff: FileDiffMetadata): string {
-  return fileDiff.cacheKey ?? `${fileDiff.prevName ?? "none"}:${fileDiff.name}`;
+  return `${fileDiff.prevName ?? "none"}:${fileDiff.name}`;
 }
 
 export function getDiffCollapseIconClassName(fileDiff: FileDiffMetadata): string {

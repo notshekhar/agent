@@ -11,8 +11,26 @@ import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { extname, join, normalize, resolve } from "node:path";
 
+import { CoreHost } from "./coreHost.js";
 import { LoopProcess, resolveLoopBinary } from "./loopProcess.js";
-import { listRefs, status as gitStatus } from "./git.js";
+import {
+  diffPreview as gitDiffPreview,
+  init as gitInit,
+  listRefs,
+  status as gitStatus,
+} from "./git.js";
+import { discoverSourceControl } from "./discovery.js";
+import { launch, revealCommand, whichCommands } from "./launcher.js";
+import {
+  cloneRepository,
+  lookupRepository,
+  publishRepository,
+} from "./sourceControl.js";
+import {
+  runStackedAction as gitRunStackedAction,
+  type GitStackedAction,
+  type GitStackedActionResult,
+} from "./gitActions.js";
 import { TerminalManager } from "./terminals.js";
 import { browseFilesystem, listWorkspaceEntries, readWorkspaceFile } from "./workspaceFiles.js";
 
@@ -51,6 +69,8 @@ const distDirectory = join(app.getAppPath(), "dist");
 /** Laid down by build.ts. */
 const rendererDirectory = resolve(distDirectory, "renderer");
 const preloadPath = resolve(distDirectory, "preload", "index.cjs");
+/** The window icon, copied into dist alongside the renderer by `build.ts`. */
+const appIconPath = resolve(distDirectory, "icon.png");
 
 /**
  * The app ships every asset it uses, so nothing needs to be fetched from the
@@ -104,11 +124,28 @@ async function serveRenderer(request: Request): Promise<Response> {
   }
 }
 
-const loop = new LoopProcess({
-  binary: resolveLoopBinary(process.env["LOOP_BINARY"]),
-  // Only a default for calls that omit cwd; sessions carry their own.
-  cwd: process.env["LOOP_ANCHOR_CWD"] ?? homedir(),
-});
+/**
+ * Where loop actually runs.
+ *
+ * Default: **in this process**, with core imported as the library it is. The
+ * old path — spawn the compiled `loop rpc` binary and talk JSON-RPC over its
+ * stdio — is still here and one env var away, because it is the fallback if
+ * anything about running core under Electron's Node turns out to be wrong on
+ * a machine this has not been tried on.
+ *
+ * `LOOP_SPAWN_BINARY=1` picks the child process. `LOOP_BINARY` still names
+ * which binary that would be.
+ *
+ * Both satisfy the same tiny interface (`call` / `start` / `stop` / `running`
+ * plus the three events), so nothing below this line knows which is in use —
+ * and neither does the renderer.
+ */
+const anchorCwd = process.env["LOOP_ANCHOR_CWD"] ?? homedir();
+const spawnBinary = process.env["LOOP_SPAWN_BINARY"] === "1";
+const loopBinary = resolveLoopBinary(process.env["LOOP_BINARY"], app.getAppPath());
+const loop = spawnBinary
+  ? new LoopProcess({ binary: loopBinary, cwd: anchorCwd })
+  : new CoreHost({ cwd: anchorCwd });
 
 const terminals = new TerminalManager();
 
@@ -121,6 +158,9 @@ function createWindow(): void {
     minWidth: 720,
     minHeight: 480,
     backgroundColor: "#0b0b0c",
+    // macOS takes its icon from the app bundle, so this is for Linux and
+    // Windows, where an unset icon means the default Electron diamond.
+    ...(process.platform === "darwin" ? {} : { icon: appIconPath }),
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
     trafficLightPosition: { x: 16, y: 18 },
     webPreferences: {
@@ -128,6 +168,10 @@ function createWindow(): void {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
+      // The browser panel renders each preview tab as a <webview>, which
+      // Electron disables by default — without this the panel mounts and
+      // stays blank, with no error to go on.
+      webviewTag: true,
     },
   });
 
@@ -148,6 +192,11 @@ function createWindow(): void {
     mainWindow = null;
   });
 
+  // The renderer insets its header to clear the traffic lights, and macOS
+  // hides them in fullscreen — so without this the inset becomes a gap.
+  mainWindow.on("enter-full-screen", () => forwardToRenderer("loop:fullscreen", true));
+  mainWindow.on("leave-full-screen", () => forwardToRenderer("loop:fullscreen", false));
+
   void mainWindow.loadURL(`${RENDERER_ORIGIN}/`);
 }
 
@@ -167,6 +216,8 @@ app.whenReady().then(() => {
     // loop's own diagnostics belong in the shell's log, not swallowed.
     console.error(`[loop] ${line}`);
   });
+  // Only a spawned binary can exit on its own; in-process core never emits
+  // this, so the restart path is simply never armed.
   loop.on("exit", (code) => {
     console.error(`[loop] exited with ${code ?? "signal"}; restarting`);
     forwardToRenderer("loop:status", { running: false });
@@ -176,10 +227,32 @@ app.whenReady().then(() => {
       forwardToRenderer("loop:status", { running: loop.running });
     }, 1000);
   });
+  // Which loop is running is the first thing to know when an RPC 404s, and it
+  // is invisible otherwise — bundled and installed binaries look identical
+  // from the renderer.
+  console.error(`[loop] running: ${spawnBinary ? loopBinary : "in-process core"}`);
   loop.start();
 
+  /**
+   * Answers in an envelope rather than by throwing, and the preload unwraps it.
+   *
+   * An RPC error here is an ordinary outcome of the protocol, not a fault:
+   * "Unknown sessionId" for a conversation that was deleted, "Method not
+   * found" against an older loop, "a turn is already running". The renderer
+   * handles all three. But a handler that REJECTS makes Electron print
+   * `Error occurred in handler for 'loop:call'` with a full stack to the
+   * main-process log every single time — so an app that was working correctly
+   * read as one that was crashing.
+   *
+   * The envelope keeps the error (the renderer still throws, see preload.ts)
+   * and drops the noise.
+   */
   ipcMain.handle("loop:call", async (_event, payload: { method: string; params: unknown }) => {
-    return await loop.call(payload.method, payload.params);
+    try {
+      return { ok: true as const, value: await loop.call(payload.method, payload.params) };
+    } catch (error) {
+      return { ok: false as const, error: error instanceof Error ? error.message : String(error) };
+    }
   });
 
   // Filesystem reads live here rather than in loop: loop speaks an agent
@@ -190,14 +263,140 @@ app.whenReady().then(() => {
   ipcMain.handle("loop:fs.read", (_event, payload: { cwd: string; relativePath: string }) =>
     readWorkspaceFile(payload.cwd, payload.relativePath),
   );
+  ipcMain.handle("loop:git.discover", () => discoverSourceControl());
+
+  /**
+   * Repository-level GitHub work. Each returns `ok:false` with gh's own message
+   * rather than rejecting, so the toast shows "name already exists" instead of
+   * Electron's remote-method wrapper.
+   */
+  const ipcResult = async <T>(work: () => Promise<T>) => {
+    try {
+      return { ok: true as const, value: await work() };
+    } catch (error) {
+      return { ok: false as const, error: error instanceof Error ? error.message : String(error) };
+    }
+  };
+  ipcMain.handle("loop:sc.lookup", (_event, p: { repository: string }) =>
+    ipcResult(() => lookupRepository(p.repository)),
+  );
+  ipcMain.handle(
+    "loop:sc.clone",
+    (
+      _event,
+      p: {
+        repository?: string;
+        remoteUrl?: string;
+        destinationPath: string;
+        protocol?: "auto" | "ssh" | "https";
+      },
+    ) => ipcResult(() => cloneRepository(p)),
+  );
+  ipcMain.handle(
+    "loop:sc.publish",
+    (
+      _event,
+      p: {
+        cwd: string;
+        repository: string;
+        visibility: "private" | "public";
+        remoteName?: string;
+      },
+    ) => ipcResult(() => publishRepository(p)),
+  );
+  ipcMain.handle("loop:shell.which", (_event, p: { commands: string[] }) =>
+    whichCommands(p.commands),
+  );
+  ipcMain.handle(
+    "loop:shell.launch",
+    async (_event, p: { command: string | null; args: string[]; target: string }) => {
+      // A null command means the OS file manager — the one "editor" that is not
+      // a binary the user installed.
+      const reveal = revealCommand();
+      const command = p.command ?? reveal.command;
+      const args = p.command ? p.args : [...reveal.args, p.target];
+      try {
+        await launch(command, args);
+        return { ok: true as const };
+      } catch (error) {
+        return { ok: false as const, error: error instanceof Error ? error.message : String(error) };
+      }
+    },
+  );
   ipcMain.handle("loop:git.refs", (_event, p: { cwd: string }) => listRefs(p.cwd));
   ipcMain.handle("loop:git.status", (_event, p: { cwd: string }) => gitStatus(p.cwd));
+  ipcMain.handle("loop:git.init", (_event, p: { cwd: string }) => gitInit(p.cwd));
+  ipcMain.handle(
+    "loop:git.diffPreview",
+    (_event, p: { cwd: string; baseRef?: string; ignoreWhitespace?: boolean }) =>
+      gitDiffPreview(p.cwd, {
+        ...(p.baseRef === undefined ? {} : { baseRef: p.baseRef }),
+        ...(p.ignoreWhitespace === undefined ? {} : { ignoreWhitespace: p.ignoreWhitespace }),
+      }),
+  );
+
+  /**
+   * Commit / push / open a PR.
+   *
+   * Progress goes out on its own channel rather than as the reply, because the
+   * point of it is to arrive *during* the action — a pre-commit hook running a
+   * test suite has two minutes of output the toast should be showing. The reply
+   * carries the outcome, and a failure comes back as `ok: false` rather than a
+   * rejected invoke so the renderer gets git's own message instead of
+   * Electron's "Error invoking remote method" wrapper.
+   */
+  ipcMain.handle(
+    "loop:git.runStackedAction",
+    async (
+      _event,
+      p: {
+        actionId: string;
+        cwd: string;
+        action: GitStackedAction;
+        commitMessage?: string;
+        featureBranch?: boolean;
+        filePaths?: string[];
+      },
+    ): Promise<
+      { ok: true; value: GitStackedActionResult } | { ok: false; error: string }
+    > => {
+      const stamp = { actionId: p.actionId, cwd: p.cwd, action: p.action };
+      try {
+        const value = await gitRunStackedAction(
+          p.cwd,
+          {
+            action: p.action,
+            commitMessage: p.commitMessage,
+            featureBranch: p.featureBranch,
+            filePaths: p.filePaths,
+          },
+          {
+            emit: (progress) => forwardToRenderer("loop:gitAction", { ...stamp, ...progress }),
+            // loop owns the models; this module owns git. A message it cannot
+            // get back is handled by the runner's own fallback subject.
+            generateMessage: async ({ diff, branch }) => {
+              const reply = (await loop.call("git.commitMessage", {
+                diff,
+                cwd: p.cwd,
+                ...(branch ? { branch } : {}),
+              })) as { message?: unknown } | null;
+              return typeof reply?.message === "string" ? reply.message : "";
+            },
+          },
+        );
+        return { ok: true as const, value };
+      } catch (error) {
+        return { ok: false as const, error: error instanceof Error ? error.message : String(error) };
+      }
+    },
+  );
 
   terminals.on("output", (event) => forwardToRenderer("loop:terminal", event));
   ipcMain.handle("loop:pty.open", (_event, input) => terminals.open(input));
   ipcMain.handle("loop:pty.snapshot", (_event, p: { threadId: string; terminalId: string }) =>
     terminals.snapshot(p.threadId, p.terminalId),
   );
+  ipcMain.handle("loop:pty.list", () => terminals.list());
   ipcMain.handle("loop:pty.write", (_event, p: { threadId: string; terminalId: string; data: string }) => {
     terminals.write(p.threadId, p.terminalId, p.data);
   });
@@ -219,6 +418,10 @@ app.whenReady().then(() => {
     (_event, payload: { partialPath: string; cwd: string | undefined }) =>
       browseFilesystem(payload.partialPath, payload.cwd),
   );
+
+  // Asked once on mount, because a reload mid-fullscreen would otherwise wait
+  // for a transition that already happened.
+  ipcMain.handle("loop:window.isFullscreen", () => mainWindow?.isFullScreen() ?? false);
 
   createWindow();
 

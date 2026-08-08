@@ -510,6 +510,52 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
     );
   }
 
+  /*
+   * The queued-messages strip, which is the context strip reflected.
+   *
+   * Same trick, upside down: the card is inset from the composer, pulled
+   * underneath it, and its outline is masked away where the composer's 22px
+   * corner curve covers it — so it reads as one surface sliding out from
+   * behind the input rather than a second card floating above it.
+   */
+  .chat-composer-queue-strip {
+    /* Its own copy of the shell's tokens: the strip sits OUTSIDE
+       `.chat-composer-glass-shell` (see ChatView) so nothing cascades to it. */
+    --chat-composer-glass-surface: var(--card);
+    --chat-composer-outline: rgb(0 0 0 / 8%);
+
+    position: relative;
+    isolation: isolate;
+  }
+
+  .chat-composer-queue-strip::before {
+    position: absolute;
+    z-index: -1;
+    inset: 0;
+    border: 1px solid var(--chat-composer-outline);
+    border-radius: 16px 16px 0 0;
+    -webkit-mask-image: linear-gradient(to top, transparent 0 1rem, black 1rem);
+    mask-image: linear-gradient(to top, transparent 0 1rem, black 1rem);
+    background: color-mix(
+      in srgb,
+      var(--chat-composer-glass-surface) var(--glass-opacity),
+      transparent
+    );
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
+    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
+    box-shadow: 0 -12px 28px -18px rgb(0 0 0 / 40%);
+    content: "";
+  }
+
+  .dark .chat-composer-queue-strip {
+    --chat-composer-glass-surface: color-mix(in srgb, var(--background) 96%, var(--color-white));
+  }
+
+  .dark .chat-composer-queue-strip::before {
+    border-color: rgb(255 255 255 / 7%);
+    box-shadow: 0 -14px 32px -18px rgb(0 0 0 / 75%);
+  }
+
   .chat-composer-context-strip {
     position: relative;
     isolation: isolate;

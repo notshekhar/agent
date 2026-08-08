@@ -273,6 +273,30 @@ Installs to `%USERPROFILE%\.loop-bin\loop.exe`, adds it to user `PATH` **and the
 
 Env knobs: `$env:LOOP_VERSION`, `$env:LOOP_FORCE`, `$env:LOOP_HOME`, `$env:LOOP_UNINSTALL = '1'` (clean removal — keeps `~\.loop` config).
 
+### Desktop app
+
+The Electron app, if you'd rather not live in the terminal. It carries its own
+loop inside the bundle, so it neither needs nor upgrades the CLI — install
+either, or both.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/notshekhar/loop/main/install-desktop.sh | bash
+```
+
+```powershell
+irm https://raw.githubusercontent.com/notshekhar/loop/main/install-desktop.ps1 | iex
+```
+
+macOS lands in `/Applications/Loop.app` (or `~/Applications` when the former
+isn't writable) and the quarantine attribute is cleared, since the build is not
+notarized and Gatekeeper would otherwise call it damaged. Linux installs to
+`~/.local/share/loop-desktop` with a `.desktop` entry and a `loop-desktop`
+launcher. Windows installs to `%LOCALAPPDATA%\Programs\Loop` with a Start Menu
+shortcut (`$env:LOOP_DESKTOP_SHORTCUT = '1'` adds a desktop one).
+
+Env knobs: `LOOP_VERSION` (pin a tag), `LOOP_DESKTOP_HOME`, `LOOP_BIN_DIR`,
+`LOOP_UNINSTALL=1` (clean removal — keeps `~/.loop` config).
+
 ### Updating
 
 `/update` inside the TUI, or `loop update` from the shell — both check the latest release and run the platform installer in place (self-update works while loop is running, on Windows too). The TUI also tells you at startup when a newer release exists. `LOOP_SKIP_VERSION_CHECK=1` silences the startup check.

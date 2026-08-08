@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, test } from "bun:test";
-import { Session } from "../src/sessions";
+import { buildSessionTreeView, Session } from "../src/sessions";
 import type { Entry } from "../src/types";
 import { useTempSessionDb } from "./helpers/temp-db";
 
@@ -203,5 +203,120 @@ describe("Session tree: name, model, compaction", () => {
         await s.append(user("second", 3));
         const forks = s.getUserMessagesForForking().map((f) => f.text);
         expect(forks).toEqual(["first", "second"]);
+    });
+});
+
+describe("buildSessionTreeView", () => {
+    test("returns every branch pre-order, flagging the current path", async () => {
+        // `session.history` returns only the current branch, so this is the
+        // only way a client can see that a session HAS alternatives.
+        const s = mk();
+        const a = user("first", 1);
+        await s.append(a);
+        await s.append(asst("answer one", 2));
+        s.branch(a.id!);
+        await s.append(asst("answer two", 3));
+
+        const view = buildSessionTreeView(s);
+        // Parents come before children, and depth is the real nesting.
+        expect(view.rows.map((r) => r.depth)).toEqual([0, 1, 1]);
+        // The active branch sorts FIRST among siblings, so "answer two" — the
+        // one the session is actually on — leads.
+        expect(view.rows.map((r) => r.text)).toEqual(["first", "answer two", "answer one"]);
+        expect(view.rows.map((r) => r.onPath)).toEqual([true, true, false]);
+        // Both answers are siblings of a fork, so both indent under it.
+        expect(view.rows.map((r) => r.indent)).toEqual([0, 1, 1]);
+        expect(view.rows.map((r) => r.branchStart ?? false)).toEqual([false, true, true]);
+        // The prompt is where the two answers diverge.
+        expect(view.branchPointIds).toEqual([a.id!]);
+        expect(view.rows.find((r) => r.text === "first")!.childCount).toBe(2);
+        expect(view.leafId).toBe(s.getLeafId());
+    });
+
+    test("names the tool calls an entry made, and resolves a result back to its call", async () => {
+        // A `tool` entry only references a toolCallId, so a row rendered from
+        // it alone could not say what it was the result OF.
+        const s = mk();
+        await s.append({
+            type: "message",
+            role: "assistant",
+            ts: 1,
+            content: [{ type: "tool-call", toolCallId: "c1", toolName: "read", input: { path: "a.ts" } }],
+        });
+        await s.append({
+            type: "message",
+            role: "tool",
+            ts: 2,
+            content: [{ type: "tool-result", toolCallId: "c1", output: "ok" }],
+        });
+
+        const view = buildSessionTreeView(s);
+        expect(view.rows[0]!.tools).toEqual([{ name: "read", input: { path: "a.ts" } }]);
+        expect(view.rows[1]!.tools).toEqual([{ name: "read", input: { path: "a.ts" } }]);
+    });
+
+    test("caps message text and says it did", async () => {
+        const s = mk();
+        await s.append(user("x".repeat(500), 1));
+        const [row] = buildSessionTreeView(s).rows;
+        expect(row!.text!.length).toBe(200);
+        expect(row!.truncated).toBe(true);
+    });
+});
+
+describe("buildSessionTreeView: layout", () => {
+    test("a linear conversation does NOT indent", async () => {
+        // The bug this pins: indenting once per ancestor turned an ordinary
+        // 12-turn session into a 12-step diagonal staircase, which says
+        // nothing — every step of a single-child run is at the same place in
+        // the story. The TUI's /tree collapses these chains and so must this.
+        const s = mk();
+        await s.append(user("one", 1));
+        await s.append(asst("two", 2));
+        await s.append(user("three", 3));
+        await s.append(asst("four", 4));
+
+        const view = buildSessionTreeView(s);
+        expect(view.rows.map((r) => r.indent)).toEqual([0, 0, 0, 0]);
+        // The real depth is still reported for anything that wants it.
+        expect(view.rows.map((r) => r.depth)).toEqual([0, 1, 2, 3]);
+        expect(view.branchPointIds).toEqual([]);
+    });
+
+    test("only a fork indents, and the run under it stays flat again", async () => {
+        const s = mk();
+        const root = user("prompt", 1);
+        await s.append(root);
+        await s.append(asst("branch A step 1", 2));
+        await s.append(asst("branch A step 2", 3));
+        s.branch(root.id!);
+        await s.append(asst("branch B step 1", 4));
+        await s.append(asst("branch B step 2", 5));
+
+        const view = buildSessionTreeView(s);
+        const byText = new Map(view.rows.map((r) => [r.text, r]));
+        expect(byText.get("prompt")!.indent).toBe(0);
+        // Both first steps are siblings of the fork: one level in.
+        expect(byText.get("branch B step 1")!.indent).toBe(1);
+        expect(byText.get("branch A step 1")!.indent).toBe(1);
+        // Their continuations step in once to group the subtree, then hold —
+        // they do NOT keep marching right.
+        expect(byText.get("branch B step 2")!.indent).toBe(2);
+        expect(byText.get("branch A step 2")!.indent).toBe(2);
+    });
+
+    test("a long run after a fork never drifts further right", async () => {
+        const s = mk();
+        const root = user("prompt", 1);
+        await s.append(root);
+        await s.append(asst("other", 2));
+        s.branch(root.id!);
+        for (let i = 0; i < 8; i += 1) await s.append(asst(`step ${i}`, 10 + i));
+
+        const view = buildSessionTreeView(s);
+        const steps = view.rows.filter((r) => r.text?.startsWith("step "));
+        expect(steps).toHaveLength(8);
+        // First is the fork sibling (1), the rest group under it at 2 and stay.
+        expect(steps.map((r) => r.indent)).toEqual([1, 2, 2, 2, 2, 2, 2, 2]);
     });
 });

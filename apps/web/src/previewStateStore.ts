@@ -448,9 +448,22 @@ export function removePreviewThread(ref: ScopedThreadRef): void {
   changedPreviewThreadKeys.delete(threadKey);
 }
 
+/**
+ * Whether this build can show a browser panel at all.
+ *
+ * Upstream requires `desktopBridge.preview`, the main-process tab manager that
+ * pairs a BrowserView with each tab for annotations and pointer capture. loop's
+ * shell has no such bridge and does not need one: the panel renders a
+ * `<webview>`, which the shell enables (`webviewTag`), and the tab registry is
+ * served in-process by `loop/handlers/preview.ts`. Keeping upstream's test here
+ * disabled the Browser tab outright.
+ *
+ * `window.loop` is the honest check — it is the desktop shell's own marker, and
+ * a browser tab genuinely cannot host a webview.
+ */
 export function isPreviewSupportedInRuntime(): boolean {
   if (typeof window === "undefined") return false;
-  return Boolean(window.desktopBridge?.preview);
+  return window.loop !== undefined;
 }
 
 export function resetPreviewStateForTests(): void {

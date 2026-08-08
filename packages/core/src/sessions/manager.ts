@@ -5,7 +5,7 @@ import { debugLog } from "../debug";
 import type { Entry, ProviderId, SessionInfoData } from "../types";
 import { Session, generateEntryId } from "./session";
 import { stripSessionHookContext } from "./hook-context";
-import { getSessionStore, type SessionRecord } from "./sqlite-store";
+import { getSessionStore, type SessionRecord, type SessionScope } from "./sqlite-store";
 
 export function slugCwd(cwd: string): string {
     // slug convention: "--Users-notshekhar-Documents-foo--"
@@ -28,6 +28,11 @@ export interface SessionInfo extends SessionInfoData {
     firstUserMessage?: string;
     /** User-set display name (/name), latest session-name entry wins. */
     name?: string;
+    /** Model the session last ran on, when it differs from the one it was
+     * created with. Absent until a turn has been billed. */
+    lastModel?: string;
+    /** Epoch ms it was archived; absent while it is active. */
+    archivedAt?: number;
 }
 
 export interface NewSessionOptions {
@@ -57,12 +62,29 @@ function toSessionInfo(record: SessionRecord): SessionInfo {
         mtime: record.updatedAt,
         firstUserMessage: firstUser,
         name: record.name,
+        ...(record.lastModel ? { lastModel: record.lastModel } : {}),
+        ...(record.archivedAt ? { archivedAt: record.archivedAt } : {}),
     };
 }
 
 export class SessionManager {
-    list(cwd?: string): SessionInfo[] {
-        return getSessionStore().listSessions(cwd).map(toSessionInfo);
+    /**
+     * Sessions, newest first. Defaults to `active` — the working set, which is
+     * what every caller predating the archive means by "the sessions".
+     */
+    list(cwd?: string, scope: SessionScope = "active"): SessionInfo[] {
+        return getSessionStore().listSessions(cwd, scope).map(toSessionInfo);
+    }
+
+    /**
+     * Put a session away, or take it back. Returns false for an unknown id.
+     *
+     * The gentler half of `delete`: the conversation, its entries and its
+     * spend all stay exactly where they are — it simply stops appearing in the
+     * list you work from.
+     */
+    setArchived(id: string, archived: boolean): boolean {
+        return getSessionStore().setSessionArchived(id, archived);
     }
 
     /**
@@ -87,6 +109,18 @@ export class SessionManager {
         const session = new Session(info, transcriptPath(opts.cwd, id), []);
         await session.append({ type: "session-info", ts: Date.now(), ...info });
         return session;
+    }
+
+    /**
+     * Delete a session outright. Returns false when there was no such id.
+     *
+     * There was no way to remove a conversation before this — the only growth
+     * control was never starting one. A client that can create sessions needs
+     * to be able to drop them again, and a folder stops being a project when
+     * its last one goes, which is how a project is removed.
+     */
+    delete(id: string): boolean {
+        return getSessionStore().deleteSession(id);
     }
 
     /**

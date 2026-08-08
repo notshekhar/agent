@@ -10,6 +10,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import type { Thread, ThreadShell } from "../types";
 import {
+  drawerTerminalIds,
   MAX_HIDDEN_MOUNTED_PREVIEW_THREADS,
   MAX_HIDDEN_MOUNTED_TERMINAL_THREADS,
   branchMismatchKey,
@@ -676,5 +677,25 @@ describe("hasServerAcknowledgedLocalDispatch", () => {
     expect(hasServerAcknowledgedLocalDispatch({ ...common, hasPendingApproval: true })).toBe(true);
     expect(hasServerAcknowledgedLocalDispatch({ ...common, hasPendingUserInput: true })).toBe(true);
     expect(hasServerAcknowledgedLocalDispatch({ ...common, threadError: "failed" })).toBe(true);
+  });
+});
+
+describe("drawerTerminalIds", () => {
+  it("ignores ids with no live session behind them", () => {
+    // The terminal UI store is persisted, so a thread that used a terminal
+    // before a restart still lists its id — but that PTY died with the process.
+    // Counting it as open made the drawer refuse to start a real terminal and
+    // then render nothing, which is why the toggle looked dead.
+    expect(drawerTerminalIds([], new Set())).toEqual([]);
+  });
+
+  it("does not count a terminal that lives in the right panel", () => {
+    // The drawer filters panel terminals out when rendering, so treating one as
+    // the drawer's would leave the drawer empty.
+    expect(drawerTerminalIds(["term-1"], new Set(["term-1"]))).toEqual([]);
+  });
+
+  it("keeps the drawer's own live terminals", () => {
+    expect(drawerTerminalIds(["term-1", "term-2"], new Set(["term-2"]))).toEqual(["term-1"]);
   });
 });

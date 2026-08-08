@@ -678,6 +678,35 @@ describe("workEntryIndicatesToolFailure", () => {
     ).toBe(false);
   });
 
+  it("never hides a loop row as neutral", () => {
+    // The neutral test hides a tool row whose outcome cannot be read yet. A
+    // thinking block has no success signal to find, so it came back neutral
+    // and was filtered out of the transcript altogether — the reason thinking
+    // never rendered. A loop row draws its own state and is never neutral.
+    expect(
+      workEntryIndicatesToolNeutralStatus({
+        ...base,
+        tone: "thinking",
+        loop: { thinking: { text: "weighing it up", streaming: false } },
+      }),
+    ).toBe(false);
+    expect(
+      workEntryIndicatesToolNeutralStatus({
+        ...base,
+        tone: "info",
+        loop: { recap: { text: "Renamed the flag." } },
+      }),
+    ).toBe(false);
+    // A call still in flight is a loop row too, and its diamond says so.
+    expect(
+      workEntryIndicatesToolNeutralStatus({
+        ...base,
+        tone: "tool",
+        loop: { tool: { name: "bash", args: {}, isError: false, isPartial: true } },
+      }),
+    ).toBe(false);
+  });
+
   it("does not run heuristics on non-tool info rows", () => {
     expect(
       workEntryIndicatesToolFailure({

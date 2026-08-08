@@ -73,7 +73,9 @@ export interface TerminalSnapshot {
 export interface TerminalOutput {
   readonly threadId: string;
   readonly terminalId: string;
-  readonly type: "output" | "exited" | "closed";
+  readonly type: "output" | "exited" | "closed" | "started";
+  /** Present on `started`: the freshly spawned shell. See attachTerminal. */
+  readonly snapshot?: TerminalSnapshot;
   readonly data?: string;
   readonly exitCode?: number | null;
   readonly exitSignal?: number | null;
@@ -91,6 +93,8 @@ export interface LoopPtyBridge {
     env?: Record<string, string>;
   }): Promise<TerminalSnapshot>;
   snapshot(threadId: string, terminalId: string): Promise<TerminalSnapshot | null>;
+  /** Absent on a shell predating the metadata subscription; callers check. */
+  list?(): Promise<readonly TerminalSnapshot[]>;
   write(threadId: string, terminalId: string, data: string): Promise<void>;
   resize(threadId: string, terminalId: string, cols: number, rows: number): Promise<void>;
   clear(threadId: string, terminalId: string): Promise<void>;
@@ -123,7 +127,77 @@ export interface GitStatus {
   readonly behindCount: number;
 }
 
-/** Read-only git, from the shell. Writing is the agent's job, not the UI's. */
+/**
+ * Git, from the shell: reads, plus the writes the UI itself owns.
+ *
+ * The agent is still what writes *code*. These are the user acting on their own
+ * repository through buttons they clicked — commit, push, open a PR, and the
+ * `init` for a folder that is not a repo yet — which is a different thing, and
+ * every one of them used to fail as "not supported by loop's desktop app".
+ */
+export interface GitDiffPreviewSource {
+  readonly id: string;
+  readonly kind: "working-tree" | "branch-range";
+  readonly title: string;
+  readonly baseRef: string | null;
+  readonly headRef: string | null;
+  readonly diff: string;
+  readonly diffHash: string;
+  readonly truncated: boolean;
+}
+
+export type GitStackedAction = "commit" | "push" | "create_pr" | "commit_push" | "commit_push_pr";
+export type GitActionPhase = "branch" | "commit" | "push" | "pr";
+
+/**
+ * A progress event from the shell, already stamped with which action it belongs
+ * to — a second commit started before the first finished must not have its
+ * output painted into the wrong toast.
+ */
+export interface GitActionProgressMessage {
+  readonly actionId: string;
+  readonly cwd: string;
+  readonly action: GitStackedAction;
+  readonly kind:
+    | "action_started"
+    | "phase_started"
+    | "hook_started"
+    | "hook_output"
+    | "hook_finished";
+  readonly phases?: readonly GitActionPhase[];
+  readonly phase?: GitActionPhase;
+  readonly label?: string;
+  readonly hookName?: string | null;
+  readonly stream?: "stdout" | "stderr";
+  readonly text?: string;
+  readonly exitCode?: number | null;
+  readonly durationMs?: number | null;
+}
+
+export interface GitStackedActionOutcome {
+  readonly action: GitStackedAction;
+  readonly branch: { status: "created" | "skipped_not_requested"; name?: string };
+  readonly commit: {
+    status: "created" | "skipped_no_changes" | "skipped_not_requested";
+    commitSha?: string;
+    subject?: string;
+  };
+  readonly push: {
+    status: "pushed" | "skipped_not_requested" | "skipped_up_to_date";
+    branch?: string;
+    upstreamBranch?: string;
+    setUpstream?: boolean;
+  };
+  readonly pr: {
+    status: "created" | "opened_existing" | "skipped_not_requested";
+    url?: string;
+    number?: number;
+    baseBranch?: string;
+    headBranch?: string;
+    title?: string;
+  };
+}
+
 export interface LoopGitBridge {
   refs(cwd: string): Promise<{
     refs: readonly GitRef[];
@@ -132,6 +206,116 @@ export interface LoopGitBridge {
     totalCount: number;
   }>;
   status(cwd: string): Promise<GitStatus>;
+  /** Absent on a half-updated shell, so callers must check before calling. */
+  init?(cwd: string): Promise<void>;
+  /** Same: added after `init`, so an older shell has no diff pane. */
+  diffPreview?(
+    cwd: string,
+    options: { baseRef?: string; ignoreWhitespace?: boolean },
+  ): Promise<{ isRepo: boolean; sources: readonly GitDiffPreviewSource[] }>;
+  /**
+   * Commit / push / PR. Resolves with git's own message on failure rather than
+   * rejecting, so the toast shows "lint failed" and not an IPC wrapper.
+   */
+  runStackedAction?(input: {
+    actionId: string;
+    cwd: string;
+    action: GitStackedAction;
+    commitMessage?: string;
+    featureBranch?: boolean;
+    filePaths?: readonly string[];
+  }): Promise<{ ok: true; value: GitStackedActionOutcome } | { ok: false; error: string }>;
+  /** Progress for every in-flight action; filter by `actionId`. */
+  onActionProgress?(listener: (event: GitActionProgressMessage) => void): () => void;
+  /** What source-control tooling the machine has, for the settings panel. */
+  discover?(): Promise<GitDiscovery>;
+}
+
+/** Plain nulls on the wire; the handler lifts them into the contract's Options. */
+export interface GitDiscovery {
+  readonly versionControlSystems: ReadonlyArray<{
+    kind: "git" | "jj" | "unknown";
+    implemented: boolean;
+    label: string;
+    executable: string;
+    status: "available" | "missing";
+    version: string | null;
+    installHint: string;
+    detail: string | null;
+  }>;
+  readonly sourceControlProviders: ReadonlyArray<{
+    kind: "github" | "gitlab" | "azure-devops" | "bitbucket" | "unknown";
+    label: string;
+    executable: string;
+    status: "available" | "missing";
+    version: string | null;
+    installHint: string;
+    detail: string | null;
+    auth: {
+      status: "authenticated" | "unauthenticated" | "unknown";
+      account: string | null;
+      host: string | null;
+      detail: string | null;
+    };
+  }>;
+}
+
+/**
+ * Launching things outside the app.
+ *
+ * Deliberately generic: the editor table lives in the contracts, so the shell
+ * only answers "does this command exist" and "run it" rather than keeping a
+ * second copy of the list that would drift.
+ */
+export interface LoopShellBridge {
+  which(commands: readonly string[]): Promise<Record<string, string | null>>;
+  /** A null command means the OS file manager. */
+  launch(
+    command: string | null,
+    args: readonly string[],
+    target: string,
+  ): Promise<{ ok: true } | { ok: false; error: string }>;
+}
+
+export interface RepositoryInfo {
+  readonly provider: "github";
+  readonly nameWithOwner: string;
+  readonly url: string;
+  readonly sshUrl: string;
+}
+
+type ShellResult<T> = { ok: true; value: T } | { ok: false; error: string };
+
+/** Repository-level GitHub work: find one, bring one down, put one up. */
+export interface LoopSourceControlBridge {
+  lookup(repository: string): Promise<ShellResult<RepositoryInfo | null>>;
+  clone(input: {
+    repository?: string;
+    remoteUrl?: string;
+    destinationPath: string;
+    protocol?: "auto" | "ssh" | "https";
+  }): Promise<ShellResult<{ cwd: string; remoteUrl: string; repository: RepositoryInfo | null }>>;
+  publish(input: {
+    cwd: string;
+    repository: string;
+    visibility: "private" | "public";
+    remoteName?: string;
+  }): Promise<
+    ShellResult<{
+      repository: RepositoryInfo;
+      remoteName: string;
+      remoteUrl: string;
+      branch: string;
+      upstreamBranch: string | null;
+      status: "pushed" | "remote_added";
+    }>
+  >;
+}
+
+/** The host window itself — the one bridge that is about chrome, not data. */
+export interface LoopWindowBridge {
+  isFullscreen(): Promise<boolean>;
+  onFullscreenChange(listener: (fullscreen: boolean) => void): () => void;
 }
 
 /** The preload bridge. Kept structural so the renderer needs no Electron types. */
@@ -143,6 +327,9 @@ interface LoopDesktopBridge {
   fs?: LoopFilesystemBridge;
   pty?: LoopPtyBridge;
   git?: LoopGitBridge;
+  shell?: LoopShellBridge;
+  sourceControl?: LoopSourceControlBridge;
+  window?: LoopWindowBridge;
 }
 
 declare global {
@@ -367,4 +554,17 @@ export function loopPty(): LoopPtyBridge | null {
 /** The git bridge, or null in a browser. See loopFilesystem for the rationale. */
 export function loopGit(): LoopGitBridge | null {
   return (typeof window !== "undefined" ? window.loop?.git : undefined) ?? null;
+}
+
+export function loopShell(): LoopShellBridge | null {
+  return (typeof window !== "undefined" ? window.loop?.shell : undefined) ?? null;
+}
+
+export function loopSourceControl(): LoopSourceControlBridge | null {
+  return (typeof window !== "undefined" ? window.loop?.sourceControl : undefined) ?? null;
+}
+
+/** The host window, or null in a browser — a tab has no traffic lights. */
+export function loopWindow(): LoopWindowBridge | null {
+  return (typeof window !== "undefined" ? window.loop?.window : undefined) ?? null;
 }

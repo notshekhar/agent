@@ -14,6 +14,9 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 
 import { APP_VERSION } from "../../branding.ts";
+import { resolveModelAttachmentSupport } from "../modelAttachments.ts";
+import { providerPresentation } from "../providers/index.ts";
+import { detectEditors } from "./editors.ts";
 import { toInstanceId } from "./ids.ts";
 import { loopCall } from "../transport.ts";
 
@@ -42,6 +45,9 @@ export interface LoopServerInfo {
     readonly model?: string | null;
     /** The folder the `loop rpc` process was started in. */
     readonly cwd?: string;
+    /** loop's `thinkingLevel` setting — the level a turn runs at when
+     * `session.send` omits `thinking`. Absent on an older loop. */
+    readonly thinking?: string;
   };
 }
 interface LoopAuthStatus {
@@ -75,6 +81,88 @@ function platformArch(): "arm64" | "x64" {
 }
 
 /**
+ * loop's thinking levels, mirroring `packages/core/src/agent/thinking.ts`
+ * (`THINKING_LEVELS` + `THINKING_LEVEL_DESCRIPTIONS`). Duplicated rather than
+ * imported because this bundle is browser-only and cannot reach into core;
+ * `dispatch.ts` `thinkingLevelOf` validates against the same list on the way
+ * back out, so a drift here degrades to "loop uses its own setting" rather
+ * than to a bad request.
+ */
+const THINKING_CHOICES = [
+  { id: "off", label: "Off", description: "No reasoning" },
+  { id: "minimal", label: "Minimal", description: "Very brief reasoning (~1k tokens)" },
+  { id: "low", label: "Low", description: "Light reasoning (~2k tokens)" },
+  { id: "medium", label: "Medium", description: "Moderate reasoning (~8k tokens)" },
+  { id: "high", label: "High", description: "Deep reasoning (~16k tokens)" },
+  { id: "xhigh", label: "Extra high", description: "Maximum reasoning (~32k tokens)" },
+] as const;
+
+/** loop's name for the built-in persona; the wire omits it (see agentOptionOf). */
+export const DEFAULT_AGENT_NAME = "default";
+
+/**
+ * The agent control, as a real option descriptor.
+ *
+ * This has to be a DESCRIPTOR, not just a stored selection, and that is the
+ * whole bug it fixes: `composerProviderState` computes the options a turn
+ * dispatches with `buildProviderOptionSelectionsFromDescriptors`, which walks
+ * the DESCRIPTORS and rebuilds the selection from them. An option the model
+ * does not declare is therefore dropped on send — measured: picking the `plan`
+ * agent showed `plan` in the composer, then `session.send` went out with only
+ * `{sessionId, input, model}` and the picker fell back to `default`. Planning
+ * silently ran as the normal persona, which is exactly what it looked like.
+ *
+ * Agents are a property of loop, not of a model, so every model carries the
+ * same list. Offered only when there are at least two — with one there is
+ * nothing to choose.
+ */
+export function agentDescriptors(agents: readonly string[]): readonly unknown[] {
+  if (agents.length < 2) return [];
+  return [
+    {
+      id: "agent",
+      label: "Agent",
+      description: "Run the next message under this agent's prompt and tools",
+      type: "select",
+      options: agents.map((name) => ({
+        id: name,
+        label: name === DEFAULT_AGENT_NAME ? "Default" : name,
+        ...(name === DEFAULT_AGENT_NAME ? { isDefault: true } : {}),
+      })),
+    },
+  ];
+}
+
+/**
+ * The effort control for one model, or nothing.
+ *
+ * The composer's TraitsPicker renders entirely from
+ * `capabilities.optionDescriptors` and hides itself when a model declares
+ * none — which is why loop had no effort control at all until now. The
+ * receiving end was already built: `dispatch.ts` maps a `reasoningEffort`
+ * selection onto `session.send`'s `thinking`, which is `/thinking`.
+ *
+ * Only reasoning models get one, matching the terminal — `/thinking` on a
+ * non-reasoning model answers "current model does not support thinking"
+ * (model-handlers.ts) rather than offering levels that would be ignored.
+ */
+export function effortDescriptors(model: LoopCatalogModel, current: string): readonly unknown[] {
+  if (model.reasoning !== true) return [];
+  return [
+    {
+      id: "reasoningEffort",
+      label: "Thinking",
+      description: "How much the model reasons before answering",
+      type: "select",
+      options: THINKING_CHOICES,
+      // loop's live `thinkingLevel`, so an untouched picker sends back
+      // exactly what the turn would have run at anyway.
+      currentValue: current,
+    },
+  ];
+}
+
+/**
  * loop's providers, in the contract's shape.
  *
  * `ProviderInstanceId` and `ProviderDriverKind` are open branded slugs whose
@@ -86,6 +174,8 @@ function toProviders(
   auth: LoopAuthStatus,
   configured: string | null | undefined,
   checkedAt: string,
+  thinking: string,
+  agents: readonly string[],
 ): readonly unknown[] {
   const byProvider = new Map<string, LoopCatalogModel[]>();
   for (const model of catalog) {
@@ -101,7 +191,12 @@ function toProviders(
   return [...byProvider].map(([id, models]) => ({
     instanceId: toInstanceId(id),
     driver: toInstanceId(id),
-    displayName: id,
+    // The brand name, not the routing id. Left as the raw id this read
+    // "openai-chatgpt" and "custom:pronto-gpt" everywhere a provider is
+    // named — the composer's model picker included — because the id is what
+    // travels on the wire, and nothing downstream had anything better to
+    // show. The catalog knows the label; an unknown id title-cases.
+    displayName: providerPresentation(id).label,
     enabled: true,
     installed: true,
     version: null,
@@ -117,6 +212,12 @@ function toProviders(
         ...(model.contextWindow === undefined ? {} : { contextWindow: model.contextWindow }),
         ...(model.maxOutput === undefined ? {} : { maxOutputTokens: model.maxOutput }),
         reasoning: model.reasoning === true,
+        // What the composer is allowed to offer as an attachment. Without
+        // this the picker had no idea, so it offered images on every model
+        // — including text-only ones, where core silently drops them and the
+        // reply reads as the model ignoring the picture.
+        attachments: resolveModelAttachmentSupport(model.modalities, model.provider),
+        optionDescriptors: [...effortDescriptors(model, thinking), ...agentDescriptors(agents)],
       },
     })),
   })) as readonly unknown[];
@@ -157,20 +258,82 @@ export interface BuildServerConfigOptions {
   readonly label: string;
 }
 
+/**
+ * What the environment would have to change for the UI to care.
+ *
+ * The config is re-read on a timer, and re-emitting an identical one would
+ * churn every atom hanging off it. This is the part worth watching: which
+ * providers loop has, which are authenticated, and what it would run.
+ */
+export function serverConfigFingerprint(config: unknown): string {
+  const record = config as
+    | {
+        providers?: readonly {
+          instanceId?: unknown;
+          status?: unknown;
+          models?: readonly {
+            capabilities?: {
+              optionDescriptors?: readonly {
+                id?: unknown;
+                currentValue?: unknown;
+                options?: readonly { id?: unknown }[];
+              }[];
+            };
+          }[];
+        }[];
+        settings?: { textGenerationModelSelection?: unknown };
+      }
+    | null;
+  if (!record) return "";
+  const providers = (record.providers ?? []).map(
+    (provider) => `${String(provider.instanceId)}:${String(provider.status)}:${provider.models?.length ?? 0}`,
+  );
+  // The effort picker's starting value comes from loop's `thinkingLevel`, so
+  // `/thinking` in the terminal has to move the fingerprint — the model list
+  // is unchanged by it, and without this the app would keep the stale level
+  // until relaunch.
+  const descriptors = (record.providers ?? [])
+    .flatMap((provider) => provider.models ?? [])
+    .flatMap((model) => model.capabilities?.optionDescriptors ?? []);
+  const thinking = descriptors.find((descriptor) => descriptor.id === "reasoningEffort")?.currentValue;
+  // Creating an agent in the terminal changes no model and no provider, so
+  // without this the composer's agent list would stay stale until relaunch.
+  const agents = descriptors
+    .find((descriptor) => descriptor.id === "agent")
+    ?.options?.map((option) => option.id)
+    .join(",");
+  return JSON.stringify([
+    providers,
+    record.settings?.textGenerationModelSelection ?? null,
+    thinking ?? null,
+    agents ?? null,
+  ]);
+}
+
 export const buildServerConfig = Effect.fnUntraced(function* (options: BuildServerConfigOptions) {
-  const [catalog, auth, info] = yield* Effect.promise(() =>
+  const [catalog, auth, info, agentList] = yield* Effect.promise(() =>
     Promise.all([
       loopCall<readonly LoopCatalogModel[]>("catalog.list", {}, options.cwd).catch(
         () => [] as readonly LoopCatalogModel[],
       ),
       loopCall<LoopAuthStatus>("auth.status", {}, options.cwd).catch(() => ({}) as LoopAuthStatus),
       loopCall<LoopServerInfo>("server.info", {}, options.cwd).catch(() => ({}) as LoopServerInfo),
+      // Empty on an older loop, which collapses the agent control to nothing
+      // rather than offering agents the backend cannot run.
+      loopCall<readonly { name?: string }[]>("agent.list", {}, options.cwd).catch(
+        () => [] as readonly { name?: string }[],
+      ),
     ]),
   );
+  const agentNames = (Array.isArray(agentList) ? agentList : [])
+    .map((agent) => agent?.name)
+    .filter((name): name is string => typeof name === "string" && name !== "");
 
   const selection = defaultModelSelection(catalog, auth, info.defaults?.model);
   // The folder loop is actually running in beats whatever the shell guessed.
   const cwd = info.defaults?.cwd ?? options.cwd;
+  // Cached behind a TTL, so the 30s poll does not re-probe PATH every time.
+  const availableEditors = yield* detectEditors();
 
   return yield* decodeConfig({
     environment: {
@@ -196,8 +359,16 @@ export const buildServerConfig = Effect.fnUntraced(function* (options: BuildServ
     keybindingsConfigPath: `${cwd}/.loop/keybindings.json`,
     keybindings: [],
     issues: [],
-    providers: toProviders(catalog, auth, info.defaults?.model, new Date().toISOString()),
-    availableEditors: [],
+    providers: toProviders(
+      catalog,
+      auth,
+      info.defaults?.model,
+      new Date().toISOString(),
+      // An older loop does not report it; "off" is what runTurn falls back to.
+      info.defaults?.thinking ?? "off",
+      agentNames,
+    ),
+    availableEditors,
     observability: {
       logsDirectoryPath: `${cwd}/.loop/logs`,
       localTracingEnabled: false,

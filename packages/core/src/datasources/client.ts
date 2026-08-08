@@ -10,16 +10,52 @@
  * one hidden inside a CTE or a side-effecting function that Layer 1's static
  * check (validate.ts) can't see.
  */
-import { SQL } from "bun";
+import type { SQL as SQLType } from "bun";
 import { getDatasource, resolveDatasourceSecrets, type DataSourceConfig } from "./config";
 import { assertReadOnly } from "./validate";
+
+/**
+ * Bun's SQL client, resolved on first use rather than at module load.
+ *
+ * This used to be a plain `import { SQL } from "bun"`, which is evaluated the
+ * moment anything in the import graph is loaded — and `tools/sql.ts` pulls this
+ * module in, so `runTurn` did too. Under Bun that is free; under **Node it is
+ * fatal**, because there is no `bun` module, and it took the whole of core down
+ * on load. Core is a library now (the desktop app embeds it in Electron's main
+ * process), so a Bun-only capability has to fail when it is *used*, not when it
+ * is imported.
+ *
+ * Datasources genuinely require Bun — `SQL` is Bun's own driver and there is no
+ * Node equivalent wired up here — so the error says that plainly instead of
+ * surfacing as `Cannot find module "bun"`.
+ */
+type SQL = SQLType;
+/** Bun's SQL constructor options; `typeof SQL` is unavailable now that the
+ * import is type-only. */
+type SQLOptions = ConstructorParameters<typeof SQLType>[0];
+let SQLCtor: (new (options: unknown) => SQLType) | null = null;
+
+function requireSQL(): new (options: unknown) => SQLType {
+    if (SQLCtor) return SQLCtor;
+    const bun = (globalThis as { Bun?: unknown }).Bun;
+    if (!bun) {
+        throw new Error(
+            "datasources need the Bun runtime (they use Bun's built-in SQL client) — run this from the loop CLI",
+        );
+    }
+    // Computed specifier so a Node-targeted bundler does not try to resolve
+    // "bun" at build time; see sessions/sqlite.ts for the same technique.
+    const spec = "bun";
+    SQLCtor = (require(spec) as { SQL: new (options: unknown) => SQLType }).SQL;
+    return SQLCtor;
+}
 
 /** Small pool — a single agent runs queries mostly sequentially. */
 const POOL_MAX = 2;
 
 const pools = new Map<string, SQL>();
 
-function buildOptions(config: DataSourceConfig): ConstructorParameters<typeof SQL>[0] {
+function buildOptions(config: DataSourceConfig): SQLOptions {
     const adapter = config.type === "mysql" ? "mysql" : "postgres";
     const options: Record<string, unknown> = {
         adapter,
@@ -43,13 +79,13 @@ function buildOptions(config: DataSourceConfig): ConstructorParameters<typeof SQ
         if (adapter === "mysql") options.ssl = "require";
         else options.tls = { rejectUnauthorized: false };
     }
-    return options as ConstructorParameters<typeof SQL>[0];
+    return options as SQLOptions;
 }
 
 function getPool(id: string, config: DataSourceConfig): SQL {
     const existing = pools.get(id);
     if (existing) return existing;
-    const pool = new SQL(buildOptions(resolveDatasourceSecrets(config)));
+    const pool = new (requireSQL())(buildOptions(resolveDatasourceSecrets(config)));
     pools.set(id, pool);
     return pool;
 }
@@ -102,7 +138,7 @@ const TEST_TIMEOUT_MS = 15_000;
 export async function testConnection(config: DataSourceConfig): Promise<TestResult> {
     let sql: SQL | undefined;
     try {
-        sql = new SQL(buildOptions(resolveDatasourceSecrets(config)));
+        sql = new (requireSQL())(buildOptions(resolveDatasourceSecrets(config)));
         const probe = sql.unsafe("SELECT 1");
         const timeout = new Promise<never>((_, reject) =>
             setTimeout(() => reject(new Error(`timed out after ${TEST_TIMEOUT_MS / 1000}s`)), TEST_TIMEOUT_MS),

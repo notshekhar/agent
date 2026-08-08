@@ -7,7 +7,7 @@ import { type ProviderDriverKind, type ProviderInstanceId } from "@loop/contract
 import { primaryServerProvidersAtom, serverEnvironment } from "../state/server";
 import { usePrimaryEnvironment } from "../state/environments";
 import { useDismissedProviderUpdateNotificationKeys } from "../providerUpdateDismissal";
-import { PROVIDER_ICON_BY_PROVIDER } from "./chat/providerIconUtils";
+import { providerIconFor } from "./chat/providerIconUtils";
 import {
   canOneClickUpdateProviderCandidate,
   collectProviderUpdateCandidates,
@@ -37,7 +37,7 @@ type ActiveProviderUpdateToast =
     };
 
 function ProviderUpdateToastIcon({ provider }: { provider: ProviderDriverKind }) {
-  const ProviderIcon = PROVIDER_ICON_BY_PROVIDER[provider];
+  const ProviderIcon = providerIconFor(provider);
 
   if (!ProviderIcon) {
     return (

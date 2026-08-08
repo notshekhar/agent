@@ -165,6 +165,21 @@ export function attachTerminal(input: {
       Effect.sync(() =>
         pty.onOutput((event) => {
           if (event.threadId !== input.threadId || event.terminalId !== input.terminalId) return;
+          // A shell starting under an id this stream is already attached to
+          // means the previous session is gone. Re-emitting a snapshot makes
+          // the client REPLACE its buffer; without it the reopened pane painted
+          // the dead session's scrollback and then appended the new prompt
+          // below it — two prompts, and a stray `%` where zsh's partial-line
+          // marker was written mid-line and so could not erase itself.
+          if (event.type === "started") {
+            if (event.snapshot) {
+              Queue.offerUnsafe(queue, {
+                type: "snapshot",
+                snapshot: event.snapshot,
+              } as TerminalAttachStreamEvent);
+            }
+            return;
+          }
           const mapped = toEvent(event);
           if (mapped) Queue.offerUnsafe(queue, mapped);
         }),

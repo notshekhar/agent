@@ -15,6 +15,7 @@ import {
   ChevronRightIcon,
   EllipsisIcon,
   LoaderIcon,
+  XIcon,
 } from "lucide-react";
 import { cn } from "~/lib/utils";
 import type { ActivePlanState } from "../session-logic";
@@ -34,6 +35,15 @@ import { useCopyToClipboard } from "~/hooks/useCopyToClipboard";
 import { useAtomCommand } from "~/state/use-atom-command";
 
 function stepStatusIcon(status: string): React.ReactNode {
+  if (status === "cancelled") {
+    // Dropped on purpose, not finished — the terminal strikes it through for
+    // the same reason. A tick here would claim work that never happened.
+    return (
+      <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted/40 text-muted-foreground/70">
+        <XIcon className="size-3" />
+      </span>
+    );
+  }
   if (status === "completed") {
     return (
       <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-success/10 text-success-foreground">
@@ -54,6 +64,15 @@ function stepStatusIcon(status: string): React.ReactNode {
     </span>
   );
 }
+
+/**
+ * Whether the full plan is expanded, per thread, for this run of the app.
+ *
+ * Deliberately module scope rather than component state: the right panel
+ * unmounts `PlanSidebar` when you switch tabs, so anything held in the
+ * component is lost and the plan re-collapses every time you come back to it.
+ */
+const planExpandedByThread = new Map<string, boolean>();
 
 interface PlanSidebarProps {
   activePlan: ActivePlanState | null;
@@ -78,7 +97,24 @@ const PlanSidebar = memo(function PlanSidebar({
   timestampFormat,
   mode = "sidebar",
 }: PlanSidebarProps) {
-  const [proposedPlanExpanded, setProposedPlanExpanded] = useState(false);
+  // Keyed by thread and held OUTSIDE the component: the panel unmounts every
+  // time you switch right-panel tabs, so component state collapsed the plan
+  // again on every return. Defaults to expanded — a plan you opened the panel
+  // to read should be readable without a second click.
+  const planKey = threadRef ? `${threadRef.environmentId}:${threadRef.threadId}` : "__none__";
+  const [proposedPlanExpanded, setProposedPlanExpandedState] = useState(
+    () => planExpandedByThread.get(planKey) ?? true,
+  );
+  const setProposedPlanExpanded = useCallback(
+    (update: boolean | ((previous: boolean) => boolean)) => {
+      setProposedPlanExpandedState((previous) => {
+        const next = typeof update === "function" ? update(previous) : update;
+        planExpandedByThread.set(planKey, next);
+        return next;
+      });
+    },
+    [planKey],
+  );
   const [isSavingToWorkspace, setIsSavingToWorkspace] = useState(false);
   const writeProjectFile = useAtomCommand(projectEnvironment.writeFile, {
     reportFailure: false,
@@ -221,7 +257,7 @@ const PlanSidebar = memo(function PlanSidebar({
                   <p
                     className={cn(
                       "text-[13px] leading-snug",
-                      step.status === "completed"
+                      step.status === "completed" || step.status === "cancelled"
                         ? "text-muted-foreground/50 line-through decoration-muted-foreground/20"
                         : step.status === "inProgress"
                           ? "text-foreground/90"

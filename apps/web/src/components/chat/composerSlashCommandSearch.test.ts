@@ -10,11 +10,14 @@ describe("searchSlashCommandItems", () => {
   it("moves exact provider command matches ahead of broader description matches", () => {
     const items = [
       {
-        id: "slash:default",
+        id: "slash:agents",
         type: "slash-command",
-        command: "default",
-        label: "/default",
-        description: "Switch this thread back to normal build mode",
+        command: "agents",
+        label: "/agents",
+        // Description chosen so it fuzzy-matches "ui" (via "build") — the
+        // point of this case is that an exact provider-command match still
+        // outranks a description match.
+        description: "Build agents for this thread",
       },
       {
         id: "provider-slash-command:claudeAgent:ui",
@@ -38,7 +41,7 @@ describe("searchSlashCommandItems", () => {
 
     expect(searchSlashCommandItems(items, "ui").map((item) => item.id)).toEqual([
       "provider-slash-command:claudeAgent:ui",
-      "slash:default",
+      "slash:agents",
     ]);
   });
 

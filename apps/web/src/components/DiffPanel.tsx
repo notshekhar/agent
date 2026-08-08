@@ -76,6 +76,33 @@ type DiffRenderMode = "stacked" | "split";
 type DiffThemeType = "light" | "dark";
 const AUTOMATIC_BASE_REF = "__automatic_base_ref__";
 
+/**
+ * How long the panel waits after something moves before re-reading the diff.
+ *
+ * A turn that writes five files ticks five times, and each refresh is a `git
+ * diff` over the whole tree — so the ticks are collapsed into one read. Short
+ * enough that a single edit still lands while the user is looking at it.
+ */
+const DIFF_REFRESH_DEBOUNCE_MS = 400;
+
+/**
+ * How often the panel re-reads the diff on its own while a turn is running.
+ *
+ * The event-driven triggers below are both coarser than a tool call. The
+ * thread's `updatedAt` is loop's PERSISTED session timestamp, and loop writes
+ * a step's messages in one transaction after the step ends
+ * (`packages/core/src/agent/turn.ts`) — so an `edit` or `write` in the middle
+ * of a step is invisible to it until the model has finished thinking about the
+ * result, which on a long step is a minute of watching a diff that does not
+ * move. Git status is content-derived but only polls every five seconds, and
+ * only notices changes that move a file's line counts.
+ *
+ * So while the agent is working, the panel just looks. It is one `git diff`
+ * against a tree that is already warm in the page cache, and it stops the
+ * moment the turn does.
+ */
+const DIFF_REFRESH_WHILE_RUNNING_MS = 1_500;
+
 interface CollapsedDiffFilesState {
   readonly scopeKey: string | null;
   readonly fileKeys: ReadonlySet<string>;
@@ -413,6 +440,56 @@ export default function DiffPanel({
   ];
   const gitDiff = selectedGitSource?.diff;
 
+  /**
+   * Re-read the diff as the thread works.
+   *
+   * The agent writing a file is invisible to these queries: each asks git once
+   * and then holds that answer for as long as its inputs are unchanged. So
+   * without this the panel keeps showing the working tree as it was when the
+   * panel opened, and every file the agent touches while you watch it is
+   * simply missing from the diff — which is what made the panel look frozen.
+   *
+   * Three things say "look again", because no one of them sees every write:
+   *
+   *   - the thread moving. `updatedAt` is loop's persisted session timestamp
+   *     and its running flag settles the tree at the end of a turn, but it
+   *     only advances when a step's messages are written — which happens
+   *     AFTER the step's tool calls, not when a file is.
+   *   - the working tree changing. The status subscription re-reads `git
+   *     status` (with per-file line counts) every five seconds and pushes only
+   *     when the answer differs, so this is the trigger that catches a write
+   *     nothing told the thread about: a terminal command, the user's own
+   *     editor, a subagent.
+   *   - a plain interval while the agent is working, below, which is what
+   *     makes an `edit` mid-step show up while it still means something.
+   *
+   * The refresh function is read through a ref rather than listed as a
+   * dependency: `useAtomRefresh` returns a new closure whenever the underlying
+   * atom changes, and depending on it would re-run this effect on every
+   * refresh it performs.
+   */
+  const refreshSelectedPatch = useRef<() => void>(() => {});
+  refreshSelectedPatch.current = selectedTurn
+    ? activeCheckpointDiff.refresh
+    : branchDiffPreview.refresh;
+  const threadRevision = activeThread?.updatedAt ?? null;
+  const threadIsRunning = activeThread?.session?.status === "running";
+  const workingTreeRevision = gitStatusQuery.data;
+  useEffect(() => {
+    if (threadRevision === null && workingTreeRevision === null) return;
+    const timer = setTimeout(() => refreshSelectedPatch.current(), DIFF_REFRESH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [threadRevision, threadIsRunning, workingTreeRevision]);
+  // Only for a selection that reads the tree as it is now. A turn's checkpoint
+  // diff is a pair of commits that already happened — polling it would be a
+  // `git diff` every second and a half for an answer that cannot change.
+  const shouldPollWorkingTree = threadIsRunning && selectedTurn === undefined;
+  useEffect(() => {
+    if (!shouldPollWorkingTree) return;
+    const timer = setInterval(() => refreshSelectedPatch.current(), DIFF_REFRESH_WHILE_RUNNING_MS);
+    return () => clearInterval(timer);
+  }, [shouldPollWorkingTree]);
+
   const selectedPatch = selectedTurn ? activeCheckpointDiff.data?.diff : gitDiff;
   const isSelectedPatchTruncated = !selectedTurn && selectedGitSource?.truncated === true;
   const isLoadingSelectedPatch = selectedTurn
@@ -439,19 +516,25 @@ export default function DiffPanel({
       }),
     );
   }, [renderablePatch]);
-  const codeViewFiles = useMemo(
-    () =>
-      renderableFiles.map((fileDiff) => {
-        const fileKey = buildFileDiffRenderKey(fileDiff);
-        return {
-          fileDiff,
-          filePath: resolveFileDiffPath(fileDiff),
-          fileKey,
-          collapsed: collapsedDiffFileKeys.has(fileKey),
-        };
-      }),
-    [collapsedDiffFileKeys, renderableFiles],
-  );
+  const codeViewFiles = useMemo(() => {
+    // Keys are paths now, which CodeView indexes by, so a patch that somehow
+    // names the same path twice would have the second file overwrite the
+    // first. Disambiguating keeps both rows; it costs the repeat its stable
+    // identity, which is the right trade for something that should not happen.
+    const seen = new Map<string, number>();
+    return renderableFiles.map((fileDiff) => {
+      const baseKey = buildFileDiffRenderKey(fileDiff);
+      const repeats = seen.get(baseKey) ?? 0;
+      seen.set(baseKey, repeats + 1);
+      const fileKey = repeats === 0 ? baseKey : `${baseKey}#${repeats}`;
+      return {
+        fileDiff,
+        filePath: resolveFileDiffPath(fileDiff),
+        fileKey,
+        collapsed: collapsedDiffFileKeys.has(fileKey),
+      };
+    });
+  }, [collapsedDiffFileKeys, renderableFiles]);
   const diffFileKeys = useMemo(() => codeViewFiles.map((file) => file.fileKey), [codeViewFiles]);
   const allDiffFilesCollapsed = areAllDiffFilesCollapsed(diffFileKeys, collapsedDiffFileKeys);
   const diffLineStat = useMemo(() => getDiffLineStat(renderableFiles), [renderableFiles]);

@@ -69,6 +69,8 @@ import { AsyncResult } from "effect/unstable/reactivity";
 import { isElectron } from "../env";
 import { readLocalApi } from "../localApi";
 import { useDiffPanelStore } from "../diffPanelStore";
+import { queuedTurnsForThread, useQueuedTurnsStore } from "../queuedTurnsStore";
+import { ComposerQueuedTurns } from "./chat/ComposerQueuedTurns";
 import {
   collapseExpandedComposerCursor,
   parseStandaloneComposerSlashCommand,
@@ -177,7 +179,7 @@ import {
   deriveLogicalProjectKeyFromSettings,
   selectProjectGroupingSettings,
 } from "../logicalProject";
-import { buildDraftThreadRouteParams } from "../threadRoutes";
+import { buildDraftThreadRouteParams, buildThreadRouteParams } from "../threadRoutes";
 import {
   type ComposerImageAttachment,
   type DraftThreadEnvMode,
@@ -227,6 +229,7 @@ import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
 import { MessagesTimeline } from "./chat/MessagesTimeline";
 import { ChatHeader } from "./chat/ChatHeader";
+import { isDraftThread, loopSessionIdFor } from "../loop/handlers/dispatch";
 import { PanelLayoutControls, RightPanelMaximizeControl } from "./chat/PanelLayoutControls";
 import { type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
 import { NoActiveThreadState } from "./NoActiveThreadState";
@@ -271,6 +274,7 @@ import {
   deriveLockedProvider,
   readFileAsDataUrl,
   reconcileMountedTerminalThreadIds,
+  drawerTerminalIds,
   resolveThreadMetadataUpdateForNextTurn,
   resolveSendEnvMode,
   revokeBlobPreviewUrl,
@@ -278,6 +282,7 @@ import {
   shouldWriteThreadErrorToCurrentServerThread,
   startNewThreadForProject,
   waitForStartedServerThread,
+  waitForThreadInShell,
 } from "./ChatView.logic";
 import type { ThreadSyncPhase } from "../threadSync";
 import { useLocalStorage } from "~/hooks/useLocalStorage";
@@ -635,6 +640,17 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
       ? scopeProjectRef(draftThread.environmentId, draftThread.projectId)
       : null;
   const project = useProject(projectRef);
+  /**
+   * The folder this drawer runs in, known without the project entry.
+   *
+   * A project's id IS its cwd (handlers/shell.ts groups sessions by it), so the
+   * thread already carries its workspace root. Requiring the derived *project*
+   * as well is what made the drawer render `null` — the terminal button opened
+   * a real PTY and then showed nothing — for any thread whose project entry had
+   * not landed yet. Same fallback `toggleTerminalVisibility` already uses.
+   */
+  const workspaceRoot =
+    project?.workspaceRoot ?? serverThread?.projectId ?? draftThread?.projectId ?? null;
   const terminalUiState = useTerminalUiStateStore((state) =>
     selectThreadTerminalUiState(state.terminalUiStateByThreadKey, threadRef),
   );
@@ -678,7 +694,7 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
         readonly runtimeEnv: Record<string, string>;
       }
     >();
-    if (!project) {
+    if (!workspaceRoot) {
       return next;
     }
 
@@ -693,14 +709,14 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
         cwd: launchContext?.cwd ?? summary.cwd,
         worktreePath: worktreePathForLaunch,
         runtimeEnv: projectScriptRuntimeEnv({
-          project: { cwd: project.workspaceRoot },
+          project: { cwd: workspaceRoot },
           worktreePath: worktreePathForLaunch,
         }),
       });
     }
 
     return next;
-  }, [drawerTerminalSessions, launchContext, project]);
+  }, [drawerTerminalSessions, launchContext, workspaceRoot]);
   const serverOrderedTerminalIds = useMemo(
     () => drawerTerminalSessions.map((session) => session.target.terminalId),
     [drawerTerminalSessions],
@@ -750,23 +766,23 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
   const cwd = useMemo(
     () =>
       launchContext?.cwd ??
-      (project
+      (workspaceRoot
         ? projectScriptCwd({
-            project: { cwd: project.workspaceRoot },
+            project: { cwd: workspaceRoot },
             worktreePath: effectiveWorktreePath,
           })
         : null),
-    [effectiveWorktreePath, launchContext?.cwd, project],
+    [effectiveWorktreePath, launchContext?.cwd, workspaceRoot],
   );
   const runtimeEnv = useMemo(
     () =>
-      project
+      workspaceRoot
         ? projectScriptRuntimeEnv({
-            project: { cwd: project.workspaceRoot },
+            project: { cwd: workspaceRoot },
             worktreePath: effectiveWorktreePath,
           })
         : {},
-    [effectiveWorktreePath, project],
+    [effectiveWorktreePath, workspaceRoot],
   );
 
   const bumpFocusRequestId = useCallback(() => {
@@ -922,7 +938,7 @@ const PersistentThreadTerminalDrawer = memo(function PersistentThreadTerminalDra
     [onAddTerminalContext, visible],
   );
 
-  if (!project || !terminalUiState.terminalOpen || !cwd) {
+  if (!workspaceRoot || !terminalUiState.terminalOpen || !cwd) {
     return null;
   }
 
@@ -1283,6 +1299,26 @@ function ChatViewContent(props: ChatViewProps) {
   const [optimisticUserMessages, setOptimisticUserMessages] = useState<ChatMessage[]>([]);
   const optimisticUserMessagesRef = useRef(optimisticUserMessages);
   optimisticUserMessagesRef.current = optimisticUserMessages;
+  // Subscribed to as a whole rather than through a filtering selector: zustand
+  // compares by identity, and a selector that filters allocates a new array on
+  // every read, so every thread would re-render on every unrelated queue change.
+  const allQueuedTurns = useQueuedTurnsStore((state) => state.queue);
+  const removeQueuedTurn = useQueuedTurnsStore((state) => state.remove);
+  const cancelQueuedTurn = useCallback(
+    (id: string) => {
+      removeQueuedTurn(id);
+      // The optimistic row was suppressed while the message was queued, but the
+      // send path still holds it — dropping it here is what makes cancelling
+      // final rather than "hidden until the next refold puts it back".
+      setOptimisticUserMessages((existing) => {
+        const removed = existing.filter((message) => message.id === id);
+        for (const message of removed) revokeUserMessagePreviewUrls(message);
+        const next = existing.filter((message) => message.id !== id);
+        return next.length === existing.length ? existing : next;
+      });
+    },
+    [removeQueuedTurn],
+  );
   const [localDraftErrorsByDraftId, setLocalDraftErrorsByDraftId] = useState<
     Record<string, LocalThreadErrorEntry>
   >({});
@@ -1463,6 +1499,14 @@ function ChatViewContent(props: ChatViewProps) {
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
   const canCheckoutPullRequestIntoThread = isLocalDraftThread;
   const activeThreadId = activeThread?.id ?? null;
+  const queuedTurnsForThisThread = useMemo(
+    () => queuedTurnsForThread(allQueuedTurns, activeThreadId),
+    [allQueuedTurns, activeThreadId],
+  );
+  const queuedMessageIds = useMemo(
+    () => new Set(queuedTurnsForThisThread.map((turn) => turn.id)),
+    [queuedTurnsForThisThread],
+  );
   const runningTerminalIds = useThreadRunningTerminalIds({
     environmentId: activeThread?.environmentId ?? null,
     threadId: activeThreadId,
@@ -1621,9 +1665,36 @@ function ChatViewContent(props: ChatViewProps) {
     ? scopeProjectRef(activeThread.environmentId, activeThread.projectId)
     : null;
   const activeProject = useProject(activeProjectRef);
+  // The folder the thread belongs to, known even before the project entry is
+  // derived — a project's id is its cwd. See `toggleTerminalVisibility`.
+  const activeThreadProjectId = activeThread?.projectId ?? null;
   const handleNewThreadInActiveProject = useCallback(() => {
     startNewThreadForProject(activeProjectRef, handleNewThread);
   }, [activeProjectRef, handleNewThread]);
+  /**
+   * Open a loop session the app did not create — a fork off the session tree.
+   *
+   * A forked session is one of loop's own, so its id IS the thread id (only
+   * app-created threads carry a client uuid), and it opens on the same
+   * environment as the thread it was forked from. Forking "before" a prompt
+   * hands the prompt back, which goes into the new thread's composer — that is
+   * the whole point of `/fork`: ask the same question differently.
+   */
+  const openLoopSession = useCallback(
+    async (loopSessionId: string, prompt?: string) => {
+      if (!activeThread) return;
+      const forkedRef = scopeThreadRef(activeThread.environmentId, loopSessionId as ThreadId);
+      if (prompt) setComposerDraftPrompt(forkedRef, prompt);
+      // Wait for the shell to actually carry the thread before routing to it.
+      // `resolveThreadRouteRenderState` renders **missing** for a thread with
+      // no shell entry and no detail, and a fresh fork is exactly that for the
+      // moment between loop creating it and the rebuilt snapshot arriving —
+      // so navigating straight away lands on "thread not found".
+      await waitForThreadInShell(forkedRef);
+      void navigate({ to: "/$environmentId/$threadId", params: buildThreadRouteParams(forkedRef) });
+    },
+    [activeThread, navigate, setComposerDraftPrompt],
+  );
   const activeEnvironmentShell = useEnvironmentQuery(
     activeThread ? environmentShell.stateAtom(activeThread.environmentId) : null,
   );
@@ -2116,9 +2187,14 @@ function ChatViewContent(props: ChatViewProps) {
     [activeLatestTurn?.turnId, threadActivities],
   );
   const planSidebarLabel = sidebarProposedPlan || interactionMode === "plan" ? "Plan" : "Tasks";
+  // loop has no plan MODE, so the old `interactionMode === "plan"` gate could
+  // never be true and the implement prompt never appeared. The trigger loop
+  // actually has is a DELIVERED plan: the plan tool ends the turn with the
+  // document as its input (packages/core/src/tools/plan.ts), and the terminal
+  // offers implement/discuss at exactly that point regardless of which agent
+  // produced it.
   const showPlanFollowUpPrompt =
     pendingUserInputs.length === 0 &&
-    interactionMode === "plan" &&
     latestTurnSettled &&
     hasActionableProposedPlan(activeProposedPlan);
   const activePendingApproval = pendingApprovals[0] ?? null;
@@ -2376,12 +2452,23 @@ function ChatViewContent(props: ChatViewProps) {
       return serverMessagesWithPreviewHandoff;
     }
     const serverIds = new Set(serverMessagesWithPreviewHandoff.map((message) => message.id));
-    const pendingMessages = optimisticUserMessages.filter((message) => !serverIds.has(message.id));
+    const pendingMessages = optimisticUserMessages.filter(
+      // A message still waiting in the queue belongs to the strip above the
+      // composer, not to the transcript. Left here it reads as already asked —
+      // the agent is visibly working, so a user bubble sitting under the live
+      // reply says the agent got it and ignored it.
+      (message) => !serverIds.has(message.id) && !queuedMessageIds.has(message.id),
+    );
     if (pendingMessages.length === 0) {
       return serverMessagesWithPreviewHandoff;
     }
     return [...serverMessagesWithPreviewHandoff, ...pendingMessages];
-  }, [attachmentPreviewHandoffByMessageId, displayServerMessages, optimisticUserMessages]);
+  }, [
+    attachmentPreviewHandoffByMessageId,
+    displayServerMessages,
+    optimisticUserMessages,
+    queuedMessageIds,
+  ]);
   const timelineEntries = useMemo(
     () =>
       deriveTimelineEntries(timelineMessages, activeThread?.proposedPlans ?? [], workLogEntries),
@@ -2635,15 +2722,37 @@ function ChatViewContent(props: ChatViewProps) {
     },
     [activeThreadRef, storeSetTerminalOpen],
   );
+  /**
+   * Terminals the drawer could actually show right now.
+   *
+   * Deliberately NOT `terminalUiState.terminalIds`: that store is persisted to
+   * localStorage, so it keeps ids from previous app runs whose PTYs died with
+   * the process. Keying "is a terminal already open?" off those stale ids meant
+   * the drawer refused to open a real one and then rendered nothing — the
+   * button looked dead in exactly the threads that had used a terminal before a
+   * restart.
+   *
+   * The right panel's terminals are excluded for the same reason the drawer
+   * excludes them when rendering: a terminal docked in the side panel is not
+   * one the drawer can display, so it must not count as the drawer's.
+   */
+  const drawerLiveTerminalIds = useMemo(
+    () => drawerTerminalIds(activeServerOrderedTerminalIds, panelTerminalIds),
+    [activeServerOrderedTerminalIds, panelTerminalIds],
+  );
   const toggleTerminalVisibility = useCallback(() => {
     if (!activeThreadRef) return;
     const nextOpen = !terminalUiState.terminalOpen;
-    if (nextOpen && terminalUiState.terminalIds.length === 0) {
-      if (!activeThreadId || !activeProject) {
-        return;
-      }
-      const cwdForOpen = gitCwd ?? activeProject.workspaceRoot;
-      if (!cwdForOpen) {
+    if (nextOpen && drawerLiveTerminalIds.length === 0) {
+      // A project id IS its folder path (handlers/shell.ts derives projects by
+      // grouping sessions on cwd), so the thread already knows its workspace
+      // root. Requiring the *project entry* as well used to make this button do
+      // nothing at all — silently, with no toast — for any thread whose project
+      // had not been derived yet, which is why the terminal opened from the
+      // sidebar but not from the header in some sessions.
+      const workspaceRoot = activeProject?.workspaceRoot ?? activeThreadProjectId ?? null;
+      const cwdForOpen = gitCwd ?? workspaceRoot;
+      if (!activeThreadId || !cwdForOpen || !workspaceRoot) {
         return;
       }
       const terminalId = nextTerminalId(allocatableActiveTerminalIds);
@@ -2656,7 +2765,7 @@ function ChatViewContent(props: ChatViewProps) {
           cwd: cwdForOpen,
           ...(activeThreadWorktreePath != null ? { worktreePath: activeThreadWorktreePath } : {}),
           env: projectScriptRuntimeEnv({
-            project: { cwd: activeProject.workspaceRoot },
+            project: { cwd: workspaceRoot },
             worktreePath: activeThreadWorktreePath,
           }),
         },
@@ -2667,24 +2776,25 @@ function ChatViewContent(props: ChatViewProps) {
   }, [
     activeProject,
     activeThreadId,
+    activeThreadProjectId,
     activeThreadRef,
     activeThreadWorktreePath,
     allocatableActiveTerminalIds,
+    drawerLiveTerminalIds.length,
     environmentId,
     gitCwd,
     openTerminal,
     setTerminalOpen,
     storeEnsureTerminal,
-    terminalUiState.terminalIds.length,
     terminalUiState.terminalOpen,
   ]);
   const splitTerminal = useCallback(
     (direction: "horizontal" | "vertical" = "horizontal") => {
-      if (!activeThreadRef || hasReachedSplitLimit || !activeThreadId || !activeProject) {
-        return;
-      }
-      const cwdForOpen = gitCwd ?? activeProject.workspaceRoot;
-      if (!cwdForOpen) {
+      // Same fallback as `toggleTerminalVisibility`: the thread's project id is
+      // its folder, so a missing project entry must not disable splitting.
+      const workspaceRoot = activeProject?.workspaceRoot ?? activeThreadProjectId ?? null;
+      const cwdForOpen = gitCwd ?? workspaceRoot;
+      if (!activeThreadRef || hasReachedSplitLimit || !activeThreadId || !cwdForOpen) {
         return;
       }
       const terminalId = nextTerminalId(allocatableActiveTerminalIds);
@@ -2702,7 +2812,7 @@ function ChatViewContent(props: ChatViewProps) {
           cwd: cwdForOpen,
           ...(activeThreadWorktreePath != null ? { worktreePath: activeThreadWorktreePath } : {}),
           env: projectScriptRuntimeEnv({
-            project: { cwd: activeProject.workspaceRoot },
+            project: { cwd: workspaceRoot ?? cwdForOpen },
             worktreePath: activeThreadWorktreePath,
           }),
         },
@@ -2710,6 +2820,7 @@ function ChatViewContent(props: ChatViewProps) {
     },
     [
       activeProject,
+      activeThreadProjectId,
       activeThreadId,
       allocatableActiveTerminalIds,
       activeThreadRef,
@@ -3610,6 +3721,12 @@ function ChatViewContent(props: ChatViewProps) {
       if (!scrollNode) {
         return;
       }
+      // Only real scroll gestures hand control back. `pointerdown` used to be
+      // in here too, which meant clicking a tool row — or selecting text in the
+      // reply — silently stopped the transcript following the stream while you
+      // were still sitting at the bottom. Leaving the live edge by any other
+      // means (scrollbar, keyboard, the minimap) is caught by
+      // `onIsAtEndChange`, which the list reports from its own near-end test.
       const handleManualNavigation = () => {
         cancelTimelineLiveFollowForUserNavigationRef.current();
       };
@@ -3619,13 +3736,9 @@ function ChatViewContent(props: ChatViewProps) {
       scrollNode.addEventListener("touchmove", handleManualNavigation, {
         passive: true,
       });
-      scrollNode.addEventListener("pointerdown", handleManualNavigation, {
-        passive: true,
-      });
       removeListeners = () => {
         scrollNode.removeEventListener("wheel", handleManualNavigation);
         scrollNode.removeEventListener("touchmove", handleManualNavigation);
-        scrollNode.removeEventListener("pointerdown", handleManualNavigation);
       };
     });
 
@@ -3727,15 +3840,18 @@ function ChatViewContent(props: ChatViewProps) {
     });
   }, []);
 
+  // The list's own near-end test is the whole state machine: at the end means
+  // follow the stream, away from it means the user is reading and the view is
+  // theirs. It reports `isNearEnd` (the same 10%-of-viewport window LegendList
+  // arms `maintainScrollAtEnd` with), so a row growing mid-stream does not flip
+  // it and following never drops out under its own output.
+  //
+  // Upstream returned early here whenever live-follow was armed, because in its
+  // model a sent message is pinned near the TOP and being away from the end is
+  // the normal state. loop follows the terminal instead, and that early return
+  // was what let the view be dragged back to the live edge after the user had
+  // scrolled up.
   const onIsAtEndChange = useCallback((isAtEnd: boolean) => {
-    if (
-      !isAtEnd &&
-      liveFollowUserScrollGenerationRef.current === anchorUserScrollGenerationRef.current
-    ) {
-      showScrollDebouncer.current.cancel();
-      setShowScrollToBottom(false);
-      return;
-    }
     if (isAtEndRef.current === isAtEnd) return;
     isAtEndRef.current = isAtEnd;
     if (isAtEnd) {
@@ -4628,10 +4744,21 @@ function ChatViewContent(props: ChatViewProps) {
         ? parseStandaloneComposerSlashCommand(trimmed)
         : null;
     if (standaloneSlashCommand) {
-      handleInteractionModeChange(standaloneSlashCommand);
+      // Each of these does something instead of being sent to the model,
+      // mirroring the terminal's own commands. The prompt is cleared first
+      // either way, or the text is still sitting there afterwards.
       promptRef.current = "";
       clearComposerDraftContent(composerDraftTarget);
       composerRef.current?.resetCursorState();
+      if (standaloneSlashCommand === "clear") {
+        // `/clear` and `/new` — a fresh session, which here is a new thread in
+        // the project already open.
+        handleNewThreadInActiveProject();
+        return;
+      }
+      void navigate({
+        to: standaloneSlashCommand === "mcp" ? "/settings/mcp" : "/settings/agents",
+      });
       return;
     }
     if (!hasSendableContent) {
@@ -4720,9 +4847,13 @@ function ChatViewContent(props: ChatViewProps) {
       effort: ctxSelectedPromptEffort,
       text: messageTextForSend || IMAGE_ONLY_BOOTSTRAP_PROMPT,
     });
+    // `type` is carried from the staged attachment rather than assumed: the
+    // contract pairs it with the mime type (an "image" whose mime is
+    // application/pdf fails to decode), so hardcoding it here would refuse
+    // every PDF at the command boundary.
     const turnAttachmentsPromise = Promise.all(
       composerImagesSnapshot.map(async (image) => ({
-        type: "image" as const,
+        type: image.type,
         name: image.name,
         mimeType: image.mimeType,
         sizeBytes: image.sizeBytes,
@@ -4730,26 +4861,29 @@ function ChatViewContent(props: ChatViewProps) {
       })),
     );
     const optimisticAttachments = composerImagesSnapshot.map((image) => ({
-      type: "image" as const,
+      type: image.type,
       id: image.id,
       name: image.name,
       mimeType: image.mimeType,
       sizeBytes: image.sizeBytes,
       previewUrl: image.previewUrl,
     }));
-    // Sending always returns to the live edge. The new row becomes the
-    // anchored end-space target so it lands near the top while the response
-    // streams into the reserved space below it.
+    // Sending returns to the live edge and stays there — the terminal's rule.
+    // Upstream anchored the sent row near the top and let the reply stream into
+    // reserved space below it, which is why `setTimelineAnchor` takes no
+    // message here: an anchor keeps `maintainScrollAtEnd` switched off for the
+    // rest of the thread's life, and following then depended on the timeline
+    // effect firing, which a row growing under streamed text does not do.
     isAtEndRef.current = true;
-    timelineScrollModeRef.current = "anchoring-new-turn";
+    timelineScrollModeRef.current = "following-end";
     liveFollowUserScrollGenerationRef.current = anchorUserScrollGenerationRef.current;
-    pendingTimelineAnchorRef.current = messageIdForSend;
+    pendingTimelineAnchorRef.current = null;
     activeTimelineAnchorIndexRef.current = null;
     showScrollDebouncer.current.cancel();
     setShowScrollToBottom(false);
     setTimelineAnchor({
       threadKey: scopedThreadKey(scopeThreadRef(activeThread.environmentId, threadIdForSend)),
-      messageId: messageIdForSend,
+      messageId: null,
     });
     setOptimisticUserMessages((existing) => [
       ...existing,
@@ -4951,12 +5085,57 @@ function ChatViewContent(props: ChatViewProps) {
       setDockedDraftHeroThreadKey((currentThreadKey) =>
         currentThreadKey === activeThreadKey ? null : currentThreadKey,
       );
-      resetLocalDispatch();
     }
+    /*
+     * The send has settled, so the composer's local guess about it is over.
+     *
+     * This used to reset only on the two outcomes someone had been bitten by —
+     * a failure, and a message landing in the queue — and leave the ordinary
+     * success to `hasServerAcknowledgedLocalDispatch`, which INFERS the send
+     * landed by watching for a new user message or a moved turn timestamp.
+     * That inference is unfalsifiable from here: every path it fails to
+     * recognise leaves the composer spinning and the timeline on "Working"
+     * until the view is remounted, and the fix each time was another special
+     * case above. The queue branch was one. There were more.
+     *
+     * There is nothing left to infer. `session.send` resolves only after the
+     * RPC server has set its running flag and BROADCAST it (see `setRunning`),
+     * and that notification goes out on this same socket before the response
+     * does — so by the time this line runs, the client has already applied the
+     * authoritative turn state. Whether the turn is still running or already
+     * finished, the server's answer is in hand and outranks the guess.
+     */
+    resetLocalDispatch();
   };
 
   const onInterrupt = async () => {
     if (!activeThread) return;
+    // Stopping discards whatever was queued behind this turn — it was queued
+    // expecting the turn to finish. That is the right call, but it must not be
+    // a silent one: the messages were typed, and the strip they were sitting in
+    // simply disappears. loop's terminal splits these (Esc aborts and keeps the
+    // queue, Ctrl+C clears it); here there is one Stop, so it says what it took.
+    const discarded = queuedTurnsForThisThread.map((turn) => turn.id);
+    if (discarded.length > 0) {
+      // Their optimistic rows were held out of the transcript while they were
+      // queued. Dropping the queue without dropping these would make each one
+      // POP INTO the conversation as a message that was never sent.
+      const discardedIds = new Set(discarded);
+      setOptimisticUserMessages((existing) => {
+        for (const message of existing) {
+          if (discardedIds.has(message.id)) revokeUserMessagePreviewUrls(message);
+        }
+        const next = existing.filter((message) => !discardedIds.has(message.id));
+        return next.length === existing.length ? existing : next;
+      });
+      toastManager.add(
+        stackedThreadToast({
+          type: "warning",
+          title: `Stopped — ${discarded.length} queued message${discarded.length === 1 ? "" : "s"} discarded`,
+          description: "Queued messages are dropped when you stop a turn.",
+        }),
+      );
+    }
     const result = await interruptThreadTurn({
       environmentId,
       input: buildThreadTurnInterruptInput(activeThread),
@@ -5182,17 +5361,18 @@ function ChatViewContent(props: ChatViewProps) {
       beginLocalDispatch({ preparingWorktree: false });
       setThreadError(threadIdForSend, null);
 
-      // Position this sent row once LegendList has measured the anchored tail.
+      // Same as the other send path: land at the live edge and follow from
+      // there, rather than anchoring the sent row near the top.
       isAtEndRef.current = true;
-      timelineScrollModeRef.current = "anchoring-new-turn";
+      timelineScrollModeRef.current = "following-end";
       liveFollowUserScrollGenerationRef.current = anchorUserScrollGenerationRef.current;
-      pendingTimelineAnchorRef.current = messageIdForSend;
+      pendingTimelineAnchorRef.current = null;
       activeTimelineAnchorIndexRef.current = null;
       showScrollDebouncer.current.cancel();
       setShowScrollToBottom(false);
       setTimelineAnchor({
         threadKey: scopedThreadKey(scopeThreadRef(activeThread.environmentId, threadIdForSend)),
-        messageId: messageIdForSend,
+        messageId: null,
       });
 
       setOptimisticUserMessages((existing) => [
@@ -5268,6 +5448,9 @@ function ChatViewContent(props: ChatViewProps) {
           }
         }
         sendInFlightRef.current = false;
+        // Settled, exactly as in `onSend` — a plan follow-up that succeeded is
+        // still a send whose outcome the server has already reported.
+        resetLocalDispatch();
         return;
       }
 
@@ -5637,7 +5820,11 @@ function ChatViewContent(props: ChatViewProps) {
 
   const panelToggleControls = (
     <PanelLayoutControls
-      terminalAvailable={activeProject !== null}
+      // Not `activeProject !== null`: the toggle itself falls back to the
+      // thread's project id (a project IS its cwd), so gating the button on the
+      // derived project entry disabled it — silently, with only a tooltip — in
+      // exactly the threads where the fallback was written to help.
+      terminalAvailable={(activeProject?.workspaceRoot ?? activeThreadProjectId) !== null}
       terminalOpen={terminalUiState.terminalOpen}
       terminalShortcutLabel={shortcutLabelForCommand(keybindings, "terminal.toggle")}
       rightPanelAvailable={activeProject !== null}
@@ -5776,6 +5963,14 @@ function ChatViewContent(props: ChatViewProps) {
             availableEditors={availableEditors}
             rightPanelOpen={rightPanelOpen}
             gitCwd={gitCwd}
+            // A thread the composer minted lives under a client uuid until the
+            // first turn creates loop's session; `loopSessionIdFor` maps it,
+            // and `isDraftThread` is what says loop has never heard of it.
+            loopSessionId={
+              isDraftThread(activeThread.id) ? null : loopSessionIdFor(activeThread.id)
+            }
+            isTurnRunning={phase === "running"}
+            onOpenLoopSession={openLoopSession}
             onNewThreadInProject={handleNewThreadInActiveProject}
             onRunProjectScript={runProjectScript}
             onAddProjectScript={saveProjectScript}
@@ -5898,6 +6093,21 @@ function ChatViewContent(props: ChatViewProps) {
                   {threadSyncPhase && !activeEnvironmentUnavailable ? (
                     <ThreadSyncStatusPill phase={threadSyncPhase} />
                   ) : null}
+                  {/*
+                   * Above the input, mirroring the run-context strip below it.
+                   * Deliberately OUTSIDE the glass shell: the shell's
+                   * `-with-context` clip-path is hand-authored from its own top
+                   * edge, so growing it upwards would put the composer's 22px
+                   * corner curve at the top of the queue instead of the top of
+                   * the input. The strip draws its own glass and tucks under
+                   * the composer with a negative margin.
+                   */}
+                  <div className="relative z-0 -mb-4 w-full max-w-3xl mx-auto">
+                    <ComposerQueuedTurns
+                      turns={queuedTurnsForThisThread}
+                      onCancel={cancelQueuedTurn}
+                    />
+                  </div>
                   <div
                     className="relative"
                     style={
@@ -5915,6 +6125,7 @@ function ChatViewContent(props: ChatViewProps) {
                       <div className="chat-composer-glass-host relative z-10 w-full rounded-[22px]">
                         <div ref={attachDraftHeroComposerAnchorRef} className="relative z-10">
                           <ChatComposer
+                            onNewThread={handleNewThreadInActiveProject}
                             composerRef={composerRef}
                             composerDraftTarget={composerDraftTarget}
                             environmentId={environmentId}
@@ -5949,8 +6160,6 @@ function ChatViewContent(props: ChatViewProps) {
                             sidebarProposedPlan={sidebarProposedPlan as { turnId?: TurnId } | null}
                             planSidebarLabel={planSidebarLabel}
                             planSidebarOpen={planSidebarOpen}
-                            runtimeMode={runtimeMode}
-                            interactionMode={interactionMode}
                             lockedProvider={lockedProvider}
                             providerStatuses={providerStatuses as ServerProvider[]}
                             activeProjectDefaultModelSelection={
@@ -5983,9 +6192,6 @@ function ChatViewContent(props: ChatViewProps) {
                             }
                             onProviderModelSelect={onProviderModelSelect}
                             getModelDisabledReason={getModelDisabledReason}
-                            toggleInteractionMode={toggleInteractionMode}
-                            handleRuntimeModeChange={handleRuntimeModeChange}
-                            handleInteractionModeChange={handleInteractionModeChange}
                             togglePlanSidebar={togglePlanSidebar}
                             focusComposer={focusComposer}
                             scheduleComposerFocus={scheduleComposerFocus}

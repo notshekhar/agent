@@ -78,6 +78,26 @@ export interface WorkLogEntry {
   toolLifecycleStatus?: WorkLogToolLifecycleStatus;
   /** Originating orchestration activity kind (e.g. `user-input.requested`) for row chrome. */
   sourceActivityKind?: OrchestrationThreadActivity["kind"];
+  /**
+   * The whole loop call/thinking/recap, passed straight through.
+   *
+   * Everything else on this entry is the generic shape: a label, a detail
+   * string, a tone. loop's rows need the call itself — a `read`'s offset to
+   * print its line range and number its output, an `edit`'s output kept as a
+   * diff — so the structured payload rides along untouched and the loop
+   * renderer reads it. Nothing generic looks at these.
+   */
+  loop?: LoopEntryPayload;
+}
+
+/** What the loop-shaped renderers read off a work entry. Shapes are owned by
+    `loop/handlers/thread.ts`; this side only carries them. */
+export interface LoopEntryPayload {
+  tool?: unknown;
+  thinking?: unknown;
+  recap?: unknown;
+  compact?: unknown;
+  hook?: unknown;
 }
 
 interface DerivedWorkLogEntry extends WorkLogEntry {
@@ -105,7 +125,13 @@ export interface ActivePlanState {
   explanation?: string | null;
   steps: Array<{
     step: string;
-    status: "pending" | "inProgress" | "completed";
+    /**
+     * `cancelled` is loop's — the todo tool has four states and upstream's
+     * plan had three. Folding it into `completed` would claim work was done
+     * that was explicitly dropped, so it is carried through and rendered
+     * distinctly (struck through, as the terminal draws it).
+     */
+    status: "pending" | "inProgress" | "completed" | "cancelled";
   }>;
 }
 
@@ -140,6 +166,11 @@ export type TimelineEntry =
     };
 
 export function workLogEntryIsToolLike(entry: WorkLogEntry): boolean {
+  // A loop row draws its own shape and never wants the "Work Log" heading
+  // above it — including a recap, whose tone is info.
+  if (entry.loop !== undefined) {
+    return true;
+  }
   if (entry.tone === "tool" || entry.tone === "thinking" || entry.tone === "error") {
     return true;
   }
@@ -250,6 +281,13 @@ export function workEntryIndicatesToolSuccess(entry: WorkLogEntry): boolean {
 
 /** Tool-like row with neither clear success nor failure (empty, incomplete, in progress, etc.). */
 export function workEntryIndicatesToolNeutralStatus(entry: WorkLogEntry): boolean {
+  // This hides a tool row whose outcome cannot be read yet. A loop row always
+  // knows its own state and draws it (the diamond), so it is never neutral —
+  // without this a thinking block, which has no success signal to find, was
+  // filtered out of the transcript entirely.
+  if (entry.loop !== undefined) {
+    return false;
+  }
   if (!workLogEntryIsToolLike(entry)) {
     return false;
   }
@@ -534,7 +572,7 @@ export function deriveActivePlanState(
   }
   const steps: Array<{
     step: string;
-    status: "pending" | "inProgress" | "completed";
+    status: "pending" | "inProgress" | "completed" | "cancelled";
   }> = [];
   for (const entry of rawPlan) {
     if (!entry || typeof entry !== "object") {
@@ -545,7 +583,11 @@ export function deriveActivePlanState(
       continue;
     }
     const status =
-      record.status === "completed" || record.status === "inProgress" ? record.status : "pending";
+      record.status === "completed" ||
+      record.status === "inProgress" ||
+      record.status === "cancelled"
+        ? record.status
+        : "pending";
     steps.push({
       step: record.step,
       status,
@@ -633,6 +675,12 @@ export function deriveWorkLogEntries(
     if (activity.kind === "tool.started") continue;
     if (activity.kind === "task.started") continue;
     if (activity.kind === "context-window.updated") continue;
+    // The checklist is CURRENT STATE, drawn by the plan sidebar — not an event
+    // in the conversation. As a work-log entry it would add a row per todo
+    // write, each showing a list already superseded by the next. The terminal
+    // makes the same call: `todo-update` feeds the pinned panel and never
+    // history (packages/cli/src/interactive/turn-emitter.ts).
+    if (activity.kind === "turn.plan.updated") continue;
     if (activity.summary === "Checkpoint captured") continue;
     if (isPlanBoundaryToolActivity(activity)) continue;
     entries.push(toDerivedWorkLogEntry(activity));
@@ -756,11 +804,42 @@ function toDerivedWorkLogEntry(activity: OrchestrationThreadActivity): DerivedWo
   if (toolLifecycleStatus) {
     entry.toolLifecycleStatus = toolLifecycleStatus;
   }
+  const loop = extractLoopPayload(payload);
+  if (loop) {
+    entry.loop = loop;
+  }
   const collapseKey = deriveToolLifecycleCollapseKey(entry);
   if (collapseKey) {
     entry.collapseKey = collapseKey;
   }
   return entry;
+}
+
+/** The loop-shaped part of an activity payload, or null when there is none
+    (every activity that did not come from loop's own handler). */
+function extractLoopPayload(payload: Record<string, unknown> | null): LoopEntryPayload | null {
+  if (!payload) return null;
+  const tool = payload.loopTool;
+  const thinking = payload.loopThinking;
+  const recap = payload.loopRecap;
+  const compact = payload.loopCompact;
+  const hook = payload.loopHook;
+  if (
+    tool === undefined &&
+    thinking === undefined &&
+    recap === undefined &&
+    compact === undefined &&
+    hook === undefined
+  ) {
+    return null;
+  }
+  return {
+    ...(tool === undefined ? {} : { tool }),
+    ...(thinking === undefined ? {} : { thinking }),
+    ...(recap === undefined ? {} : { recap }),
+    ...(compact === undefined ? {} : { compact }),
+    ...(hook === undefined ? {} : { hook }),
+  };
 }
 
 function collapseDerivedWorkLogEntries(

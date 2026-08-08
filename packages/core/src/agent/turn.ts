@@ -36,6 +36,7 @@ import { extractImagesFromInput, filterAttachmentsByModalities } from "./images"
 import { CostTracker, stampUsageCost } from "./cost";
 import { runCompact } from "./compact";
 import { runRecap, turnDeservesRecap } from "./recap";
+import { cancelRecap, scheduleRecap } from "./recap-schedule";
 import { runHooks, type HookOutcome } from "./hooks";
 import { isTrusted } from "./trust";
 import type { ThinkingLevel } from "./thinking";
@@ -420,6 +421,12 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
         emitter.emit("finish", { usage: undefined });
         return;
     }
+
+    // The previous turn's recap, if one is still waiting or generating, dies
+    // here — the user has answered, so it summarises something they have moved
+    // past. Deliberately BEFORE the append below: it is the append that a late
+    // recap would end up sorting after, so the window has to be shut first.
+    cancelRecap(session.id);
 
     // Persist user message verbatim (paths intact for reference in transcripts)
     await session.append({ type: "message", ts: Date.now(), role: "user", content: userInput });
@@ -925,15 +932,30 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
     }
 
     // Post-turn recap: only for turns that wrote/edited files, detached so the
-    // prompt frees immediately — the data-recap event lands in the UI whenever
-    // generation finishes. Skipped for hook continuations (the final
+    // prompt frees immediately. It does NOT start here — it waits out
+    // RECAP_DELAY_MS and the next turn cancels it (see recap-schedule.ts), so
+    // a user who replies straight away never pays for a summary of the turn
+    // they just moved past. Skipped for hook continuations (the final
     // continuation recaps the whole turn).
     const recapEnabled = opts.recap ?? getSetting("recap") === true;
     const recapWorthy = turnDeservesRecap(toolsUsed) && assistantText.trim() !== "";
     if (recapEnabled && recapWorthy && hookDepth === 0 && !abortSignal?.aborted) {
-        void runRecap({ session, modelId, userInput, assistantText, toolsUsed, tracker, cwd, abortSignal })
-            .then((text) => text && emitter.emit("data-recap", { text }))
-            .catch(() => {}); // best-effort — a failed recap never fails the turn
+        scheduleRecap(session.id, async (signal) => {
+            // The recap's own signal, not the turn's: the turn is over by the
+            // time this runs, and what must be able to cancel it now is the
+            // NEXT turn starting.
+            const text = await runRecap({
+                session,
+                modelId,
+                userInput,
+                assistantText,
+                toolsUsed,
+                tracker,
+                cwd,
+                abortSignal: signal,
+            }).catch(() => ""); // best-effort — a failed recap never fails the turn
+            if (text && !signal.aborted) emitter.emit("data-recap", { text });
+        });
     }
 
     // Stop hooks: a block sends the reason back as a follow-up turn so the

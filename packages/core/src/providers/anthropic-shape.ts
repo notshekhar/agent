@@ -272,6 +272,12 @@ export function anthropicShapeFetch(providerKey: string, base: typeof fetch = fe
         retry.body?.cancel().catch(() => {});
         return new Response(errorText, { status: res.status, statusText: res.statusText, headers: res.headers });
     };
-    (wrapped as typeof fetch & { preconnect: typeof fetch.preconnect }).preconnect = fetch.preconnect.bind(fetch);
+    // Bun-only (see providers/index.ts withPreconnect): absent on Node, where
+    // reading `.bind` off it throws and kills the turn.
+    const preconnect = (fetch as typeof fetch & { preconnect?: typeof fetch.preconnect }).preconnect;
+    if (preconnect) {
+        (wrapped as typeof fetch & { preconnect?: typeof fetch.preconnect }).preconnect =
+            preconnect.bind(fetch);
+    }
     return wrapped as typeof fetch;
 }

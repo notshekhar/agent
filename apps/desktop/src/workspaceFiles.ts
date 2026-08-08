@@ -12,6 +12,7 @@
  * rather than a read.
  */
 import { readdir, readFile, stat } from "node:fs/promises";
+import { homedir } from "node:os";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 
 /** Directories never worth walking; they dwarf the real tree. */
@@ -105,21 +106,66 @@ export type ReadWorkspaceFileResult =
     }
   | { readonly ok: false; readonly failure: string };
 
+/**
+ * Paths that repeat the tail of the root, resolved the way a person reads them.
+ *
+ * An agent working in `~/code/app/stories` habitually writes `stories/x.md` —
+ * the path from the repository, not from its own cwd — and naive resolution
+ * turns that into `~/code/app/stories/stories/x.md`, which does not exist. So
+ * clicking the file in the chat opened a pane that could not load it.
+ *
+ * Longest overlap first, and only as a FALLBACK after the literal path misses:
+ * a real `stories/stories/x.md` still wins, because it is tried first and
+ * found. Everything returned still has to pass the containment check.
+ */
+function overlapCandidates(root: string, relativePath: string): string[] {
+  const rootParts = root.split(sep).filter((part) => part !== "");
+  const pathParts = relativePath.replaceAll("\\", "/").split("/").filter((part) => part !== "");
+  const candidates: string[] = [];
+  const maxOverlap = Math.min(rootParts.length, pathParts.length - 1);
+  for (let overlap = maxOverlap; overlap > 0; overlap -= 1) {
+    const tail = rootParts.slice(rootParts.length - overlap);
+    const head = pathParts.slice(0, overlap);
+    if (tail.every((part, index) => part.toLowerCase() === head[index]?.toLowerCase())) {
+      candidates.push(resolve(root, pathParts.slice(overlap).join("/")));
+    }
+  }
+  return candidates;
+}
+
 export async function readWorkspaceFile(
   cwd: string,
   relativePath: string,
 ): Promise<ReadWorkspaceFileResult> {
   const root = resolve(cwd);
-  const absolute = resolve(root, relativePath);
-  if (!isInside(root, absolute)) return { ok: false, failure: "resolved_path_outside_root" };
+  const literal = resolve(root, relativePath);
+  if (!isInside(root, literal)) return { ok: false, failure: "resolved_path_outside_root" };
 
+  let absolute: string | undefined;
   let info;
-  try {
-    info = await stat(absolute);
-  } catch {
-    return { ok: false, failure: "path_not_found" };
+  for (const candidate of [literal, ...overlapCandidates(root, relativePath)]) {
+    if (!isInside(root, candidate)) continue;
+    try {
+      const candidateInfo = await stat(candidate);
+      if (!candidateInfo.isFile()) continue;
+      absolute = candidate;
+      info = candidateInfo;
+      break;
+    } catch {
+      // Missing, so try the next reading of the path.
+    }
   }
-  if (!info.isFile()) return { ok: false, failure: "path_not_file" };
+  if (!absolute || !info) {
+    // Reported against the literal path: it is what the user clicked, and
+    // naming a guessed one in the error would be more confusing, not less.
+    try {
+      return (await stat(literal)).isFile()
+        ? { ok: false, failure: "path_not_found" }
+        : { ok: false, failure: "path_not_file" };
+    } catch {
+      return { ok: false, failure: "path_not_found" };
+    }
+  }
 
   const buffer = await readFile(absolute);
   const slice = buffer.subarray(0, MAX_FILE_BYTES);
@@ -137,6 +183,19 @@ export async function readWorkspaceFile(
 }
 
 /**
+ * `~` is a shell convention, not a filesystem one — node would resolve
+ * "~/documents" to "<cwd>/~/documents", a folder nobody has. The picker's own
+ * placeholder offers "~/projects/foo", so it has to mean what it looks like.
+ */
+export function expandHome(input: string): string {
+  if (input === "~") return homedir();
+  if (input.startsWith("~/") || input.startsWith(`~${sep}`)) {
+    return join(homedir(), input.slice(2));
+  }
+  return input;
+}
+
+/**
  * Directory listing for the path picker, which completes a partly-typed path.
  * Unlike the workspace walk this is free to leave the project, because it is
  * how a user chooses a folder that is not one yet.
@@ -145,9 +204,11 @@ export async function browseFilesystem(
   partialPath: string,
   cwd: string | undefined,
 ): Promise<{ parentPath: string; entries: Array<{ name: string; fullPath: string }> } | null> {
-  const base = isAbsolute(partialPath) ? partialPath : resolve(cwd ?? process.cwd(), partialPath);
+  const requested = expandHome(partialPath);
+  const base = isAbsolute(requested) ? requested : resolve(cwd ?? process.cwd(), requested);
   // A trailing separator means "inside this directory"; otherwise the last
-  // segment is a partial name and the parent is what to list.
+  // segment is a partial name and the parent is what to list. Tested on the
+  // ORIGINAL string: join() drops the trailing separator while expanding.
   const parent = partialPath.endsWith(sep) ? base : resolve(base, "..");
 
   let children;

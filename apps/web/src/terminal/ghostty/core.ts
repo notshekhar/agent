@@ -69,7 +69,20 @@ export interface GhosttyTheme {
   readonly cursor: GhosttyColor;
   /** CSS color the renderer overlays on selected cells; not sent to Ghostty. */
   readonly selectionBackground?: string;
+  /**
+   * ANSI 0-15, the colors programs actually ask for by name.
+   *
+   * Without this the terminal ran on Ghostty's built-in palette, which is tuned
+   * for a dark background — so in the app's light theme `bright white` and
+   * `yellow` were being painted in near-white on white. Only the first 16
+   * entries are themed: 16-255 are the fixed 6x6x6 cube and greyscale ramp,
+   * which mean the same thing under any theme.
+   */
+  readonly palette?: readonly GhosttyColor[];
 }
+
+/** ANSI 0-15 — everything above is theme-independent. */
+export const THEMED_PALETTE_LENGTH = 16;
 
 export interface GhosttyCell {
   readonly text: string;
@@ -187,6 +200,7 @@ export class GhosttyTerminalCore {
   private style = 0;
   private scrollbar = 0;
   private rows: GhosttyRow[] = [];
+  private theme: GhosttyTheme | null = null;
   private disposed = false;
   private keyboardLayoutMap: GhosttyKeyboardLayoutMap | undefined;
 
@@ -306,6 +320,9 @@ export class GhosttyTerminalCore {
     // RIS returns the cursor to Ghostty's built-in steady default, so the
     // embedder default has to be applied again before the replay runs.
     this.applyDefaultCursorBlink();
+    // RIS also restores the built-in palette. Reapply before the replay, or the
+    // reattached scrollback repaints in the wrong colors.
+    if (this.theme !== null) this.setTheme(this.theme);
     this.rows = [];
     if (data.length === 0) return;
     const writer = this.ptyWriter;
@@ -353,6 +370,10 @@ export class GhosttyTerminalCore {
 
   setTheme(theme: GhosttyTheme): void {
     this.ensureActive();
+    // Kept so `resetAndWrite` can put it back: RIS restores Ghostty's built-in
+    // colors, and a reattach that replayed scrollback under them would paint
+    // the whole buffer in the wrong theme.
+    this.theme = theme;
     const color = this.runtime.alloc(3);
     for (const [option, value] of [
       [11, theme.foreground],
@@ -363,6 +384,33 @@ export class GhosttyTerminalCore {
       this.runtime.call("ghostty_terminal_set", this.terminal, option, color);
     }
     this.runtime.free(color, 3);
+    this.applyPalette(theme.palette);
+  }
+
+  /**
+   * The ANSI palette, set through the VT stream rather than the embedder API.
+   *
+   * `ghostty_terminal_set` exposes default fg/bg/cursor and nothing for the
+   * palette, but OSC 4 is exactly this operation and Ghostty's parser handles
+   * it — the same escape a `.bashrc` would use. The set form (as opposed to the
+   * `?` query form) produces no reply, so nothing is written back to the PTY.
+   */
+  private applyPalette(palette: readonly GhosttyColor[] | undefined): void {
+    if (!palette || palette.length === 0) return;
+    const hex = (value: number) =>
+      Math.max(0, Math.min(255, Math.round(value)))
+        .toString(16)
+        .padStart(2, "0");
+    const sequence = palette
+      .slice(0, THEMED_PALETTE_LENGTH)
+      .map(
+        (entry, index) =>
+          // Written as escapes, never as literal control bytes: a raw 0x1b in
+          // a source file makes grep treat it as binary and skip the file.
+          `\u001b]4;${index};rgb:${hex(entry.r)}/${hex(entry.g)}/${hex(entry.b)}\u0007`,
+      )
+      .join("");
+    this.write(sequence);
   }
 
   scroll(deltaRows: number): void {

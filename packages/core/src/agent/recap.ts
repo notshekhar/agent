@@ -80,6 +80,12 @@ export async function runRecap(opts: {
             source: "recap",
         });
     }
+    // Checked HERE, not just by generateText above: an abort that lands while
+    // the generation is settling still resolves normally, and appending then is
+    // the exact failure this guards — a recap entry written after the next
+    // turn's user message, which the transcript renders below it forever.
+    if (opts.abortSignal?.aborted) return "";
+
     const payload: RecapPayload = { kind: RECAP_KIND, text };
     const entry = { type: "custom" as const, ts: Date.now(), payload };
     await opts.session.append(entry);

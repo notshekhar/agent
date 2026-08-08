@@ -22,6 +22,7 @@ import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 
+import { listUnclaimedProjects, onAddedProjectsChange } from "./addedProjects.ts";
 import { clientThreadIdFor } from "./dispatch.ts";
 import { onLiveTurnChange } from "./liveTurn.ts";
 import { toInstanceId } from "./ids.ts";
@@ -35,10 +36,16 @@ export interface LoopSessionRow {
   readonly mtime: number;
   readonly provider: string;
   readonly model: string;
+  /** What the session is running on now, when it has moved off the model it
+   * was created with. Absent on an older loop. */
+  readonly lastModel?: string;
+  readonly lastProvider?: string;
   readonly name?: string;
   readonly firstUserMessage?: string;
   readonly running?: boolean;
   readonly attached?: number;
+  /** Epoch ms it was archived; absent while it is active. */
+  readonly archivedAt?: number;
 }
 
 const decodeSnapshot = Schema.decodeUnknownEffect(OrchestrationShellSnapshotSchema);
@@ -60,9 +67,19 @@ function threadTitle(row: LoopSessionRow): string {
   return "Untitled";
 }
 
-export const buildShellSnapshot = Effect.fnUntraced(function* () {
+/**
+ * The shell, for one side of the archive.
+ *
+ * `archived` is passed through to loop, which defaults to the working set —
+ * so the sidebar keeps behaving exactly as before and the Archive settings
+ * panel asks for the other side. Filtering client-side instead would mean
+ * shipping every archived session to draw a list that excludes them.
+ */
+export const buildShellSnapshot = Effect.fnUntraced(function* (archived = false) {
   const rows = yield* Effect.promise(() =>
-    loopCall<readonly LoopSessionRow[]>("session.list").catch(() => [] as readonly LoopSessionRow[]),
+    loopCall<readonly LoopSessionRow[]>("session.list", archived ? { archived: true } : {}).catch(
+      () => [] as readonly LoopSessionRow[],
+    ),
   );
 
   // One unusable row must not cost the whole sidebar. `ProjectId` is a
@@ -86,34 +103,74 @@ export const buildShellSnapshot = Effect.fnUntraced(function* () {
 
   const newestFirst = [...usable].sort((a, b) => b.mtime - a.mtime);
 
+  // A folder someone just added has no session yet, so nothing above sees it.
+  // It is reported until one exists, then the session-derived project takes
+  // over under the folder as its id.
+  const unclaimed = listUnclaimedProjects(new Set(projects.keys()));
+
   return yield* decodeSnapshot({
     // One derived snapshot per read; there is no incremental sequence to
     // resume from, so every subscription starts from zero.
     snapshotSequence: 0,
-    projects: [...projects].map(([cwd, times]) => ({
-      id: cwd,
-      title: folderName(cwd),
-      workspaceRoot: cwd,
-      defaultModelSelection: null,
-      scripts: [],
-      createdAt: iso(times.created),
-      updatedAt: iso(times.updated),
-    })),
+    projects: [
+      ...[...projects].map(([cwd, times]) => ({
+        id: cwd,
+        title: folderName(cwd),
+        workspaceRoot: cwd,
+        defaultModelSelection: null,
+        scripts: [],
+        createdAt: iso(times.created),
+        updatedAt: iso(times.updated),
+      })),
+      // Reported under the id the palette minted, because that is the id the
+      // draft it opened is pointed at.
+      ...unclaimed.map((project) => ({
+        id: project.id,
+        title: folderName(project.folder),
+        workspaceRoot: project.folder,
+        defaultModelSelection: null,
+        scripts: [],
+        createdAt: iso(project.addedAt),
+        updatedAt: iso(project.addedAt),
+      })),
+    ],
     threads: newestFirst.map((row) => ({
       // Reported under the id the client knows, which for a thread it just
       // created is its own draft id rather than loop's session id.
       id: clientThreadIdFor(row.id),
       projectId: row.cwd,
       title: threadTitle(row),
-      modelSelection: { instanceId: toInstanceId(row.provider), model: row.model || "unknown" },
+      modelSelection: {
+        instanceId: toInstanceId(row.lastProvider || row.provider),
+        model: row.lastModel || row.model || "unknown",
+      },
       runtimeMode: "approval-required",
       branch: null,
       worktreePath: null,
       latestTurn: null,
       createdAt: iso(row.createdAt),
       updatedAt: iso(row.mtime),
-      archivedAt: null,
-      session: null,
+      archivedAt: row.archivedAt ? iso(row.archivedAt) : null,
+      // Liveness is loop's own answer, not something inferred here:
+      // `session.list` reports `running` per session from the RPC server's
+      // active-session table. Reported only while it is true — the merged
+      // thread takes its session from the shell (mergeEnvironmentThread), so
+      // an always-present session would lock the composer's environment
+      // picker on threads that are merely open.
+      //
+      // It refreshes when a live turn changes, so a turn started outside this
+      // client (the TUI on the same loop) stays invisible until the next
+      // rebuild.
+      session: row.running
+        ? {
+            threadId: clientThreadIdFor(row.id),
+            status: "running",
+            providerName: row.lastProvider || row.provider || null,
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: iso(row.mtime),
+          }
+        : null,
       latestUserMessageAt: null,
       hasPendingApprovals: false,
       hasPendingUserInput: false,
@@ -162,18 +219,60 @@ export function shellStream(): Stream.Stream<
     Effect.acquireRelease(
       Effect.sync(() => {
         let timer: ReturnType<typeof setTimeout> | null = null;
-        const unsubscribe = onLiveTurnChange(() => {
+        /**
+         * One rebuild at a time — the same guard `threadStream` already has.
+         *
+         * The timer was cleared BEFORE the async build began, so a rebuild
+         * slower than the window (this one lists every session in every
+         * project) had the next scheduled while it was still in flight, and
+         * the pile grew for as long as changes kept arriving.
+         */
+        let building = false;
+        let pending = false;
+
+        const run = () => {
+          building = true;
+          void Effect.runPromise(buildShellSnapshot())
+            .then((snapshot) => Queue.offerUnsafe(queue, { kind: "snapshot" as const, snapshot }))
+            .catch(() => undefined)
+            .finally(() => {
+              building = false;
+              if (pending) {
+                pending = false;
+                rebuild();
+              }
+            });
+        };
+
+        const rebuild = () => {
           if (timer !== null) return;
           timer = setTimeout(() => {
             timer = null;
-            void Effect.runPromise(buildShellSnapshot())
-              .then((snapshot) => Queue.offerUnsafe(queue, { kind: "snapshot" as const, snapshot }))
-              .catch(() => undefined);
+            if (building) {
+              pending = true;
+              return;
+            }
+            run();
           }, SHELL_COALESCE_MS);
-        });
+        };
+
+        // Turn activity is not the only thing that changes the shell: adding a
+        // folder creates a project before any turn has happened.
+        //
+        // Structural changes only. A text or tool-input delta cannot change
+        // which sessions exist or when they were last touched, and rebuilding
+        // the sidebar for each one is what froze the renderer for the whole of
+        // a streaming write (MEASURED: ~2600 deltas for one file).
+        const unsubscribes = [
+          onLiveTurnChange((_sessionId, structural) => {
+            if (structural) rebuild();
+          }),
+          onAddedProjectsChange(rebuild),
+        ];
         return () => {
           if (timer !== null) clearTimeout(timer);
-          unsubscribe();
+          pending = false;
+          for (const unsubscribe of unsubscribes) unsubscribe();
         };
       }),
       (dispose) => Effect.sync(dispose),

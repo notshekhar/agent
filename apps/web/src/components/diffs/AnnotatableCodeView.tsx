@@ -148,8 +148,14 @@ export function AnnotatableCodeView({
           fileDiff,
           annotations,
           collapsed,
+          // The file's own identity leads the hash. Item ids are the file
+          // PATH, so they survive a re-read of the same diff (which is what
+          // keeps scroll and collapse state across the panel's refreshes) —
+          // and CodeView only re-renders a reused record when its version
+          // moves. Without the content in here, a refreshed patch would land
+          // on the same id at the same version and never repaint.
           version: fnv1a32(
-            `${collapsed ? "1" : "0"}:${annotations
+            `${fileDiff.cacheKey ?? ""}:${collapsed ? "1" : "0"}:${annotations
               .flatMap((annotation) =>
                 annotation.metadata.entries.map(
                   (entry) => `${entry.id}:${entry.rangeLabel}:${entry.text}`,
@@ -229,6 +235,27 @@ export function AnnotatableCodeView({
     [filesByKey, sectionId, sectionTitle],
   );
 
+  /**
+   * The gutter "+" button, which is the only way most people ever start a
+   * comment.
+   *
+   * It has to be handled even though the selection callbacks already keep
+   * `selectedLines` in step: `InteractionManager` routes a pointerdown on the
+   * utility button to its gutter-selection session ONLY when
+   * `onGutterUtilityClick` is set, and otherwise falls through to ordinary
+   * line selection — which explicitly refuses any path through the utility
+   * button (`excludeUtility`). So without this the "+" appeared on hover,
+   * accepted the click, and did nothing at all, while dragging the line
+   * numbers still opened a comment. The file view has always passed one,
+   * which is why commenting worked there and not here.
+   */
+  const selectGutterRange = useCallback(
+    (range: SelectedLineRange | null, context: DiffSelectionContext) => {
+      setSelectedLines(range === null ? null : { id: context.item.id, range });
+    },
+    [],
+  );
+
   const hasOpenComment = draft !== null;
   return (
     <CodeView<DiffCommentAnnotationGroup>
@@ -241,6 +268,7 @@ export function AnnotatableCodeView({
         ...options,
         enableGutterUtility: !hasOpenComment,
         enableLineSelection: !hasOpenComment,
+        onGutterUtilityClick: selectGutterRange,
         onLineSelectionEnd: beginComment,
       }}
       renderHeaderPrefix={(item) =>

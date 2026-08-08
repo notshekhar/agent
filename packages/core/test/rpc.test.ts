@@ -206,6 +206,305 @@ describe("rpc: session lifecycle", () => {
         expect(hist.result.leafId).toBe(entries[entries.length - 1].id);
     });
 
+    test("session.history and session.list report the model in force, not the creation one", async () => {
+        // `info.model` is fixed at creation, so a GUI pre-selecting from it
+        // undoes every /model switch — the composer appeared to refuse to
+        // change models mid-session.
+        const { call, events } = harness();
+        doStreamImpl = async () => textTurn("switched");
+        const created = await call("session.create", { cwd: CWD, provider: "anthropic", model: MODEL });
+        const sessionId = created.result.sessionId as string;
+
+        await call("session.send", { sessionId, input: "hi", model: "openai/gpt-5.6" });
+        await until(() => events().some((p) => p.sessionId === sessionId && p.part.type === "finish"));
+
+        const hist = await call("session.history", { sessionId });
+        expect(hist.result.info.model).toBe(MODEL); // creation model, untouched
+        expect(hist.result.model).toBe("openai/gpt-5.6");
+        expect(hist.result.provider).toBe("openai");
+
+        const row = (await call("session.list", { cwd: CWD })).result.find(
+            (r: { id: string }) => r.id === sessionId,
+        );
+        expect(row.model).toBe(MODEL);
+        expect(row.lastModel).toBe("openai/gpt-5.6");
+        expect(row.lastProvider).toBe("openai");
+    });
+
+    test("the running flag is announced, not just answered when asked", async () => {
+        // `ctx.running` is the only un-missable turn boundary: it moves in a
+        // `finally`, where `finish` can be skipped by a throw, an abort or a
+        // dropped socket. It used to flip in silence, readable only by polling
+        // — so a client that lost `finish` showed "Working" until it was
+        // remounted. See the desktop's liveTurn `session-running` case.
+        const { call, events } = harness();
+        doStreamImpl = async () => textTurn("done");
+        const created = await call("session.create", { cwd: CWD, provider: "anthropic", model: MODEL });
+        const sessionId = created.result.sessionId as string;
+
+        await call("session.send", { sessionId, input: "hi" });
+        await until(() =>
+            events().some(
+                (p) =>
+                    p.sessionId === sessionId &&
+                    p.part.type === "session-running" &&
+                    p.part.data.running === false,
+            ),
+        );
+
+        const running = events()
+            .filter((p) => p.sessionId === sessionId && p.part.type === "session-running")
+            .map((p) => p.part.data.running);
+        // Exactly one transition each way — the setter is idempotent, so a
+        // re-assertion of the state already held never reaches the wire.
+        expect(running).toEqual([true, false]);
+
+        // And it closes the turn AFTER the stream said its piece, so a client
+        // acting on it is not throwing away a reply it had not rendered yet.
+        const types = events()
+            .filter((p) => p.sessionId === sessionId)
+            .map((p) => p.part.type);
+        expect(types.indexOf("finish")).toBeLessThan(types.lastIndexOf("session-running"));
+    });
+
+    test("session.list falls back to the creation model before any turn", async () => {
+        const { call } = harness();
+        const created = await call("session.create", { cwd: CWD, provider: "anthropic", model: MODEL });
+        const sessionId = created.result.sessionId as string;
+        const row = (await call("session.list", { cwd: CWD })).result.find(
+            (r: { id: string }) => r.id === sessionId,
+        );
+        expect(row.lastModel).toBe(MODEL);
+        expect(row.lastProvider).toBe("anthropic");
+    });
+
+    test("session.tree shows every branch, and session.branch moves between them", async () => {
+        // `session.history` returns only the current branch, so a client could
+        // not see that a session HAS alternatives, let alone switch.
+        const { call, events } = harness();
+        doStreamImpl = async () => textTurn("first answer");
+        const created = await call("session.create", { cwd: CWD, provider: "anthropic", model: MODEL });
+        const sessionId = created.result.sessionId as string;
+
+        await call("session.send", { sessionId, input: "question one" });
+        await until(() => events().some((p) => p.sessionId === sessionId && p.part.type === "finish"));
+
+        const before = await call("session.tree", { sessionId });
+        const firstUser = before.result.rows.find(
+            (row: { role?: string; text?: string }) => row.role === "user",
+        );
+        expect(firstUser.text).toBe("question one");
+        expect(before.result.rows.every((row: { onPath: boolean }) => row.onPath)).toBe(true);
+
+        // Rewind to the prompt's parent and answer differently: the first
+        // answer becomes an abandoned branch, still in the tree.
+        const branched = await call("session.branch", { sessionId, entryId: firstUser.parentId });
+        expect(branched.error).toBeUndefined();
+        expect(branched.result.leafId).toBe(firstUser.parentId);
+
+        doStreamImpl = async () => textTurn("second answer");
+        await call("session.send", { sessionId, input: "question two" });
+        await until(
+            () =>
+                events().filter((p) => p.sessionId === sessionId && p.part.type === "finish").length === 2,
+        );
+
+        const after = await call("session.tree", { sessionId });
+        const userRows = after.result.rows.filter((row: { role?: string }) => row.role === "user");
+        // The branch the session is ON sorts first among siblings, so the
+        // current one leads rather than being buried under an abandoned one.
+        expect(userRows.map((row: { text: string }) => row.text)).toEqual([
+            "question two",
+            "question one",
+        ]);
+        // The abandoned branch is off-path; the new one is on it.
+        expect(userRows.find((r: { text: string }) => r.text === "question one").onPath).toBe(false);
+        expect(userRows.find((r: { text: string }) => r.text === "question two").onPath).toBe(true);
+        // Their shared parent is the branch point.
+        expect(after.result.branchPointIds).toContain(firstUser.parentId);
+
+        // History follows the leaf — that is what the model sees.
+        const history = await call("session.history", { sessionId });
+        const texts = JSON.stringify(history.result.entries);
+        expect(texts).toContain("question two");
+        expect(texts).not.toContain("question one");
+    });
+
+    test("session.branch refuses an entry the session does not have", async () => {
+        const { call } = harness();
+        const created = await call("session.create", { cwd: CWD, provider: "anthropic", model: MODEL });
+        const sessionId = created.result.sessionId as string;
+        const { error } = await call("session.branch", { sessionId, entryId: "nope" });
+        expect(error).toBeDefined();
+        expect(String(error.message)).toContain("nope");
+    });
+
+    test("session.fork copies a branch into a new session", async () => {
+        const { call, events } = harness();
+        doStreamImpl = async () => textTurn("an answer");
+        const created = await call("session.create", { cwd: CWD, provider: "anthropic", model: MODEL });
+        const sessionId = created.result.sessionId as string;
+        await call("session.send", { sessionId, input: "the prompt" });
+        await until(() => events().some((p) => p.sessionId === sessionId && p.part.type === "finish"));
+
+        const tree = await call("session.tree", { sessionId });
+        const userRow = tree.result.rows.find((row: { role?: string }) => row.role === "user");
+
+        // "at" clones up to and including the entry (/clone).
+        const cloned = await call("session.fork", { sessionId, entryId: userRow.id, position: "at" });
+        expect(cloned.error).toBeUndefined();
+        expect(cloned.result.sessionId).not.toBe(sessionId);
+        expect(cloned.result.cwd).toBe(CWD);
+        const clonedHistory = await call("session.history", { sessionId: cloned.result.sessionId });
+        expect(JSON.stringify(clonedHistory.result.entries)).toContain("the prompt");
+
+        // "before" forks at the prompt's parent and hands the text back, so a
+        // client can put it in its composer without a second round trip.
+        const forked = await call("session.fork", {
+            sessionId,
+            entryId: userRow.id,
+            position: "before",
+        });
+        expect(forked.result.text).toBe("the prompt");
+        const forkedHistory = await call("session.history", { sessionId: forked.result.sessionId });
+        expect(JSON.stringify(forkedHistory.result.entries)).not.toContain("the prompt");
+
+        // The original is untouched by either.
+        const original = await call("session.history", { sessionId });
+        expect(JSON.stringify(original.result.entries)).toContain("the prompt");
+    });
+
+    test("session.fork before only accepts a user message", async () => {
+        const { call, events } = harness();
+        doStreamImpl = async () => textTurn("an answer");
+        const created = await call("session.create", { cwd: CWD, provider: "anthropic", model: MODEL });
+        const sessionId = created.result.sessionId as string;
+        await call("session.send", { sessionId, input: "the prompt" });
+        await until(() => events().some((p) => p.sessionId === sessionId && p.part.type === "finish"));
+
+        const tree = await call("session.tree", { sessionId });
+        const assistantRow = tree.result.rows.find((row: { role?: string }) => row.role === "assistant");
+        const { error } = await call("session.fork", {
+            sessionId,
+            entryId: assistantRow.id,
+            position: "before",
+        });
+        expect(error).toBeDefined();
+        expect(String(error.message)).toContain("user message");
+    });
+
+    test("session.archive hides a session from the list without deleting it", async () => {
+        // The gentler half of delete: everything stays, it just stops
+        // appearing in the list you work from.
+        const { call } = harness();
+        const created = await call("session.create", { cwd: CWD, provider: "anthropic", model: MODEL });
+        const sessionId = created.result.sessionId as string;
+        const has = async (params: Record<string, unknown>) =>
+            (await call("session.list", { cwd: CWD, ...params })).result.some(
+                (r: { id: string }) => r.id === sessionId,
+            );
+
+        expect(await has({})).toBe(true);
+
+        const archived = await call("session.archive", { sessionId });
+        expect(archived.result).toMatchObject({ ok: true, archived: true });
+
+        // Gone from the working set, present in the archive, present in both.
+        expect(await has({})).toBe(false);
+        expect(await has({ archived: true })).toBe(true);
+        expect(await has({ archived: "all" })).toBe(true);
+
+        // The transcript is untouched — this is not a delete.
+        expect((await call("session.history", { sessionId })).error).toBeUndefined();
+        // And the row carries when it happened, which is what an archive sorts by.
+        const row = (await call("session.list", { cwd: CWD, archived: true })).result.find(
+            (r: { id: string }) => r.id === sessionId,
+        );
+        expect(typeof row.archivedAt).toBe("number");
+
+        const restored = await call("session.archive", { sessionId, archived: false });
+        expect(restored.result).toMatchObject({ ok: true, archived: false });
+        expect(await has({})).toBe(true);
+        expect(await has({ archived: true })).toBe(false);
+    });
+
+    test("session.archive reports a session that was never there", async () => {
+        const { call } = harness();
+        const { result, error } = await call("session.archive", { sessionId: "nope-nope" });
+        expect(error).toBeUndefined();
+        expect(result.ok).toBe(false);
+    });
+
+    test("session.archive does not refuse while a turn is running", async () => {
+        // Putting a conversation away does not disturb it, so forcing you to
+        // stop the agent first would be gratuitous — unlike delete, which
+        // pulls the transcript out from under a running turn.
+        const { call } = harness();
+        let release: (() => void) | undefined;
+        doStreamImpl = async () => {
+            await new Promise<void>((resolve) => {
+                release = resolve;
+            });
+            return textTurn("done");
+        };
+        const created = await call("session.create", { cwd: CWD, provider: "anthropic", model: MODEL });
+        const sessionId = created.result.sessionId as string;
+        await call("session.send", { sessionId, input: "hi" });
+        await until(() => release !== undefined);
+
+        const { result, error } = await call("session.archive", { sessionId });
+        expect(error).toBeUndefined();
+        expect(result.archived).toBe(true);
+        release?.();
+    });
+
+    test("session.delete removes the session and its entries", async () => {
+        const { call } = harness();
+        const created = await call("session.create", { cwd: CWD, provider: "anthropic", model: MODEL });
+        const sessionId = created.result.sessionId as string;
+        expect((await call("session.list", { cwd: CWD })).result.some((r: { id: string }) => r.id === sessionId)).toBe(
+            true,
+        );
+
+        const deleted = await call("session.delete", { sessionId });
+        expect(deleted.error).toBeUndefined();
+        expect(deleted.result.ok).toBe(true);
+        expect((await call("session.list", { cwd: CWD })).result.some((r: { id: string }) => r.id === sessionId)).toBe(
+            false,
+        );
+        // Gone for good: the transcript cannot be replayed afterwards.
+        expect((await call("session.history", { sessionId })).error).toBeDefined();
+    });
+
+    test("session.delete reports a session that was never there", async () => {
+        // Distinguishable from a successful delete, so a caller can tell
+        // "already gone" from "removed it".
+        const { call } = harness();
+        const { result, error } = await call("session.delete", { sessionId: "nope-nope" });
+        expect(error).toBeUndefined();
+        expect(result.ok).toBe(false);
+    });
+
+    test("session.delete refuses while a turn is running", async () => {
+        const { call } = harness();
+        let release: (() => void) | undefined;
+        doStreamImpl = async () => {
+            await new Promise<void>((resolve) => {
+                release = resolve;
+            });
+            return textTurn("done");
+        };
+        const created = await call("session.create", { cwd: CWD, provider: "anthropic", model: MODEL });
+        const sessionId = created.result.sessionId as string;
+        await call("session.send", { sessionId, input: "hi" });
+        await until(() => release !== undefined);
+
+        const { error } = await call("session.delete", { sessionId });
+        expect(error).toBeDefined();
+        expect(String(error.message)).toContain("running");
+        release?.();
+    });
+
     test.each([["session.send"], ["session.cancel"], ["session.compact"], ["session.history"], ["cost.session"]])(
         "%s on an unopened session errors instead of crashing",
         async (method) => {
@@ -278,7 +577,11 @@ describe("rpc: turn streaming", () => {
         await until(() => events().some((p) => p.sessionId === sessionId && p.part.type === "error"));
         const err = events().find((p) => p.sessionId === sessionId && p.part.type === "error");
         // Normalized shape: error rides `part.data`, like the emitter's error event.
-        expect(String(err.part.data)).toContain("boom-from-model");
+        // Flattened to plain data first — an Error's `message` is non-enumerable,
+        // so the raw object JSON-serialised to `{}` and every client that is not
+        // in this process saw a failure with nothing in it.
+        expect(err.part.data.message).toContain("boom-from-model");
+        expect(JSON.parse(JSON.stringify(err.part.data)).message).toContain("boom-from-model");
     });
 });
 
@@ -347,5 +650,333 @@ describe("rpc: client over a unix socket (end to end)", () => {
             client.close();
             server.close();
         }
+    });
+});
+
+describe("rpc: agents", () => {
+    test("agent.list reports the agents a picker can offer", async () => {
+        const { call } = harness();
+        const { result, error } = await call("agent.list", {});
+        expect(error).toBeUndefined();
+        expect(Array.isArray(result)).toBe(true);
+        // Built-ins are always there, and the prompt (pages long) is not sent.
+        expect(result.length).toBeGreaterThan(0);
+        expect(result[0]).toHaveProperty("name");
+        expect(result[0]).not.toHaveProperty("prompt");
+    });
+
+    test("session.send refuses an agent that does not exist", async () => {
+        // Falling back to the default persona would look like the agent had
+        // simply ignored its instructions.
+        const { call } = harness();
+        const created = await call("session.create", { cwd: CWD, provider: "anthropic", model: MODEL });
+        const { error } = await call("session.send", {
+            sessionId: created.result.sessionId,
+            input: "hi",
+            agent: "no-such-agent",
+        });
+        expect(error).toBeDefined();
+        expect(String(error.message)).toContain("no-such-agent");
+    });
+
+    test("session.send accepts a known agent for one turn", async () => {
+        const { call } = harness();
+        doStreamImpl = async () => textTurn("done");
+        const agents = await call("agent.list", {});
+        const name = (agents.result as { name: string }[])[0]!.name;
+        const created = await call("session.create", { cwd: CWD, provider: "anthropic", model: MODEL });
+        const { result, error } = await call("session.send", {
+            sessionId: created.result.sessionId,
+            input: "hi",
+            agent: name,
+        });
+        expect(error).toBeUndefined();
+        expect(result.ok).toBe(true);
+    });
+
+    test("agent.get carries the prompt agent.list withholds", async () => {
+        // The picker needs names; an editor needs the document. Two methods
+        // rather than one so a picker never pays for pages of prompt.
+        const { call } = harness();
+        const { result, error } = await call("agent.get", { name: "plan" });
+        expect(error).toBeUndefined();
+        expect(result.prompt.length).toBeGreaterThan(100);
+        expect(result.builtin).toBe(true);
+        // A built-in's tool set is fixed — the editor must not offer to edit it.
+        expect(result.toolsEditable).toBe(false);
+        expect(result.hasOverride).toBe(false);
+    });
+
+    test("agent.get refuses a name that is not an agent", async () => {
+        const { call } = harness();
+        const { error } = await call("agent.get", { name: "nope" });
+        expect(error).toBeDefined();
+        expect(String(error.message)).toContain("nope");
+    });
+
+    test("agent.save then agent.delete round-trips a custom agent", async () => {
+        const { call } = harness();
+        const prompt = "You are a reviewer. ".repeat(10);
+        const saved = await call("agent.save", {
+            name: "rpc-reviewer",
+            prompt,
+            tools: ["read", "grep", "ls"],
+        });
+        expect(saved.error).toBeUndefined();
+
+        const got = await call("agent.get", { name: "rpc-reviewer" });
+        expect(got.result.prompt.trim()).toBe(prompt.trim());
+        expect(got.result.tools).toEqual(["read", "grep", "ls"]);
+        expect(got.result.toolsEditable).toBe(true);
+
+        const listed = (await call("agent.list", {})).result as { name: string }[];
+        expect(listed.some((a) => a.name === "rpc-reviewer")).toBe(true);
+
+        expect((await call("agent.delete", { name: "rpc-reviewer" })).result.ok).toBe(true);
+        // Already gone is `{ok:false}`, not an error — so a caller can tell
+        // "removed it" from "there was nothing to remove".
+        expect((await call("agent.delete", { name: "rpc-reviewer" })).result.ok).toBe(false);
+        expect((await call("agent.get", { name: "rpc-reviewer" })).error).toBeDefined();
+    });
+
+    test("agent.save refuses a name that would not be addressable", async () => {
+        const { call } = harness();
+        // The name becomes a filename AND a /command, so path characters are
+        // rejected rather than sanitized into a different agent.
+        const bad = await call("agent.save", { name: "../escape", prompt: "x".repeat(30) });
+        expect(bad.error).toBeDefined();
+        expect(String(bad.error.message)).toContain("Invalid agent name");
+        // An agent with no prompt is not an agent.
+        const empty = await call("agent.save", { name: "blankagent", prompt: "   " });
+        expect(empty.error).toBeDefined();
+    });
+
+    test("agent.save leaves a built-in's fixed tool set alone", async () => {
+        // Overriding plan's prompt is allowed; widening its tools is not —
+        // saveAgent drops `tools` for built-ins rather than trusting the caller.
+        const { call } = harness();
+        const before = (await call("agent.get", { name: "plan" })).result.tools;
+        await call("agent.save", {
+            name: "plan",
+            prompt: "Plan carefully and never edit files. ".repeat(6),
+            tools: ["read", "write", "edit", "bash"],
+        });
+        const after = await call("agent.get", { name: "plan" });
+        expect(after.result.tools).toEqual(before);
+        // The prompt override took, and is now resettable.
+        expect(after.result.prompt).toContain("Plan carefully");
+        expect(after.result.hasOverride).toBe(true);
+
+        // Deleting a built-in resets the prompt instead of removing the agent.
+        expect((await call("agent.delete", { name: "plan" })).result.ok).toBe(true);
+        const reset = await call("agent.get", { name: "plan" });
+        expect(reset.result.prompt).not.toContain("Plan carefully");
+        expect(reset.result.hasOverride).toBe(false);
+    });
+
+    test("agent.tools offers extension tools, not just the static list", async () => {
+        const { call } = harness();
+        const { result } = await call("agent.tools", {});
+        expect(result).toContain("read");
+        expect(result).toContain("task");
+    });
+});
+
+describe("rpc: the ask tool", () => {
+    test("puts a question to the client and resolves with the answer", async () => {
+        // Registering a bridge is what makes the tool exist at all — RPC
+        // clients never saw a question before, because none was registered.
+        const { call, events } = harness();
+        const created = await call("session.create", { cwd: CWD, provider: "anthropic", model: MODEL });
+        const sessionId = created.result.sessionId as string;
+
+        const { getAskUserBridge } = await import("../src/tools/ask-bridge");
+        const bridge = getAskUserBridge();
+        expect(bridge).not.toBeNull();
+
+        // Ask from inside a running turn so the session context is set.
+        let answers: unknown;
+        doStreamImpl = async () => {
+            answers = await bridge!.ask([
+                { question: "Which?", header: "Pick", options: [{ label: "A", description: "" }] },
+            ]);
+            return textTurn("done");
+        };
+        await call("session.send", { sessionId, input: "hi" });
+
+        await until(() => events().some((p) => p.part.type === "ask"));
+        const asked = events().find((p) => p.part.type === "ask")!;
+        const { askId, questions } = asked.part.data as { askId: string; questions: unknown[] };
+        expect(questions).toHaveLength(1);
+
+        const ack = await call("session.answer", { askId, answers: [{ answers: ["A"] }] });
+        expect(ack.result.ok).toBe(true);
+        await until(() => answers !== undefined);
+        expect(answers).toEqual([{ answers: ["A"] }]);
+    });
+
+    test("declines rather than hanging when nobody is watching the session", async () => {
+        // No session context at all: a turn that waited here would never end.
+        const { getAskUserBridge } = await import("../src/tools/ask-bridge");
+        const answers = await getAskUserBridge()!.ask([
+            { question: "Which?", header: "Pick", options: [] },
+        ]);
+        expect(answers).toEqual([{ answers: [], declined: true }]);
+    });
+
+    test("answering an id the server has forgotten is reported, not thrown", async () => {
+        const { call } = harness();
+        const { result, error } = await call("session.answer", { askId: "ask-999", answers: [] });
+        expect(error).toBeUndefined();
+        expect(result.ok).toBe(false);
+    });
+});
+
+describe("rpc mcp", () => {
+    test("mcp.list reports the master switch, the project config path, and that nothing is connected yet", async () => {
+        // Deliberately does not connect: listing must draw immediately, and a
+        // connect is up to 30s per server.
+        const { call } = harness();
+        const { result, error } = await call("mcp.list", { cwd: CWD });
+        expect(error).toBeUndefined();
+        expect(result.enabled).toBe(true);
+        expect(result.connected).toBe(false);
+        expect(result.projectConfigPath.startsWith(CWD)).toBe(true);
+        expect(result.servers).toEqual([]);
+    });
+
+    test("a config that could never connect is refused instead of written", async () => {
+        // The entry lands in settings.json before anything tries to use it, so
+        // a silently accepted `{}` becomes a permanent broken row.
+        const { call } = harness();
+        expect((await call("mcp.add", { name: "nope", config: {} })).error?.message).toContain("command");
+        expect((await call("mcp.add", { name: "nope", config: { type: "http" } })).error?.message).toContain("url");
+        expect(
+            (await call("mcp.add", { name: "nope", config: { type: "http", url: "not a url" } })).error?.message,
+        ).toContain("not a valid url");
+        expect((await call("mcp.add", { name: "nope", config: { type: "carrier-pigeon" } })).error?.message).toContain(
+            "unknown transport",
+        );
+        expect((await call("mcp.add", { name: "  ", config: { command: "x" } })).error?.message).toContain("name");
+    });
+
+    test("a project server is written to the project file and listed with its scope", async () => {
+        const { call } = harness();
+        const added = await call("mcp.add", {
+            cwd: CWD,
+            scope: "project",
+            name: "probe",
+            // `false` is a real command that exits 0/1 immediately, so the
+            // connect fails fast instead of spawning something long-lived.
+            config: { command: "false" },
+        });
+        expect(added.error).toBeUndefined();
+
+        const listed = await call("mcp.list", { cwd: CWD });
+        const row = listed.result.servers.find((s: { name: string }) => s.name === "probe");
+        expect(row.scope).toBe("project");
+        expect(row.transport).toBe("stdio");
+        expect(row.command).toBe("false");
+        expect(row.oauth).toBe(false);
+
+        const removed = await call("mcp.remove", { cwd: CWD, scope: "project", name: "probe" });
+        expect(removed.result.ok).toBe(true);
+        expect(
+            (await call("mcp.list", { cwd: CWD })).result.servers.some((s: { name: string }) => s.name === "probe"),
+        ).toBe(false);
+    });
+
+    test("logging in to a server this process has not connected is refused, not left hanging", async () => {
+        const { call } = harness();
+        const { error } = await call("mcp.login.start", { name: "ghost" });
+        expect(error?.message).toContain("unknown MCP server");
+    });
+
+    test("polling an unknown login says so; cancelling one is idempotent", async () => {
+        const { call } = harness();
+        expect((await call("mcp.login.poll", { flowId: "nope" })).error?.message).toContain("unknown MCP login");
+        expect((await call("mcp.login.cancel", { flowId: "nope" })).result.ok).toBe(true);
+    });
+});
+
+describe("rpc: datasources", () => {
+    const base = {
+        type: "postgres",
+        host: "db.internal",
+        port: 5432,
+        database: "analytics",
+        user: "reader",
+    };
+    const find = async (
+        call: (m: string, p?: unknown) => Promise<any>,
+        id: string,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ): Promise<any> => (await call("datasource.list")).result.find((d: { id: string }) => d.id === id);
+
+    test("a saved password is never returned by list", async () => {
+        // `loop serve` is reachable over a network — a stored secret must not
+        // ride a list response just because the desktop happens to be local.
+        const { call } = harness();
+        await call("datasource.save", { id: "warehouse", config: { ...base, password: "hunter2" } });
+
+        const row = await find(call, "warehouse");
+        expect(row.config.host).toBe("db.internal");
+        expect(row.hasPassword).toBe(true);
+        expect(row.config.password).toBeUndefined();
+        expect(JSON.stringify(row)).not.toContain("hunter2");
+    });
+
+    test("an env placeholder IS returned — it is a pointer, not a secret", async () => {
+        const { call } = harness();
+        await call("datasource.save", { id: "viaenv", config: { ...base, password: "${env:PGPASSWORD}" } });
+
+        const row = await find(call, "viaenv");
+        expect(row.config.password).toBe("${env:PGPASSWORD}");
+        expect(row.passwordIsEnvRef).toBe(true);
+    });
+
+    test("editing without resending the password keeps it", async () => {
+        // The list withholds it, so an edit form has none to send back —
+        // treating that silence as "clear it" would break the connection every
+        // time someone corrected a port.
+        const { call } = harness();
+        await call("datasource.save", { id: "keep", config: { ...base, password: "secret" } });
+        await call("datasource.save", { id: "keep", config: { ...base, port: 6543 } });
+
+        const row = await find(call, "keep");
+        expect(row.config.port).toBe(6543);
+        expect(row.hasPassword).toBe(true);
+    });
+
+    test("an empty password is an explicit clear", async () => {
+        const { call } = harness();
+        await call("datasource.save", { id: "clearme", config: { ...base, password: "secret" } });
+        await call("datasource.save", { id: "clearme", config: { ...base, password: "" } });
+        expect((await find(call, "clearme")).hasPassword).toBe(false);
+    });
+
+    test("a bad config is refused instead of stored", async () => {
+        const { call } = harness();
+        expect((await call("datasource.save", { id: "bad", config: { ...base, port: 0 } })).error?.message).toContain(
+            "not a valid port",
+        );
+        expect((await call("datasource.save", { id: "BAD ID", config: base })).error?.message).toContain(
+            "invalid connection id",
+        );
+        expect(await find(call, "bad")).toBeUndefined();
+    });
+
+    test("remove reports whether anything was there", async () => {
+        const { call } = harness();
+        await call("datasource.save", { id: "gone", config: base });
+        expect((await call("datasource.remove", { id: "gone" })).result.ok).toBe(true);
+        expect((await call("datasource.remove", { id: "gone" })).result.ok).toBe(false);
+        expect(await find(call, "gone")).toBeUndefined();
+    });
+
+    test("testing an unknown datasource says so rather than hanging", async () => {
+        const { call } = harness();
+        const { error } = await call("datasource.test", { id: "nosuch" });
+        expect(error?.message).toContain("unknown datasource");
     });
 });

@@ -34,10 +34,20 @@ export {
 type FetchInput = Parameters<typeof fetch>[0];
 type FetchInit = Parameters<typeof fetch>[1];
 
+/**
+ * Carry `fetch.preconnect` across a fetch wrapper — where the runtime has one.
+ *
+ * **`preconnect` is a Bun extension; Node's fetch has no such property.** The
+ * AI SDK only reads it opportunistically, so the right behaviour on Node is
+ * simply not to define it — but the unguarded `fetch.preconnect.bind(fetch)`
+ * threw `Cannot read properties of undefined (reading 'bind')` and took down
+ * the very first turn core ran inside Electron's main process.
+ */
 function withPreconnect(fn: (input: FetchInput, init?: FetchInit) => Promise<Response>): typeof fetch {
-    const wrapped = fn as typeof fetch & { preconnect: typeof fetch.preconnect };
-    wrapped.preconnect = fetch.preconnect.bind(fetch);
-    return wrapped;
+    const wrapped = fn as typeof fetch & { preconnect?: typeof fetch.preconnect };
+    const preconnect = (fetch as typeof fetch & { preconnect?: typeof fetch.preconnect }).preconnect;
+    if (preconnect) wrapped.preconnect = preconnect.bind(fetch);
+    return wrapped as typeof fetch;
 }
 
 function copilotAuthFetch(): typeof fetch {

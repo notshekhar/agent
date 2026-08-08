@@ -133,6 +133,40 @@ describe("SessionManager.open / list", () => {
         expect(again.getBranch().some((e: any) => e.content === "world")).toBe(true);
     });
 
+    test("archiving hides a session from the default list and the scopes reach it", async () => {
+        // `list()` is what BOTH the desktop sidebar and the terminal's
+        // /sessions picker read, so archiving has to hide a session from the
+        // working set — and the scopes have to be able to find it again, or
+        // archiving from the app would strand it for anyone in the terminal.
+        const mgr = new SessionManager();
+        const dir = mkdtempSync(join(tmpdir(), "loop-mgr-"));
+        dirs.push(dir);
+        const kept = await mgr.create({ cwd: dir, provider: "anthropic", model: "m0" });
+        await kept.append(user("still working on this", 1));
+        const filed = await mgr.create({ cwd: dir, provider: "anthropic", model: "m0" });
+        await filed.append(user("done with this", 1));
+
+        expect(mgr.setArchived(filed.id, true)).toBe(true);
+
+        expect(mgr.list(dir).map((s) => s.id)).toEqual([kept.id]);
+        expect(mgr.list(dir, "archived").map((s) => s.id)).toEqual([filed.id]);
+        expect(mgr.list(dir, "all").map((s) => s.id).toSorted()).toEqual([kept.id, filed.id].toSorted());
+        // The archived row says WHEN, which is what an archive sorts by.
+        expect(typeof mgr.list(dir, "archived")[0]!.archivedAt).toBe("number");
+        expect(mgr.list(dir)[0]!.archivedAt).toBeUndefined();
+
+        // Reachable by id regardless — resuming an archived session works.
+        expect((await mgr.open(filed.id)).id).toBe(filed.id);
+
+        expect(mgr.setArchived(filed.id, false)).toBe(true);
+        expect(mgr.list(dir).map((s) => s.id).toSorted()).toEqual([kept.id, filed.id].toSorted());
+        expect(mgr.list(dir, "archived")).toHaveLength(0);
+    });
+
+    test("setArchived reports an id that was never there", async () => {
+        expect(new SessionManager().setArchived("nope-nope", true)).toBe(false);
+    });
+
     test("list() surfaces name, first user message, and cwd filtering", async () => {
         const mgr = new SessionManager();
         const dir = mkdtempSync(join(tmpdir(), "loop-mgr-"));

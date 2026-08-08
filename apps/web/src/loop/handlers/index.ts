@@ -24,13 +24,38 @@ import {
   WsRpcGroup,
 } from "@loop/contracts";
 import * as Effect from "effect/Effect";
+import * as Option from "effect/Option";
 import * as Stream from "effect/Stream";
 
 import { dispatchCommand } from "./dispatch.ts";
 import { browse, listEntries, readFile, searchEntries } from "./files.ts";
-import { listRefs, refreshStatus, statusStream } from "./git.ts";
-import { buildServerConfig, type BuildServerConfigOptions } from "./serverConfig.ts";
-import { shellStream } from "./shell.ts";
+import { openInEditor } from "./editors.ts";
+import { cloneRepository, lookupRepository, publishRepository } from "./sourceControl.ts";
+import {
+  diffPreview,
+  discoverSourceControl,
+  initRepo,
+  listRefs,
+  refreshStatus,
+  runStackedAction,
+  statusStream,
+} from "./git.ts";
+import {
+  buildServerConfig,
+  serverConfigFingerprint,
+  type BuildServerConfigOptions,
+} from "./serverConfig.ts";
+import {
+  closePreview,
+  listPreviews,
+  navigatePreview,
+  openPreview,
+  previewEventStream,
+  reportPreviewStatus,
+  resizePreview,
+} from "./preview.ts";
+import { searchThreads } from "./search.ts";
+import { buildShellSnapshot, shellStream } from "./shell.ts";
 import {
   attachTerminal,
   clearTerminal,
@@ -50,6 +75,15 @@ const notPorted = (method: string) =>
 
 const fail = (method: string) => Effect.fail(notPorted(method));
 const failStream = (method: string) => Stream.fail(notPorted(method));
+
+/**
+ * How often the environment is re-read.
+ *
+ * Two `catalog.list` + `auth.status` + `server.info` round trips a minute over
+ * a local pipe is nothing, and it is the only way a provider authenticated in
+ * the terminal shows up here without a relaunch.
+ */
+const SERVER_CONFIG_POLL = "30 seconds";
 /** A subscription that stays open and never emits. */
 const idle = () => Stream.never;
 
@@ -70,31 +104,84 @@ export const makeHandlers = (options: HandlerOptions) =>
         ),
       ),
 
-    // One snapshot, then hold the stream open. loop pushes config changes
-    // through its own settings RPCs, not through this channel.
-    subscribeServerConfig: () =>
-      Stream.fromEffect(
-        buildServerConfig(options).pipe(
-          Effect.map((config) => ({ version: 1 as const, type: "snapshot" as const, config })),
-          Effect.mapError(
-            () =>
-              new EnvironmentAuthorizationError({
-                message: "loop could not describe this environment",
-                requiredScope: AuthOrchestrationReadScope,
-              }),
+    // A snapshot, then a fresh one whenever loop's own answer changes.
+    //
+    // This used to emit once and hold the stream open forever, which froze the
+    // provider list at connect time: authenticating a provider in loop, or a
+    // catalog change, never reached the app until it was relaunched — the
+    // "providers are the old ones" report. loop has no notification for auth
+    // or catalog changes, so it is polled, and only a real difference is
+    // emitted (see serverConfigFingerprint) to keep every atom hanging off the
+    // config from churning every few seconds.
+    subscribeServerConfig: () => {
+      const snapshot = buildServerConfig(options).pipe(
+        Effect.map((config) => ({ version: 1 as const, type: "snapshot" as const, config })),
+        Effect.mapError(
+          () =>
+            new EnvironmentAuthorizationError({
+              message: "loop could not describe this environment",
+              requiredScope: AuthOrchestrationReadScope,
+            }),
+        ),
+      );
+      let lastFingerprint: string | null = null;
+      const updates = Stream.tick(SERVER_CONFIG_POLL).pipe(
+        // Drop the failure: a poll that cannot reach loop must not tear down a
+        // subscription the whole UI hangs off.
+        Stream.mapEffect(() => buildServerConfig(options).pipe(Effect.option)),
+        Stream.flatMap((config) =>
+          Option.match(config, {
+            onNone: () => Stream.empty,
+            onSome: (value) => {
+              const fingerprint = serverConfigFingerprint(value);
+              if (fingerprint === lastFingerprint) return Stream.empty;
+              lastFingerprint = fingerprint;
+              return Stream.succeed({
+                version: 1 as const,
+                type: "snapshot" as const,
+                config: value,
+              });
+            },
+          }),
+        ),
+      );
+      return Stream.fromEffect(
+        snapshot.pipe(
+          Effect.tap((item) =>
+            Effect.sync(() => {
+              lastFingerprint = serverConfigFingerprint(item.config);
+            }),
           ),
         ),
-      ).pipe(Stream.concat(Stream.never)),
+      ).pipe(Stream.concat(updates));
+    },
 
   "server.upsertKeybinding": () => fail("server.upsertKeybinding"),
   "server.removeKeybinding": () => fail("server.removeKeybinding"),
-  "server.refreshProviders": () => fail("server.refreshProviders"),
+    // Re-read loop rather than probe anything. Upstream's version of this
+    // shelled out to each agent CLI to check it was installed; loop's
+    // providers are HTTP endpoints it either has credentials for or does not,
+    // so the honest refresh is to ask loop again — which the subscription
+    // above then picks up on its next fingerprint comparison.
+    "server.refreshProviders": () =>
+      buildServerConfig(options).pipe(
+        Effect.map((config) => ({ providers: config.providers })),
+        Effect.mapError(
+          () =>
+            new EnvironmentAuthorizationError({
+              message: "loop could not list its providers",
+              requiredScope: AuthOrchestrationReadScope,
+            }),
+        ),
+      ),
+  // Updating a provider means updating its CLI binary, which loop has none of
+  // — its providers are endpoints, and loop updates itself.
   "server.updateProvider": () => fail("server.updateProvider"),
   "server.updateServer": () => fail("server.updateServer"),
   "server.updateServerWithProgress": () => failStream("server.updateServerWithProgress"),
   "server.getSettings": () => fail("server.getSettings"),
   "server.updateSettings": () => fail("server.updateSettings"),
-  "server.discoverSourceControl": () => fail("server.discoverSourceControl"),
+  "server.discoverSourceControl": () => discoverSourceControl(),
   "server.getTraceDiagnostics": () => fail("server.getTraceDiagnostics"),
   "server.getProcessDiagnostics": () => fail("server.getProcessDiagnostics"),
   "server.getProcessResourceHistory": () => fail("server.getProcessResourceHistory"),
@@ -106,21 +193,21 @@ export const makeHandlers = (options: HandlerOptions) =>
   "server.reportClientActivity": () => fail("server.reportClientActivity"),
   "server.reportHostPowerState": () => fail("server.reportHostPowerState"),
   "server.getBackgroundPolicy": () => fail("server.getBackgroundPolicy"),
-  "sourceControl.lookupRepository": () => fail("sourceControl.lookupRepository"),
-  "sourceControl.cloneRepository": () => fail("sourceControl.cloneRepository"),
-  "sourceControl.publishRepository": () => fail("sourceControl.publishRepository"),
+  "sourceControl.lookupRepository": (input) => lookupRepository(input),
+  "sourceControl.cloneRepository": (input) => cloneRepository(input),
+  "sourceControl.publishRepository": (input) => publishRepository(input),
     "projects.searchEntries": (input) => searchEntries(input),
   "projects.searchContents": () => fail("projects.searchContents"),
     "projects.listEntries": (input) => listEntries(input.cwd),
     "projects.readFile": (input) => readFile(input),
   "projects.writeFile": () => fail("projects.writeFile"),
-  "shell.openInEditor": () => fail("shell.openInEditor"),
+  "shell.openInEditor": (input) => openInEditor(input),
     "filesystem.browse": (input) => browse(input),
   "assets.createUrl": () => fail("assets.createUrl"),
     "subscribeVcsStatus": (input) => statusStream(input.cwd),
   "vcs.pull": () => fail("vcs.pull"),
     "vcs.refreshStatus": (input) => refreshStatus(input),
-  "git.runStackedAction": () => failStream("git.runStackedAction"),
+  "git.runStackedAction": (input) => runStackedAction(input),
   "git.resolvePullRequest": () => fail("git.resolvePullRequest"),
   "git.preparePullRequestThread": () => fail("git.preparePullRequestThread"),
     "vcs.listRefs": (input) => listRefs(input),
@@ -128,8 +215,8 @@ export const makeHandlers = (options: HandlerOptions) =>
   "vcs.removeWorktree": () => fail("vcs.removeWorktree"),
   "vcs.createRef": () => fail("vcs.createRef"),
   "vcs.switchRef": () => fail("vcs.switchRef"),
-  "vcs.init": () => fail("vcs.init"),
-  "review.getDiffPreview": () => fail("review.getDiffPreview"),
+    "vcs.init": (input) => initRepo(input),
+    "review.getDiffPreview": (input) => diffPreview(input),
     "terminal.open": (input) => openTerminal(input),
     "terminal.attach": (input) => attachTerminal(input),
     "terminal.write": (input) => writeTerminal(input),
@@ -137,17 +224,21 @@ export const makeHandlers = (options: HandlerOptions) =>
     "terminal.clear": (input) => clearTerminal(input),
   "terminal.restart": () => fail("terminal.restart"),
     "terminal.close": (input) => closeTerminal(input),
-  "preview.open": () => fail("preview.open"),
-  "preview.navigate": () => fail("preview.navigate"),
-  "preview.resize": () => fail("preview.resize"),
-  "preview.refresh": () => fail("preview.refresh"),
-  "preview.close": () => fail("preview.close"),
-  "preview.list": () => fail("preview.list"),
-  "preview.reportStatus": () => fail("preview.reportStatus"),
+    // The browser panel's tabs. Pure per-window UI state — see preview.ts for
+    // why this is served here rather than from loop.
+    "preview.open": (input) => openPreview(input),
+    "preview.navigate": (input) => navigatePreview(input),
+    "preview.resize": (input) => resizePreview(input),
+    // Refresh is the webview's own job; the tab state does not change, so
+    // acknowledging is the honest answer rather than failing the call.
+    "preview.refresh": () => Effect.succeed(undefined),
+    "preview.close": (input) => closePreview(input),
+    "preview.list": () => listPreviews(),
+    "preview.reportStatus": (input) => reportPreviewStatus(input),
   "previewAutomation.connect": () => failStream("previewAutomation.connect"),
   "previewAutomation.respond": () => fail("previewAutomation.respond"),
   "previewAutomation.focusHost": () => fail("previewAutomation.focusHost"),
-  "subscribePreviewEvents": idle,
+    "subscribePreviewEvents": () => previewEventStream(),
   "subscribeDiscoveredLocalServers": idle,
     "orchestration.dispatchCommand": (command) =>
       dispatchCommand(command).pipe(
@@ -162,8 +253,22 @@ export const makeHandlers = (options: HandlerOptions) =>
       ),
   "orchestration.getTurnDiff": () => fail("orchestration.getTurnDiff"),
   "orchestration.getFullThreadDiff": () => fail("orchestration.getFullThreadDiff"),
-  "orchestration.searchThreads": () => fail("orchestration.searchThreads"),
-  "orchestration.getArchivedShellSnapshot": () => fail("orchestration.getArchivedShellSnapshot"),
+    // Titles and opening messages, out of the shell's own `session.list`.
+    // loop has no search index, and reading every transcript to build one
+    // would cost a round trip per session before the first result appeared.
+    "orchestration.searchThreads": (input) => searchThreads(input),
+    // The same snapshot, asked for the other side of the archive. The
+    // Archive settings panel reads this; the sidebar reads the working set.
+    "orchestration.getArchivedShellSnapshot": () =>
+      buildShellSnapshot(true).pipe(
+        Effect.mapError(
+          () =>
+            new EnvironmentAuthorizationError({
+              message: "loop could not list its archived sessions",
+              requiredScope: AuthOrchestrationReadScope,
+            }),
+        ),
+      ),
     // Projects and threads, derived from loop's sessions: the snapshot, the
     // completion marker the client waits on, then a fresh snapshot whenever a
     // turn moves. That refresh is not cosmetic — a draft only becomes a real
@@ -177,6 +282,13 @@ export const makeHandlers = (options: HandlerOptions) =>
     // The rebuild is coalesced, or a fast model would rebuild per token.
     "orchestration.subscribeThread": (input) => threadStream(input.threadId),
     "subscribeTerminalEvents": () => terminalEventStream(),
+  // Deliberately idle. Serving real summaries here looks like an improvement —
+  // tab labels, an id allocator that can see which terminals exist — but the
+  // panel derives `cwd` and `worktreePath` from the summary, and both are
+  // dependencies of the effect that BUILDS THE TERMINAL SURFACE. Every poll
+  // that changed a summary tore the surface down, rebuilt it and replayed the
+  // scrollback, stacking a fresh copy of the prompt on screen each time.
+  // Reinstating it means making the panel's identity independent of it first.
   "subscribeTerminalMetadata": idle,
   "subscribeServerLifecycle": idle,
   "subscribeAuthAccess": idle,

@@ -39,6 +39,18 @@ import {
 } from "../../lib/diffRendering";
 import ChatMarkdown from "../ChatMarkdown";
 import {
+  loopCompactOf,
+  loopHookOf,
+  loopRecapOf,
+  loopThinkingOf,
+  loopToolOf,
+} from "../loop/loopEntry";
+import { LoopCompactRow } from "../loop/LoopCompactRow";
+import { LoopHookRow } from "../loop/LoopHookRow";
+import { LoopRecapRow } from "../loop/LoopRecapRow";
+import { LoopThinkingRow } from "../loop/LoopThinkingRow";
+import { LoopToolRow } from "../loop/LoopToolRow";
+import {
   BotIcon,
   CheckIcon,
   ChevronDownIcon,
@@ -305,6 +317,24 @@ export const MessagesTimeline = memo(function MessagesTimeline({
         latestTurn,
         runningTurnId,
         expandedTurnIds,
+        // loop's transcript is the terminal's: every row in the order it
+        // happened, no "Worked for 12s" door in front of it and no group
+        // hiding the earlier calls.
+        foldSettledTurns: false,
+        groupWorkEntries: false,
+        // MEASURED, and the reason this was wrong to leave off: xAI does not
+        // stream a tool call's input. It sends `tool-input-start`, ONE delta
+        // and `tool-call` within 68-352ms, at the END of composing the call —
+        // so while the model spends twelve seconds writing a file's contents,
+        // loop receives NOTHING. (OpenAI streams the same write as 565 deltas
+        // over 11.8s, which is why the app looks alive there and dead here.)
+        //
+        // With no row for a turn that is demonstrably working, the transcript
+        // sat still and the only sign of life was the composer's Stop button,
+        // which is nowhere near where you are reading. The terminal never had
+        // this problem — it keeps a status line saying "Running write…" the
+        // whole time. This is that status line.
+        showWorkingRow: true,
         expandedWorkGroupIds,
         isWorking,
         activeTurnStartedAt,
@@ -1103,10 +1133,10 @@ function WorkingTimelineRow({ row }: { row: Extract<TimelineRow, { kind: "workin
         <span>
           {row.createdAt ? (
             <>
-              Working for <WorkingTimer createdAt={row.createdAt} />
+              {row.label ?? "Working"} for <WorkingTimer createdAt={row.createdAt} />
             </>
           ) : (
-            "Working..."
+            `${row.label ?? "Working"}...`
           )}
         </span>
       </div>
@@ -1176,11 +1206,7 @@ const WorkGroupSection = memo(function WorkGroupSection({
       )}
       <div className="space-y-px">
         {nonEmptyEntries.map((workEntry) => (
-          <SimpleWorkEntryRow
-            key={workEntry.id}
-            workEntry={workEntry}
-            workspaceRoot={workspaceRoot}
-          />
+          <WorkEntryRow key={workEntry.id} workEntry={workEntry} workspaceRoot={workspaceRoot} />
         ))}
       </div>
     </section>
@@ -1920,6 +1946,33 @@ function toolWorkEntryHeading(workEntry: TimelineWorkEntry): string {
 }
 
 const stopRowToggle = (e: { stopPropagation: () => void }) => e.stopPropagation();
+
+/**
+ * One work-log row.
+ *
+ * loop's own activities carry the whole call in their payload and get the
+ * loop-shaped rows — the terminal's grammar, which is what people already read
+ * fluently. Everything else (approvals, runtime warnings, anything not from
+ * loop's handler) keeps the inherited generic row, so a payload this app did
+ * not produce still draws.
+ */
+const WorkEntryRow = memo(function WorkEntryRow(props: {
+  workEntry: TimelineWorkEntry;
+  workspaceRoot: string | undefined;
+}) {
+  const { workEntry, workspaceRoot } = props;
+  const compact = loopCompactOf(workEntry);
+  if (compact) return <LoopCompactRow compact={compact} />;
+  const recap = loopRecapOf(workEntry);
+  if (recap) return <LoopRecapRow recap={recap} />;
+  const hook = loopHookOf(workEntry);
+  if (hook) return <LoopHookRow hook={hook} />;
+  const thinking = loopThinkingOf(workEntry);
+  if (thinking) return <LoopThinkingRow thinking={thinking} />;
+  const tool = loopToolOf(workEntry);
+  if (tool) return <LoopToolRow tool={tool} workspaceRoot={workspaceRoot} />;
+  return <SimpleWorkEntryRow workEntry={workEntry} workspaceRoot={workspaceRoot} />;
+});
 
 const SimpleWorkEntryRow = memo(function SimpleWorkEntryRow(props: {
   workEntry: TimelineWorkEntry;

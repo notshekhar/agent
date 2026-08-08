@@ -1,4 +1,4 @@
-import type { Database } from "bun:sqlite";
+import type { SqliteDatabase as Database } from "./sqlite";
 import type { Entry, ProviderId, SessionInfoData } from "../types";
 import { getDb } from "./db";
 import { normalizeUsage } from "./usage";
@@ -12,6 +12,9 @@ import { normalizeUsage } from "./usage";
  * Entry.
  */
 
+/** Which side of the archive a listing wants. */
+export type SessionScope = "active" | "archived" | "all";
+
 export interface SessionRecord {
     rowId: number;
     info: SessionInfoData;
@@ -19,6 +22,11 @@ export interface SessionRecord {
     updatedAt: number;
     /** Payload JSON of the first user message, when requested by list(). */
     firstUserPayload?: string;
+    /** Most recent model any entry recorded, when requested by list(). Absent
+     * for a session that has never produced a billed entry. */
+    lastModel?: string;
+    /** Epoch ms the session was archived; absent while it is active. */
+    archivedAt?: number;
 }
 
 interface SessionRow {
@@ -32,6 +40,8 @@ interface SessionRow {
     created_at: number;
     updated_at: number;
     first_user_payload?: string | null;
+    last_model?: string | null;
+    archived_at?: number | null;
 }
 
 function toRecord(r: SessionRow): SessionRecord {
@@ -48,6 +58,8 @@ function toRecord(r: SessionRow): SessionRecord {
         name: r.name ?? undefined,
         updatedAt: r.updated_at,
         firstUserPayload: r.first_user_payload ?? undefined,
+        lastModel: r.last_model ?? undefined,
+        archivedAt: r.archived_at ?? undefined,
     };
 }
 
@@ -56,6 +68,21 @@ const FIRST_USER_PAYLOAD = `(
     WHERE e.session_id = s.id AND e.type = 'message' AND e.role = 'user'
     ORDER BY e.id LIMIT 1
 ) AS first_user_payload`;
+
+/**
+ * The model the session most recently ran on, not the one it was created with.
+ *
+ * `entries.model` is derived at insert precisely so aggregates never have to
+ * parse payload JSON, which is what makes this affordable per row — the
+ * alternative, `Session.lastModel()`, would load every entry of every session
+ * in the list. It walks all branches rather than the current one; a list row
+ * only needs to name the model, and re-reading a session gets the exact answer.
+ */
+const LAST_MODEL = `(
+    SELECT e.model FROM entries e
+    WHERE e.session_id = s.id AND e.model IS NOT NULL AND e.model <> ''
+    ORDER BY e.id DESC LIMIT 1
+) AS last_model`;
 
 export class SessionStore {
     constructor(private db: Database) {}
@@ -78,15 +105,60 @@ export class SessionStore {
         return row ? toRecord(row) : null;
     }
 
-    listSessions(cwd?: string): SessionRecord[] {
-        const sql = `SELECT s.*, ${FIRST_USER_PAYLOAD} FROM sessions s
-                     ${cwd !== undefined ? "WHERE s.cwd = ?" : ""}
-                     ORDER BY s.updated_at DESC`;
+    /**
+     * Sessions, newest first.
+     *
+     * `scope` picks which side of the archive to list. It is a THREE-valued
+     * string rather than an optional boolean on purpose: `undefined` had to
+     * mean "both", and a defaulted parameter cannot express that — JavaScript
+     * applies the default precisely when the argument is `undefined`, so
+     * "give me everything" silently became "give me the active ones".
+     *
+     * `active` is the default because archiving that does not remove the
+     * session from the list it was cluttering has achieved nothing.
+     */
+    listSessions(cwd?: string, scope: SessionScope = "active"): SessionRecord[] {
+        const where: string[] = [];
+        if (cwd !== undefined) where.push("s.cwd = ?");
+        if (scope === "archived") where.push("s.archived_at IS NOT NULL");
+        else if (scope === "active") where.push("s.archived_at IS NULL");
+        const sql = `SELECT s.*, ${FIRST_USER_PAYLOAD}, ${LAST_MODEL} FROM sessions s
+                     ${where.length > 0 ? `WHERE ${where.join(" AND ")}` : ""}
+                     ORDER BY ${scope === "archived" ? "s.archived_at" : "s.updated_at"} DESC`;
         const rows =
             cwd !== undefined
                 ? this.db.query<SessionRow, [string]>(sql).all(cwd)
                 : this.db.query<SessionRow, []>(sql).all();
         return rows.map(toRecord);
+    }
+
+    /**
+     * Put a session away, or take it back out. Returns false when there was no
+     * such session, so a caller can tell "already gone" from "archived it".
+     *
+     * Nothing is deleted and no entry is written: archiving is a property of
+     * the session row, not a turn in the conversation, so it must not appear
+     * in the transcript or reach the model.
+     */
+    setSessionArchived(pubId: string, archived: boolean): boolean {
+        const result = this.db
+            .query("UPDATE sessions SET archived_at = ? WHERE pub_id = ?")
+            .run(archived ? Date.now() : null, pubId);
+        return result.changes > 0;
+    }
+
+    /**
+     * Delete a session and everything under it. Returns false when there was
+     * no such session, so a caller can tell "gone" from "never existed".
+     *
+     * Entries go with it by cascade (`PRAGMA foreign_keys = ON`, db.ts), and
+     * the cost ledger deliberately does NOT: its FK is ON DELETE SET NULL and
+     * it keeps `session_pub`, so deleting a conversation never rewrites what
+     * was actually spent.
+     */
+    deleteSession(pubId: string): boolean {
+        const result = this.db.query("DELETE FROM sessions WHERE pub_id = ?").run(pubId);
+        return result.changes > 0;
     }
 
     /** Re-home a session to a new working directory (/cd). */

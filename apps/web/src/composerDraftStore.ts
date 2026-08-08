@@ -33,7 +33,12 @@ import { createModelSelection, normalizeModelSlug } from "@loop/shared/model";
 import { useMemo } from "react";
 import { getLocalStorageItem } from "./hooks/useLocalStorage";
 import { resolveAppModelSelection, resolveAppModelSelectionForInstance } from "./modelSelection";
-import { DEFAULT_INTERACTION_MODE, DEFAULT_RUNTIME_MODE, type ChatImageAttachment } from "./types";
+import {
+  DEFAULT_INTERACTION_MODE,
+  DEFAULT_RUNTIME_MODE,
+  type ChatAttachment,
+  type ChatImageAttachment,
+} from "./types";
 import {
   type TerminalContextDraft,
   ensureInlineTerminalContextPlaceholders,
@@ -87,7 +92,18 @@ export const PersistedComposerImageAttachment = Schema.Struct({
 });
 export type PersistedComposerImageAttachment = typeof PersistedComposerImageAttachment.Type;
 
-export interface ComposerImageAttachment extends Omit<ChatImageAttachment, "previewUrl"> {
+/**
+ * One staged attachment.
+ *
+ * Still named for images because that is what it almost always is and renaming
+ * it reaches ~40 call sites, but `type` is the contract's union now: loop takes
+ * PDFs as well, on the models whose provider can receive them. `previewUrl` is
+ * empty for anything that is not an image — the chip falls back to the file
+ * name, which is also what the timeline already does for an attachment it
+ * cannot show.
+ */
+export interface ComposerImageAttachment extends Omit<ChatImageAttachment, "type"> {
+  type: ChatAttachment["type"];
   previewUrl: string;
   file: File;
 }
@@ -2102,14 +2118,19 @@ export function hydrateImagesFromPersisted(
     const file = hydratePersistedComposerImageAttachment(attachment);
     if (!file) return [];
 
+    // The persisted record predates non-image attachments and stores no kind,
+    // so it is recovered from the mime type — the same thing that decided it
+    // when the attachment was staged. A restored PDF gets no preview URL: the
+    // data URL would load in an <img> as a broken image rather than nothing.
+    const isImage = attachment.mimeType.toLowerCase().startsWith("image/");
     return [
       {
-        type: "image" as const,
+        type: isImage ? ("image" as const) : ("file" as const),
         id: attachment.id,
         name: attachment.name,
         mimeType: attachment.mimeType,
         sizeBytes: attachment.sizeBytes,
-        previewUrl: attachment.dataUrl,
+        previewUrl: isImage ? attachment.dataUrl : "",
         file,
       } satisfies ComposerImageAttachment,
     ];

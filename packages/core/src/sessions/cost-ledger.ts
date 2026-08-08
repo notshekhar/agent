@@ -19,7 +19,18 @@ import { normalizeUsage } from "./usage";
  */
 
 export type LedgerSource =
-    "turn" | "subagent" | "recap" | "compact" | "branch-summary" | "goal-parse" | "goal-planner" | "goal-verifier";
+    | "turn"
+    | "subagent"
+    | "recap"
+    | "compact"
+    | "branch-summary"
+    | "goal-parse"
+    | "goal-planner"
+    | "goal-verifier"
+    // Auto-generated commit messages. Sessionless — the desktop app's commit
+    // dialog asks for one directly, so these rows carry a cwd but no
+    // sessionPub, unlike every source above.
+    | "commit-message";
 
 export interface LedgerContext {
     source: LedgerSource;

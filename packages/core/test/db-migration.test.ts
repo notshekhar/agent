@@ -74,7 +74,16 @@ describe("session db v1 → v2 migration", () => {
         expect(ledgerCols.map((c) => c.name)).toContain("entry_id");
         expect(ledgerCols.map((c) => c.name)).toContain("entry_pub");
         const version = db.query<{ value: string }, []>("SELECT value FROM meta WHERE key = 'schema_version'").get();
-        expect(version?.value).toBe("6");
+        expect(version?.value).toBe("7");
+        // v6 → v7: sessions.archived_at. A timestamp rather than a flag —
+        // "when did I put this away" is what an archive list sorts by.
+        const sessionCols = db.query<{ name: string }, []>("PRAGMA table_info(sessions)").all();
+        expect(sessionCols.map((c) => c.name)).toContain("archived_at");
+        // A session that predates archiving is active, not archived.
+        const existing = db
+            .query<{ archived_at: number | null }, []>("SELECT archived_at FROM sessions WHERE pub_id = 's1'")
+            .get();
+        expect(existing?.archived_at).toBeNull();
         // v2 → v3 rides the same pass, as does v5 → v6 (projects.bash_allow).
         const projCols = db.query<{ name: string }, []>("PRAGMA table_info(projects)").all();
         expect(projCols.map((c) => c.name)).toContain("provider_models");

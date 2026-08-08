@@ -4,7 +4,7 @@ import { parseScopedThreadKey } from "@loop/runtime/environment";
 import { FILL_PREVIEW_VIEWPORT } from "@loop/contracts";
 import { useEffect, useMemo } from "react";
 
-import { isElectron } from "~/env";
+import { isDesktopShell } from "~/env";
 import { useTheme } from "~/hooks/useTheme";
 import { useActivePreviewSessions } from "~/previewStateStore";
 
@@ -77,7 +77,10 @@ export function ElectronBrowserHost() {
     });
   }, []);
 
-  if (!isElectron) return null;
+  // isDesktopShell, not isElectron: loop's preload exposes `window.loop` and
+  // never upstream's `window.desktopBridge`, so isElectron is false in loop's
+  // own app — this returned null and the browser panel had no host at all.
+  if (!isDesktopShell) return null;
   return (
     <div className="contents" data-electron-browser-host>
       {sessions.map(({ threadRef, snapshot, runtimeTabId, zoomFactor }) => {

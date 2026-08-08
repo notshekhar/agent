@@ -1,5 +1,7 @@
 import { ProviderDriverKind } from "@loop/contracts";
 import { ClaudeAI, CursorIcon, GrokIcon, Icon, OpenAI, OpenCodeIcon } from "../Icons";
+import { fromInstanceId } from "../../loop/handlers/ids";
+import { providerPresentation } from "../../loop/providers";
 import { PROVIDER_OPTIONS } from "../../session-logic";
 
 export const PROVIDER_ICON_BY_PROVIDER: Partial<Record<ProviderDriverKind, Icon>> = {
@@ -9,6 +11,27 @@ export const PROVIDER_ICON_BY_PROVIDER: Partial<Record<ProviderDriverKind, Icon>
   [ProviderDriverKind.make("cursor")]: CursorIcon,
   [ProviderDriverKind.make("grok")]: GrokIcon,
 };
+
+/**
+ * The mark for a provider, wherever one is rendered.
+ *
+ * Two id spaces meet here. The map above is keyed by the upstream app's
+ * *coding-agent* driver kinds; loop's providers arrive as encoded provider ids
+ * instead (`anthropic`, `github-copilot`, `custom__pronto-gpt` — see
+ * handlers/ids.ts). Only the second kind actually occurs in loop, but the
+ * first is kept because a stored thread may still carry one.
+ *
+ * Falling through to the loop catalog is what puts a real brand mark on the
+ * composer and model picker; without it every row rendered as a lettermark,
+ * since no loop provider id can ever match a driver-kind key.
+ */
+export function providerIconFor(driverKind: ProviderDriverKind): Icon | null {
+  return (
+    PROVIDER_ICON_BY_PROVIDER[driverKind] ??
+    providerPresentation(fromInstanceId(driverKind)).icon ??
+    null
+  );
+}
 
 function isAvailableProviderOption(option: (typeof PROVIDER_OPTIONS)[number]): option is {
   value: ProviderDriverKind;

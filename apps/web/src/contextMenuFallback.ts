@@ -33,6 +33,14 @@ const ICON_PATHS: Record<string, ReadonlyArray<{ tag: string; attrs: Record<stri
     { tag: "path", attrs: { d: "M3 5a2 2 0 0 0 2 2h3" } },
     { tag: "path", attrs: { d: "M3 3v13a2 2 0 0 0 2 2h3" } },
   ],
+  // Lucide `archive`. Without an entry here `createIconElement` returns null
+  // and the item silently renders with no icon at all — which looks like a
+  // bug next to Delete and Copy, not like a deliberate choice.
+  archive: [
+    { tag: "rect", attrs: { width: "20", height: "5", x: "2", y: "3", rx: "1" } },
+    { tag: "path", attrs: { d: "M4 8v11a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8" } },
+    { tag: "path", attrs: { d: "M10 12h4" } },
+  ],
   trash: [
     { tag: "path", attrs: { d: "M3 6h18" } },
     { tag: "path", attrs: { d: "M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" } },

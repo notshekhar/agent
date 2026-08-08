@@ -155,7 +155,7 @@ export const AGENT_TOOL_NAMES = [...TOOL_NAMES, "task", "ask", "websearch", "pla
  * tool without it being silently dropped. Equals AGENT_TOOL_NAMES when no
  * extensions are loaded (zero-regression).
  */
-function agentToolNames(): string[] {
+export function agentToolNames(): string[] {
     return [...AGENT_TOOL_NAMES, ...getExtensionHost().getTools().add.keys()];
 }
 

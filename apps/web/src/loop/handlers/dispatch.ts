@@ -9,18 +9,141 @@
  * The id problem, and why `bindings` exists: `thread.create` carries a
  * **client-chosen** `threadId`, but loop mints its own ULID in
  * `session.create`. Everywhere else a thread id IS a loop session id (that is
- * what the shell hands out), so the binding table only ever holds the short
- * window between a client creating a thread and loop naming it.
+ * what the shell hands out), so the table maps between the two — and it
+ * outlives the process, because the client id is in the URL.
  */
 import type { ClientOrchestrationCommand } from "@loop/contracts";
 import * as Effect from "effect/Effect";
 
+import { forgetAddedProject, rememberAddedProject } from "./addedProjects.ts";
 import { fromInstanceId } from "./ids.ts";
-import { beginLiveTurn } from "./liveTurn.ts";
-import { loopCall } from "../transport.ts";
+import {
+  beginLiveTurn,
+  clearLiveAsk,
+  notifyThreadChanged,
+  onLiveTurnChange,
+  readLiveTurn,
+  restoreLiveTurn,
+} from "./liveTurn.ts";
+import { useQueuedTurnsStore, type QueuedTurn } from "../../queuedTurnsStore.ts";
+import { loopCall, loopFilesystem } from "../transport.ts";
 
-/** client threadId -> loop sessionId, for threads this client created. */
-const bindings = new Map<string, string>();
+/**
+ * client threadId -> loop sessionId, for threads this client created.
+ *
+ * **Persisted, and it has to be.** The composer mints its own thread id before
+ * loop exists as a session, so a thread created in the app lives at
+ * `/primary/<uuid>` while loop knows it by a ULID. Held only in memory, that
+ * mapping died with the process: after a restart the shell reported loop's
+ * ULID, the open URL matched nothing, and the thread page came up empty — the
+ * terminal silently doing nothing was just the first symptom.
+ *
+ * Bounded because it is unbounded otherwise: one entry per thread ever created
+ * in this app, forever. The oldest are dropped first, and losing one only
+ * costs a stale URL, which is where this started.
+ */
+const BINDINGS_STORAGE_KEY = "loop:thread-bindings";
+const MAX_BINDINGS = 500;
+
+function loadBindings(): Map<string, string> {
+  try {
+    const raw = globalThis.localStorage?.getItem(BINDINGS_STORAGE_KEY);
+    if (!raw) return new Map();
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return new Map();
+    return new Map(
+      parsed.filter(
+        (entry): entry is [string, string] =>
+          Array.isArray(entry) &&
+          entry.length === 2 &&
+          typeof entry[0] === "string" &&
+          typeof entry[1] === "string",
+      ),
+    );
+  } catch {
+    // A malformed or unavailable store must not stop the app from starting.
+    return new Map();
+  }
+}
+
+const bindings = loadBindings();
+
+function saveBindings(): void {
+  try {
+    while (bindings.size > MAX_BINDINGS) {
+      const oldest = bindings.keys().next();
+      if (oldest.done) break;
+      bindings.delete(oldest.value);
+    }
+    globalThis.localStorage?.setItem(BINDINGS_STORAGE_KEY, JSON.stringify([...bindings]));
+  } catch {
+    // Storage full or unavailable: the mapping still works this run.
+  }
+}
+
+/**
+ * The per-turn options a thread last ran with (thinking level, agent).
+ *
+ * loop does not persist these — `session.send` takes `thinking` and `agent`
+ * per turn and stores neither, so `session.list`/`session.history` cannot
+ * report them back. Without this memory the thread's `modelSelection` comes
+ * back with NO options once the first turn creates it, and the composer, which
+ * reads the thread's selection in preference to the draft's, drops the effort
+ * the user had chosen. Symptom: the first message of a session silently resets
+ * thinking, and only a second, explicit pick sticks.
+ *
+ * Same storage discipline as `bindings` — persisted so a restart does not
+ * reset every open thread's effort back to the default.
+ */
+const TURN_OPTIONS_STORAGE_KEY = "loop:thread-turn-options";
+type TurnOption = { readonly id: string; readonly value: string };
+
+function loadTurnOptions(): Map<string, TurnOption[]> {
+  try {
+    const raw = globalThis.localStorage?.getItem(TURN_OPTIONS_STORAGE_KEY);
+    if (!raw) return new Map();
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return new Map();
+    return new Map(
+      parsed.filter(
+        (entry): entry is [string, TurnOption[]] =>
+          Array.isArray(entry) &&
+          entry.length === 2 &&
+          typeof entry[0] === "string" &&
+          Array.isArray(entry[1]),
+      ),
+    );
+  } catch {
+    return new Map();
+  }
+}
+
+const turnOptions = loadTurnOptions();
+
+function rememberTurnOptions(threadId: string, options: readonly TurnOption[] | undefined): void {
+  // An empty selection means "use loop's own defaults" — recording it would
+  // pin the thread to whatever the defaults were at that moment.
+  if (!options || options.length === 0) return;
+  turnOptions.set(threadId, [...options]);
+  try {
+    while (turnOptions.size > MAX_BINDINGS) {
+      const oldest = turnOptions.keys().next();
+      if (oldest.done) break;
+      turnOptions.delete(oldest.value);
+    }
+    globalThis.localStorage?.setItem(TURN_OPTIONS_STORAGE_KEY, JSON.stringify([...turnOptions]));
+  } catch {
+    // Storage full or unavailable: the memory still works this run.
+  }
+}
+
+/** What a thread's `modelSelection.options` should report. */
+export function turnOptionsFor(threadId: string): readonly TurnOption[] {
+  return turnOptions.get(threadId) ?? [];
+}
+
+/** client projectId -> folder, for a project added in this session. */
+const projectFolders = new Map<string, string>();
 
 /** Everything a `thread.create` needs to remember until the first turn. */
 interface PendingThread {
@@ -34,6 +157,12 @@ const pending = new Map<string, PendingThread>();
 /** The loop session behind a thread id. Identity for anything from the shell. */
 export function loopSessionIdFor(threadId: string): string {
   return bindings.get(threadId) ?? threadId;
+}
+
+/** Drop a deleted thread's id bindings so nothing points at a gone session. */
+export function forgetThread(threadId: string): void {
+  if (bindings.delete(threadId)) saveBindings();
+  pending.delete(threadId);
 }
 
 /**
@@ -97,6 +226,103 @@ export class UnsupportedCommandError extends Error {
 }
 
 /**
+ * Where a message typed mid-stream goes.
+ *
+ * loop takes one turn at a time and says so: `session.send` against a busy
+ * session throws `already has a turn running (cancel it first)`. Nothing above
+ * this file handled that, so hitting Enter mid-stream put an error on the
+ * thread and handed the text back to the composer — the send simply did not
+ * happen. There is nowhere else to fix it: loop has no queue of its own, and
+ * the composer cannot know a send will be refused until it has been.
+ *
+ * The queue itself lives in `queuedTurnsStore`, not here, because it is
+ * something the user looks at and takes back — the strip above the composer is
+ * rendered straight off it. This file owns only the *policy*: when to queue,
+ * when to drain, and what a refusal on the way out means.
+ */
+
+/** Sessions whose queue is being drained, so a burst of events cannot double-send. */
+const draining = new Set<string>();
+
+let watchingTurnEnds = false;
+
+/**
+ * loop's own answer to "is this session busy", and the only one worth trusting.
+ *
+ * The tempting shortcut is to ask the live turn in `liveTurn.ts` whether it is
+ * still running and queue without trying. It is wrong in the direction that
+ * hurts: that flag is only closed by a `finish`/`error` event reaching this
+ * client, so a turn that ended while the app was reloading — or one this
+ * client never dispatched — leaves it stuck at `true` forever, and every
+ * message after it would queue behind a turn that finished hours ago. Asking
+ * loop costs one refused call and cannot get stuck.
+ */
+function isTurnAlreadyRunning(error: unknown): boolean {
+  return /already has a turn running/i.test(
+    error instanceof Error ? error.message : String(error),
+  );
+}
+
+function queueTurn(turn: QueuedTurn): void {
+  watchTurnEnds();
+  useQueuedTurnsStore.getState().enqueue(turn);
+}
+
+function discardQueuedTurns(sessionId: string): void {
+  useQueuedTurnsStore.getState().clearSession(sessionId);
+}
+
+function watchTurnEnds(): void {
+  if (watchingTurnEnds) return;
+  watchingTurnEnds = true;
+  onLiveTurnChange((sessionId) => {
+    void drainQueuedTurns(sessionId);
+  });
+}
+
+/**
+ * Send the next queued turn once the running one has ended.
+ *
+ * One per drain, not the whole queue: the send starts a new turn, so the rest
+ * have to wait for its own end — which arrives here as another change event.
+ *
+ * The live turn's running flag gates this rather than deciding it. Every
+ * change event would otherwise be a refused `session.send` at delta rate, and
+ * a flag that is stale in the stuck-at-running direction costs nothing here:
+ * the turn whose refusal put this message on the queue is the one whose end
+ * clears it.
+ *
+ * A refusal on the way out means the turn had not really ended, so the message
+ * goes back at the front and waits for the next one. Any other failure drops
+ * it with a warning — retrying it after every future turn would be worse than
+ * losing it once, loudly.
+ */
+async function drainQueuedTurns(sessionId: string): Promise<void> {
+  if (draining.has(sessionId)) return;
+  if (readLiveTurn(sessionId)?.running === true) return;
+
+  const queued = useQueuedTurnsStore.getState().takeNext(sessionId);
+  if (!queued) return;
+
+  draining.add(sessionId);
+  try {
+    await queued.send();
+  } catch (error) {
+    if (isTurnAlreadyRunning(error)) {
+      useQueuedTurnsStore.getState().requeueFirst(queued);
+      return;
+    }
+    console.warn("A queued message could not be sent.", {
+      operation: "drain-queued-turn",
+      sessionId,
+      error,
+    });
+  } finally {
+    draining.delete(sessionId);
+  }
+}
+
+/**
  * loop creates a session lazily.
  *
  * `thread.create` is dispatched when the composer opens a draft, long before
@@ -121,8 +347,182 @@ async function ensureSession(threadId: string): Promise<string> {
     intent.cwd,
   );
   bindings.set(threadId, created.sessionId);
+  saveBindings();
   pending.delete(threadId);
   return created.sessionId;
+}
+
+/** loop's thinking levels, in `session.send`'s `thinking` parameter. */
+const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh"] as const;
+type ThinkingLevel = (typeof THINKING_LEVELS)[number];
+
+/**
+ * The effort the composer picked, as loop's thinking level.
+ *
+ * The two vocabularies nearly agree — the model picker's reasoning-effort
+ * option is `minimal`/`low`/`medium`/`high`, and loop adds `off` and `xhigh`
+ * (`/thinking` in the terminal). Anything unrecognised is left out entirely so
+ * loop falls back to the `thinkingLevel` setting rather than being pinned to a
+ * guess.
+ */
+export function thinkingLevelOf(
+  options: readonly { readonly id?: string; readonly value?: unknown }[] | undefined,
+): ThinkingLevel | undefined {
+  const effort = options?.find((option) => option.id === "reasoningEffort")?.value;
+  if (typeof effort !== "string") return undefined;
+  const normalized = effort.toLowerCase();
+  return (THINKING_LEVELS as readonly string[]).includes(normalized)
+    ? (normalized as ThinkingLevel)
+    : undefined;
+}
+
+/**
+ * The agent this turn should run under, if the composer picked one.
+ *
+ * loop's `/<agent> <message>` is a ONE-SHOT: that message runs under the
+ * agent's prompt and the session's own agent is untouched. There is no `agent`
+ * field on the contract's turn command, so it rides the model selection's
+ * options — the same slot reasoning effort uses, and like it, a per-turn
+ * choice rather than session state.
+ */
+export function agentOptionOf(
+  options: readonly { readonly id?: string; readonly value?: unknown }[] | undefined,
+): string | undefined {
+  const agent = options?.find((option) => option.id === "agent")?.value;
+  if (typeof agent !== "string") return undefined;
+  const trimmed = agent.trim();
+  // "default" is loop's name for the built-in persona, which is what sending
+  // nothing already means — so it is not worth naming on the wire.
+  return trimmed === "" || trimmed === "default" ? undefined : trimmed;
+}
+
+type TurnStartCommand = Extract<ClientOrchestrationCommand, { readonly type: "thread.turn.start" }>;
+
+/**
+ * The composer's attachments, in the shape `session.send` takes.
+ *
+ * **This is where attaching was silently broken.** The composer stages images,
+ * renders their thumbnails and puts them on the command as data URLs — and the
+ * turn was sent with `input` alone, so every attachment was dropped at this
+ * seam. The model was answering a message it could not see the picture in,
+ * which is indistinguishable from it ignoring the picture.
+ *
+ * loop takes `{data, mediaType}` with `data` base64. The RPC server writes each
+ * to a temp file and appends the same `[image:<path>]` sentinel paste and drag
+ * produce in the terminal, so the whole existing pipeline — extraction,
+ * per-model modality filtering, transcript, replay — applies unchanged
+ * (`packages/core/src/rpc/server.ts`, `writeAttachmentPayloads`).
+ *
+ * A data URL is `data:<mime>;base64,<payload>`; anything without the comma is
+ * not one and is dropped rather than sent as garbage bytes.
+ */
+function attachmentPayloads(
+  attachments: TurnStartCommand["message"]["attachments"],
+): ReadonlyArray<{ readonly data: string; readonly mediaType: string }> {
+  // Optional in the contract (`Schema.optional`), so a composer that sends no
+  // attachments sends the field not at all — and reading `.flatMap` off that
+  // threw before the turn was ever dispatched, which the UI showed as a
+  // message that simply never went anywhere.
+  return (attachments ?? []).flatMap((attachment) => {
+    const separator = attachment.dataUrl.indexOf(",");
+    if (separator < 0) return [];
+    return [{ data: attachment.dataUrl.slice(separator + 1), mediaType: attachment.mimeType }];
+  });
+}
+
+/**
+ * One turn, handed to loop.
+ *
+ * Split out of the command handler so a queued message runs exactly the same
+ * path a fresh one does — the id bookkeeping below is not optional, and a
+ * second copy of it in the drain would be the kind of thing that stays right
+ * for a month.
+ */
+async function sendTurn(
+  sessionId: string,
+  message: TurnStartCommand["message"],
+  selection: TurnStartCommand["modelSelection"],
+): Promise<void> {
+  // Begin the live turn BEFORE sending: loop can emit its first delta while
+  // `session.send` is still in flight, and an event that arrives before the
+  // buffer exists would be dropped. Both are therefore written speculatively,
+  // and both are put back below if loop turns the send down.
+  const displacedTurn = readLiveTurn(sessionId);
+  const displacedMessage = lastUserMessage.get(sessionId);
+  lastUserMessage.set(sessionId, {
+    messageId: message.messageId,
+    text: message.text,
+  });
+  beginLiveTurn(sessionId);
+  // `model` carries the provider (`xai/composer-2.5`) — loop has no separate
+  // provider parameter, and runTurn resolves it from the id, so this is also
+  // how a provider switch reaches loop.
+  const thinking = thinkingLevelOf(selection?.options);
+  const agent = agentOptionOf(selection?.options);
+  // loop stores neither, so the thread would report a selection with no
+  // options and the composer would reset the picker on the next render.
+  // Keyed by loop's session id, not the client thread id: an app-created
+  // thread lives at a client-minted uuid while loop knows a ULID, and the
+  // persisted-thread path only ever has the ULID.
+  rememberTurnOptions(sessionId, selection?.options as readonly TurnOption[] | undefined);
+  const images = attachmentPayloads(message.attachments);
+  try {
+    await loopCall("session.send", {
+      sessionId,
+      input: message.text,
+      ...(images.length === 0 ? {} : { images }),
+      ...(selection === undefined ? {} : { model: selection.model }),
+      ...(thinking === undefined ? {} : { thinking }),
+      ...(agent === undefined ? {} : { agent }),
+    });
+  } catch (error) {
+    // Refused, so no turn started here — and whatever the speculative writes
+    // above displaced belongs to a turn that is still running. Left alone,
+    // the reply on screen would blank out and pick up mid-sentence.
+    if (displacedMessage === undefined) lastUserMessage.delete(sessionId);
+    else lastUserMessage.set(sessionId, displacedMessage);
+    restoreLiveTurn(sessionId, displacedTurn);
+    throw error;
+  }
+}
+
+/**
+ * The folder a project id means.
+ *
+ * A project id from the shell IS a folder, so most ids need no translation.
+ * The command palette is the exception: it mints a fresh ULID for a project
+ * before anything knows where it lives, so `project.create` records the folder
+ * against that id and everything downstream asks here. The mapping only has to
+ * outlive the draft — once the first turn creates a session, the shell reports
+ * the project under its cwd and the ULID is never seen again.
+ */
+function projectFolderFor(projectId: string): string {
+  return projectFolders.get(projectId) ?? projectId;
+}
+
+/**
+ * Where a `project.create` actually points.
+ *
+ * The typed path is resolved through the shell rather than trusted, because
+ * two things silently accept nonsense: `~` is a shell convention that neither
+ * node nor loop expands, and loop's RPC does not validate cwd at all
+ * (`session.create` happily accepts `/nope/does/not/exist`). An unchecked path
+ * therefore becomes a project that looks real and works for nothing.
+ */
+async function resolveWorkspaceRoot(workspaceRoot: string): Promise<string> {
+  const trimmed = workspaceRoot.trim();
+  if (trimmed === "") throw new Error("A project needs a folder.");
+
+  const filesystem = loopFilesystem();
+  // Over `loop serve` there is no filesystem to ask and loop cannot validate
+  // a cwd, so the typed path is all there is.
+  if (!filesystem) return trimmed;
+
+  // The trailing separator is what makes browse list the folder ITSELF rather
+  // than its parent, so parentPath comes back as the resolved folder.
+  const browsed = await filesystem.browse(trimmed.endsWith("/") ? trimmed : `${trimmed}/`, undefined);
+  if (!browsed) throw new Error(`${trimmed} is not a folder on this machine.`);
+  return browsed.parentPath;
 }
 
 export const dispatchCommand = Effect.fnUntraced(function* (command: ClientOrchestrationCommand) {
@@ -131,10 +531,22 @@ export const dispatchCommand = Effect.fnUntraced(function* (command: ClientOrche
 
 async function run(command: ClientOrchestrationCommand): Promise<{ sequence: number }> {
   switch (command.type) {
+    case "project.create": {
+      // Nothing is created in loop: it has no project record, and a folder
+      // becomes a project by having a session in it. This settles WHICH folder
+      // the id the palette just minted refers to, so the draft it opens next
+      // lands in the right place, and holds the folder so the sidebar can show
+      // it before the first turn makes it real.
+      const folder = await resolveWorkspaceRoot(command.workspaceRoot);
+      projectFolders.set(command.projectId, folder);
+      rememberAddedProject(command.projectId, folder);
+      return { sequence: 0 };
+    }
+
     case "thread.create": {
       // The project id is the folder, so the workspace is already known.
       pending.set(command.threadId, {
-        cwd: command.projectId,
+        cwd: projectFolderFor(command.projectId),
         provider: fromInstanceId(command.modelSelection.instanceId),
         model: command.modelSelection.model,
       });
@@ -150,30 +562,120 @@ async function run(command: ClientOrchestrationCommand): Promise<{ sequence: num
       const bootstrap = command.bootstrap?.createThread;
       if (bootstrap && !bindings.has(command.threadId)) {
         pending.set(command.threadId, {
-          cwd: bootstrap.projectId,
+          cwd: projectFolderFor(bootstrap.projectId),
           provider: fromInstanceId(bootstrap.modelSelection.instanceId),
           model: bootstrap.modelSelection.model,
         });
       }
       const sessionId = await ensureSession(command.threadId);
-      // Begin the live turn BEFORE sending: loop can emit its first delta
-      // while `session.send` is still in flight, and an event that arrives
-      // before the buffer exists would be dropped.
-      lastUserMessage.set(sessionId, {
-        messageId: command.message.messageId,
-        text: command.message.text,
-      });
-      beginLiveTurn(sessionId);
-      await loopCall("session.send", {
-        sessionId,
-        input: command.message.text,
-        ...(selection === undefined ? {} : { model: selection.model }),
-      });
+      const send = () => sendTurn(sessionId, command.message, selection);
+      try {
+        await send();
+      } catch (error) {
+        // Typed while the agent was still working. Hold it and send it when
+        // the running turn ends, rather than failing the command — which is
+        // what put an error on the thread and made the user retype.
+        if (!isTurnAlreadyRunning(error)) throw error;
+        queueTurn({
+          id: command.message.messageId,
+          sessionId,
+          threadId: command.threadId,
+          text: command.message.text,
+          attachmentCount: command.message.attachments?.length ?? 0,
+          queuedAt: new Date().toISOString(),
+          send,
+        });
+      }
       return { sequence: 0 };
     }
 
     case "thread.turn.interrupt": {
-      await loopCall("session.cancel", { sessionId: loopSessionIdFor(command.threadId) });
+      const sessionId = loopSessionIdFor(command.threadId);
+      // Stop means stop. Anything still waiting behind this turn was queued
+      // on the assumption it would finish; firing it the instant the user
+      // cancelled would be the opposite of what the button says.
+      discardQueuedTurns(sessionId);
+      await loopCall("session.cancel", { sessionId });
+      return { sequence: 0 };
+    }
+
+    case "thread.archive":
+    case "thread.unarchive": {
+      // The gentler half of delete: nothing is removed, the conversation just
+      // stops appearing in the sidebar. loop keeps it as a timestamp on the
+      // session row, so unarchiving is the same call with `archived: false`.
+      const sessionId = loopSessionIdFor(command.threadId);
+      await loopCall("session.archive", {
+        sessionId,
+        archived: command.type === "thread.archive",
+      });
+      // loop broadcasts nothing for this — it is a client asking, not the
+      // agent acting — and the sidebar is rebuilt from `session.list`, which
+      // now answers differently. Without the nudge the row you just archived
+      // stays on screen until some unrelated turn happens to refresh it, and
+      // archiving looks like it did nothing.
+      notifyThreadChanged(sessionId);
+      return { sequence: 0 };
+    }
+
+    case "thread.delete": {
+      const sessionId = loopSessionIdFor(command.threadId);
+      await loopCall("session.delete", { sessionId });
+      forgetThread(command.threadId);
+      // Same reason as archive above: loop broadcasts nothing for a client's
+      // own removal, and the sidebar is rebuilt from `session.list`. Without
+      // the nudge the deleted row sits there until an unrelated turn happens
+      // to refresh the shell, so deleting looks like it did nothing — the row
+      // only goes away on the next relaunch.
+      notifyThreadChanged(sessionId);
+      return { sequence: 0 };
+    }
+
+    case "project.delete": {
+      // loop has no project record to remove: a folder IS a project because
+      // sessions have that cwd, so removing one means removing its sessions.
+      // Anything the user added but never used is only remembered in-process,
+      // and forgetting that is the whole removal.
+      const folder = projectFolderFor(command.projectId);
+      forgetAddedProject(command.projectId);
+      // `archived: "all"` because the archive is part of the project too: the
+      // default scope is the working set, so an archived conversation would
+      // survive the folder it belongs to being removed and reappear the next
+      // time the user opened the Archive panel.
+      const listed = await loopCall<unknown>("session.list", {
+        cwd: folder,
+        archived: "all",
+      }).catch(() => []);
+      // Guarded rather than trusted: a failed call is caught above, but a
+      // reply that is not a list would throw here and leave the removal half
+      // done with no error the user can act on.
+      const rows = Array.isArray(listed) ? (listed as readonly { id: string; cwd: string }[]) : [];
+      for (const row of rows) {
+        if (row.cwd !== folder) continue;
+        await loopCall("session.delete", { sessionId: row.id }).catch(() => undefined);
+      }
+      // The project disappears when its last session does, so the shell has to
+      // be rebuilt for the row to go — `forgetAddedProject` only notifies for
+      // a folder no session ever claimed.
+      notifyThreadChanged(folder);
+      return { sequence: 0 };
+    }
+
+    case "thread.user-input.respond": {
+      // loop's ask bridge is waiting on exactly this. Answers are positional
+      // there and keyed by question id here, so they are ordered by that id
+      // before being sent — the panel may hand them back in any order.
+      const answers = (command as { answers?: Record<string, unknown> }).answers ?? {};
+      const ordered = Object.entries(answers)
+        .toSorted(([left], [right]) => Number(left) - Number(right))
+        .map(([, value]) => ({
+          answers: Array.isArray(value) ? value.map(String) : [String(value)],
+        }));
+      await loopCall("session.answer", {
+        askId: (command as { requestId: string }).requestId,
+        answers: ordered,
+      });
+      clearLiveAsk(loopSessionIdFor(command.threadId));
       return { sequence: 0 };
     }
 

@@ -54,7 +54,13 @@ async function main(): Promise<void> {
             (await commands()).cmdLogout(args.positional[0] as ProviderId | undefined);
             return;
         case "sessions":
-            await (await commands()).cmdSessions();
+            await (await commands()).cmdSessions(args);
+            return;
+        case "archive":
+            await (await commands()).cmdArchive(args, true);
+            return;
+        case "unarchive":
+            await (await commands()).cmdArchive(args, false);
             return;
         case "rpc":
             (await commands()).cmdRpc(args);

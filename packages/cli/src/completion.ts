@@ -25,6 +25,8 @@ export const COMMANDS: CommandSpec[] = [
     { name: "login", description: "Configure provider auth" },
     { name: "logout", description: "Remove provider auth" },
     { name: "sessions", description: "List sessions in the current directory" },
+    { name: "archive", description: "Archive a session (hide it from the lists)" },
+    { name: "unarchive", description: "Restore an archived session" },
     { name: "models", description: "List available models" },
     { name: "whoami", description: "Show active provider and auth status" },
     { name: "cost", description: "Cost ledger tools", subcommands: ["audit"] },

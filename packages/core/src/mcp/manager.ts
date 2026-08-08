@@ -137,6 +137,29 @@ export class McpManager {
         await this.connectOne(name, cfg);
     }
 
+    /**
+     * Connect a server whose config is already persisted elsewhere.
+     *
+     * `add` writes to the GLOBAL settings file, so it cannot serve a
+     * project-scoped server (`.loop/mcp.json`) — and `reconnect` only walks
+     * servers this process already knows, which a just-written one is not.
+     * Without this a project server stayed invisible until the next launch.
+     */
+    async adopt(name: string, cfg: McpServerConfig): Promise<void> {
+        const existing = this.servers.get(name);
+        if (existing) await this.closeOne(existing);
+        await this.connectOne(name, cfg);
+    }
+
+    /** Forget a server this process connected, without touching any config. */
+    async forget(name: string): Promise<boolean> {
+        const existing = this.servers.get(name);
+        if (!existing) return false;
+        await this.closeOne(existing);
+        this.servers.delete(name);
+        return true;
+    }
+
     /** Reconnect one server (or all). Used by /mcp reconnect. */
     async reconnect(name?: string): Promise<void> {
         const targets = name

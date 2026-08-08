@@ -122,8 +122,25 @@ function canonicalSelectionsToLegacyObject(
   return out;
 }
 
+/**
+ * What this model takes as an attachment.
+ *
+ * Derived from loop's catalog input modalities (plus, for PDFs, whether the
+ * provider takes inline file bytes) — see `loop/modelAttachments.ts`, which
+ * holds the rule and cites core's copy of it. Optional because a provider
+ * snapshot from anything that does not report modalities should mean "no
+ * information", which the resolver reads as "images are fine, PDFs are not",
+ * rather than "attaches nothing".
+ */
+export const ModelAttachmentCapabilities = Schema.Struct({
+  image: Schema.Boolean,
+  file: Schema.Boolean,
+});
+export type ModelAttachmentCapabilities = typeof ModelAttachmentCapabilities.Type;
+
 export const ModelCapabilities = Schema.Struct({
   optionDescriptors: Schema.optional(Schema.Array(ProviderOptionDescriptor)),
+  attachments: Schema.optional(ModelAttachmentCapabilities),
 });
 export type ModelCapabilities = typeof ModelCapabilities.Type;
 

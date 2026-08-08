@@ -2,7 +2,13 @@ import { splitPromptIntoComposerSegments } from "./composer-editor-mentions";
 import { INLINE_TERMINAL_CONTEXT_PLACEHOLDER } from "./lib/terminalContext";
 
 export type ComposerTriggerKind = "path" | "slash-command" | "skill";
-export type ComposerSlashCommand = "model" | "plan" | "default";
+/**
+ * loop has no plan/build interaction mode — planning is an AGENT (`/plan`
+ * selects it), and the plan itself arrives as a `plan` tool call rendered by
+ * the proposed-plan card. So the composer's slash commands are the two that
+ * mean something here: pick a model, or manage agents.
+ */
+export type ComposerSlashCommand = "model" | "agents" | "mcp" | "clear";
 
 export interface ComposerTrigger {
   kind: ComposerTriggerKind;
@@ -16,6 +22,32 @@ export function shouldSubmitComposerOnEnter(input: {
   shiftKey: boolean;
 }): boolean {
   return !input.isMobileViewport && !input.shiftKey;
+}
+
+/**
+ * What Escape means in the composer while the agent is working.
+ *
+ * The terminal's Escape aborts the turn outright. Here it reads what is in the
+ * box first: a message you have just typed is something you want the agent to
+ * get to next, not a reason to kill what it is doing — so Escape parks it, and
+ * only aborts when there is nothing to park. One key covers both halves of
+ * "stop what you're doing".
+ *
+ * `"ignore"` means Escape belongs to something else on screen — a picker, an
+ * approval prompt, the question panel — and must be left alone to close it.
+ */
+export type ComposerEscapeAction = "queue" | "interrupt" | "ignore";
+
+export function resolveComposerEscapeAction(input: {
+  /** The session is mid-turn. Escape has no new meaning when it is not. */
+  isRunning: boolean;
+  /** Something in front of the composer already owns Escape. */
+  hasBlockingOverlay: boolean;
+  /** There is a message worth parking. */
+  hasSendableContent: boolean;
+}): ComposerEscapeAction {
+  if (!input.isRunning || input.hasBlockingOverlay) return "ignore";
+  return input.hasSendableContent ? "queue" : "interrupt";
 }
 
 const isInlineTokenSegment = (
@@ -262,16 +294,28 @@ export function detectComposerTrigger(text: string, cursorInput: number): Compos
   };
 }
 
+/**
+ * A slash command typed alone and submitted, which acts instead of sending.
+ *
+ * Both spellings are accepted because the terminal's command is `/agents`
+ * while a user reaching for it usually types `/agent` — an unrecognised one
+ * would be sent to the model as a prompt, which is a confusing way to find out
+ * you got the name wrong.
+ */
 export function parseStandaloneComposerSlashCommand(
   text: string,
 ): Exclude<ComposerSlashCommand, "model"> | null {
-  const match = /^\/(plan|default)\s*$/i.exec(text.trim());
-  if (!match) {
-    return null;
-  }
-  const command = match[1]?.toLowerCase();
-  if (command === "plan") return "plan";
-  return "default";
+  const trimmed = text.trim();
+  if (/^\/agents?\s*$/i.test(trimmed)) return "agents";
+  // `/mcp` on its own opens the MCP settings page. Without this it would be
+  // sent to the model as the literal text, which is what every other unknown
+  // slash command does — right for those, wrong for a command loop has.
+  if (/^\/mcp\s*$/i.test(trimmed)) return "mcp";
+  // `/clear` and `/new` both start a fresh session in the terminal; the app's
+  // equivalent is a new thread. Without this they were sent to the model as
+  // literal text, which is what "/clear is not working" looked like.
+  if (/^\/(clear|new)\s*$/i.test(trimmed)) return "clear";
+  return null;
 }
 
 export function replaceTextRange(

@@ -8,6 +8,7 @@ import {
   isCollapsedCursorAdjacentToInlineToken,
   parseStandaloneComposerSlashCommand,
   replaceTextRange,
+  resolveComposerEscapeAction,
   shouldSubmitComposerOnEnter,
 } from "./composer-logic";
 import { INLINE_TERMINAL_CONTEXT_PLACEHOLDER } from "./lib/terminalContext";
@@ -360,15 +361,76 @@ describe("isCollapsedCursorAdjacentToInlineToken", () => {
 });
 
 describe("parseStandaloneComposerSlashCommand", () => {
-  it("parses standalone /plan command", () => {
-    expect(parseStandaloneComposerSlashCommand(" /plan ")).toBe("plan");
+  it("parses standalone /agents command", () => {
+    expect(parseStandaloneComposerSlashCommand(" /agents ")).toBe("agents");
   });
 
-  it("parses standalone /default command", () => {
-    expect(parseStandaloneComposerSlashCommand("/default")).toBe("default");
+  it("accepts the singular /agent too", () => {
+    // The terminal's command is /agents, but /agent is the natural reach —
+    // an unrecognised one would be sent to the model as a prompt.
+    expect(parseStandaloneComposerSlashCommand("/agent")).toBe("agents");
+  });
+
+  it("no longer treats /plan as a mode switch", () => {
+    // loop has no plan/build mode: planning is an agent, and the plan itself
+    // arrives as a `plan` tool call rendered by the proposed-plan card.
+    expect(parseStandaloneComposerSlashCommand("/plan")).toBeNull();
+    expect(parseStandaloneComposerSlashCommand("/default")).toBeNull();
+  });
+
+  it("parses standalone /mcp command", () => {
+    // The terminal's /mcp is an interactive panel; here it opens the settings
+    // page that is the GUI form of it.
+    expect(parseStandaloneComposerSlashCommand("/mcp")).toBe("mcp");
+    expect(parseStandaloneComposerSlashCommand("  /MCP  ")).toBe("mcp");
+  });
+
+  it("parses /clear and /new as the same fresh-session command", () => {
+    // Both mean "start a new session" in the terminal; here that is a new
+    // thread. Unhandled, they were sent to the model as literal text.
+    expect(parseStandaloneComposerSlashCommand("/clear")).toBe("clear");
+    expect(parseStandaloneComposerSlashCommand("  /new  ")).toBe("clear");
+    expect(parseStandaloneComposerSlashCommand("/CLEAR")).toBe("clear");
   });
 
   it("ignores slash commands with extra message text", () => {
-    expect(parseStandaloneComposerSlashCommand("/plan explain this")).toBeNull();
+    expect(parseStandaloneComposerSlashCommand("/agents explain this")).toBeNull();
+    // "/mcp add my-server ..." is a real thing to type, and it is not a
+    // navigation — sending it as a prompt is the honest fallback.
+    expect(parseStandaloneComposerSlashCommand("/mcp add my-server")).toBeNull();
+    // "/clear the cache please" is a message, not the command.
+    expect(parseStandaloneComposerSlashCommand("/clear the cache please")).toBeNull();
+  });
+});
+
+describe("resolveComposerEscapeAction", () => {
+  const base = { isRunning: true, hasBlockingOverlay: false, hasSendableContent: false };
+
+  it("parks what you typed instead of killing the turn", () => {
+    // A message just typed is something you want the agent to get to next.
+    // Aborting on it would throw away both the turn AND the intent.
+    expect(resolveComposerEscapeAction({ ...base, hasSendableContent: true })).toBe("queue");
+  });
+
+  it("aborts when there is nothing to park", () => {
+    expect(resolveComposerEscapeAction(base)).toBe("interrupt");
+  });
+
+  it("does nothing when the agent is idle", () => {
+    // Escape belongs to the editor then — clearing a selection, blurring — and
+    // there is no turn to stop.
+    expect(resolveComposerEscapeAction({ ...base, isRunning: false })).toBe("ignore");
+    expect(
+      resolveComposerEscapeAction({ ...base, isRunning: false, hasSendableContent: true }),
+    ).toBe("ignore");
+  });
+
+  it("yields to anything in front of the composer", () => {
+    // A model picker, an approval prompt or the question panel each close on
+    // Escape. Stealing it would strand the user inside the overlay.
+    expect(resolveComposerEscapeAction({ ...base, hasBlockingOverlay: true })).toBe("ignore");
+    expect(
+      resolveComposerEscapeAction({ ...base, hasBlockingOverlay: true, hasSendableContent: true }),
+    ).toBe("ignore");
   });
 });

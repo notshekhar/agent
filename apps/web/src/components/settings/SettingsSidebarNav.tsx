@@ -11,11 +11,15 @@ import {
   ArchiveIcon,
   ArrowLeftIcon,
   BotIcon,
+  CoinsIcon,
+  DatabaseIcon,
   FlaskConicalIcon,
   GitBranchIcon,
   KeyboardIcon,
+  KeyRoundIcon,
   Link2Icon,
   PaletteIcon,
+  PlugIcon,
   SearchIcon,
   Settings2Icon,
   XIcon,
@@ -47,9 +51,15 @@ const SETTINGS_SECTION_ICONS: Readonly<
   Record<SettingsPath, ComponentType<{ className?: string }>>
 > = {
   "/settings/general": Settings2Icon,
+  "/settings/agents": BotIcon,
+  "/settings/usage": CoinsIcon,
+  "/settings/mcp": PlugIcon,
+  "/settings/datasources": DatabaseIcon,
   "/settings/appearance": PaletteIcon,
   "/settings/keybindings": KeyboardIcon,
-  "/settings/providers": BotIcon,
+  // Providers is where credentials live, so it takes the key rather than the
+  // bot — the bot now means Agents, which is where personas live.
+  "/settings/providers": KeyRoundIcon,
   "/settings/source-control": GitBranchIcon,
   "/settings/connections": Link2Icon,
   "/settings/beta": FlaskConicalIcon,
@@ -68,6 +78,11 @@ const SETTINGS_SECTION_ICONS: Readonly<
  */
 const LOOP_SETTINGS_PATHS: ReadonlySet<SettingsPath> = new Set([
   "/settings/general",
+  "/settings/agents",
+  "/settings/usage",
+  "/settings/mcp",
+  "/settings/datasources",
+  "/settings/archived",
   "/settings/appearance",
   "/settings/providers",
 ]);

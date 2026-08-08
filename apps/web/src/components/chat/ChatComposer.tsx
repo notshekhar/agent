@@ -40,9 +40,17 @@ import {
   detectComposerTrigger,
   expandCollapsedComposerCursor,
   replaceTextRange,
+  resolveComposerEscapeAction,
   shouldSubmitComposerOnEnter,
 } from "../../composer-logic";
 import { deriveComposerSendState, readFileAsDataUrl } from "../ChatView.logic";
+import {
+  classifyAttachment,
+  describeAttachmentRejection,
+  isAttachableFileKind,
+  resolveModelAttachmentSupport,
+  type ModelAttachmentSupport,
+} from "../../loop/modelAttachments";
 import {
   dataTransferHasComposerMention,
   makeComposerMentionDragHandlers,
@@ -85,6 +93,8 @@ import {
   shouldUseCompactComposerFooter,
 } from "../composerFooterLayout";
 import { type ComposerPromptEditorHandle, ComposerPromptEditor } from "../ComposerPromptEditor";
+import { useNavigate } from "@tanstack/react-router";
+import { AgentMenuContent, AgentPicker, useHasAgentChoices } from "../loop/AgentPicker";
 import { ProviderModelPicker } from "./ProviderModelPicker";
 import { type ComposerCommandItem, ComposerCommandMenu } from "./ComposerCommandMenu";
 import { ComposerPendingApprovalActions } from "./ComposerPendingApprovalActions";
@@ -173,12 +183,7 @@ import {
   BotIcon,
   CircleAlertIcon,
   ListTodoIcon,
-  PencilRulerIcon,
   type LucideIcon,
-  LockIcon,
-  LockOpenIcon,
-  PenLineIcon,
-  SparklesIcon,
   XIcon,
 } from "lucide-react";
 import { proposedPlanTitle } from "../../proposedPlan";
@@ -206,33 +211,6 @@ import { searchProviderSkills } from "../../providerSkillSearch";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import type { ReviewCommentContext } from "../../reviewCommentContext";
 
-const runtimeModeConfig: Record<
-  RuntimeMode,
-  { label: string; description: string; icon: LucideIcon }
-> = {
-  "approval-required": {
-    label: "Supervised",
-    description: "Ask before commands and file changes.",
-    icon: LockIcon,
-  },
-  "auto-accept-edits": {
-    label: "Auto-accept edits",
-    description: "Auto-approve edits, ask before other actions.",
-    icon: PenLineIcon,
-  },
-  auto: {
-    label: "Auto",
-    description: "An AI reviewer approves routine actions; risky ones still ask.",
-    icon: SparklesIcon,
-  },
-  "full-access": {
-    label: "Full access",
-    description: "Allow commands and edits without prompts.",
-    icon: LockOpenIcon,
-  },
-};
-
-const runtimeModeOptions = Object.keys(runtimeModeConfig) as RuntimeMode[];
 const COMPOSER_FLOATING_LAYER_SELECTOR = [
   '[data-slot="popover-popup"]',
   '[data-slot="menu-popup"]',
@@ -273,28 +251,36 @@ function isInsideComposerFloatingLayer(element: Element): boolean {
   return element.closest(COMPOSER_FLOATING_LAYER_SELECTOR) !== null;
 }
 
+/**
+ * The plan-sidebar toggle — all that is left of upstream's mode row.
+ *
+ * Two controls were removed rather than rewired, because neither reached
+ * loop: the runtime-mode select (Supervised / Auto-accept edits / Auto / Full
+ * access) and the Plan/Build toggle. `dispatch.ts` sends a turn's model,
+ * thinking level and agent — `runtimeMode` and `interactionMode` were never
+ * on the wire, so both controls were decoration.
+ *
+ * Their replacements are elsewhere and are loop's real concepts: access is the
+ * `bashApprove` setting (one prompt-or-not switch, in Settings, the way the
+ * terminal has it), and planning is an AGENT chosen in the picker beside this
+ * row — with the plan itself arriving as a `plan` tool call that the
+ * proposed-plan card renders.
+ */
 const ComposerFooterModeControls = memo(function ComposerFooterModeControls(props: {
-  showInteractionModeToggle: boolean;
-  interactionMode: ProviderInteractionMode;
-  runtimeMode: RuntimeMode;
   showPlanToggle: boolean;
   planSidebarLabel: string;
   planSidebarOpen: boolean;
-  onToggleInteractionMode: () => void;
-  onRuntimeModeChange: (mode: RuntimeMode) => void;
   onTogglePlanSidebar: () => void;
 }) {
-  const runtimeModeOption = runtimeModeConfig[props.runtimeMode];
-  const RuntimeModeIcon = runtimeModeOption.icon;
-  const interactionModeTooltip =
-    props.interactionMode === "plan"
-      ? "Plan mode — click to return to normal build mode"
-      : "Default mode — click to enter plan mode";
   const planSidebarTooltip = props.planSidebarOpen
     ? `Hide ${props.planSidebarLabel.toLowerCase()} sidebar`
     : `Show ${props.planSidebarLabel.toLowerCase()} sidebar`;
 
-  const interactionModeToggle = props.showInteractionModeToggle ? (
+  if (!props.showPlanToggle) {
+    return null;
+  }
+
+  return (
     <>
       <Separator orientation="vertical" className="mx-0.5 hidden h-4 sm:block" />
       <Tooltip>
@@ -303,101 +289,24 @@ const ComposerFooterModeControls = memo(function ComposerFooterModeControls(prop
             <ComposerControl
               className={cn(
                 "shrink-0 whitespace-nowrap",
-                props.interactionMode === "plan"
+                props.planSidebarOpen
                   ? "bg-blue-500/10 text-blue-400 hover:bg-blue-500/15 hover:text-blue-300"
                   : "text-muted-foreground/70 hover:text-foreground/80",
               )}
               type="button"
-              onClick={props.onToggleInteractionMode}
-              aria-label={interactionModeTooltip}
+              onClick={props.onTogglePlanSidebar}
+              aria-label={planSidebarTooltip}
             />
           }
         >
-          {props.interactionMode === "plan" ? (
-            <ComposerControlIcon icon={PencilRulerIcon} className="text-current opacity-100" />
-          ) : (
-            <ComposerControlIcon icon={BotIcon} opticalSize="large" />
-          )}
-          <span className="sr-only sm:not-sr-only">
-            {props.interactionMode === "plan" ? "Plan" : "Build"}
-          </span>
+          <ComposerControlIcon
+            icon={ListTodoIcon}
+            className={props.planSidebarOpen ? "text-current opacity-100" : undefined}
+          />
+          <span className="sr-only sm:not-sr-only">{props.planSidebarLabel}</span>
         </TooltipTrigger>
-        <TooltipPopup side="top">{interactionModeTooltip}</TooltipPopup>
+        <TooltipPopup side="top">{planSidebarTooltip}</TooltipPopup>
       </Tooltip>
-    </>
-  ) : null;
-
-  return (
-    <>
-      <Separator orientation="vertical" className="mx-0.5 hidden h-4 sm:block" />
-
-      <Tooltip>
-        <Select
-          value={props.runtimeMode}
-          onValueChange={(value) => props.onRuntimeModeChange(value!)}
-        >
-          <TooltipTrigger
-            render={<ComposerSelectControl className="font-medium" aria-label="Runtime mode" />}
-          >
-            <ComposerControlIcon icon={RuntimeModeIcon} />
-            <SelectValue>{runtimeModeOption.label}</SelectValue>
-          </TooltipTrigger>
-          <SelectPopup alignItemWithTrigger={false}>
-            {runtimeModeOptions.map((mode) => {
-              const option = runtimeModeConfig[mode];
-              const OptionIcon = option.icon;
-              return (
-                <SelectItem key={mode} value={mode} hideIndicator className="min-w-64 py-2">
-                  <div className="flex min-w-0 items-center gap-3">
-                    <div className="grid min-w-0 flex-1 gap-0.5">
-                      <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
-                        <OptionIcon className="size-3.5 shrink-0 text-muted-foreground" />
-                        {option.label}
-                      </span>
-                      <span className="text-muted-foreground text-xs leading-4">
-                        {option.description}
-                      </span>
-                    </div>
-                  </div>
-                </SelectItem>
-              );
-            })}
-          </SelectPopup>
-        </Select>
-        <TooltipPopup side="top">{runtimeModeOption.description}</TooltipPopup>
-      </Tooltip>
-
-      {interactionModeToggle}
-
-      {props.showPlanToggle ? (
-        <>
-          <Separator orientation="vertical" className="mx-0.5 hidden h-4 sm:block" />
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <ComposerControl
-                  className={cn(
-                    "shrink-0 whitespace-nowrap",
-                    props.planSidebarOpen
-                      ? "bg-blue-500/10 text-blue-400 hover:bg-blue-500/15 hover:text-blue-300"
-                      : "text-muted-foreground/70 hover:text-foreground/80",
-                  )}
-                  type="button"
-                  onClick={props.onTogglePlanSidebar}
-                  aria-label={planSidebarTooltip}
-                />
-              }
-            >
-              <ComposerControlIcon
-                icon={ListTodoIcon}
-                className={props.planSidebarOpen ? "text-current opacity-100" : undefined}
-              />
-              <span className="sr-only sm:not-sr-only">{props.planSidebarLabel}</span>
-            </TooltipTrigger>
-            <TooltipPopup side="top">{planSidebarTooltip}</TooltipPopup>
-          </Tooltip>
-        </>
-      ) : null}
     </>
   );
 });
@@ -507,6 +416,11 @@ export interface ChatComposerHandle {
 // --------------------------------------------------------------------------
 
 export interface ChatComposerProps {
+  /**
+   * Start a fresh thread — what the composer's `/clear` (and `/new`) does.
+   * Optional so the draft composer, which is already a new thread, can omit it.
+   */
+  onNewThread?: (() => void) | undefined;
   composerDraftTarget: ScopedThreadRef | DraftId;
   environmentId: EnvironmentId;
   routeKind: "server" | "draft";
@@ -559,8 +473,6 @@ export interface ChatComposerProps {
   planSidebarOpen: boolean;
 
   // Mode
-  runtimeMode: RuntimeMode;
-  interactionMode: ProviderInteractionMode;
 
   // Provider / model
   lockedProvider: ProviderDriverKind | null;
@@ -606,9 +518,6 @@ export interface ChatComposerProps {
 
   onProviderModelSelect: (instanceId: ProviderInstanceId, model: string) => void;
   getModelDisabledReason: (instanceId: ProviderInstanceId, model: string) => string | null;
-  toggleInteractionMode: () => void;
-  handleRuntimeModeChange: (mode: RuntimeMode) => void;
-  handleInteractionModeChange: (mode: ProviderInteractionMode) => void;
   togglePlanSidebar: () => void;
 
   focusComposer: () => void;
@@ -656,8 +565,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     sidebarProposedPlan,
     planSidebarLabel,
     planSidebarOpen,
-    runtimeMode,
-    interactionMode,
     lockedProvider,
     providerStatuses,
     activeProjectDefaultModelSelection,
@@ -683,9 +590,6 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     onChangeActivePendingUserInputCustomAnswer,
     onProviderModelSelect,
     getModelDisabledReason,
-    toggleInteractionMode,
-    handleRuntimeModeChange,
-    handleInteractionModeChange,
     togglePlanSidebar,
     focusComposer,
     scheduleComposerFocus,
@@ -693,6 +597,8 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     onExpandImage,
   } = props;
   const isSendDisabled = sendDisabledReason !== null;
+  // `/agents` navigates to the agent editor rather than acting on the thread.
+  const navigate = useNavigate();
 
   // ------------------------------------------------------------------
   // Store subscriptions (prompt / images / terminal contexts)
@@ -1070,18 +976,33 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           description: "Switch response model for this thread",
         },
         {
-          id: "slash:plan",
+          // loop has no plan/build mode — planning is an agent. This opens the
+          // editor behind the composer's agent picker.
+          id: "slash:agents",
           type: "slash-command",
-          command: "plan",
-          label: "/plan",
-          description: "Switch this thread into plan mode",
+          command: "agents",
+          label: "/agents",
+          description: "Create and edit agents",
         },
         {
-          id: "slash:default",
+          // The terminal's /mcp is an interactive panel, which a composer
+          // cannot be. The GUI form of that panel is a settings page, so this
+          // navigates there instead of trying to reproduce the picker inline.
+          id: "slash:mcp",
           type: "slash-command",
-          command: "default",
-          label: "/default",
-          description: "Switch this thread back to normal build mode",
+          command: "mcp",
+          label: "/mcp",
+          description: "Connect and manage MCP servers",
+        },
+        {
+          // `/clear` and `/new` are one command here: both mean "start a fresh
+          // session", and a thread IS the session. Nothing is destroyed — the
+          // conversation you were in stays in the sidebar.
+          id: "slash:clear",
+          type: "slash-command",
+          command: "clear",
+          label: "/clear",
+          description: "Start a new thread in this project",
         },
       ] satisfies ReadonlyArray<Extract<ComposerCommandItem, { type: "slash-command" }>>;
       const providerSlashCommandItems = (selectedProviderStatus?.slashCommands ?? []).map(
@@ -1211,6 +1132,12 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     [composerDraftTarget, promptRef, scheduleComposerFocus, setComposerDraftPrompt],
   );
 
+  // Asked here as well as inside the picker so the narrow footer's overflow
+  // menu knows whether it has an agent section at all — an ellipsis that opens
+  // an empty popup is worse than no ellipsis. The list is fetched once per
+  // folder and shared (useLoopAgents), so this is not a second round trip.
+  const hasAgentChoices = useHasAgentChoices(gitCwd ?? undefined);
+
   const providerTraitsMenuContent = renderProviderTraitsMenuContent({
     provider: selectedProvider,
     instanceId: selectedInstanceId,
@@ -1233,6 +1160,18 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     prompt,
     onPromptChange: setPromptFromTraits,
   });
+  /**
+   * What the model now selected will take as an attachment.
+   *
+   * `capabilities.attachments` is computed from loop's catalog modalities in
+   * `handlers/serverConfig.ts`. A model the snapshot does not describe falls
+   * back to the same "no information" answer core uses — images allowed, PDFs
+   * not — rather than to "nothing", so a custom endpoint stays usable.
+   */
+  const attachmentSupport = useMemo<ModelAttachmentSupport>(() => {
+    const model = selectedProviderModels.find((candidate) => candidate.slug === selectedModel);
+    return model?.capabilities?.attachments ?? resolveModelAttachmentSupport(undefined, undefined);
+  }, [selectedModel, selectedProviderModels]);
   const pendingPrimaryAction = useMemo(
     () =>
       activePendingProgress
@@ -1703,13 +1642,20 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           }
           return;
         }
-        void handleInteractionModeChange(item.command === "plan" ? "plan" : "default");
+        // None of these edit the prompt, so the typed text is cleared first —
+        // leaving `/mcp` behind would send it to the model as a message the
+        // moment the page came back.
         const applied = applyPromptReplacement(trigger.rangeStart, trigger.rangeEnd, "", {
           expectedText: snapshot.value.slice(trigger.rangeStart, trigger.rangeEnd),
         });
         if (applied) {
           setComposerHighlightedItemId(null);
         }
+        if (item.command === "clear") {
+          props.onNewThread?.();
+          return;
+        }
+        void navigate({ to: item.command === "mcp" ? "/settings/mcp" : "/settings/agents" });
         return;
       }
       if (item.type === "provider-slash-command") {
@@ -1749,7 +1695,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         return;
       }
     },
-    [applyPromptReplacement, handleInteractionModeChange, resolveActiveComposerTrigger],
+    [applyPromptReplacement, navigate, resolveActiveComposerTrigger],
   );
 
   const onComposerMenuItemHighlighted = useCallback(
@@ -1879,14 +1825,34 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   // ------------------------------------------------------------------
   // Callbacks: command key
   // ------------------------------------------------------------------
-  const onComposerCommandKey = (
-    key: "ArrowDown" | "ArrowUp" | "Enter" | "Tab",
-    event: KeyboardEvent,
-  ) => {
-    if (key === "Tab" && event.shiftKey) {
-      toggleInteractionMode();
+  /** Escape while the agent is working — see `resolveComposerEscapeAction`. */
+  const handleComposerEscape = (): boolean => {
+    const action = resolveComposerEscapeAction({
+      isRunning: phase === "running",
+      hasBlockingOverlay:
+        isComposerApprovalState ||
+        pendingUserInputs.length > 0 ||
+        activePendingProgress !== null ||
+        projectSelectionRequired ||
+        isComposerModelPickerOpen ||
+        isStashMenuOpen,
+      hasSendableContent: composerSendState.hasSendableContent,
+    });
+    if (action === "ignore") return false;
+    if (action === "queue") {
+      // The same path Enter takes, and while a turn is running that path is a
+      // queue — so this lands in the strip above the composer, not on the model.
+      submitComposer();
       return true;
     }
+    void onInterrupt();
+    return true;
+  };
+
+  const onComposerCommandKey = (
+    key: "ArrowDown" | "ArrowUp" | "Enter" | "Tab" | "Escape",
+    event: KeyboardEvent,
+  ) => {
     const { trigger } = resolveActiveComposerTrigger();
     const menuIsActive = composerMenuOpenRef.current || trigger !== null;
     if (menuIsActive) {
@@ -1904,6 +1870,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         onSelectComposerItem(selectedItem);
         return true;
       }
+      // The trigger menu closes on Escape; the turn is not the user's target
+      // while a picker is open in front of them.
+      if (key === "Escape") return false;
     }
     if (
       key === "Enter" &&
@@ -1911,6 +1880,9 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     ) {
       submitComposer();
       return true;
+    }
+    if (key === "Escape") {
+      return handleComposerEscape();
     }
     return false;
   };
@@ -2297,7 +2269,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     if (pendingUserInputs.length > 0) {
       toastManager.add({
         type: "error",
-        title: "Attach images after answering plan questions.",
+        title: "Attach files after answering plan questions.",
       });
       return;
     }
@@ -2314,12 +2286,23 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     const acceptedFiles: File[] = [];
     let error: string | null = null;
     for (const file of files) {
-      if (!file.type.startsWith("image/")) {
-        error = `Unsupported file type for '${file.name}'. Please attach image files only.`;
+      // Gated on what the CHOSEN MODEL can receive, the way the terminal gates
+      // a drop. Attaching to a model that cannot read it is not a smaller
+      // failure than refusing: core drops the attachment and puts the path
+      // back in the text, so the model answers about a picture it never saw
+      // and looks like it ignored you.
+      const verdict = classifyAttachment(file.type, attachmentSupport);
+      if (!verdict.ok) {
+        error = describeAttachmentRejection(
+          verdict.reason,
+          file.name,
+          selectedModel || "This model",
+          attachmentSupport,
+        );
         continue;
       }
       if (reservedCount >= PROVIDER_SEND_TURN_MAX_ATTACHMENTS) {
-        error = `You can attach up to ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS} images per message.`;
+        error = `You can attach up to ${PROVIDER_SEND_TURN_MAX_ATTACHMENTS} files per message.`;
         break;
       }
       acceptedFiles.push(file);
@@ -2333,6 +2316,28 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
       const nextImages: ComposerImageAttachment[] = [];
       let compressionError: string | null = null;
       for (const file of acceptedFiles) {
+        // A PDF cannot be downscaled — there is no lossy version of it — so it
+        // is size-checked and taken as-is. Only images go through the
+        // compressor, and only images get a preview URL; an object URL for a
+        // PDF would load in the chip's <img> as a broken image rather than
+        // falling through to the file-name card.
+        const isImage = file.type.toLowerCase().startsWith("image/");
+        if (!isImage) {
+          if (file.size > PROVIDER_SEND_TURN_MAX_IMAGE_BYTES) {
+            compressionError = `'${file.name}' is too large to attach.`;
+            continue;
+          }
+          nextImages.push({
+            type: "file",
+            id: randomUUID(),
+            name: file.name || "file",
+            mimeType: file.type,
+            sizeBytes: file.size,
+            previewUrl: "",
+            file,
+          });
+          continue;
+        }
         // Images over the wire cap are downscaled to fit rather than
         // refused; files already within it pass through byte-for-byte.
         const compressed = await compressImageToByteLimit(file, PROVIDER_SEND_TURN_MAX_IMAGE_BYTES);
@@ -2388,10 +2393,13 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
   const onComposerPaste = (event: React.ClipboardEvent<HTMLElement>) => {
     const files = Array.from(event.clipboardData.files);
     if (files.length === 0) return;
-    const imageFiles = files.filter((file) => file.type.startsWith("image/"));
-    if (imageFiles.length === 0) return;
+    // Claimed on what the user clearly MEANT to attach, not on what this model
+    // accepts — `addComposerImages` decides that and explains itself. A file
+    // paste that falls through here leaves nothing behind at all.
+    const attachable = files.filter((file) => isAttachableFileKind(file.type));
+    if (attachable.length === 0) return;
     event.preventDefault();
-    void addComposerImages(imageFiles);
+    void addComposerImages(attachable);
   };
 
   const onComposerDragEnter = (event: React.DragEvent<HTMLDivElement>) => {
@@ -3165,15 +3173,29 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                 {isComposerFooterCompact ? (
                   <CompactComposerControlsMenu
                     activePlan={showPlanSidebarToggle}
-                    interactionMode={interactionMode}
                     planSidebarLabel={planSidebarLabel}
                     planSidebarOpen={planSidebarOpen}
-                    runtimeMode={runtimeMode}
-                    showInteractionModeToggle={composerProviderControls.showInteractionModeToggle}
                     traitsMenuContent={providerTraitsMenuContent}
-                    onToggleInteractionMode={toggleInteractionMode}
+                    // Rendered here rather than beside the model, because in a
+                    // compact footer there is no room beside the model. The
+                    // node is only built when there is a choice to make — the
+                    // menu decides whether it has any content from that.
+                    agentMenuContent={
+                      hasAgentChoices ? (
+                        <AgentMenuContent
+                          provider={selectedProvider}
+                          instanceId={selectedInstanceId}
+                          model={selectedModel}
+                          {...(routeKind === "server" && routeThreadRef
+                            ? { threadRef: routeThreadRef }
+                            : {})}
+                          {...(routeKind === "draft" && draftId ? { draftId } : {})}
+                          modelOptions={composerModelOptions?.[selectedInstanceId]}
+                          {...(gitCwd ? { cwd: gitCwd } : {})}
+                        />
+                      ) : null
+                    }
                     onTogglePlanSidebar={togglePlanSidebar}
-                    onRuntimeModeChange={handleRuntimeModeChange}
                   />
                 ) : (
                   <>
@@ -3183,15 +3205,23 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
                         {providerTraitsPicker}
                       </>
                     ) : null}
+                    {/* Beside model and effort, because it is the same kind of
+                        thing: a choice that applies to the next message. */}
+                    <AgentPicker
+                      provider={selectedProvider}
+                      instanceId={selectedInstanceId}
+                      model={selectedModel}
+                      {...(routeKind === "server" && routeThreadRef
+                        ? { threadRef: routeThreadRef }
+                        : {})}
+                      {...(routeKind === "draft" && draftId ? { draftId } : {})}
+                      modelOptions={composerModelOptions?.[selectedInstanceId]}
+                      {...(gitCwd ? { cwd: gitCwd } : {})}
+                    />
                     <ComposerFooterModeControls
-                      showInteractionModeToggle={composerProviderControls.showInteractionModeToggle}
-                      interactionMode={interactionMode}
-                      runtimeMode={runtimeMode}
                       showPlanToggle={showPlanSidebarToggle}
                       planSidebarLabel={planSidebarLabel}
                       planSidebarOpen={planSidebarOpen}
-                      onToggleInteractionMode={toggleInteractionMode}
-                      onRuntimeModeChange={handleRuntimeModeChange}
                       onTogglePlanSidebar={togglePlanSidebar}
                     />
                   </>

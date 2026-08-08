@@ -10,13 +10,36 @@
  * app and electron-builder has one directory to package. The three paths below
  * are the ones `src/main.ts` resolves against; they move together.
  */
-import { cp, mkdir, rm, stat } from "node:fs/promises";
+import { chmod, cp, mkdir, rm, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const dist = join(here, "dist");
 const webDist = join(here, "..", "web", "dist");
+
+/**
+ * The compiled loop the app spawns, laid down next to the renderer.
+ *
+ * Without this the app depends on an *installed* loop (`~/.loop-bin/loop` and
+ * friends), which is how a core change could ship in the UI and 404 at the
+ * RPC until the user happened to reinstall — every `Method not found:
+ * session.delete`-class bug came from that gap. Bundling makes the app
+ * self-contained: one artifact, one version, no way for the two halves to
+ * disagree.
+ */
+const binaryName = process.platform === "win32" ? "loop.exe" : "loop";
+const cliBin = join(
+  here,
+  "..",
+  "..",
+  "packages",
+  "cli",
+  "dist",
+  "bin",
+  `${process.platform}-${process.arch}`,
+  binaryName,
+);
 
 async function exists(path: string): Promise<boolean> {
   try {
@@ -64,7 +87,38 @@ if (!(await exists(webDist))) {
 }
 await cp(webDist, join(dist, "renderer"), { recursive: true });
 
+/**
+ * Not fatal when absent: a renderer-only rebuild is the common case during
+ * development, and failing it would make `bun build.ts` depend on a 60s
+ * binary build nobody asked for. The app falls back to an installed loop, and
+ * says which one it used at startup.
+ */
+let bundledBinary: string | null = null;
+if (await exists(cliBin)) {
+  const target = join(dist, "bin", binaryName);
+  await mkdir(join(dist, "bin"), { recursive: true });
+  await cp(cliBin, target);
+  // `cp` preserves mode on macOS/Linux, but not on every filesystem — and a
+  // binary that lands 0644 fails to spawn with a bare EACCES.
+  await chmod(target, 0o755);
+  bundledBinary = target;
+}
+
+// The window icon for Linux and Windows. macOS reads the bundle's .icns
+// instead, so a missing file there costs nothing — but on the other two an
+// absent icon is the default Electron diamond, which is why this is copied
+// rather than left to the packager.
+const iconSource = join(here, "..", "..", "branding", "icon-512.png");
+if (await exists(iconSource)) {
+  await cp(iconSource, join(dist, "icon.png"));
+}
+
 console.log("desktop bundle ready:");
 console.log(`  main     ${join(dist, "main", "index.cjs")}`);
 console.log(`  preload  ${join(dist, "preload", "index.cjs")}`);
 console.log(`  renderer ${join(dist, "renderer")}`);
+console.log(
+  bundledBinary
+    ? `  loop     ${bundledBinary}`
+    : `  loop     NOT BUNDLED (${cliBin} missing — run \`bun packages/cli/build-bin.ts\`); the app will use an installed loop`,
+);

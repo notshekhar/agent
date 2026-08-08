@@ -98,10 +98,15 @@ function getSelectedTraits(
   allowPromptInjectedEffort: boolean,
 ) {
   const caps = getProviderModelCapabilities(models, model, provider);
+  // The `agent` descriptor is loop's, and it exists so the choice SURVIVES
+  // dispatch (composerProviderState rebuilds a turn's options from the
+  // descriptors, dropping anything undeclared). Its UI is the composer's own
+  // AgentPicker, so it is hidden here — otherwise the same choice would appear
+  // twice in the footer.
   const descriptors = getProviderOptionDescriptors({
     caps,
     selections: modelOptions,
-  });
+  }).filter((descriptor) => descriptor.id !== "agent");
   const selectDescriptors = descriptors.filter(
     (descriptor): descriptor is Extract<ProviderOptionDescriptor, { type: "select" }> =>
       descriptor.type === "select",

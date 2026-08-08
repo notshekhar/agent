@@ -24,7 +24,7 @@ mock.module("../src/settings", () => ({
 }));
 
 const { getOrCreateServeToken, isLoopbackHost, startWebServer } = await import("../src/rpc/serve");
-const { writeImagePayloads, RpcServer } = await import("../src/rpc/server");
+const { writeAttachmentPayloads, RpcServer } = await import("../src/rpc/server");
 import type { ServeHandle } from "../src/rpc/serve";
 
 /** In-memory transport for driving an RpcServer directly. */
@@ -83,12 +83,13 @@ describe("isLoopbackHost", () => {
     });
 });
 
-describe("writeImagePayloads", () => {
+describe("writeAttachmentPayloads", () => {
     // 1x1 transparent PNG
     const PNG_B64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+    const PDF_B64 = Buffer.from("%PDF-1.4\n%%EOF\n").toString("base64");
 
     test("writes temp files and returns [image:] sentinels", async () => {
-        const out = writeImagePayloads([{ data: PNG_B64, mediaType: "image/png" }]);
+        const out = writeAttachmentPayloads([{ data: PNG_B64, mediaType: "image/png" }]);
         const m = out.match(/^\n\[image:(.+\.png)\]$/);
         expect(m).not.toBeNull();
         const file = Bun.file(m![1]!);
@@ -96,12 +97,22 @@ describe("writeImagePayloads", () => {
         expect(file.size).toBeGreaterThan(0);
     });
 
+    test("takes PDFs too — extractImagesFromInput has always read .pdf sentinels", async () => {
+        // Whether the chosen model may actually receive it is runTurn's call
+        // (filterAttachmentsByModalities), not this function's: refusing here
+        // meant no GUI client could attach a PDF to ANY model.
+        const out = writeAttachmentPayloads([{ data: PDF_B64, mediaType: "application/pdf" }]);
+        const m = out.match(/^\n\[image:(.+\.pdf)\]$/);
+        expect(m).not.toBeNull();
+        expect(await Bun.file(m![1]!).exists()).toBe(true);
+    });
+
     test("rejects unknown media types, junk, and empty payloads", () => {
-        expect(writeImagePayloads(undefined)).toBe("");
-        expect(writeImagePayloads([])).toBe("");
-        expect(writeImagePayloads([{ data: PNG_B64, mediaType: "application/pdf" }])).toBe("");
-        expect(writeImagePayloads([{ data: 42, mediaType: "image/png" }])).toBe("");
-        expect(writeImagePayloads([{ data: "", mediaType: "image/png" }])).toBe("");
+        expect(writeAttachmentPayloads(undefined)).toBe("");
+        expect(writeAttachmentPayloads([])).toBe("");
+        expect(writeAttachmentPayloads([{ data: PNG_B64, mediaType: "text/plain" }])).toBe("");
+        expect(writeAttachmentPayloads([{ data: 42, mediaType: "image/png" }])).toBe("");
+        expect(writeAttachmentPayloads([{ data: "", mediaType: "image/png" }])).toBe("");
     });
 });
 

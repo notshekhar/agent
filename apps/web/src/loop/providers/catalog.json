@@ -1,0 +1,231 @@
+{
+  "$comment": "Presentation and sign-in metadata for loop's model providers. Which providers EXIST and whether they are connected comes from loop at runtime (auth.providers); this file only says how each one looks and what its login asks for. A provider missing from here still renders — as a lettermark with a generic API-key form — so loop can add one without this file blocking it.",
+  "version": 1,
+  "providers": [
+    {
+      "id": "anthropic",
+      "label": "Anthropic",
+      "tagline": "Claude models, direct from Anthropic.",
+      "icon": "anthropic",
+      "keysUrl": "https://console.anthropic.com/settings/keys",
+      "login": [
+        {
+          "method": "apikey",
+          "label": "API key",
+          "hint": "Create a key in the Anthropic Console.",
+          "placeholder": "sk-ant-…"
+        }
+      ]
+    },
+    {
+      "id": "openai",
+      "label": "OpenAI",
+      "tagline": "GPT models — pay-as-you-go, or your ChatGPT plan.",
+      "icon": "openai",
+      "keysUrl": "https://platform.openai.com/api-keys",
+      "login": [
+        {
+          "method": "oauth",
+          "label": "Sign in with ChatGPT",
+          "hint": "Opens a browser. Turns are billed to your ChatGPT subscription through the Codex backend — personal use only."
+        },
+        {
+          "method": "apikey",
+          "label": "API key",
+          "hint": "Pay-as-you-go, billed to your OpenAI platform account.",
+          "placeholder": "sk-…"
+        }
+      ]
+    },
+    {
+      "id": "xai",
+      "label": "xAI",
+      "tagline": "Grok models — SuperGrok subscription or a platform key.",
+      "icon": "xai",
+      "keysUrl": "https://console.x.ai",
+      "login": [
+        {
+          "method": "oauth",
+          "label": "Sign in with xAI",
+          "hint": "Opens a browser. Uses your SuperGrok subscription."
+        },
+        {
+          "method": "apikey",
+          "label": "API key",
+          "hint": "Pay-as-you-go, billed to your xAI console account.",
+          "placeholder": "xai-…"
+        }
+      ]
+    },
+    {
+      "id": "google",
+      "label": "Google",
+      "tagline": "Gemini models via the Google AI API.",
+      "icon": "google",
+      "keysUrl": "https://aistudio.google.com/apikey",
+      "login": [
+        {
+          "method": "apikey",
+          "label": "API key",
+          "hint": "Create a key in Google AI Studio.",
+          "placeholder": "AIza…"
+        }
+      ]
+    },
+    {
+      "id": "openrouter",
+      "label": "OpenRouter",
+      "tagline": "One key, hundreds of models across vendors.",
+      "icon": "openrouter",
+      "keysUrl": "https://openrouter.ai/keys",
+      "login": [
+        {
+          "method": "apikey",
+          "label": "API key",
+          "hint": "Real per-request cost is reported back by OpenRouter.",
+          "placeholder": "sk-or-…"
+        }
+      ]
+    },
+    {
+      "id": "github-copilot",
+      "label": "GitHub Copilot",
+      "tagline": "Models included with your Copilot seat.",
+      "icon": "github-copilot",
+      "keysUrl": "https://github.com/settings/copilot",
+      "login": [
+        {
+          "method": "oauth",
+          "label": "Sign in with GitHub",
+          "hint": "Device flow: loop shows a code, you enter it on github.com. Asks for a GitHub Enterprise domain first — leave it blank for github.com."
+        }
+      ]
+    },
+    {
+      "id": "deepseek",
+      "label": "DeepSeek",
+      "tagline": "DeepSeek chat and reasoning models.",
+      "icon": "deepseek",
+      "keysUrl": "https://platform.deepseek.com/api_keys",
+      "login": [
+        {
+          "method": "apikey",
+          "label": "API key",
+          "placeholder": "sk-…"
+        }
+      ]
+    },
+    {
+      "id": "mistral",
+      "label": "Mistral",
+      "tagline": "Mistral's hosted models.",
+      "icon": "mistral",
+      "keysUrl": "https://console.mistral.ai/api-keys",
+      "login": [{ "method": "apikey", "label": "API key" }]
+    },
+    {
+      "id": "glm",
+      "label": "Zhipu GLM",
+      "tagline": "GLM models on open.bigmodel.cn (China endpoint).",
+      "icon": "zhipuai",
+      "keysUrl": "https://open.bigmodel.cn",
+      "login": [
+        {
+          "method": "apikey",
+          "label": "API key",
+          "hint": "For the international endpoint, connect z.ai instead."
+        }
+      ]
+    },
+    {
+      "id": "zai",
+      "label": "z.ai",
+      "tagline": "The same GLM models on the international endpoint.",
+      "icon": "zai",
+      "keysUrl": "https://z.ai",
+      "login": [{ "method": "apikey", "label": "API key" }]
+    },
+    {
+      "id": "kimi",
+      "label": "Kimi",
+      "tagline": "Moonshot AI — K2 and K3, with reasoning.",
+      "icon": "moonshotai",
+      "keysUrl": "https://platform.moonshot.ai/console/api-keys",
+      "login": [
+        {
+          "method": "apikey",
+          "label": "API key",
+          "hint": "A Kimi Code subscription key (sk-kimi-…) routes to the coding endpoint; a plain platform key (sk-…) routes to pay-per-token.",
+          "placeholder": "sk-…"
+        }
+      ]
+    },
+    {
+      "id": "groq",
+      "label": "Groq",
+      "tagline": "Open models served fast on Groq's LPUs.",
+      "icon": "groq",
+      "keysUrl": "https://console.groq.com/keys",
+      "login": [{ "method": "apikey", "label": "API key", "placeholder": "gsk_…" }]
+    },
+    {
+      "id": "cerebras",
+      "label": "Cerebras",
+      "tagline": "Open models on Cerebras inference.",
+      "icon": "cerebras",
+      "keysUrl": "https://cloud.cerebras.ai",
+      "login": [{ "method": "apikey", "label": "API key", "placeholder": "csk-…" }]
+    },
+    {
+      "id": "zenmux",
+      "label": "ZenMux",
+      "tagline": "Gateway — 200+ models behind one key.",
+      "icon": "zenmux",
+      "keysUrl": "https://zenmux.ai",
+      "login": [{ "method": "apikey", "label": "API key" }]
+    },
+    {
+      "id": "vercel",
+      "label": "Vercel AI Gateway",
+      "tagline": "Gateway — 200+ models, native AI SDK wire protocol.",
+      "icon": "vercel",
+      "keysUrl": "https://vercel.com/dashboard/ai-gateway",
+      "login": [
+        {
+          "method": "apikey",
+          "label": "API key",
+          "hint": "An AI Gateway key — not a Vercel platform/deploy token.",
+          "placeholder": "vck_…"
+        }
+      ]
+    },
+    {
+      "id": "bedrock",
+      "label": "Amazon Bedrock",
+      "tagline": "Models in your AWS account — no key stored by loop.",
+      "icon": "amazon-bedrock",
+      "keysUrl": "https://console.aws.amazon.com/bedrock",
+      "login": [
+        {
+          "method": "detect",
+          "label": "Detect AWS credentials",
+          "hint": "Uses the standard AWS chain — env vars, shared config, SSO, IMDS — the same sources the aws CLI reads. Set AWS_REGION or LOOP_BEDROCK_REGION to change region."
+        }
+      ]
+    },
+    {
+      "id": "ollama",
+      "label": "Ollama",
+      "tagline": "Models running locally — no key, no network.",
+      "icon": "ollama",
+      "keysUrl": "https://ollama.com/download",
+      "login": [
+        {
+          "method": "detect",
+          "label": "Check local daemon",
+          "hint": "Needs `ollama serve` running with at least one model pulled. Set LOOP_OLLAMA_BASE_URL to point elsewhere."
+        }
+      ]
+    }
+  ]
+}

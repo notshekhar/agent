@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
-import { buildPatchCacheKey, getDiffLineStat, getRenderablePatch } from "./diffRendering";
+import {
+  buildFileDiffRenderKey,
+  buildPatchCacheKey,
+  getDiffLineStat,
+  getRenderablePatch,
+} from "./diffRendering";
 
 describe("buildPatchCacheKey", () => {
   it("returns a stable cache key for identical content", () => {
@@ -110,5 +115,46 @@ describe("getDiffLineStat", () => {
     if (parsed?.kind !== "files") return;
 
     expect(getDiffLineStat(parsed.files)).toEqual({ additions: 3, deletions: 2 });
+  });
+});
+
+describe("buildFileDiffRenderKey", () => {
+  const patchFor = (line: string) =>
+    [
+      "diff --git a/example.ts b/example.ts",
+      "index 1111111..2222222 100644",
+      "--- a/example.ts",
+      "+++ b/example.ts",
+      "@@ -1,1 +1,1 @@",
+      "-const value = 0;",
+      `+${line}`,
+      "",
+    ].join("\n");
+
+  const onlyFileOf = (patch: string) => {
+    const renderable = getRenderablePatch(patch);
+    if (renderable?.kind !== "files" || renderable.files[0] === undefined) {
+      throw new Error("expected one parsed file");
+    }
+    return renderable.files[0];
+  };
+
+  it("keeps a file's identity when its contents change", () => {
+    // The panel re-reads the working tree several times during a turn. Keyed
+    // by pierre's `cacheKey` — a hash of the whole patch — every re-read
+    // renamed every file, which tore CodeView's records down and took scroll
+    // position and the collapsed-file set with them.
+    const before = onlyFileOf(patchFor("const value = 1;"));
+    const after = onlyFileOf(patchFor("const value = 2;"));
+
+    expect(before.cacheKey).not.toBe(after.cacheKey);
+    expect(buildFileDiffRenderKey(before)).toBe(buildFileDiffRenderKey(after));
+  });
+
+  it("separates files that differ only by their old path", () => {
+    const renamed = { ...onlyFileOf(patchFor("const value = 1;")), prevName: "b/old.ts" };
+    const plain = onlyFileOf(patchFor("const value = 1;"));
+
+    expect(buildFileDiffRenderKey(renamed)).not.toBe(buildFileDiffRenderKey(plain));
   });
 });

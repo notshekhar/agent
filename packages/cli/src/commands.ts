@@ -14,6 +14,7 @@ import {
     logout,
     SERVE_DEFAULT_PORT,
     SessionManager,
+    type SessionScope,
     startSocketServer,
     startStdioServer,
     startWebServer,
@@ -100,7 +101,9 @@ Usage:
   ${PRODUCT_NAME} run <prompt|->      Run a single prompt and exit (- reads the prompt from stdin)
   ${PRODUCT_NAME} login [provider]    Configure provider auth
   ${PRODUCT_NAME} logout [provider]   Remove auth
-  ${PRODUCT_NAME} sessions            List sessions in current cwd
+  ${PRODUCT_NAME} sessions [--archived|--all] List sessions in current cwd
+  ${PRODUCT_NAME} archive <id>        Archive a session (hides it from the lists)
+  ${PRODUCT_NAME} unarchive <id>      Restore an archived session
   ${PRODUCT_NAME} goals <cmd>         Manage background tasks (list, add, rm, run, tick, daemon…)
   ${PRODUCT_NAME} models              List available models
   ${PRODUCT_NAME} whoami              Show active provider + auth status
@@ -187,19 +190,55 @@ export function cmdLogout(target?: ProviderId): void {
     console.log(target ? `Logged out of ${target}.` : "Logged out of all providers.");
 }
 
-export async function cmdSessions(): Promise<void> {
+/**
+ * `loop sessions [--archived|--all]` — the sessions in this folder.
+ *
+ * Archived ones are hidden by default, which is the point of archiving. The
+ * flags exist because hiding them here without a way to see them again would
+ * make the desktop app's Archive a ONE-WAY DOOR for anyone working in the
+ * terminal: `manager.list` is what both this and the TUI's `/sessions` picker
+ * read, so an archived session would vanish from every terminal surface with
+ * no id left to resume by. `loop unarchive <id>` brings one back.
+ */
+export async function cmdSessions(args?: Args): Promise<void> {
     const mgr = new SessionManager();
-    const sessions = mgr.list(process.cwd());
+    const scope: SessionScope = args?.flags.all ? "all" : args?.flags.archived ? "archived" : "active";
+    const sessions = mgr.list(process.cwd(), scope);
     if (sessions.length === 0) {
-        console.log("No sessions in this cwd.");
+        console.log(
+            scope === "archived" ? "No archived sessions in this cwd." : "No sessions in this cwd.",
+        );
         return;
     }
     for (const s of sessions) {
         // Named sessions (background runs are always "background: <text>") show the name —
         // it identifies the session far better than the first prompt line.
         const preview = s.name ?? s.firstUserMessage?.split("\n")[0] ?? "";
-        console.log(`${s.id}  ${s.model}  ${new Date(s.mtime).toISOString()}  ${preview}`);
+        // Only in a listing that mixes both — in `--archived` every row is one.
+        const mark = scope === "all" && s.archivedAt ? "  [archived]" : "";
+        console.log(`${s.id}  ${s.model}  ${new Date(s.mtime).toISOString()}  ${preview}${mark}`);
     }
+}
+
+/**
+ * `loop archive <id>` / `loop unarchive <id>` — put a session away, or take it
+ * back. The counterpart to the desktop app's Archive, so neither surface can
+ * strand a conversation the other can no longer reach.
+ */
+export async function cmdArchive(args: Args, archived: boolean): Promise<void> {
+    const id = args.positional[0];
+    if (!id) {
+        console.error(`Usage: ${PRODUCT_NAME} ${archived ? "archive" : "unarchive"} <session-id>`);
+        process.exitCode = 1;
+        return;
+    }
+    const ok = new SessionManager().setArchived(id, archived);
+    if (!ok) {
+        console.error(`No such session: ${id}`);
+        process.exitCode = 1;
+        return;
+    }
+    console.log(archived ? `Archived ${id}.` : `Restored ${id}.`);
 }
 
 export function cmdRpc(args: Args): void {
