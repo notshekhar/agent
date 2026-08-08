@@ -158,8 +158,17 @@ export interface Palette {
     error: string;
     warning: string;
 
-    /** Body colour for code blocks (the syntax theme's editor foreground). */
-    code: string;
+    /**
+     * Markdown's own two colours. Everything else in a rendered message reuses
+     * a colour the palette already has — links take the lifted accent, quotes
+     * the muted text, code blocks the success green — but a heading and an
+     * inline `code` span need hues of their own. Without them both collapse
+     * onto the accent and a message renders in one flat colour: heading, link,
+     * code and bullet all the same blue.
+     */
+    heading: string;
+    inlineCode: string;
+
     syntax: SyntaxPalette;
     /** Top rung of the thinking-effort ladder — deliberately off-hue from the
      * accent so "xhigh" is unmistakable. */
@@ -259,11 +268,13 @@ export function themeFromPalette(p: Palette): ThemeJson {
             // alone, but a terminal transcript has no whitespace or type scale
             // to separate sections with — without colour a heading reads as
             // just another bold line.
-            mdHeading: p.accent,
+            mdHeading: p.heading,
             mdLink: p.accentLift,
             mdLinkUrl: p.dim,
-            mdCode: p.accent,
-            mdCodeBlock: p.code,
+            mdCode: p.inlineCode,
+            // Fenced blocks whose language is unknown — anything loop can
+            // identify goes through the syntax palette instead.
+            mdCodeBlock: p.success,
             mdCodeBlockBorder: p.dim,
             mdQuote: p.muted,
             mdQuoteBorder: p.dim,
@@ -369,7 +380,11 @@ export const DARK_INK = {
     success: "#8aa872",
     error: "#e06c75",
     warning: "#e5c07b",
-    code: "#fafafa",
+    // Gold headings and a magenta inline span — markdown's long-standing
+    // colours here. The magenta is the syntax palette's own type colour, so an
+    // inline `Foo` matches the `Foo` in the code block under it.
+    heading: "#e5c07b",
+    inlineCode: "#d568ea",
     syntax: SYNTAX_DARK,
     thinkingPeak: "#9d6afb",
 } as const;
@@ -385,7 +400,8 @@ export const LIGHT_INK = {
     success: "#15803d",
     error: "#c1453f",
     warning: "#a16207",
-    code: "#0a0a0a",
+    heading: "#a16207",
+    inlineCode: "#a631be",
     syntax: SYNTAX_LIGHT,
     thinkingPeak: "#a631be",
 } as const;

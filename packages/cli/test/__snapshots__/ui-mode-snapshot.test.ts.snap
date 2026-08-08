@@ -3,7 +3,7 @@
 exports[`user + assistant messages user message (markdown, bg box, OSC zones) 1`] = `
 [
   "\x1B]133;A\x07\x1B[48;2;27;28;32m                                                                                \x1B[49m",
-  "\x1B[48;2;27;28;32m \x1B[38;2;245;245;245mfix the \x1B[39m\x1B[38;2;245;245;245mauth\x1B[39m\x1B[38;2;245;245;245m\x1B[38;2;245;245;245m bug in \x1B[39m\x1B[38;2;74;119;219mlogin.ts\x1B[39m                                                   \x1B[49m",
+  "\x1B[48;2;27;28;32m \x1B[38;2;245;245;245mfix the \x1B[39m\x1B[38;2;245;245;245mauth\x1B[39m\x1B[38;2;245;245;245m\x1B[38;2;245;245;245m bug in \x1B[39m\x1B[38;2;213;104;234mlogin.ts\x1B[39m                                                   \x1B[49m",
   "\x1B]133;B\x07\x1B]133;C\x07\x1B[48;2;27;28;32m                                                                                \x1B[49m",
 ]
 `;
@@ -11,7 +11,7 @@ exports[`user + assistant messages user message (markdown, bg box, OSC zones) 1`
 exports[`user + assistant messages assistant text-only 1`] = `
 [
   "\x1B]133;A\x07",
-  "\x1B]133;B\x07\x1B]133;C\x07 The bug is a missing \x1B[38;2;74;119;219mawait\x1B[39m in the token refresh path.                          ",
+  "\x1B]133;B\x07\x1B]133;C\x07 The bug is a missing \x1B[38;2;213;104;234mawait\x1B[39m in the token refresh path.                          ",
 ]
 `;
 
@@ -21,7 +21,7 @@ exports[`user + assistant messages assistant thinking then text 1`] = `
   " \x1B[38;2;138;138;138mThe user wants the auth bug fixed.\x1B[39m                                             ",
   " \x1B[38;2;138;138;138mLook at login.ts first.\x1B[39m                                                        ",
   "",
-  "\x1B]133;B\x07\x1B]133;C\x07 Found it — \x1B[38;2;74;119;219mrefresh()\x1B[39m is not awaited.                                           ",
+  "\x1B]133;B\x07\x1B]133;C\x07 Found it — \x1B[38;2;213;104;234mrefresh()\x1B[39m is not awaited.                                           ",
 ]
 `;
 
@@ -176,7 +176,7 @@ exports[`tool execution plan renders input as markdown 1`] = `
   "\x1B[48;2;40;50;40m                                                                                \x1B[49m",
   "\x1B[48;2;40;50;40m \x1B[38;2;245;245;245mplan\x1B[39m \x1B[38;2;138;138;138mPlan\x1B[39m                                                                      \x1B[49m",
   "\x1B[48;2;40;50;40m                                                                                \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;74;119;219mPlan\x1B[39m                                                                           \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;229;192;123mPlan\x1B[39m                                                                           \x1B[49m",
   "\x1B[48;2;40;50;40m                                                                                \x1B[49m",
   "\x1B[48;2;40;50;40m \x1B[38;2;74;119;219m1. \x1B[39mread                                                                        \x1B[49m",
   "\x1B[48;2;40;50;40m \x1B[38;2;74;119;219m2. \x1B[39medit                                                                        \x1B[49m",

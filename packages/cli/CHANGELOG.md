@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.16.3] - 2026-08-09
+
+### Changed
+
+- **The CLI now wears the desktop app's colours.** Both halves of loop shipped their own palette and looked like two products. The terminal's themes are now built from the same design tokens the desktop renders with — including the syntax colours, which come from the very `pierre-dark` / `pierre-light` themes the desktop highlights code blocks with — so a diff, a heading, or a failed command reads the same in either place.
+- **Not every web value survives the trip to a terminal, and the ones that don't were pulled back rather than copied.** The brand blue drops from full chroma to 0.16 at the same lightness and hue: in the desktop it sits behind a button, in a TUI it lands on borders, bullets, gutters, thinking ladders and the prompt all at once, and at full strength it stops reading as meaningful. The semantics are muted for the same reason — a whole output line in emerald glares in a way a small badge on a white card does not. Loop mode keeps its own tool-box fills exactly as they were, because a hand-picked fill is not something a linear blend reproduces.
+- **Themes are now generated, not transcribed.** A theme is ~55 slots, and four of them meant four near-identical tables that drifted the moment one was edited — with every new UI mode copying them again. Each built-in theme is now about twenty primitives, and one derivation builds the slot table from them, so a change to how a slot relates to its palette reaches every theme in every mode at once. The `ThemeJson` shape is untouched as the wire format: custom themes in `~/.loop/agent/themes/` and themes contributed by extensions still load exactly as before, and still fill any slot they omit from the built-in dark theme.
+- **Colour stopped leaking around the theme.** `chalk.yellow` and its siblings paint the terminal's own ANSI palette, which has nothing to do with the active theme — so everything reaching for them ignored `/theme` and `/uimode` entirely and stayed on the terminal's defaults. That was most of what is not a chat message: the `theme → day` line confirming a theme change, selector headings like `Settings (type to filter, Esc to close)`, the `search:` prompt, the working spinner, the todo panel, the login flow. All of it resolves through theme slots now, and resolves per render, so switching a theme repaints it live instead of at next launch.
+- **The composer follows the theme too.** The rules above and below the input, and the tint on a `/command` as you type it, were hardcoded cyan inside the TUI package. They are theme slots now (`inputBorder`, `inputCommand`), reached through an optional hook on the editor's theme so an embedder that does not theme its composer still gets the highlight it had.
+- **Markdown keeps its five colours.** Deriving every markdown slot from the accent flattened a rendered message into one blue: heading, link, inline `code` and bullet all the same. A heading and an inline span now have hues of their own in the palette, so the old spread is back — gold headings, blue links, a magenta inline span, green for a fenced block whose language loop cannot identify, and muted text under a dim gutter for quotes. The magenta is the syntax palette's own type colour, so an inline `Foo` matches the `Foo` in the code block beneath it.
+- **The startup banner is a gradient rule instead of a spinning ring.** The pixel-art loop and its animation are gone; identity now sits beside a vertical rule drawn from the theme's own accent, over aligned `version` / `model` / `branch` / `cwd` / `session` rows. `branch` is new. Being static, it also stops costing renders once it has scrolled into scrollback.
+
+### Fixed
+
+- **Three CI runs sat "in progress" for up to two hours each.** A bare `bun test` walks the whole workspace, which since the desktop release includes the web app's suite — and that suite is written for vitest. Under bun it throws on `vi.waitFor` and `vite-plus/test`, then never exits, so the job held its runner until the six-hour timeout rather than failing. The run is scoped to the bun-native packages now, the web app uses its own runner, and both jobs carry a timeout so the next hang costs minutes.
+- **`loop-review` had never run.** Not broken — unreachable: it fires on `pull_request`, and this repo's work lands as direct pushes to `main`. It takes a `workflow_dispatch` with a PR number now, and fails on an empty diff instead of spending a model run reviewing nothing.
+- Model catalog refreshed from models.dev.
+
 ## [0.15.11] - 2026-08-02
 
 ### Added
