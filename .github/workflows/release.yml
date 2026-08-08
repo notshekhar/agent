@@ -140,10 +140,104 @@ jobs:
                       packages/cli/dist/bin/loop-${{ matrix.target }}.tar.gz.sha256
                   retention-days: 14
 
-    # ─── Job 3: GitHub Release ────────────────────────────────────────────────
+    # ─── Job 3: desktop app (matrix) ─────────────────────────────────────────
+    # The Electron app, which unlike the CLI cannot be cross-built freely:
+    # node-pty is a native addon and upstream publishes prebuilds for darwin and
+    # win32 only. Linux has to compile it, so a linux package MUST be built on a
+    # linux runner — hence a real matrix rather than one host fanning out.
+    # darwin-x64 is the exception in the other direction: it has a prebuild, so
+    # the arm64 mac runner can package it (GitHub offers no free Intel mac).
+    build-desktop:
+        name: desktop (${{ matrix.target }})
+        needs: prepare
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - target: darwin-arm64
+                      cli: bun-darwin-arm64
+                      runner: macos-14
+                    - target: darwin-x64
+                      cli: bun-darwin-x64
+                      runner: macos-14 # arm64 host → cross-packaged (prebuild exists)
+                    - target: linux-x64
+                      cli: bun-linux-x64
+                      runner: ubuntu-latest
+                    - target: linux-arm64
+                      cli: bun-linux-arm64
+                      runner: ubuntu-24.04-arm
+                    - target: win32-x64
+                      cli: bun-windows-x64
+                      runner: windows-latest
+        runs-on: ${{ matrix.runner }}
+        defaults:
+            run:
+                shell: bash
+        steps:
+            - uses: actions/checkout@v4
+            - uses: oven-sh/setup-bun@v2
+              with:
+                  bun-version: latest
+
+            - name: Sync package versions
+              run: |
+                  v="${{ needs.prepare.outputs.ver }}"
+                  bun -e "
+                    const fs = require('fs');
+                    for (const p of ['packages/core/package.json','packages/tui/package.json','packages/cli/package.json','packages/web/package.json']) {
+                      const j = JSON.parse(fs.readFileSync(p,'utf8'));
+                      j.version = '$v';
+                      fs.writeFileSync(p, JSON.stringify(j, null, 2) + '\n');
+                    }
+                  "
+
+            - run: bun install --frozen-lockfile
+            - run: bun run gen:catalog
+            - run: bun packages/core/build.ts
+            - run: bun packages/tui/build.ts
+
+            # The app spawns this, so it must be the TARGET's binary — the
+            # packager copies it out of here by target name.
+            - name: Build bundled loop binary
+              run: bun packages/cli/build-bin.ts ${{ matrix.cli }}
+
+            - name: Build renderer + desktop bundle
+              run: |
+                  bun run --filter @loop/web build
+                  cd apps/desktop && bun build.ts
+
+            - name: Package
+              working-directory: apps/desktop
+              env:
+                  LOOP_VERSION: ${{ needs.prepare.outputs.ver }}
+              run: bun package-app.ts ${{ matrix.target }}
+
+            - name: Compute sha256
+              working-directory: apps/desktop/release
+              run: |
+                  f=$(ls loop-desktop-${{ matrix.target }}.* | head -1)
+                  if command -v sha256sum >/dev/null; then
+                    sha256sum "$f" > "$f.sha256"
+                  else
+                    shasum -a 256 "$f" > "$f.sha256"
+                  fi
+                  ls -lh
+
+            - name: Upload desktop artifact
+              uses: actions/upload-artifact@v4
+              with:
+                  name: desktop-${{ matrix.target }}
+                  path: |
+                      apps/desktop/release/loop-desktop-${{ matrix.target }}.zip
+                      apps/desktop/release/loop-desktop-${{ matrix.target }}.tar.gz
+                      apps/desktop/release/loop-desktop-${{ matrix.target }}.*.sha256
+                  if-no-files-found: error
+                  retention-days: 14
+
+    # ─── Job 4: GitHub Release ────────────────────────────────────────────────
     release:
         name: github-release
-        needs: [prepare, build-binary]
+        needs: [prepare, build-binary, build-desktop]
         runs-on: ubuntu-latest
         steps:
             - name: Download all binary artifacts
@@ -153,12 +247,23 @@ jobs:
                   path: release
                   merge-multiple: true
 
+            - name: Download all desktop artifacts
+              uses: actions/download-artifact@v4
+              with:
+                  pattern: desktop-*
+                  path: release
+                  merge-multiple: true
+
             - name: Aggregate SHA256SUMS
               working-directory: release
               run: |
                   ls -lh
                   : > SHA256SUMS
-                  for f in loop-*.tar.gz; do
+                  # Desktop archives are .zip on mac/windows and .tar.gz on
+                  # linux, so the glob is by prefix rather than extension —
+                  # matching only *.tar.gz would silently omit three of the five.
+                  for f in loop-*.tar.gz loop-desktop-*.zip; do
+                    [ -e "$f" ] || continue
                     sha256sum "$f" >> SHA256SUMS
                   done
                   cat SHA256SUMS
@@ -172,6 +277,8 @@ jobs:
                   files: |
                       release/loop-*.tar.gz
                       release/loop-*.tar.gz.sha256
+                      release/loop-desktop-*.zip
+                      release/loop-desktop-*.zip.sha256
                       release/SHA256SUMS
 
             # Float the major tag (v0.12.3 → v0) so `uses: notshekhar/loop@v0`

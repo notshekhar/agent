@@ -1,0 +1,224 @@
+#!/usr/bin/env bash
+# loop desktop installer — the Electron app, not the CLI.
+#   curl -fsSL https://raw.githubusercontent.com/notshekhar/loop/main/install-desktop.sh | bash
+#
+# For the terminal client, use install.sh instead. The two are independent:
+# the desktop app carries its own loop inside the bundle, so it does not need
+# the CLI installed and does not upgrade it.
+#
+# Layout after install:
+#   macOS   /Applications/Loop.app            (or ~/Applications if not writable)
+#   Linux   $LOOP_DESKTOP_HOME/               (default: ~/.local/share/loop-desktop)
+#           $BIN_DIR/loop-desktop             → launcher symlink
+#           ~/.local/share/applications/loop.desktop
+#
+# Flags (curl | bash -s -- <flags>) — each maps to the env knob next to it:
+#   -v, --version <vX.Y.Z>   pin a specific tag     (LOOP_VERSION)
+#       --uninstall          remove the app         (LOOP_UNINSTALL=1)
+#   -h, --help
+#
+# Extra env knobs:
+#   LOOP_REPO_SLUG        notshekhar/loop
+#   LOOP_DESKTOP_HOME     ~/.local/share/loop-desktop   (linux install dir)
+#   LOOP_BIN_DIR                                        (linux symlink dir)
+
+set -euo pipefail
+
+REPO_SLUG="${LOOP_REPO_SLUG:-notshekhar/loop}"
+UNINSTALL="${LOOP_UNINSTALL:-0}"
+PIN_VERSION="${LOOP_VERSION:-}"
+DESKTOP_HOME="${LOOP_DESKTOP_HOME:-$HOME/.local/share/loop-desktop}"
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -v|--version) PIN_VERSION="${2:-}"; shift 2 ;;
+    --uninstall)  UNINSTALL=1; shift ;;
+    -h|--help)    sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) printf 'unknown flag: %s\n' "$1" >&2; exit 1 ;;
+  esac
+done
+
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+  BOLD=$'\033[1m'; DIM=$'\033[2m'; RED=$'\033[31m'; RESET=$'\033[0m'
+else
+  BOLD=""; DIM=""; RED=""; RESET=""
+fi
+bold() { printf '%s%s%s\n' "$BOLD" "$*" "$RESET"; }
+dim()  { printf '%s%s%s\n' "$DIM" "$*" "$RESET"; }
+err()  { printf '%s%s%s\n' "$RED" "$*" "$RESET" >&2; }
+
+need() { command -v "$1" >/dev/null 2>&1 || { err "missing required tool: $1"; exit 1; }; }
+need curl
+
+# ── Detect target ─────────────────────────────────────────────────────────
+detect_target() {
+  local uname_s uname_m os arch
+  uname_s="$(uname -s)"
+  uname_m="$(uname -m)"
+  case "$uname_s" in
+    Darwin) os="darwin" ;;
+    Linux)  os="linux" ;;
+    MINGW*|MSYS*|CYGWIN*)
+      err "Detected Git Bash / MSYS on Windows. Use the PowerShell installer instead:"
+      err "  irm https://raw.githubusercontent.com/${REPO_SLUG}/main/install-desktop.ps1 | iex"
+      exit 1
+      ;;
+    *) err "unsupported OS: $uname_s"; exit 1 ;;
+  esac
+  case "$uname_m" in
+    x86_64|amd64)  arch="x64" ;;
+    arm64|aarch64) arch="arm64" ;;
+    *) err "unsupported arch: $uname_m"; exit 1 ;;
+  esac
+  # A shell under Rosetta reports x86_64 on Apple Silicon — install the native
+  # build rather than the emulated one.
+  if [ "$os" = "darwin" ] && [ "$arch" = "x64" ]; then
+    if [ "$(sysctl -n sysctl.proc_translated 2>/dev/null || echo 0)" = "1" ]; then
+      arch="arm64"
+    fi
+  fi
+  printf "%s-%s" "$os" "$arch"
+}
+
+# ── Resolve latest release tag ────────────────────────────────────────────
+# The releases/latest redirect rather than the API: it isn't subject to the
+# anonymous rate limit (60 req/h/IP) that bites CI and shared networks.
+resolve_latest_tag() {
+  local final tag
+  final="$(curl -fsSLI -o /dev/null -w '%{url_effective}' \
+    "https://github.com/${REPO_SLUG}/releases/latest" 2>/dev/null || true)"
+  tag="${final##*/}"
+  case "$tag" in v[0-9]*) printf "%s" "$tag"; return 0 ;; esac
+  curl -fsSL "https://api.github.com/repos/${REPO_SLUG}/releases/latest" 2>/dev/null \
+    | sed -n 's/.*"tag_name" *: *"\([^"]*\)".*/\1/p' | head -1
+}
+
+TARGET="$(detect_target)"
+OS="${TARGET%-*}"
+
+# ── Uninstall ─────────────────────────────────────────────────────────────
+if [ "$UNINSTALL" = "1" ]; then
+  if [ "$OS" = "darwin" ]; then
+    for dir in "/Applications/Loop.app" "$HOME/Applications/Loop.app"; do
+      [ -d "$dir" ] || continue
+      rm -rf "$dir" 2>/dev/null || sudo rm -rf "$dir"
+      dim "  removed $dir"
+    done
+  else
+    rm -rf "$DESKTOP_HOME"
+    rm -f "$HOME/.local/bin/loop-desktop" \
+          "$HOME/.local/share/applications/loop.desktop" \
+          "$HOME/.local/share/icons/hicolor/512x512/apps/loop.png"
+    dim "  removed $DESKTOP_HOME and its launcher"
+  fi
+  bold "✓ loop desktop uninstalled"
+  dim "  Your sessions and settings in ~/.loop were left alone."
+  exit 0
+fi
+
+# ── Resolve version + asset ───────────────────────────────────────────────
+TAG="$PIN_VERSION"
+[ -n "$TAG" ] || TAG="$(resolve_latest_tag)"
+[ -n "$TAG" ] || { err "could not resolve latest release tag from $REPO_SLUG"; exit 1; }
+case "$TAG" in v*) ;; *) TAG="v$TAG" ;; esac
+
+if [ "$OS" = "darwin" ]; then
+  ASSET="loop-desktop-${TARGET}.zip"
+  need unzip
+else
+  ASSET="loop-desktop-${TARGET}.tar.gz"
+  need tar
+fi
+URL="https://github.com/${REPO_SLUG}/releases/download/${TAG}/${ASSET}"
+
+bold "loop desktop ${TAG}"
+dim "  target: ${TARGET}"
+
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+
+dim "  downloading ${ASSET}"
+if ! curl -fSL --progress-bar -o "$TMP/$ASSET" "$URL"; then
+  err "download failed: $URL"
+  err "No desktop build for ${TARGET} in ${TAG}?"
+  exit 1
+fi
+
+# ── Install ───────────────────────────────────────────────────────────────
+if [ "$OS" = "darwin" ]; then
+  unzip -q "$TMP/$ASSET" -d "$TMP/x"
+  APP="$TMP/x/Loop.app"
+  [ -d "$APP" ] || { err "archive did not contain Loop.app"; exit 1; }
+
+  DEST="/Applications"
+  # /Applications needs admin on a managed Mac; ~/Applications always works and
+  # Spotlight indexes it just the same.
+  if [ ! -w "$DEST" ]; then
+    if command -v sudo >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+      :
+    else
+      DEST="$HOME/Applications"
+      mkdir -p "$DEST"
+      dim "  /Applications not writable — installing to ~/Applications"
+    fi
+  fi
+
+  if [ -d "$DEST/Loop.app" ]; then
+    rm -rf "$DEST/Loop.app" 2>/dev/null || sudo rm -rf "$DEST/Loop.app"
+  fi
+  cp -R "$APP" "$DEST/" 2>/dev/null || sudo cp -R "$APP" "$DEST/"
+
+  # The build is not notarized, so Gatekeeper quarantines anything downloaded
+  # and refuses to launch it with a message about a damaged app. Clearing the
+  # attribute is what makes an unsigned build launchable at all.
+  xattr -dr com.apple.quarantine "$DEST/Loop.app" 2>/dev/null \
+    || sudo xattr -dr com.apple.quarantine "$DEST/Loop.app" 2>/dev/null || true
+
+  bold "✓ Installed $DEST/Loop.app"
+  dim "  open it from Spotlight, or: open -a Loop"
+else
+  rm -rf "$DESKTOP_HOME"
+  mkdir -p "$DESKTOP_HOME"
+  tar -xzf "$TMP/$ASSET" -C "$DESKTOP_HOME"
+  chmod +x "$DESKTOP_HOME/Loop" 2>/dev/null || true
+
+  # The chrome-sandbox helper must be setuid root unless the app runs with
+  # --no-sandbox; without it Electron aborts on start with a SUID error.
+  if [ -f "$DESKTOP_HOME/chrome-sandbox" ]; then
+    if command -v sudo >/dev/null 2>&1; then
+      sudo chown root:root "$DESKTOP_HOME/chrome-sandbox" 2>/dev/null || true
+      sudo chmod 4755 "$DESKTOP_HOME/chrome-sandbox" 2>/dev/null || true
+    fi
+  fi
+
+  BIN_DIR="${LOOP_BIN_DIR:-$HOME/.local/bin}"
+  mkdir -p "$BIN_DIR"
+  ln -sf "$DESKTOP_HOME/Loop" "$BIN_DIR/loop-desktop"
+
+  # A .desktop entry is what puts it in the application menu; without one the
+  # app is only launchable by path.
+  mkdir -p "$HOME/.local/share/applications" \
+           "$HOME/.local/share/icons/hicolor/512x512/apps"
+  ICON="$DESKTOP_HOME/resources/app.asar.unpacked/dist/icon.png"
+  [ -f "$ICON" ] && cp "$ICON" "$HOME/.local/share/icons/hicolor/512x512/apps/loop.png"
+  cat > "$HOME/.local/share/applications/loop.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=Loop
+Comment=Coding agent
+Exec=$DESKTOP_HOME/Loop %U
+Icon=loop
+Terminal=false
+Categories=Development;Utility;
+StartupWMClass=Loop
+EOF
+  command -v update-desktop-database >/dev/null 2>&1 \
+    && update-desktop-database "$HOME/.local/share/applications" 2>/dev/null || true
+
+  bold "✓ Installed $DESKTOP_HOME"
+  dim "  launch from your application menu, or: loop-desktop"
+  case ":$PATH:" in
+    *":$BIN_DIR:"*) ;;
+    *) dim "  ($BIN_DIR is not on PATH — add it to use the loop-desktop command)" ;;
+  esac
+fi
