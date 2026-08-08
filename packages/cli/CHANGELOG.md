@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.16.6] - 2026-08-09
+
+### Changed
+
+- **The AI SDK is current again, and the installed tree now matches what loop declares.** `ai` moves to 7.0.58 and all eleven `@ai-sdk/*` providers to their latest — Anthropic, OpenAI, Google, Bedrock, Gateway, Groq, xAI, Mistral, Cerebras, DeepSeek and MCP. The installed packages had drifted further than the manifests implied, so this is as much a resync as an upgrade. Staying current is deliberate: the one time loop fell behind, a field rename inside the SDK broke tool-input streaming quietly and it took weeks to notice, so every release now checks that pair by name before shipping.
+- **The model catalog was rebuilt from models.dev** — 728 models across 10 providers, so pricing and context limits reflect what the providers currently publish rather than what they published at the last release.
+
+### Note
+
+- **MCP stays on the `2025-11-25` protocol for now.** The specification's `2026-07-28` revision is a large, deliberately breaking one — it removes the `initialize` handshake, drops protocol-level sessions, and replaces server-initiated requests with a retry-based pattern. loop speaks MCP through the AI SDK's client, which has not yet adopted it, so there is nothing to switch on here. Servers are required to keep supporting existing clients through a twelve-month deprecation window, so connections are unaffected.
+
 ## [0.16.5] - 2026-08-09
 
 ### Changed
