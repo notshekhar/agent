@@ -58,6 +58,13 @@ import {
     type AuthMethod,
 } from "./auth-flows";
 import {
+    discoverCustomProviderModels,
+    listCustomProviderSummaries,
+    removeCustomProvider,
+    saveCustomProviderConfig,
+    setActiveCustomProvider,
+} from "./custom-providers";
+import {
     cancelMcpLogin,
     listMcpServers,
     parseServerConfig,
@@ -135,6 +142,11 @@ const RPC_METHODS = [
     "auth.flow.poll",
     "auth.flow.answer",
     "auth.flow.cancel",
+    "auth.custom.list",
+    "auth.custom.discover",
+    "auth.custom.save",
+    "auth.custom.remove",
+    "auth.custom.setActive",
     "catalog.list",
     "cost.session",
     "cost.lifetime",
@@ -850,6 +862,9 @@ export class RpcServer {
                 return startAuthFlow({
                     provider: String(params.provider ?? ""),
                     ...(params.method ? { method: params.method as AuthMethod } : {}),
+                    // An unsaved gateway signs in from its draft — see
+                    // rpc/custom-providers.ts.
+                    ...(params.custom === undefined ? {} : { custom: params.custom }),
                 });
             case "auth.flow.poll":
                 return pollAuthFlow(String(params.flowId ?? ""), Number(params.cursor ?? 0));
@@ -861,6 +876,19 @@ export class RpcServer {
                 );
             case "auth.flow.cancel":
                 return cancelAuthFlow(String(params.flowId ?? ""));
+            // Creating a gateway, which `auth.login` cannot do: it stores a key
+            // against a provider that already exists, and a custom provider IS
+            // its config. See rpc/custom-providers.ts.
+            case "auth.custom.list":
+                return listCustomProviderSummaries();
+            case "auth.custom.discover":
+                return await discoverCustomProviderModels(params);
+            case "auth.custom.save":
+                return saveCustomProviderConfig(params);
+            case "auth.custom.remove":
+                return removeCustomProvider(params);
+            case "auth.custom.setActive":
+                return setActiveCustomProvider(params);
             case "catalog.list": {
                 const cat = await getCatalog();
                 const wanted = params.provider as ProviderId | undefined;

@@ -135,8 +135,18 @@ export async function startAuthFlow(
   provider: string,
   method: LoopAuthMethod,
   cwd?: string,
+  /**
+   * An unsaved custom gateway to sign in to, when the user is still in the
+   * add-a-provider form. There is no config on disk yet, so the endpoints have
+   * to travel with the request — see `StartAuthFlowInput.custom` in core.
+   */
+  custom?: unknown,
 ): Promise<{ flowId: string }> {
-  return await loopCall<{ flowId: string }>("auth.flow.start", { provider, method }, cwd);
+  return await loopCall<{ flowId: string }>(
+    "auth.flow.start",
+    { provider, method, ...(custom === undefined ? {} : { custom }) },
+    cwd,
+  );
 }
 
 export async function pollAuthFlow(
@@ -187,10 +197,12 @@ export async function runAuthFlow(
      * hang on its opening question.
      */
     readonly onStart?: (flowId: string) => void;
+    /** A draft gateway, for a custom provider not yet saved. */
+    readonly custom?: unknown;
   },
   onEvent: (event: AuthFlowEvent) => void,
 ): Promise<{ status: AuthFlowStatus; flowId: string }> {
-  const { flowId } = await startAuthFlow(input.provider, input.method, input.cwd);
+  const { flowId } = await startAuthFlow(input.provider, input.method, input.cwd, input.custom);
   input.onStart?.(flowId);
   let cursor = 0;
   while (true) {

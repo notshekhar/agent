@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { agentDescriptors, effortDescriptors, serverConfigFingerprint } from "./serverConfig.ts";
+import {
+  agentDescriptors,
+  effortDescriptors,
+  serverConfigFingerprint,
+  toProviders,
+} from "./serverConfig.ts";
 
 /**
  * The config is polled, so the fingerprint decides what counts as news. Too
@@ -167,5 +172,47 @@ describe("the agent control loop offers", () => {
     expect(serverConfigFingerprint(withAgents(["default", "plan"]))).not.toBe(
       serverConfigFingerprint(withAgents(["default", "plan", "reviewer"])),
     );
+  });
+});
+
+/**
+ * MEASURED against a live `loop rpc`: `auth.status` answers
+ * `providers: ["kimi", "custom:pronto-gpt"]` with
+ * `authorized: ["kimi"]` — a custom gateway carries its credential in its own
+ * config, so it is never in the auth store's list. Reading readiness off
+ * `authorized` marked every gateway "disabled", and the composer's picker
+ * drops a non-ready instance's models, so the gateway was visible and
+ * unpickable.
+ */
+describe("which providers a turn can start on", () => {
+  const model = (provider: string, id: string) => ({ id, provider });
+  const providerAt = (providers: readonly unknown[], instanceId: string) =>
+    providers.find(
+      (entry) => (entry as { instanceId: string }).instanceId === instanceId,
+    ) as { status: string; models: unknown[] } | undefined;
+
+  const built = (auth: { providers?: string[]; authorized?: string[] }) =>
+    toProviders(
+      [model("kimi", "kimi/k3"), model("custom:pronto-gpt", "custom:pronto-gpt/gpt-5.6-luna")],
+      auth,
+      null,
+      "2026-08-09T00:00:00.000Z",
+      "off",
+      [],
+    );
+
+  it("marks a custom gateway ready even though it holds no auth-store entry", () => {
+    const providers = built({
+      providers: ["kimi", "custom:pronto-gpt"],
+      authorized: ["kimi"],
+    });
+    expect(providerAt(providers, "custom__pronto-gpt")?.status).toBe("ready");
+    expect(providerAt(providers, "custom__pronto-gpt")?.models).toHaveLength(1);
+  });
+
+  it("still marks a provider with no credential anywhere as disabled", () => {
+    const providers = built({ providers: ["kimi"], authorized: ["kimi"] });
+    expect(providerAt(providers, "custom__pronto-gpt")?.status).toBe("disabled");
+    expect(providerAt(providers, "kimi")?.status).toBe("ready");
   });
 });

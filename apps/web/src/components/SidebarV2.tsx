@@ -303,7 +303,12 @@ function SidebarV2ThreadTooltip({
               <ProviderInstanceIcon
                 driverKind={driverKind}
                 displayName={thread.session?.providerName ?? modelInstanceId}
-                iconClassName="size-3 shrink-0 grayscale opacity-60"
+                className="size-4"
+                iconClassName="size-3.5 shrink-0 grayscale opacity-60"
+                // A gateway badges its borrowed mark with its initials. At
+                // this size the default badge is as wide as the mark itself
+                // and buries it, so it shrinks with the icon.
+                badgeClassName="h-2.5 min-w-2.5 px-0 text-[6px] -bottom-0.5 -right-0.5"
               />
               <div className="min-w-0 truncate text-foreground/75">{modelLabel}</div>
             </div>
@@ -1049,7 +1054,9 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
                     <ProviderInstanceIcon
                       driverKind={driverKind}
                       displayName={thread.session?.providerName ?? modelInstanceId}
+                      className="size-4"
                       iconClassName="size-3.5"
+                      badgeClassName="h-2.5 min-w-2.5 px-0 text-[6px] -bottom-0.5 -right-0.5"
                     />
                   </span>
                 ) : null}

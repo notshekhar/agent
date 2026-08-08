@@ -15,13 +15,14 @@ import {
   ExternalLinkIcon,
   KeyRoundIcon,
   LoaderIcon,
+  PlusIcon,
   RefreshCwIcon,
   SearchIcon,
 } from "lucide-react";
 
 import { cn } from "../../lib/utils";
 import type { LoopAuthMethod, LoopLoginMethod } from "../../loop/providers";
-import { providerInitials } from "../../loop/providers";
+import { customProviderName, providerInitials } from "../../loop/providers";
 import {
   answerAuthFlow,
   fetchLoopProviders,
@@ -31,6 +32,12 @@ import {
   type AuthFlowEvent,
   type LoopProviderStatus,
 } from "../../loop/providers/auth";
+import {
+  fetchCustomProviders,
+  supportsCustomProviderRpc,
+  type CustomProviderSummary,
+} from "../../loop/providers/custom";
+import { LoopCustomProviderDialog } from "./LoopCustomProviderDialog";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -65,12 +72,30 @@ function useLoopProviders() {
     providers: readonly LoopProviderStatus[];
     active: string | null;
   }>({ providers: [], active: null });
+  /**
+   * The configured gateways, in full — `auth.providers` only reports that a
+   * `custom:` id exists, and an edit form needs the endpoint, the auth kind,
+   * and the model list behind it.
+   */
+  const [customs, setCustoms] = useState<readonly CustomProviderSummary[]>([]);
+  /**
+   * Whether the loop on this machine can create one. The desktop shell spawns
+   * whichever `loop` is installed, so it can predate `auth.custom.*` — and an
+   * Add button that fails on submit is worse than no Add button.
+   */
+  const [canAddCustom, setCanAddCustom] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
-      setSnapshot(await fetchLoopProviders());
+      const [providers, supported] = await Promise.all([
+        fetchLoopProviders(),
+        supportsCustomProviderRpc(),
+      ]);
+      setSnapshot(providers);
+      setCanAddCustom(supported);
+      setCustoms(supported ? await fetchCustomProviders() : []);
       setError(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not reach loop.");
@@ -83,15 +108,22 @@ function useLoopProviders() {
     void refresh();
   }, [refresh]);
 
-  return { ...snapshot, isLoading, error, refresh };
+  return { ...snapshot, customs, canAddCustom, isLoading, error, refresh };
 }
 
 export function LoopProviderSettingsPanel() {
-  const { providers, active, isLoading, error, refresh } = useLoopProviders();
+  const { providers, active, customs, canAddCustom, isLoading, error, refresh } =
+    useLoopProviders();
   const [query, setQuery] = useState("");
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [flow, setFlow] = useState<FlowState | null>(null);
+  /**
+   * The gateway the dialog is open on: a summary when editing, `"new"` when
+   * adding, null when closed. One piece of state rather than two booleans, so
+   * "editing" and "adding" cannot both be true.
+   */
+  const [customDraft, setCustomDraft] = useState<CustomProviderSummary | "new" | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   /** The running flow's id, readable outside a state updater. */
   const flowIdRef = useRef<string | null>(null);
@@ -100,6 +132,11 @@ export function LoopProviderSettingsPanel() {
 
   const rows = useMemo(() => buildProviderRows({ providers, active }), [providers, active]);
   const visibleRows = useMemo(() => filterProviderRows(rows, query), [rows, query]);
+  const customByName = useMemo(
+    () => new Map(customs.map((entry) => [entry.name, entry])),
+    [customs],
+  );
+  const customNames = useMemo(() => new Set(customs.map((entry) => entry.name)), [customs]);
   const connectedCount = rows.filter((row) => row.status.authorized).length;
   // Every provider reporting zero sign-in methods means the list was rebuilt
   // from `auth.status` — the fallback for a loop without `auth.providers`.
@@ -238,6 +275,12 @@ export function LoopProviderSettingsPanel() {
                 ? "Loading"
                 : `${connectedCount} of ${rows.length} connected`}
             </span>
+            {canAddCustom ? (
+              <Button size="sm" variant="outline" onClick={() => setCustomDraft("new")}>
+                <PlusIcon className="size-3" />
+                Custom provider
+              </Button>
+            ) : null}
             <Button
               size="icon-xs"
               variant="ghost"
@@ -290,42 +333,69 @@ export function LoopProviderSettingsPanel() {
           </p>
         ) : null}
 
-        {visibleRows.map((row) => (
-          <ProviderCard
-            key={row.id}
-            row={row}
-            isExpanded={expanded === row.id}
-            flow={flow?.provider === row.id ? flow : null}
-            onToggle={() => setExpanded((current) => (current === row.id ? null : row.id))}
-            onStartFlow={(method) => startFlow(row, method)}
-            onSubmitKey={(apiKey) => submitKey(row, apiKey)}
-            onAnswerPrompt={answerPrompt}
-            onDisconnect={() => disconnect(row)}
-          />
-        ))}
+        {visibleRows.map((row) => {
+          const custom = customByName.get(row.id.replace(/^custom:/, ""));
+          return (
+            <ProviderCard
+              key={row.id}
+              row={row}
+              custom={row.status.kind === "custom" ? custom : undefined}
+              isExpanded={expanded === row.id}
+              flow={flow?.provider === row.id ? flow : null}
+              onToggle={() => setExpanded((current) => (current === row.id ? null : row.id))}
+              onStartFlow={(method) => startFlow(row, method)}
+              onSubmitKey={(apiKey) => submitKey(row, apiKey)}
+              onAnswerPrompt={answerPrompt}
+              onDisconnect={() => disconnect(row)}
+              onEditCustom={custom ? () => setCustomDraft(custom) : undefined}
+            />
+          );
+        })}
       </SettingsSection>
+
+      <LoopCustomProviderDialog
+        open={customDraft !== null}
+        onOpenChange={(open) => {
+          if (!open) setCustomDraft(null);
+        }}
+        editing={customDraft === "new" || customDraft === null ? undefined : customDraft}
+        existingNames={customNames}
+        onSaved={() => void refresh()}
+      />
     </SettingsPageContainer>
   );
 }
 
 function ProviderMark({ row }: { row: ProviderRow }) {
   const Icon = row.presentation.icon;
+  // A gateway borrows the mark of the API it speaks, so the only thing that
+  // distinguishes two gateways in front of the same vendor is this badge.
+  const gatewayName = customProviderName(row.id);
   return (
     <span
       className={cn(
-        "relative inline-flex size-8 shrink-0 items-center justify-center rounded-lg border",
+        "relative inline-flex size-6 shrink-0 items-center justify-center rounded-md border",
         row.status.authorized
           ? "border-border bg-card text-foreground"
           : "border-border/60 bg-muted/32 text-muted-foreground",
       )}
     >
       {Icon ? (
-        <Icon className="size-4.5" aria-hidden />
+        <Icon className="size-3.5" aria-hidden />
       ) : (
         <span className="text-[10px] font-semibold leading-none">
           {providerInitials(row.presentation.label)}
         </span>
       )}
+      {gatewayName !== null && Icon ? (
+        <span
+          className="pointer-events-none absolute -bottom-1 -right-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full border bg-muted px-0.5 text-[8px] font-semibold leading-none text-muted-foreground shadow-sm"
+          style={{ borderColor: "var(--card)" }}
+          aria-hidden
+        >
+          {providerInitials(gatewayName)}
+        </span>
+      ) : null}
       {row.status.authorized ? (
         <span
           className="absolute -right-0.5 -top-0.5 size-2 rounded-full bg-success"
@@ -339,6 +409,8 @@ function ProviderMark({ row }: { row: ProviderRow }) {
 
 function ProviderCard(props: {
   readonly row: ProviderRow;
+  /** The full config behind a `custom:` row, when this loop can describe it. */
+  readonly custom: CustomProviderSummary | undefined;
   readonly isExpanded: boolean;
   readonly flow: FlowState | null;
   readonly onToggle: () => void;
@@ -346,6 +418,7 @@ function ProviderCard(props: {
   readonly onSubmitKey: (apiKey: string) => Promise<void>;
   readonly onAnswerPrompt: (promptId: string, value: string) => Promise<void>;
   readonly onDisconnect: () => Promise<void>;
+  readonly onEditCustom: (() => void) | undefined;
 }) {
   const { row, isExpanded, flow } = props;
   const state = connectionState(row.status);
@@ -357,6 +430,7 @@ function ProviderCard(props: {
       className={cn(isExpanded && "bg-muted/24")}
       title={
         <span className="inline-flex items-center gap-2">
+          <ProviderMark row={row} />
           {row.presentation.label}
           {row.isActive ? (
             <Badge variant="success" size="sm">
@@ -373,11 +447,25 @@ function ProviderCard(props: {
               extension
             </Badge>
           ) : null}
+          {row.status.kind === "custom" ? (
+            <Badge variant="outline" size="sm">
+              {props.custom?.sdk ?? "gateway"}
+            </Badge>
+          ) : null}
         </span>
       }
-      description={connectionSummary(row)}
+      description={
+        props.custom
+          ? `${props.custom.baseURL} · ${props.custom.authDescription} · ${props.custom.models.length} model${props.custom.models.length === 1 ? "" : "s"}`
+          : connectionSummary(row)
+      }
       control={
         <div className="flex items-center gap-1.5">
+          {props.onEditCustom ? (
+            <Button size="sm" variant="outline" onClick={props.onEditCustom}>
+              Edit
+            </Button>
+          ) : null}
           {row.status.authorized ? (
             <span className="inline-flex items-center gap-1 text-[11px] text-success-foreground">
               <CheckIcon className="size-3" />
@@ -411,8 +499,10 @@ function ProviderCard(props: {
           ) : (
             <ProviderLoginOptions
               row={row}
+              custom={props.custom}
               onStartFlow={props.onStartFlow}
               onSubmitKey={props.onSubmitKey}
+              onEditCustom={props.onEditCustom}
             />
           )}
           {canDisconnect && !flow ? (
@@ -439,17 +529,42 @@ function ProviderCard(props: {
 
 function ProviderLoginOptions(props: {
   readonly row: ProviderRow;
+  readonly custom: CustomProviderSummary | undefined;
   readonly onStartFlow: (method: LoopAuthMethod) => void;
   readonly onSubmitKey: (apiKey: string) => Promise<void>;
+  readonly onEditCustom: (() => void) | undefined;
 }) {
-  const { row } = props;
+  const { row, custom } = props;
+  // A gateway has no credential to re-enter against an existing id: it IS its
+  // config, so the only thing to offer is the form that wrote it. (An OAuth
+  // gateway does have a login, and reports `oauth` in `methods` — that falls
+  // through to the ordinary rendering below.)
+  if (custom && row.methods.length === 0) {
+    return (
+      <div className="space-y-2">
+        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+          <dt className="text-muted-foreground/70">Endpoint</dt>
+          <dd className="truncate font-mono">{custom.baseURL}</dd>
+          <dt className="text-muted-foreground/70">API shape</dt>
+          <dd>{custom.sdk}</dd>
+          <dt className="text-muted-foreground/70">Auth</dt>
+          <dd>{custom.authDescription}</dd>
+          <dt className="text-muted-foreground/70">Models</dt>
+          <dd>{custom.models.map((model) => model.id).join(", ") || "none"}</dd>
+        </dl>
+        {props.onEditCustom ? (
+          <Button size="sm" variant="outline" onClick={props.onEditCustom}>
+            Edit gateway
+          </Button>
+        ) : null}
+      </div>
+    );
+  }
+
   if (row.methods.length === 0) {
     return (
       <p className="text-[13px] text-muted-foreground">
         loop reports no sign-in for this provider.
-        {row.status.kind === "custom"
-          ? " Custom gateways are configured with `loop login custom` in the terminal."
-          : null}
       </p>
     );
   }

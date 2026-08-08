@@ -2,6 +2,8 @@ import { type CSSProperties, memo } from "react";
 import { type ProviderDriverKind } from "@loop/contracts";
 
 import { providerIconFor } from "./providerIconUtils";
+import { fromInstanceId } from "../../loop/handlers/ids";
+import { customProviderName } from "../../loop/providers";
 import { cn } from "~/lib/utils";
 
 export function providerInstanceInitials(label: string): string {
@@ -32,6 +34,20 @@ export const ProviderInstanceIcon = memo(function ProviderInstanceIcon(props: {
     ? ({ "--provider-accent": props.accentColor } as CSSProperties)
     : undefined;
   const badgeContent = props.badgeContent ?? "initials";
+  /**
+   * A gateway's mark is the mark of the API it speaks, so two gateways in
+   * front of the same vendor draw identically — `custom:pronto-claude` and a
+   * second Anthropic-compatible proxy would be one indistinguishable pair in
+   * the picker. The initials badge is what tells them apart, so it is on by
+   * default here rather than left to each of the five call sites to remember.
+   */
+  const gatewayName = customProviderName(fromInstanceId(props.driverKind));
+  // OR, not a default: a caller passing `showBadge={false}` is answering the
+  // *duplicate-driver* question ("is there more than one Codex?"), which is a
+  // different question from "does this mark belong to something else?". For a
+  // gateway the badge is the only identity it has, so it is never optional.
+  const showBadge = (props.showBadge ?? false) || gatewayName !== null;
+  const badgeLabel = gatewayName ?? props.displayName;
 
   return (
     <span
@@ -59,10 +75,16 @@ export const ProviderInstanceIcon = memo(function ProviderInstanceIcon(props: {
           aria-hidden
         />
       ) : null}
-      {props.showBadge ? (
+      {showBadge ? (
         <span
           className={cn(
-            "pointer-events-none absolute right-0 bottom-0 z-10 flex h-3.5 min-w-3.5 items-center justify-center rounded-full border px-0.5 text-[8px] font-semibold leading-none shadow-sm",
+            "pointer-events-none absolute z-10 flex h-3.5 min-w-3.5 items-center justify-center rounded-full border px-0.5 text-[8px] font-semibold leading-none shadow-sm",
+            // A gateway's badge sits slightly OUTSIDE the bottom-right corner
+            // rather than inside it: the mark it overlaps is borrowed, and
+            // tucking the initials within the icon's own box reads as part of
+            // the vendor's logo. The status dot lives at top-left, so this
+            // corner is free.
+            gatewayName !== null ? "-bottom-1 -right-1" : "right-0 bottom-0",
             props.accentColor
               ? "bg-[var(--provider-accent)] text-white"
               : "bg-muted text-muted-foreground",
@@ -71,7 +93,7 @@ export const ProviderInstanceIcon = memo(function ProviderInstanceIcon(props: {
           style={{ borderColor: indicatorBackground }}
           aria-hidden
         >
-          {badgeContent === "initials" ? providerInstanceInitials(props.displayName) : null}
+          {badgeContent === "initials" ? providerInstanceInitials(badgeLabel) : null}
         </span>
       ) : null}
     </span>

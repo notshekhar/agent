@@ -27,18 +27,22 @@
 import { randomBytes } from "node:crypto";
 import {
     getAuthMode,
+    hasCustomOAuthSession,
     listAuthorizedProviders,
     listCustomProviders,
+    loginCustomProviderOAuth,
     loginOAuth,
     loginXaiOAuth,
     loginApiKey,
+    normalizeCustomAuth,
     setActiveProvider,
 } from "../auth";
+import { parseCustomProviderDraft, type CustomProviderDraft } from "./custom-providers";
 import { bustCatalogCache, refreshBedrockCatalog } from "../catalog";
 import { envName } from "../brand";
 import { getExtensionHost } from "../extensions";
 import { bedrockRegion, listOllamaModels, ollamaBaseURL, resolveAwsCredentials } from "../providers";
-import { BUILTIN_PROVIDER_IDS, type ProviderId } from "../types";
+import { BUILTIN_PROVIDER_IDS, type CustomProviderConfig, type ProviderId } from "../types";
 
 /** How a provider can be signed in to, in the order a picker should offer them. */
 export type AuthMethod = "oauth" | "apikey" | "detect";
@@ -62,8 +66,25 @@ const OAUTH_PROVIDERS: Record<string, ProviderId> = {
 /** Providers with no credential to enter: the "login" is a probe. */
 const DETECT_PROVIDERS = new Set<ProviderId>(["bedrock", "ollama"]);
 
+/** The saved config behind a `custom:<name>` id, or undefined. */
+function customConfigFor(provider: string): CustomProviderConfig | undefined {
+    if (!provider.startsWith("custom:")) return undefined;
+    const name = provider.slice("custom:".length);
+    return listCustomProviders().find((config) => config.name === name);
+}
+
 /** Which methods a provider offers, most preferred first. */
 export function authMethodsFor(provider: string): AuthMethod[] {
+    // A gateway's methods are whatever its own config declares, not a guess.
+    // Only the oauth kind has a login to run at all — every other kind is
+    // established by writing the config, which is `auth.custom.save`, not a
+    // credential the user re-enters against an existing id. Offering "apikey"
+    // here produced a form whose Save wrote a key into the built-in provider
+    // store, where nothing routing a custom gateway ever reads it.
+    if (provider.startsWith("custom:")) {
+        const custom = customConfigFor(provider);
+        return custom && normalizeCustomAuth(custom).kind === "oauth" ? ["oauth"] : [];
+    }
     if (DETECT_PROVIDERS.has(provider as ProviderId)) return ["detect"];
     const methods: AuthMethod[] = [];
     if (provider in OAUTH_PROVIDERS) methods.push("oauth");
@@ -74,6 +95,13 @@ export function authMethodsFor(provider: string): AuthMethod[] {
 
 /** The env var `getApiKey` falls back to, so the UI can say where a key came from. */
 export function apiKeyEnvVar(provider: string): string | undefined {
+    // A gateway reads whatever var its own `auth: { kind: "env" }` names, and
+    // nothing at all otherwise — never `CUSTOM:FOO_API_KEY`.
+    if (provider.startsWith("custom:")) {
+        const custom = customConfigFor(provider);
+        const auth = custom ? normalizeCustomAuth(custom) : undefined;
+        return auth?.kind === "env" ? auth.var : undefined;
+    }
     if (DETECT_PROVIDERS.has(provider as ProviderId)) return undefined;
     if (provider === "vercel") return "AI_GATEWAY_API_KEY";
     if (provider === "github-copilot") return undefined;
@@ -128,17 +156,23 @@ export function listProviderDescriptors(): ProviderDescriptor[] {
             : descriptor,
     );
 
-    const customs = listCustomProviders().map(
-        (config): ProviderDescriptor => ({
+    const customs = listCustomProviders().map((config): ProviderDescriptor => {
+        const auth = normalizeCustomAuth(config);
+        const envVar = auth.kind === "env" ? auth.var : undefined;
+        return {
             id: `custom:${config.name}`,
             kind: "custom",
-            authorized: true,
-            mode: "apikey",
-            methods: ["apikey"],
+            // A gateway is configured, therefore usable — except an oauth one
+            // that has never been signed in to (or whose session was cleared),
+            // which has no token to send and must not read as connected.
+            authorized: auth.kind !== "oauth" || hasCustomOAuthSession(config.name),
+            mode: auth.kind === "oauth" ? "oauth" : auth.kind === "none" ? "missing" : "apikey",
+            methods: authMethodsFor(`custom:${config.name}`),
+            ...(envVar ? { envVar } : {}),
             baseURL: config.baseURL,
             sdk: config.sdk,
-        }),
-    );
+        };
+    });
 
     const builtinIds = new Set<string>(BUILTIN_PROVIDER_IDS);
     const extensions = getExtensionHost()
@@ -288,7 +322,29 @@ async function runOllamaDetect(flow: Flow): Promise<void> {
     });
 }
 
-async function runFlow(flow: Flow, method: AuthMethod): Promise<void> {
+/**
+ * A custom gateway's browser sign-in.
+ *
+ * Runs against a DRAFT when the client is still in the add-a-provider wizard
+ * and against the saved config when it is a re-login, which is what lets the
+ * app do what the terminal does: sign in first, then discover models with the
+ * token the sign-in just produced. The session is persisted by
+ * `loginCustomProviderOAuth` under the gateway's name, so it is already in
+ * place by the time `auth.custom.save` writes the config around it.
+ */
+async function runCustomOAuth(flow: Flow, draft: CustomProviderDraft | CustomProviderConfig): Promise<void> {
+    emit(flow, { type: "progress", message: `Signing in to ${draft.name}…` });
+    await loginCustomProviderOAuth({ name: draft.name, baseURL: draft.baseURL, auth: draft.auth }, callbacksFor(flow));
+    bustCatalogCache();
+    finish(flow, "done", { type: "done", message: `Signed in to ${draft.name}.` });
+}
+
+async function runFlow(flow: Flow, method: AuthMethod, custom?: CustomProviderDraft): Promise<void> {
+    if (custom || flow.provider.startsWith("custom:")) {
+        const config = custom ?? customConfigFor(flow.provider);
+        if (!config) throw new Error(`no custom provider named ${flow.provider}`);
+        return runCustomOAuth(flow, config);
+    }
     if (method === "detect") {
         if (flow.provider === "bedrock") return runBedrockDetect(flow);
         if (flow.provider === "ollama") return runOllamaDetect(flow);
@@ -310,6 +366,13 @@ async function runFlow(flow: Flow, method: AuthMethod): Promise<void> {
 export interface StartAuthFlowInput {
     readonly provider: string;
     readonly method?: AuthMethod;
+    /**
+     * An unsaved custom gateway to sign in to, as `auth.custom.save` would take
+     * it. Present only during the add-a-provider wizard: the endpoints are
+     * discovered from the draft's own baseURL, and there is no config on disk
+     * to read them from yet. Omit it to re-login a gateway already saved.
+     */
+    readonly custom?: unknown;
 }
 
 /**
@@ -318,22 +381,47 @@ export interface StartAuthFlowInput {
  */
 export function startAuthFlow(input: StartAuthFlowInput): { flowId: string; provider: string; method: AuthMethod } {
     sweep();
-    const provider = input.provider.trim();
+    // A draft names its own provider, so the wizard need not also send an id
+    // it has not created yet.
+    const draft = input.custom === undefined ? undefined : parseCustomProviderDraft(input.custom);
+    if (draft && draft.auth.kind !== "oauth") {
+        throw new Error("only an oauth custom provider has an interactive login");
+    }
+    const provider = draft ? `custom:${draft.name}` : input.provider.trim();
     if (!provider) throw new Error("provider required");
+    if (draft) {
+        const flow = beginFlow(provider);
+        if ("existing" in flow) return { flowId: flow.existing, provider, method: "oauth" };
+        void runFlow(flow.flow, "oauth", draft).catch((err: unknown) => {
+            finish(flow.flow, "error", { type: "error", message: err instanceof Error ? err.message : String(err) });
+        });
+        return { flowId: flow.flow.id, provider, method: "oauth" };
+    }
     const available = authMethodsFor(provider);
     const method = input.method ?? available.find((candidate) => candidate !== "apikey") ?? available[0];
     if (!method) throw new Error(`${provider} has no interactive login`);
     if (method === "apikey") throw new Error("API-key logins go through auth.login, not auth.flow.start");
     if (!available.includes(method)) throw new Error(`${provider} does not support ${method} login`);
 
-    // A second flow for the same provider would race the first over the same
-    // callback port and the same store entry.
-    for (const existing of flows.values()) {
-        if (existing.provider === provider && existing.status === "running") {
-            return { flowId: existing.id, provider, method };
-        }
-    }
+    const started = beginFlow(provider);
+    if ("existing" in started) return { flowId: started.existing, provider, method };
+    void runFlow(started.flow, method).catch((err: unknown) => {
+        finish(started.flow, "error", { type: "error", message: err instanceof Error ? err.message : String(err) });
+    });
+    return { flowId: started.flow.id, provider, method };
+}
 
+/**
+ * Register a flow for a provider, or hand back the one already running.
+ *
+ * A second flow for the same provider would race the first over the same
+ * callback port and the same store entry, so joining the running one is the
+ * only safe answer to a double-click.
+ */
+function beginFlow(provider: string): { flow: Flow } | { existing: string } {
+    for (const running of flows.values()) {
+        if (running.provider === provider && running.status === "running") return { existing: running.id };
+    }
     const flow: Flow = {
         id: randomBytes(8).toString("hex"),
         provider,
@@ -342,10 +430,7 @@ export function startAuthFlow(input: StartAuthFlowInput): { flowId: string; prov
         status: "running",
     };
     flows.set(flow.id, flow);
-    void runFlow(flow, method).catch((err: unknown) => {
-        finish(flow, "error", { type: "error", message: err instanceof Error ? err.message : String(err) });
-    });
-    return { flowId: flow.id, provider, method };
+    return { flow };
 }
 
 export interface PollAuthFlowResult {

@@ -101,6 +101,9 @@ describe("RpcSessionFactory", () => {
       });
       expect(loop.calls.map((call) => call.method).toSorted()).toEqual([
         "agent.list",
+        // Only for the gateway marks: a custom provider borrows the icon of
+        // the API it speaks, and this is the one call that reports which.
+        "auth.providers",
         "auth.status",
         "catalog.list",
         "server.info",

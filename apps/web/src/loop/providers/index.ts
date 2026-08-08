@@ -129,6 +129,53 @@ export function customProviderName(loopProviderId: string): string | null {
   return loopProviderId.startsWith("custom:") ? loopProviderId.slice("custom:".length) : null;
 }
 
+/** The vendor API shapes a gateway may declare. Mirrors core's `CustomProviderSdk`. */
+export type CustomProviderShape = "anthropic" | "openai" | "google" | "openai-compatible";
+
+/**
+ * The mark for a gateway is the mark of the API it SPEAKS.
+ *
+ * A custom provider has no brand of its own — bifrost, LiteLLM and a hand-
+ * rolled proxy are all just an endpoint — so the only honest thing to draw is
+ * the shape it is compatible with. The gateway's own identity rides as the
+ * initials badge over the corner of it (`ProviderInstanceIcon`), which is what
+ * keeps two Anthropic-compatible gateways apart.
+ */
+const SHAPE_ICONS: Record<CustomProviderShape, Icon> = {
+  anthropic: AnthropicIcon,
+  openai: OpenAiIcon,
+  "openai-compatible": OpenAiIcon,
+  google: GoogleAiIcon,
+};
+
+/**
+ * Which API shape each configured gateway speaks, as last reported by loop.
+ *
+ * Presentation is synchronous — `providerIconFor` is called from render — but
+ * the shape is runtime data only loop knows, so it is learned once and cached
+ * rather than fetched at draw time. `buildServerConfig` refreshes it on the
+ * same poll that refreshes the provider list, so a gateway added in the
+ * terminal picks up its mark without a relaunch.
+ */
+let CUSTOM_SHAPES: ReadonlyMap<string, CustomProviderShape> = new Map();
+
+/** Record what loop says each gateway is compatible with. */
+export function rememberCustomProviderShapes(
+  shapes: Iterable<readonly [name: string, shape: string]>,
+): void {
+  const next = new Map<string, CustomProviderShape>();
+  for (const [name, shape] of shapes) {
+    if (shape in SHAPE_ICONS) next.set(name, shape as CustomProviderShape);
+  }
+  CUSTOM_SHAPES = next;
+}
+
+/** The API shape a gateway speaks, or undefined before loop has said. */
+export function customProviderShape(loopProviderId: string): CustomProviderShape | undefined {
+  const name = customProviderName(loopProviderId);
+  return name === null ? undefined : CUSTOM_SHAPES.get(name);
+}
+
 /**
  * Presentation for one loop provider id. Never returns undefined — an unknown
  * id gets a title-cased label and an API-key form, which is the right guess
@@ -139,10 +186,14 @@ export function providerPresentation(loopProviderId: string): LoopProviderPresen
   if (known) return known;
   const custom = customProviderName(loopProviderId);
   if (custom !== null) {
+    const shape = CUSTOM_SHAPES.get(custom);
     return {
       id: loopProviderId,
       label: custom,
-      tagline: "Custom gateway.",
+      tagline: shape ? `Custom gateway · ${shape}-compatible.` : "Custom gateway.",
+      // Before loop has reported the shape there is nothing true to draw, so
+      // the lettermark stands in rather than a guessed brand.
+      ...(shape === undefined ? {} : { icon: SHAPE_ICONS[shape] }),
       login: [],
     };
   }

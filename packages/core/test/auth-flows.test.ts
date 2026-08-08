@@ -128,9 +128,32 @@ describe("listProviderDescriptors", () => {
         for (const descriptor of flows.listProviderDescriptors()) {
             if (descriptor.kind !== "custom") continue;
             expect(descriptor.id.startsWith("custom:")).toBe(true);
-            expect(descriptor.authorized).toBe(true);
             expect(typeof descriptor.baseURL).toBe("string");
+            // A gateway is configured, therefore usable — the exception being
+            // an oauth one that has never been signed in to, which has no
+            // token to send and must not read as connected.
+            if (descriptor.mode !== "oauth") expect(descriptor.authorized).toBe(true);
+            expect(descriptor.methods).toEqual(flows.authMethodsFor(descriptor.id));
         }
+    });
+
+    /**
+     * A gateway has no credential to re-enter against an existing id — it IS
+     * its config, which is `auth.custom.save`. Offering "apikey" here produced
+     * a settings form whose Save wrote the key into the BUILT-IN provider
+     * store, where nothing routing a custom gateway ever reads it: the page
+     * said "Connected" and the gateway was untouched.
+     */
+    test("a non-oauth gateway offers no login, because there is nothing to re-enter", () => {
+        for (const descriptor of flows.listProviderDescriptors()) {
+            if (descriptor.kind !== "custom" || descriptor.mode === "oauth") continue;
+            expect(descriptor.methods).toEqual([]);
+        }
+    });
+
+    test("an unknown gateway id has no methods and no env var", () => {
+        expect(flows.authMethodsFor("custom:not-a-gateway")).toEqual([]);
+        expect(flows.apiKeyEnvVar("custom:not-a-gateway")).toBeUndefined();
     });
 });
 

@@ -23,4 +23,18 @@ export {
     type PollAuthFlowResult,
     type ProviderDescriptor,
 } from "./auth-flows";
+export {
+    CUSTOM_PROVIDER_SDKS,
+    discoverCustomProviderModels,
+    draftToConfig,
+    listCustomProviderSummaries,
+    parseCustomProviderAuth,
+    parseCustomProviderDraft,
+    removeCustomProvider,
+    saveCustomProviderConfig,
+    setActiveCustomProvider,
+    type CustomProviderDraft,
+    type CustomProviderModelInput,
+    type CustomProviderSummary,
+} from "./custom-providers";
 export * from "./protocol";

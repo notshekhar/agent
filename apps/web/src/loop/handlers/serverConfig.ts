@@ -15,7 +15,7 @@ import * as Schema from "effect/Schema";
 
 import { APP_VERSION } from "../../branding.ts";
 import { resolveModelAttachmentSupport } from "../modelAttachments.ts";
-import { providerPresentation } from "../providers/index.ts";
+import { providerPresentation, rememberCustomProviderShapes } from "../providers/index.ts";
 import { detectEditors } from "./editors.ts";
 import { toInstanceId } from "./ids.ts";
 import { loopCall } from "../transport.ts";
@@ -51,12 +51,44 @@ export interface LoopServerInfo {
   };
 }
 interface LoopAuthStatus {
-  /** Every provider loop knows about. */
+  /**
+   * Every provider loop can RUN A TURN WITH right now — `listUsableProviders`.
+   * Wider than `authorized` on purpose, and the difference is the whole
+   * reason custom gateways are here: a `custom:` provider is authorized by
+   * existing (its config carries its credential), so it never appears in the
+   * `authorized` list, which is strictly "has an entry in the auth store".
+   * Zero-login providers (ollama, bedrock) are in the same position.
+   */
   readonly providers?: readonly string[];
-  /** The subset that has usable credentials. */
+  /** The subset holding a credential in loop's auth store. */
   readonly authorized?: readonly string[];
   /** The one currently selected. */
   readonly active?: string | null;
+}
+
+/** The slice of `auth.providers` the gateway marks need. */
+interface LoopProviderDescriptor {
+  readonly id: string;
+  readonly kind?: "builtin" | "custom" | "extension";
+  /** Custom gateways only: the vendor API shape the endpoint speaks. */
+  readonly sdk?: string;
+}
+
+/**
+ * The providers a turn can actually start on.
+ *
+ * MEASURED, and the bug it fixes: `auth.status` reports
+ * `providers: [..., "custom:pronto-gpt"]` but
+ * `authorized: [...builtins only]`, because a custom gateway keeps its
+ * credential in its own config rather than in the auth store. Deriving
+ * readiness from `authorized` therefore marked every custom gateway
+ * `status: "disabled"`, and the composer's model picker drops a
+ * non-`ready` instance's models outright (`isProviderInstancePickerReady`).
+ * The gateway showed up in the provider rail with nothing under it — you
+ * could see it and not pick it.
+ */
+function usableProviderIds(auth: LoopAuthStatus): ReadonlySet<string> {
+  return new Set([...(auth.providers ?? []), ...(auth.authorized ?? [])]);
 }
 
 const decodeConfig = Schema.decodeUnknownEffect(ServerConfig);
@@ -169,7 +201,7 @@ export function effortDescriptors(model: LoopCatalogModel, current: string): rea
  * pattern allows `:`, so loop's ids — including custom ones like
  * `custom:pronto-gpt` — are legal as-is and need no mapping table.
  */
-function toProviders(
+export function toProviders(
   catalog: readonly LoopCatalogModel[],
   auth: LoopAuthStatus,
   configured: string | null | undefined,
@@ -187,7 +219,7 @@ function toProviders(
   // the list — the user can authenticate it and pick a custom model.
   for (const id of auth.providers ?? []) if (!byProvider.has(id)) byProvider.set(id, []);
 
-  const authorized = new Set(auth.authorized ?? []);
+  const usable = usableProviderIds(auth);
   return [...byProvider].map(([id, models]) => ({
     instanceId: toInstanceId(id),
     driver: toInstanceId(id),
@@ -200,8 +232,8 @@ function toProviders(
     enabled: true,
     installed: true,
     version: null,
-    status: authorized.has(id) ? "ready" : "disabled",
-    auth: { status: authorized.has(id) ? "authenticated" : "unauthenticated" },
+    status: usable.has(id) ? "ready" : "disabled",
+    auth: { status: usable.has(id) ? "authenticated" : "unauthenticated" },
     checkedAt,
     models: models.map((model) => ({
       slug: model.id,
@@ -241,11 +273,11 @@ function defaultModelSelection(
   const exact = configured ? catalog.find((model) => model.id === configured) : undefined;
   if (exact) return { instanceId: toInstanceId(exact.provider), model: exact.id };
 
-  const authorized = new Set(auth.authorized ?? []);
+  const usable = usableProviderIds(auth);
   const active = auth.active ?? undefined;
   const pick =
     (active ? catalog.find((m) => m.provider === active && m.available !== false) : undefined) ??
-    catalog.find((m) => authorized.has(m.provider) && m.available !== false) ??
+    catalog.find((m) => usable.has(m.provider) && m.available !== false) ??
     catalog[0];
   if (!pick) return undefined;
   return { instanceId: toInstanceId(pick.provider), model: pick.id };
@@ -311,7 +343,7 @@ export function serverConfigFingerprint(config: unknown): string {
 }
 
 export const buildServerConfig = Effect.fnUntraced(function* (options: BuildServerConfigOptions) {
-  const [catalog, auth, info, agentList] = yield* Effect.promise(() =>
+  const [catalog, auth, info, agentList, descriptors] = yield* Effect.promise(() =>
     Promise.all([
       loopCall<readonly LoopCatalogModel[]>("catalog.list", {}, options.cwd).catch(
         () => [] as readonly LoopCatalogModel[],
@@ -323,7 +355,22 @@ export const buildServerConfig = Effect.fnUntraced(function* (options: BuildServ
       loopCall<readonly { name?: string }[]>("agent.list", {}, options.cwd).catch(
         () => [] as readonly { name?: string }[],
       ),
+      // Only for the gateway marks below — a custom provider has no brand of
+      // its own, so its icon is the icon of the API it speaks, and this is the
+      // only call that reports that.
+      loopCall<{ providers?: readonly LoopProviderDescriptor[] }>(
+        "auth.providers",
+        {},
+        options.cwd,
+      ).catch(() => ({}) as { providers?: readonly LoopProviderDescriptor[] }),
     ]),
+  );
+  rememberCustomProviderShapes(
+    (descriptors.providers ?? []).flatMap((descriptor) =>
+      descriptor.kind === "custom" && descriptor.sdk
+        ? [[descriptor.id.replace(/^custom:/, ""), descriptor.sdk] as const]
+        : [],
+    ),
   );
   const agentNames = (Array.isArray(agentList) ? agentList : [])
     .map((agent) => agent?.name)
