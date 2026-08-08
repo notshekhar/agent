@@ -31,7 +31,11 @@ def main() -> int:
             if not line:
                 continue
             sha, fname = line.split()
-            m = re.match(r"loop-(.+)\.tar\.gz$", fname)
+            # The desktop app's linux archives are also loop-*.tar.gz, and a
+            # bare (.+) happily reads them as CLI targets named
+            # "desktop-linux-x64" — inventing formula entries for binaries that
+            # are Electron bundles, not the CLI Homebrew installs.
+            m = re.match(r"loop-(?!desktop-)(.+)\.tar\.gz$", fname)
             if m:
                 sums[m.group(1)] = sha
 
