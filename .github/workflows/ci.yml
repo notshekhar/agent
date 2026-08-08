@@ -11,6 +11,9 @@ permissions:
 jobs:
     build:
         runs-on: ubuntu-latest
+        # The suite runs in well under two minutes; anything past this is a
+        # hang, and a hang would otherwise sit on the runner for six hours.
+        timeout-minutes: 20
         steps:
             - uses: actions/checkout@v4
             - uses: oven-sh/setup-bun@v2
@@ -20,7 +23,14 @@ jobs:
               with:
                   node-version: 22
             - run: bun install --frozen-lockfile
-            - run: bun test
+            # Scoped on purpose. A bare `bun test` walks the whole workspace and
+            # picks up apps/web's suite, which is written for vitest — under bun
+            # it throws on `vi.waitFor` / `vite-plus/test` and then never exits,
+            # hanging the job until the 6h runner timeout. The web app runs its
+            # own runner below.
+            - run: bun test packages apps/desktop
+            - name: Web app tests (vitest)
+              run: bun run --filter @loop/web test
             - run: bun run build
             - name: Smoke test built CLI
               run: node packages/cli/dist/cli.js --help || node packages/cli/dist/cli.js help || true
@@ -33,6 +43,7 @@ jobs:
     # the action packaging.
     action-selftest:
         runs-on: ubuntu-latest
+        timeout-minutes: 15
         env:
             ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         steps:

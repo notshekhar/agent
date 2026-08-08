@@ -6,23 +6,38 @@ name: loop-review
 on:
     pull_request:
         types: [opened, synchronize]
+    # On demand against any open PR. Without this the workflow only ever fires
+    # on a pull_request event, so a repo whose work lands as direct pushes to
+    # main never exercises it at all — and a review workflow you cannot run is
+    # a review workflow you cannot trust.
+    workflow_dispatch:
+        inputs:
+            pr:
+                description: "PR number to review."
+                required: true
 
 permissions:
     contents: read
     pull-requests: write
 
 concurrency:
-    group: loop-review-${{ github.event.pull_request.number }}
+    group: loop-review-${{ github.event.pull_request.number || inputs.pr }}
     cancel-in-progress: true
 
 jobs:
     review:
         runs-on: ubuntu-latest
-        if: github.event.pull_request.head.repo.full_name == github.repository
+        timeout-minutes: 30
+        # Forked PRs carry no secrets, so skip them. A manual dispatch always
+        # comes from someone with write access, so it is allowed through.
+        if: >-
+            github.event_name == 'workflow_dispatch' ||
+            github.event.pull_request.head.repo.full_name == github.repository
         # `secrets` isn't allowed in `if` conditions — the key rides job env
         # and the review step gates on env (skips when unconfigured/forked).
         env:
             ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+            PR: ${{ github.event.pull_request.number || inputs.pr }}
         steps:
             - uses: actions/checkout@v4
               with:
@@ -38,10 +53,12 @@ jobs:
               # and `head -c` closing the pipe early would SIGPIPE-fail gh on
               # any diff larger than the cap.
               run: |
-                  gh pr diff "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" \
-                    > "$RUNNER_TEMP/pr-full.diff"
+                  gh pr diff "$PR" --repo "${{ github.repository }}" > "$RUNNER_TEMP/pr-full.diff"
                   head -c 60000 "$RUNNER_TEMP/pr-full.diff" > "$RUNNER_TEMP/pr.diff"
                   wc -c "$RUNNER_TEMP/pr.diff"
+                  # An empty diff means the agent would review nothing and still
+                  # burn a full model run, so fail loudly instead.
+                  test -s "$RUNNER_TEMP/pr.diff"
 
             - name: Review with loop
               if: env.ANTHROPIC_API_KEY != ''
@@ -54,7 +71,7 @@ jobs:
                       source files when the diff alone is ambiguous, and write a concise
                       review: real bugs, risky changes, and missing tests — with file:line
                       references. No praise padding; if the change looks correct, say so in
-                      one line. PR title: ${{ github.event.pull_request.title }}
+                      one line. Reviewing PR #${{ github.event.pull_request.number || inputs.pr }}.
                   model: anthropic/claude-sonnet-4-6
                   max-steps: "25"
                   post-comment: "true"

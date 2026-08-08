@@ -53,7 +53,8 @@
         "link": "bun run --filter @notshekhar/loop build && cd packages/cli && bun link",
         "format": "prettier --write .",
         "format:check": "prettier --check .",
-        "test": "bun test"
+        "//test": "Scoped: a bare `bun test` also collects apps/web, whose suite is vitest-only and hangs the process under bun. The web app has its own `test` script.",
+        "test": "bun test packages apps/desktop && bun run --filter @loop/web test"
     },
     "devDependencies": {
         "@types/bun": "latest",
