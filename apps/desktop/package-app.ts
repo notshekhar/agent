@@ -120,6 +120,18 @@ await writeFile(
             version,
             private: true,
             main: "dist/main/index.cjs",
+            /**
+             * `author` and `description` are required, not decoration.
+             *
+             * Packager stamps them into the Windows executable's version
+             * resource as CompanyName and FileDescription, and REFUSES to build
+             * a win32 target without an author — while packaging darwin and
+             * linux perfectly happily without one. Omitting them therefore
+             * fails exactly one leg of the matrix, and only on the platform
+             * that is slowest to find out about.
+             */
+            author: "notshekhar",
+            description: "Coding agent",
             dependencies: { "node-pty": pkg.dependencies["node-pty"] },
         },
         null,
