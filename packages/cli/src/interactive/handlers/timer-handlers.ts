@@ -8,7 +8,6 @@
  * selector flow as the model picker.
  */
 import type { SelectItem } from "@notshekhar/loop-tui";
-import chalk from "chalk";
 import {
     addReminder,
     deleteReminder,
@@ -23,6 +22,7 @@ import { Cron } from "croner";
 import type { AppDeps } from "../deps";
 import type { AppState } from "../state";
 import { formatCountdown, formatWhen, parseDuration, parseOnceWhen } from "../time";
+import { err, warn } from "../ui/text";
 
 type TimerHandlers = Pick<CommandContext, "setTimer" | "openReminders">;
 
@@ -51,7 +51,7 @@ export function createTimerHandlers(state: AppState, deps: AppDeps): TimerHandle
             const raw = await promptOnce("when (10m / 18:30 / 2026-06-15 09:00)");
             const at = parseOnceWhen(raw);
             if (at === null || at <= Date.now()) {
-                say(chalk.red(`can't parse a future time from: ${raw}`));
+                say(err(`can't parse a future time from: ${raw}`));
                 return null;
             }
             return { kind: "once", at };
@@ -62,7 +62,7 @@ export function createTimerHandlers(state: AppState, deps: AppDeps): TimerHandle
         try {
             new Cron(expr); // validate only — scheduling happens in the app ticker
         } catch {
-            say(chalk.red(`invalid cron expression: ${expr}`));
+            say(err(`invalid cron expression: ${expr}`));
             return null;
         }
         return { kind: "cron", expr };
@@ -94,7 +94,7 @@ export function createTimerHandlers(state: AppState, deps: AppDeps): TimerHandle
             }
             const ms = parseDuration(input);
             if (ms === null) {
-                say(chalk.red(`can't parse duration: ${input} — try 30s, 5m, 1h30m, 1d`));
+                say(err(`can't parse duration: ${input} — try 30s, 5m, 1h30m, 1d`));
                 return;
             }
             state.timerEndsAt = Date.now() + ms;
@@ -125,7 +125,7 @@ export function createTimerHandlers(state: AppState, deps: AppDeps): TimerHandle
 
                 if (pick.value === ADD) {
                     if (reminders.length >= MAX_REMINDERS) {
-                        say(chalk.yellow(`reminder limit reached (max ${MAX_REMINDERS}) — delete one first`));
+                        say(warn(`reminder limit reached (max ${MAX_REMINDERS}) — delete one first`));
                         continue;
                     }
                     const text = (await promptOnce("reminder text")).trim();

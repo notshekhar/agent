@@ -23,15 +23,16 @@ import {
 import type { AppDeps } from "../deps";
 import type { AppState } from "../state";
 import { resolveAvailableUpdate } from "../../commands";
+import { dim, err, ok, warn } from "../ui/text";
 
 type DoctorHandlers = Pick<CommandContext, "runDoctor">;
 
 type Status = "ok" | "warn" | "fail";
 
 const MARK: Record<Status, string> = {
-    ok: chalk.green("ok  "),
-    warn: chalk.yellow("warn"),
-    fail: chalk.red("fail"),
+    ok: ok("ok  "),
+    warn: warn("warn"),
+    fail: err("fail"),
 };
 
 export function createDoctorHandlers(state: AppState, deps: AppDeps): DoctorHandlers {
@@ -132,24 +133,24 @@ export function createDoctorHandlers(state: AppState, deps: AppDeps): DoctorHand
 
             // Optional external binaries.
             const opt: string[] = [];
-            for (const bin of ["gh", "git", "rg"]) opt.push(`${bin}${Bun.which(bin) ? "" : chalk.dim(" (missing)")}`);
+            for (const bin of ["gh", "git", "rg"]) opt.push(`${bin}${Bun.which(bin) ? "" : dim(" (missing)")}`);
             add(Bun.which("git") ? "ok" : "warn", "binaries", opt.join(", "));
 
             hideWorking();
             history.addSystem(chalk.bold("doctor"));
             const w = Math.max(...rows.map((r) => r.name.length));
             for (const r of rows) {
-                history.addSystem(`  ${MARK[r.status]} ${r.name.padEnd(w + 2)}${chalk.dim(r.detail)}`);
+                history.addSystem(`  ${MARK[r.status]} ${r.name.padEnd(w + 2)}${dim(r.detail)}`);
             }
             const fails = rows.filter((r) => r.status === "fail").length;
             const warns = rows.filter((r) => r.status === "warn").length;
             history.addSystem("");
             history.addSystem(
                 fails
-                    ? chalk.red(`${fails} failure(s), ${warns} warning(s)`)
+                    ? err(`${fails} failure(s), ${warns} warning(s)`)
                     : warns
-                      ? chalk.yellow(`healthy with ${warns} warning(s)`)
-                      : chalk.green("all checks passed"),
+                      ? warn(`healthy with ${warns} warning(s)`)
+                      : ok("all checks passed"),
             );
             tui.requestRender();
         },

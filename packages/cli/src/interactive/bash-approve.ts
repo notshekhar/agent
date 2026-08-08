@@ -7,10 +7,10 @@
  */
 import { Container, SelectList, type SelectItem, Text } from "@notshekhar/loop-tui";
 import type { BashApprovalBridge, BashApprovalDecision, BashApprovalRequest } from "@notshekhar/loop-core";
-import chalk from "chalk";
 import type { SelectorHost } from "./selectors";
 import { DynamicBorder } from "./ui/messages";
 import { getSelectListTheme } from "./ui/theme";
+import { accent, dim, warnTitle } from "./ui/text";
 
 /** Keep the prompt compact: at most this many command lines, each capped. */
 const MAX_COMMAND_LINES = 6;
@@ -49,20 +49,20 @@ export function createBashApprovalBridge(host: SelectorHost): BashApprovalBridge
                       : " [bash] run this command?";
             const list = new SelectList(items, items.length, getSelectListTheme());
             const wrapper = new Container();
-            wrapper.addChild(new Text(chalk.bold.yellow(headline), 0, 0));
-            if (req.title) wrapper.addChild(new Text(chalk.dim(` ${req.title}`), 0, 0));
+            wrapper.addChild(new Text(warnTitle(headline), 0, 0));
+            if (req.title) wrapper.addChild(new Text(dim(` ${req.title}`), 0, 0));
             const lines = req.command.split("\n");
             for (const line of lines.slice(0, MAX_COMMAND_LINES)) {
                 const shown = line.length > MAX_LINE_CHARS ? `${line.slice(0, MAX_LINE_CHARS - 1)}…` : line;
-                wrapper.addChild(new Text(chalk.cyan(` ${shown}`), 0, 0));
+                wrapper.addChild(new Text(accent(` ${shown}`), 0, 0));
             }
             if (lines.length > MAX_COMMAND_LINES) {
-                wrapper.addChild(new Text(chalk.dim(` … ${lines.length - MAX_COMMAND_LINES} more lines`), 0, 0));
+                wrapper.addChild(new Text(dim(` … ${lines.length - MAX_COMMAND_LINES} more lines`), 0, 0));
             }
             wrapper.addChild(new DynamicBorder());
             wrapper.addChild(list);
             wrapper.addChild(new DynamicBorder());
-            wrapper.addChild(new Text(chalk.dim(" ↑↓ navigate · Enter select · Esc denies"), 0, 0));
+            wrapper.addChild(new Text(dim(" ↑↓ navigate · Enter select · Esc denies"), 0, 0));
 
             const statusLabel =
                 kind === "path" ? "file access approval" : kind === "plan" ? "plan approval" : "bash approval";

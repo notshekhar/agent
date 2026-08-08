@@ -1,16 +1,16 @@
 import { Container, Editor, type EditorTheme, SelectList, type SelectItem, Text, TUI } from "@notshekhar/loop-tui";
 import { DynamicBorder } from "./ui/messages";
 import { getSelectListTheme } from "./ui/theme";
-import chalk from "chalk";
 import { isEsc } from "./keys";
+import { accent, accentTitle, dim, strong } from "./ui/text";
 
 export function buildSelectorWrapper(items: SelectItem[], title: string | undefined, list: SelectList): Container {
     const wrapper = new Container();
-    if (title) wrapper.addChild(new Text(chalk.bold.cyan(` ${title}`), 0, 0));
+    if (title) wrapper.addChild(new Text(accentTitle(` ${title}`), 0, 0));
     wrapper.addChild(new DynamicBorder());
     wrapper.addChild(list);
     wrapper.addChild(new DynamicBorder());
-    wrapper.addChild(new Text(chalk.dim(" ↑↓ navigate · Enter select · Esc cancel"), 0, 0));
+    wrapper.addChild(new Text(dim(" ↑↓ navigate · Enter select · Esc cancel"), 0, 0));
     return wrapper;
 }
 
@@ -61,9 +61,9 @@ export function searchSelectOnce(
         const header = new Text("", 0, 0);
         const renderHeader = (query: string) =>
             header.setText(
-                chalk.bold.cyan(` ${title ?? "Select"}`) +
-                    chalk.dim("  search: ") +
-                    (query ? chalk.white(query) : chalk.dim("(type to filter)")),
+                accentTitle(` ${title ?? "Select"}`) +
+                    dim("  search: ") +
+                    (query ? strong(query) : dim("(type to filter)")),
             );
         renderHeader("");
 
@@ -72,7 +72,7 @@ export function searchSelectOnce(
         wrapper.addChild(new DynamicBorder());
         wrapper.addChild(list);
         wrapper.addChild(new DynamicBorder());
-        wrapper.addChild(new Text(chalk.dim(" type to filter · ↑↓ navigate · Enter select · Esc cancel"), 0, 0));
+        wrapper.addChild(new Text(dim(" type to filter · ↑↓ navigate · Enter select · Esc cancel"), 0, 0));
         const close = host.showSelector(wrapper, list);
 
         let done = false;
@@ -181,9 +181,9 @@ export function toggleSelectOnce(
         const header = new Text("", 0, 0);
         const renderHeader = (query: string) =>
             header.setText(
-                chalk.bold.cyan(` ${title ?? "Toggle"}`) +
-                    chalk.dim("  search: ") +
-                    (query ? chalk.white(query) : chalk.dim("(type to filter)")),
+                accentTitle(` ${title ?? "Toggle"}`) +
+                    dim("  search: ") +
+                    (query ? strong(query) : dim("(type to filter)")),
             );
         renderHeader("");
 
@@ -193,11 +193,7 @@ export function toggleSelectOnce(
         wrapper.addChild(list);
         wrapper.addChild(new DynamicBorder());
         wrapper.addChild(
-            new Text(
-                chalk.dim(" type to filter · ↑↓ navigate · Enter/Space toggle · done confirms · Esc cancel"),
-                0,
-                0,
-            ),
+            new Text(dim(" type to filter · ↑↓ navigate · Enter/Space toggle · done confirms · Esc cancel"), 0, 0),
         );
         const close = host.showSelector(wrapper, list);
 
@@ -290,11 +286,11 @@ export function promptOnce(
         const tempEditor = new Editor(host.tui, editorTheme, { paddingX: 1 });
         if (initial) tempEditor.setText(initial);
         const wrapper = new Container();
-        if (label) wrapper.addChild(new Text(chalk.cyan(` ${label}`), 0, 0));
+        if (label) wrapper.addChild(new Text(accent(` ${label}`), 0, 0));
         wrapper.addChild(new DynamicBorder());
         wrapper.addChild(tempEditor);
         wrapper.addChild(new DynamicBorder());
-        wrapper.addChild(new Text(chalk.dim(" Enter to submit · Shift+Enter newline · Esc to cancel"), 0, 0));
+        wrapper.addChild(new Text(dim(" Enter to submit · Shift+Enter newline · Esc to cancel"), 0, 0));
         const close = host.showSelector(wrapper, tempEditor as never);
 
         let done = false;

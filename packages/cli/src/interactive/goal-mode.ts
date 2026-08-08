@@ -12,7 +12,6 @@
  * verdict completes the goal. Esc pauses (resume with /goal resume); caps
  * and stalls auto-pause instead of burning tokens forever.
  */
-import chalk from "chalk";
 import {
     applyVerdict,
     buildContinuationDirective,
@@ -38,6 +37,7 @@ import {
 import { notify } from "../notify";
 import type { AppDeps } from "./deps";
 import type { AppState } from "./state";
+import { dim, err, ok, warn } from "./ui/text";
 
 /** The visible user row each auto-continued round submits (the directive
  * itself rides pendingInjection and renders collapsed). */
@@ -74,7 +74,7 @@ function createEngine(state: AppState, deps: AppDeps): GoalModeEngine {
         st.pausedReason = reason;
         st.pauseMessage = message;
         saveGoalState(sessionId, st);
-        const color = reason === "user" ? chalk.dim : chalk.yellow;
+        const color = reason === "user" ? dim : warn;
         say(color(`goal paused — ${message}`));
     };
 
@@ -105,7 +105,7 @@ function createEngine(state: AppState, deps: AppDeps): GoalModeEngine {
     };
 
     async function runVerification(sessionId: string, st: GoalModeState, finalText: string): Promise<void> {
-        say(chalk.dim(`goal checklist done — verifying (run ${st.verifyRuns + 1})`));
+        say(dim(`goal checklist done — verifying (run ${st.verifyRuns + 1})`));
         if (!state.busy) showWorking("Verifying goal");
         try {
             const { text } = await runGoalRole({
@@ -135,8 +135,8 @@ function createEngine(state: AppState, deps: AppDeps): GoalModeEngine {
                 saveGoalState(sessionId, st);
                 const took = `${st.rounds} round${st.rounds === 1 ? "" : "s"} · ${formatGoalElapsed(Date.now() - st.startedAt)}`;
                 say(
-                    chalk.green(`goal complete — ${st.objective}`) +
-                        chalk.dim(`  ·  ${took}${verdict.summary ? `  ·  ${verdict.summary}` : ""}`),
+                    ok(`goal complete — ${st.objective}`) +
+                        dim(`  ·  ${took}${verdict.summary ? `  ·  ${verdict.summary}` : ""}`),
                 );
                 notify("goal complete", st.objective);
                 return;
@@ -147,8 +147,8 @@ function createEngine(state: AppState, deps: AppDeps): GoalModeEngine {
                 return;
             }
             say(
-                chalk.yellow(`verification refuted — ${action.gaps.length} gap${action.gaps.length === 1 ? "" : "s"}`) +
-                    chalk.dim(" · continuing"),
+                warn(`verification refuted — ${action.gaps.length} gap${action.gaps.length === 1 ? "" : "s"}`) +
+                    dim(" · continuing"),
             );
             continueWith(sessionId, st, { nextStep: null, gaps: action.gaps, bailDetected: false });
         } catch (err) {
@@ -204,8 +204,8 @@ function createEngine(state: AppState, deps: AppDeps): GoalModeEngine {
         const existing = loadGoalState(session.id);
         if (existing && existing.status !== "complete") {
             say(
-                chalk.yellow(`a goal is already ${existing.status} in this session — `) +
-                    chalk.dim("/goal status · /goal resume · /goal clear"),
+                warn(`a goal is already ${existing.status} in this session — `) +
+                    dim("/goal status · /goal resume · /goal clear"),
             );
             return;
         }
@@ -224,21 +224,21 @@ function createEngine(state: AppState, deps: AppDeps): GoalModeEngine {
                 abortSignal: state.abort.signal,
             });
             planText = text;
-        } catch (err) {
+        } catch (cause) {
             // Fail-closed like grok's planner: no plan, no goal.
-            say(chalk.red(`goal planning failed — ${(err as Error).message}. Goal not started.`));
+            say(err(`goal planning failed — ${(cause as Error).message}. Goal not started.`));
             return;
         } finally {
             hideWorking();
             tui.requestRender();
         }
         if (!planText.includes("## Acceptance criteria") || !planText.includes("- [ ]")) {
-            say(chalk.red("goal planning failed — the planner produced no usable plan. Goal not started."));
+            say(err("goal planning failed — the planner produced no usable plan. Goal not started."));
             return;
         }
         const st = initGoalState(session.id, objective);
         writeGoalPlan(st, planText);
-        say(chalk.dim(`goal set — plan at ${st.planPath}`));
+        say(dim(`goal set — plan at ${st.planPath}`));
         state.pendingInjection = buildGoalRulesDirective({
             objective,
             planPath: st.planPath,
@@ -252,7 +252,7 @@ function createEngine(state: AppState, deps: AppDeps): GoalModeEngine {
         const sessionId = state.session?.id;
         const st = sessionId ? loadGoalState(sessionId) : null;
         if (!st) {
-            say(chalk.dim("no goal in this session — start one with /goal <objective>"));
+            say(dim("no goal in this session — start one with /goal <objective>"));
             return;
         }
         const lines = [
@@ -272,15 +272,15 @@ function createEngine(state: AppState, deps: AppDeps): GoalModeEngine {
         const sessionId = state.session?.id;
         const st = sessionId ? loadGoalState(sessionId) : null;
         if (!st || !sessionId) {
-            say(chalk.dim("no goal to resume — start one with /goal <objective>"));
+            say(dim("no goal to resume — start one with /goal <objective>"));
             return;
         }
         if (st.status === "complete") {
-            say(chalk.dim("goal already complete — start a new one with /goal <objective>"));
+            say(dim("goal already complete — start a new one with /goal <objective>"));
             return;
         }
         if (st.status === "active" || st.status === "verifying") {
-            say(chalk.dim(`goal is already ${st.status}`));
+            say(dim(`goal is already ${st.status}`));
             return;
         }
         st.pausedReason = undefined;
@@ -291,7 +291,7 @@ function createEngine(state: AppState, deps: AppDeps): GoalModeEngine {
         st.sameStepStrikes = 0;
         const planText = readGoalPlan(st);
         const nextStep = planText ? firstUncheckedStep(planText) : null;
-        say(chalk.dim("goal resumed"));
+        say(dim("goal resumed"));
         continueWith(sessionId, st, { nextStep, gaps: st.lastGaps, bailDetected: false });
     }
 
@@ -303,7 +303,7 @@ function createEngine(state: AppState, deps: AppDeps): GoalModeEngine {
             const sessionId = state.session?.id;
             const st = sessionId ? loadGoalState(sessionId) : null;
             if (!st || !sessionId || (st.status !== "active" && st.status !== "verifying")) {
-                say(chalk.dim("no active goal to pause"));
+                say(dim("no active goal to pause"));
                 return;
             }
             pause(sessionId, st, "user", "paused — /goal resume to continue");
@@ -314,9 +314,9 @@ function createEngine(state: AppState, deps: AppDeps): GoalModeEngine {
             const sessionId = state.session?.id;
             if (sessionId && loadGoalState(sessionId)) {
                 clearGoalState(sessionId);
-                say(chalk.dim("goal cleared"));
+                say(dim("goal cleared"));
             } else {
-                say(chalk.dim("no goal to clear"));
+                say(dim("no goal to clear"));
             }
             return;
         }

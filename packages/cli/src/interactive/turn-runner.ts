@@ -1,5 +1,4 @@
 import { EventEmitter } from "node:events";
-import chalk from "chalk";
 import {
     asTurnEmitter,
     isDeliveredPlan,
@@ -21,6 +20,7 @@ import { wireTurnEmitter } from "./turn-emitter";
 import { traceEvent } from "./debug-log";
 import { uiStyle } from "./ui/ui-mode";
 import { goalModeEngine } from "./goal-mode";
+import { dim, warn } from "./ui/text";
 
 /**
  * Whether the leading /token of an input maps to a registered slash command.
@@ -65,7 +65,7 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
             "Plan ready",
         );
         if (!choice || choice.value === "talk") {
-            history.addSystem(chalk.dim("keep chatting to refine the plan — deliver again with the plan tool"));
+            history.addSystem(dim("keep chatting to refine the plan — deliver again with the plan tool"));
             tui.requestRender();
             return;
         }
@@ -81,7 +81,7 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
             setPlanMode(state.session.id, false);
             state.planModeViaCycle = false;
             deps.statusLine.setPlanMode(false);
-            history.addSystem(chalk.dim("plan approved — plan mode off, edits enabled"));
+            history.addSystem(dim("plan approved — plan mode off, edits enabled"));
         }
         void ctx.useAgent(
             pick.value,
@@ -248,8 +248,8 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
                 deps.statusLine.setPlanMode(planModeAfter);
                 if (planModeAfter) {
                     history.addSystem(
-                        chalk.yellow("plan mode on") +
-                            chalk.dim(" — edits rejected, bash read-only; accept a plan or /plan to turn off"),
+                        warn("plan mode on") +
+                            dim(" — edits rejected, bash read-only; accept a plan or /plan to turn off"),
                     );
                 }
             }

@@ -1,5 +1,4 @@
 import { type SelectItem, type TUI } from "@notshekhar/loop-tui";
-import chalk from "chalk";
 import {
     bedrockRegion,
     envName,
@@ -31,6 +30,7 @@ import {
 import type { ChatHistory } from "./components/chat-history";
 import { providerLabel } from "./provider-labels";
 import { openBrowser } from "../open-browser";
+import { accent, dim, err, ok, warn } from "./ui/text";
 
 export interface LoginDeps {
     tui: TUI;
@@ -45,9 +45,9 @@ type StepResult = "done" | "back" | "cancel";
 function presentAuth(deps: LoginDeps, label: string, url: string, instructions?: string): void {
     const { tui, history } = deps;
     if (instructions) history.addSystem(instructions);
-    history.addSystem(chalk.cyan(url));
+    history.addSystem(accent(url));
     const opened = openBrowser(url);
-    history.addSystem(chalk.dim(opened ? `(opened in browser — ${label})` : `(open this URL in a browser — ${label})`));
+    history.addSystem(dim(opened ? `(opened in browser — ${label})` : `(open this URL in a browser — ${label})`));
     tui.requestRender();
 }
 
@@ -143,7 +143,7 @@ async function pickCustomAuth(deps: LoginDeps, name: string, baseURL: string): P
             const varName = (await promptOnce("env var: ")).trim();
             if (!varName) return null;
             if (!process.env[varName]) {
-                history.addSystem(chalk.yellow(`note: $${varName} is not set in this shell right now`));
+                history.addSystem(warn(`note: $${varName} is not set in this shell right now`));
                 tui.requestRender();
             }
             return { kind: "env", var: varName };
@@ -181,13 +181,13 @@ async function pickCustomAuth(deps: LoginDeps, name: string, baseURL: string): P
             let authorizationEndpoint = "";
             let tokenEndpoint = "";
             let discovered: OAuthEndpoints | null = null;
-            history.addSystem(chalk.dim(`checking ${issuer || baseURL} for OAuth endpoint metadata…`));
+            history.addSystem(dim(`checking ${issuer || baseURL} for OAuth endpoint metadata…`));
             tui.requestRender();
             try {
                 discovered = await discoverOAuthEndpoints(issuer || baseURL);
             } catch {
                 history.addSystem(
-                    `${chalk.yellow("no .well-known OAuth metadata found")} at ${issuer || baseURL} — enter the endpoints from the provider's docs.`,
+                    `${warn("no .well-known OAuth metadata found")} at ${issuer || baseURL} — enter the endpoints from the provider's docs.`,
                 );
                 tui.requestRender();
                 authorizationEndpoint = (await promptOnce("authorization endpoint URL: ")).trim();
@@ -199,7 +199,7 @@ async function pickCustomAuth(deps: LoginDeps, name: string, baseURL: string): P
             // no registration endpoint means the login is guaranteed to fail.
             if (!clientId && (authorizationEndpoint || !discovered?.registration_endpoint)) {
                 history.addSystem(
-                    `${chalk.yellow("the server supports no dynamic client registration")} — register an OAuth app with the provider and enter its client id.`,
+                    `${warn("the server supports no dynamic client registration")} — register an OAuth app with the provider and enter its client id.`,
                 );
                 tui.requestRender();
                 clientId = (await promptOnce("clientId: ")).trim();
@@ -283,7 +283,7 @@ async function loginCustom(deps: LoginDeps): Promise<StepResult> {
                     },
                 },
             );
-            history.addSystem(chalk.green(`signed in to ${name}.`));
+            history.addSystem(ok(`signed in to ${name}.`));
             tui.requestRender();
         } catch (err) {
             history.addError(`OAuth sign-in failed: ${(err as Error).message}`);
@@ -321,13 +321,11 @@ async function loginCustom(deps: LoginDeps): Promise<StepResult> {
             ...(m.contextWindow ? { contextWindow: m.contextWindow } : {}),
             ...(m.maxOutput ? { maxOutput: m.maxOutput } : {}),
         }));
-        history.addSystem(chalk.green(`found ${discovered.length} models:`));
-        for (const m of discovered.slice(0, 12)) history.addSystem(chalk.dim(`  • ${m.id}`));
-        if (discovered.length > 12) history.addSystem(chalk.dim(`  … +${discovered.length - 12} more`));
+        history.addSystem(ok(`found ${discovered.length} models:`));
+        for (const m of discovered.slice(0, 12)) history.addSystem(dim(`  • ${m.id}`));
+        if (discovered.length > 12) history.addSystem(dim(`  … +${discovered.length - 12} more`));
     } else {
-        history.addSystem(
-            chalk.yellow("Endpoint doesn't expose a model list — enter model ids manually (comma-separated)."),
-        );
+        history.addSystem(warn("Endpoint doesn't expose a model list — enter model ids manually (comma-separated)."));
         tui.requestRender();
         const ids = (await promptOnce("model ids: "))
             .split(",")
@@ -344,7 +342,7 @@ async function loginCustom(deps: LoginDeps): Promise<StepResult> {
     saveCustomProvider(cfg);
     setActiveProvider(`custom:${name}`);
     bustCatalogCache();
-    history.addSystem(chalk.green(`custom provider "${name}" saved (${cfg.models!.length} models) and set active.`));
+    history.addSystem(ok(`custom provider "${name}" saved (${cfg.models!.length} models) and set active.`));
     tui.requestRender();
     return "done";
 }
@@ -365,7 +363,7 @@ async function loginXai(deps: LoginDeps): Promise<StepResult> {
         try {
             await loginXaiOAuth(({ url, instructions }) => presentAuth(deps, "xAI", url, instructions));
             setActiveProvider("xai");
-            history.addSystem(chalk.green("xAI subscription connected."));
+            history.addSystem(ok("xAI subscription connected."));
         } catch (err) {
             history.addError(`xAI login failed: ${(err as Error).message}`);
         }
@@ -394,7 +392,7 @@ async function loginCopilot(deps: LoginDeps): Promise<StepResult> {
         });
         setActiveProvider("github-copilot");
         bustCatalogCache();
-        history.addSystem(chalk.green("GitHub Copilot connected."));
+        history.addSystem(ok("GitHub Copilot connected."));
     } catch (err) {
         history.addError(`Copilot login failed: ${(err as Error).message}`);
     }
@@ -439,8 +437,8 @@ async function loginChatgpt(deps: LoginDeps): Promise<StepResult> {
         });
         setActiveProvider("openai-chatgpt");
         bustCatalogCache();
-        history.addSystem(chalk.green("ChatGPT (Codex) connected."));
-        history.addSystem(chalk.dim("Personal/local use only — usage is billed to your ChatGPT subscription."));
+        history.addSystem(ok("ChatGPT (Codex) connected."));
+        history.addSystem(dim("Personal/local use only — usage is billed to your ChatGPT subscription."));
     } catch (err) {
         history.addError(`ChatGPT login failed: ${(err as Error).message}`);
     }
@@ -462,9 +460,7 @@ async function loginOllama(deps: LoginDeps): Promise<StepResult> {
     }
     if (models.length === 0) {
         history.addSystem(
-            chalk.yellow(
-                "Ollama is running but no models are installed. Pull one, e.g. `ollama pull llama3.2`, then retry.",
-            ),
+            warn("Ollama is running but no models are installed. Pull one, e.g. `ollama pull llama3.2`, then retry."),
         );
         tui.requestRender();
         return "done";
@@ -473,9 +469,7 @@ async function loginOllama(deps: LoginDeps): Promise<StepResult> {
     loginApiKey("ollama", "local");
     setActiveProvider("ollama");
     bustCatalogCache();
-    history.addSystem(
-        chalk.green(`Ollama connected — ${models.length} model${models.length === 1 ? "" : "s"} installed.`),
-    );
+    history.addSystem(ok(`Ollama connected — ${models.length} model${models.length === 1 ? "" : "s"} installed.`));
     tui.requestRender();
     return "done";
 }
@@ -505,7 +499,7 @@ async function loginBedrock(deps: LoginDeps): Promise<StepResult> {
     }
     if (models.length === 0) {
         history.addSystem(
-            chalk.yellow(
+            warn(
                 `Bedrock answered but no invokable models in ${region}. Request model access in the AWS console (Bedrock → Model access), then retry.`,
             ),
         );
@@ -517,9 +511,7 @@ async function loginBedrock(deps: LoginDeps): Promise<StepResult> {
     loginApiKey("bedrock", "aws");
     setActiveProvider("bedrock");
     bustCatalogCache();
-    history.addSystem(
-        chalk.green(`Bedrock connected — ${models.length} model${models.length === 1 ? "" : "s"} in ${region}.`),
-    );
+    history.addSystem(ok(`Bedrock connected — ${models.length} model${models.length === 1 ? "" : "s"} in ${region}.`));
     tui.requestRender();
     return "done";
 }
@@ -537,7 +529,7 @@ async function apiKeyLogin(
     loginApiKey(p, key);
     setActiveProvider(p);
     bustCatalogCache();
-    history.addSystem(chalk.green(`${p} key saved.`));
+    history.addSystem(ok(`${p} key saved.`));
     tui.requestRender();
     return "done";
 }
@@ -609,7 +601,7 @@ export async function startLogout(deps: LoginDeps, target?: string): Promise<voi
                 label: id,
                 description: id === getActiveProvider() ? "(active)" : "",
             })),
-            { value: "__all__", label: chalk.red("all providers"), description: "Sign out from every provider" },
+            { value: "__all__", label: err("all providers"), description: "Sign out from every provider" },
         ];
         const sel = await searchOnce(items, "Sign out of provider (type to filter)");
         if (!sel) return;

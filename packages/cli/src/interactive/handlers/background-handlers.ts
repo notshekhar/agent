@@ -9,7 +9,6 @@
 import { spawn } from "node:child_process";
 import { basename } from "node:path";
 import type { SelectItem } from "@notshekhar/loop-tui";
-import chalk from "chalk";
 import {
     addGoal,
     deleteGoal,
@@ -33,6 +32,7 @@ import { formatWhen, parseOnceWhen } from "../time";
 import { daemonInstall, daemonStatus, daemonUninstall, isDaemonInstalled } from "../../goals/daemon";
 import { nextCronRun } from "../../goals/schedule";
 import { resumeSessionById } from "./session-handlers";
+import { dim, err, warn } from "../ui/text";
 
 type BackgroundHandlers = Pick<CommandContext, "manageBackground" | "manageDaemon">;
 
@@ -67,7 +67,7 @@ export function createBackgroundHandlers(state: AppState, deps: AppDeps): Backgr
             const raw = await promptOnce("when (10m / 18:30 / 2026-06-15 09:00)");
             const at = parseOnceWhen(raw);
             if (at === null || at <= Date.now()) {
-                say(chalk.red(`can't parse a future time from: ${raw}`));
+                say(err(`can't parse a future time from: ${raw}`));
                 return null;
             }
             return { kind: "once", at };
@@ -78,7 +78,7 @@ export function createBackgroundHandlers(state: AppState, deps: AppDeps): Backgr
         try {
             new Cron(expr); // validate only — firing is the daemon's job
         } catch {
-            say(chalk.red(`invalid cron expression: ${expr}`));
+            say(err(`invalid cron expression: ${expr}`));
             return null;
         }
         return { kind: "cron", expr };
@@ -114,12 +114,12 @@ export function createBackgroundHandlers(state: AppState, deps: AppDeps): Backgr
      */
     async function quickAdd(raw: string): Promise<void> {
         if (listGoals().length >= MAX_GOALS) {
-            say(chalk.yellow(`background task limit reached (max ${MAX_GOALS}) — delete one first`));
+            say(warn(`background task limit reached (max ${MAX_GOALS}) — delete one first`));
             return;
         }
         const fallback = (note: string) => {
             const goal = addGoal(raw, state.cwd, { kind: "none" }, { agent: resolveAgent(null) });
-            say(`${chalk.dim(note)}\nsaved — run or schedule it in /background: ${goal.text}`);
+            say(`${dim(note)}\nsaved — run or schedule it in /background: ${goal.text}`);
         };
 
         showWorking("Parsing background task");
@@ -185,11 +185,7 @@ export function createBackgroundHandlers(state: AppState, deps: AppDeps): Backgr
             `background task added — ${goal.text}  ·  ${describeSchedule(schedule)}${goal.agent ? `  ·  agent ${goal.agent}` : ""}`,
         );
         if (!isDaemonInstalled()) {
-            say(
-                chalk.yellow(
-                    "the background daemon is off — this task will NOT run on its own. Turn it on with /daemon",
-                ),
-            );
+            say(warn("the background daemon is off — this task will NOT run on its own. Turn it on with /daemon"));
         }
     }
 
@@ -206,9 +202,9 @@ export function createBackgroundHandlers(state: AppState, deps: AppDeps): Backgr
             ? [Bun.main ?? process.argv[1] ?? "", "goals", "run", goal.id]
             : ["goals", "run", goal.id];
         const child = spawn(exe, argv, { stdio: "ignore", detached: true });
-        child.on("error", (e) => say(chalk.red(`could not start goal run: ${e.message}`)));
+        child.on("error", (e) => say(err(`could not start goal run: ${e.message}`)));
         child.unref();
-        say(chalk.dim(`running in background — you'll get a notification (${PRODUCT_NAME} goals list for status)`));
+        say(dim(`running in background — you'll get a notification (${PRODUCT_NAME} goals list for status)`));
     }
 
     async function openManager(): Promise<void> {
@@ -217,7 +213,7 @@ export function createBackgroundHandlers(state: AppState, deps: AppDeps): Backgr
         refreshGoals();
         if (listGoals().some((g) => g.enabled && g.kind !== "none") && !isDaemonInstalled()) {
             say(
-                chalk.yellow(
+                warn(
                     "scheduled background tasks exist but the daemon is off — they will not run on their own. Turn it on with /daemon",
                 ),
             );
@@ -250,7 +246,7 @@ export function createBackgroundHandlers(state: AppState, deps: AppDeps): Backgr
 
             if (pick.value === ADD) {
                 if (goals.length >= MAX_GOALS) {
-                    say(chalk.yellow(`background task limit reached (max ${MAX_GOALS}) — delete one first`));
+                    say(warn(`background task limit reached (max ${MAX_GOALS}) — delete one first`));
                     continue;
                 }
                 const text = (await promptOnce("background task")).trim();
@@ -260,7 +256,7 @@ export function createBackgroundHandlers(state: AppState, deps: AppDeps): Backgr
                 addGoal(text, state.cwd, schedule);
                 say(`background task added — ${text}`);
                 if (schedule.kind !== "none" && !isDaemonInstalled()) {
-                    say(chalk.dim("scheduled background tasks need the daemon — turn it on with /daemon"));
+                    say(dim("scheduled background tasks need the daemon — turn it on with /daemon"));
                 }
                 continue;
             }
@@ -307,7 +303,7 @@ export function createBackgroundHandlers(state: AppState, deps: AppDeps): Backgr
                 if (!raw) {
                     updateGoal(goal.id, { model: null });
                 } else if (!raw.includes("/")) {
-                    say(chalk.red(`expected provider/model, got: ${raw}`));
+                    say(err(`expected provider/model, got: ${raw}`));
                 } else {
                     updateGoal(goal.id, { model: raw });
                 }
@@ -349,7 +345,7 @@ export function createBackgroundHandlers(state: AppState, deps: AppDeps): Backgr
         else if (arg === "off" || arg === "uninstall") action = "off";
         else if (arg === "status") action = "status";
         else if (arg) {
-            say(chalk.red("usage: /daemon [on|off|status]"));
+            say(err("usage: /daemon [on|off|status]"));
             return;
         } else {
             const pick = await selectOnce(
@@ -377,8 +373,8 @@ export function createBackgroundHandlers(state: AppState, deps: AppDeps): Backgr
             if (action === "on") say(daemonInstall());
             else if (action === "off") say(installed ? daemonUninstall() : "background daemon is not installed");
             else say(daemonStatus());
-        } catch (err) {
-            say(chalk.red((err as Error).message));
+        } catch (cause) {
+            say(err((cause as Error).message));
         }
     }
 
@@ -392,7 +388,7 @@ export function createBackgroundHandlers(state: AppState, deps: AppDeps): Backgr
             try {
                 await quickAdd(text);
             } catch (err) {
-                if (err instanceof GoalLimitError) say(chalk.yellow(err.message));
+                if (err instanceof GoalLimitError) say(warn(err.message));
                 else throw err;
             }
         },

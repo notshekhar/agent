@@ -15,6 +15,7 @@ import {
 import { ToolExecutionComponent } from "../ui/tool-execution";
 import { matchSessionHookContext } from "@notshekhar/loop-core";
 import chalk from "chalk";
+import { accentTitle, dim, err } from "../ui/text";
 
 const HOOK_ORANGE = chalk.hex("#e09956");
 
@@ -572,7 +573,7 @@ export class ChatHistory extends Container {
 
     addSystem(text: string): void {
         this.markDirty();
-        this.addChild(new Text(chalk.dim(text), 1, 0));
+        this.addChild(new Text(dim(text), 1, 0));
     }
 
     /** Abort landed while tool calls were still pending — freeze them as
@@ -605,7 +606,7 @@ export class ChatHistory extends Container {
         const space = text.indexOf(" ");
         const cmd = space < 0 ? text : text.slice(0, space);
         const rest = space < 0 ? "" : text.slice(space);
-        this.addChild(new Text(chalk.bold.cyan(cmd) + (rest ? chalk.dim(rest) : ""), 1, 0));
+        this.addChild(new Text(accentTitle(cmd) + (rest ? dim(rest) : ""), 1, 0));
         this.assistantTurn = null;
     }
 
@@ -639,7 +640,7 @@ export class ChatHistory extends Container {
 
     addError(text: string): void {
         this.markDirty();
-        this.addChild(new Text(chalk.red(`error: ${text}`), 1, 0));
+        this.addChild(new Text(err(`error: ${text}`), 1, 0));
     }
 
     /** Post-turn recap (data-recap): dim `※ recap:`-labelled lines under the response. */
@@ -647,7 +648,7 @@ export class ChatHistory extends Container {
         this.markDirty();
         const lines = text.split("\n");
         lines.push("(disable recaps in /settings)");
-        const body = lines.map((l, i) => chalk.dim(i === 0 ? `※ recap: ${l}` : `  ${l}`)).join("\n");
+        const body = lines.map((l, i) => dim(i === 0 ? `※ recap: ${l}` : `  ${l}`)).join("\n");
         this.addChild(new Spacer(1));
         this.addChild(new Text(body, 1, 0));
     }

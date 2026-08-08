@@ -3265,11 +3265,11 @@
     "provider": "openrouter",
     "name": "DeepSeek V4 Flash Latest",
     "contextWindow": 1048576,
-    "maxOutput": 65536,
+    "maxOutput": 131072,
     "cost": {
-      "input": 0.09,
-      "output": 0.18,
-      "cacheRead": 0.018,
+      "input": 0.0896,
+      "output": 0.1792,
+      "cacheRead": 0.01792,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -3445,7 +3445,7 @@
     "contextWindow": 262144,
     "maxOutput": 262144,
     "cost": {
-      "input": 0.14,
+      "input": 0.15,
       "output": 1,
       "cacheRead": 0.05,
       "cacheWrite": 0
@@ -5367,9 +5367,9 @@
     "contextWindow": 204800,
     "maxOutput": 131072,
     "cost": {
-      "input": 0.27,
-      "output": 1.08,
-      "cacheRead": 0.054,
+      "input": 0.3,
+      "output": 1.2,
+      "cacheRead": 0.06,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -5602,7 +5602,7 @@
     "provider": "openrouter",
     "name": "DeepSeek V4 Flash 0731",
     "contextWindow": 1048576,
-    "maxOutput": 65536,
+    "maxOutput": 384000,
     "cost": {
       "input": 0.09,
       "output": 0.18,
@@ -5620,11 +5620,11 @@
     "provider": "openrouter",
     "name": "DeepSeek V3.2",
     "contextWindow": 163840,
-    "maxOutput": 163840,
+    "maxOutput": 65536,
     "cost": {
-      "input": 0.26,
-      "output": 0.38,
-      "cacheRead": 0.13,
+      "input": 0.269,
+      "output": 0.4,
+      "cacheRead": 0.1345,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -5808,7 +5808,7 @@
     "contextWindow": 1048576,
     "maxOutput": 1048576,
     "cost": {
-      "input": 2.5,
+      "input": 2.8,
       "output": 14,
       "cacheRead": 0.29,
       "cacheWrite": 0
@@ -6806,9 +6806,9 @@
     "contextWindow": 1048576,
     "maxOutput": 128000,
     "cost": {
-      "input": 0.3486,
-      "output": 1.0956,
-      "cacheRead": 0.06474,
+      "input": 0.182,
+      "output": 0.572,
+      "cacheRead": 0.0338,
       "cacheWrite": 0
     },
     "reasoning": true,

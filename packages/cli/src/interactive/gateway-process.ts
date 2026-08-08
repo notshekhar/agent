@@ -6,10 +6,10 @@
  * owns it. Daemons someone else started (another loop, a foreground
  * `loop gateways <id>`) follow their own starter and are left alone.
  */
-import chalk from "chalk";
 import { listEnabledGateways, stopGatewayDaemon } from "@notshekhar/loop-core";
 import { spawnGatewayDaemon } from "../gateway-daemon";
 import type { AppDeps } from "./deps";
+import { dim } from "./ui/text";
 
 /** Gateway ids whose daemon this process spawned — the ones we stop on exit. */
 const spawnedHere = new Set<string>();
@@ -24,11 +24,9 @@ export function startEnabledGateways(deps: AppDeps): void {
         const result = spawnGatewayDaemon(gw.id, { ownerPid: process.pid });
         if (result === "spawned") {
             spawnedHere.add(gw.id);
-            deps.history.addSystem(chalk.dim(`${gw.id}: daemon started (separate process, stops when loop exits)`));
+            deps.history.addSystem(dim(`${gw.id}: daemon started (separate process, stops when loop exits)`));
         } else if (result === "error") {
-            deps.history.addSystem(
-                chalk.dim(`${gw.id}: could not start daemon — run \`loop gateways ${gw.id}\` to see why`),
-            );
+            deps.history.addSystem(dim(`${gw.id}: could not start daemon — run \`loop gateways ${gw.id}\` to see why`));
         }
     }
     deps.tui.requestRender();

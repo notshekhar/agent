@@ -7,7 +7,7 @@
  */
 import { truncateToWidth, visibleWidth, type Component } from "@notshekhar/loop-tui";
 import type { TodoItem } from "@notshekhar/loop-core";
-import chalk from "chalk";
+import { accentTitle, dim, dimStruck } from "../ui/text";
 
 const MAX_BODY_ROWS = 6;
 
@@ -19,10 +19,10 @@ function clip(s: string, width: number): string {
 }
 
 function row(item: TodoItem): string {
-    if (item.status === "completed") return chalk.dim(`[x] ${item.content}`);
-    if (item.status === "cancelled") return chalk.dim.strikethrough(`[-] ${item.content}`);
-    if (item.status === "in_progress") return chalk.cyan.bold(`[>] ${item.activeForm?.trim() || item.content}`);
-    return chalk.dim(`[ ] ${item.content}`);
+    if (item.status === "completed") return dim(`[x] ${item.content}`);
+    if (item.status === "cancelled") return dimStruck(`[-] ${item.content}`);
+    if (item.status === "in_progress") return accentTitle(`[>] ${item.activeForm?.trim() || item.content}`);
+    return dim(`[ ] ${item.content}`);
 }
 
 /** Completed and cancelled are both terminal — no work left on the item. */
@@ -65,12 +65,12 @@ export function formatTodoPanel(items: TodoItem[], width: number, maxRows = MAX_
     if (items.length === 0) return [];
     const done = items.filter((t) => t.status === "completed").length;
     const title = `─ todos (${done}/${items.length}) `;
-    const header = chalk.dim(title.length < width ? title + "─".repeat(width - title.length) : title.slice(0, width));
+    const header = dim(title.length < width ? title + "─".repeat(width - title.length) : title.slice(0, width));
     // Reserve the last row for "+N more" when clipping.
     const { shown, hidden } = visibleSubset(items, maxRows);
     const clipped = hidden > 0 ? visibleSubset(items, maxRows - 1) : { shown, hidden };
     const lines = [header, ...clipped.shown.map((t) => clip(row(t), width))];
-    if (clipped.hidden > 0) lines.push(chalk.dim(`    +${clipped.hidden} more`));
+    if (clipped.hidden > 0) lines.push(dim(`    +${clipped.hidden} more`));
     return lines;
 }
 

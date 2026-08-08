@@ -229,6 +229,10 @@ interface LayoutLine {
 export interface EditorTheme {
     borderColor: (str: string) => string;
     selectList: SelectListTheme;
+    /** Tint applied to a leading `/command` token as it is typed. Defaults to
+     * plain cyan so an embedder that does not theme the composer still gets
+     * the highlight. */
+    commandColor?: (str: string) => string;
 }
 
 export interface EditorOptions {
@@ -279,6 +283,7 @@ export class Editor implements Component, Focusable {
 
     // Border color (can be changed dynamically)
     public borderColor: (str: string) => string;
+    private commandColor: (str: string) => string;
 
     // Autocomplete support
     private autocompleteProvider?: AutocompleteProvider;
@@ -336,6 +341,7 @@ export class Editor implements Component, Focusable {
         this.tui = tui;
         this.theme = theme;
         this.borderColor = theme.borderColor;
+        this.commandColor = theme.commandColor ?? ((str) => `\x1b[36m${str}\x1b[39m`);
         const paddingX = options.paddingX ?? 0;
         this.paddingX = Number.isFinite(paddingX) ? Math.max(0, Math.floor(paddingX)) : 0;
         const maxVisible = options.autocompleteMaxVisible ?? 5;
@@ -534,7 +540,7 @@ export class Editor implements Component, Focusable {
         const emitCursorMarker = this.focused;
 
         // Slash-command highlight: when the buffer starts with "/", tint the
-        // command token (first word) cyan as the user types. Token length is in
+        // command token (first word) as the user types. Token length is in
         // plain chars; tinting is applied piecewise around the cursor so ANSI
         // never lands inside cursorPos-based slicing.
         const slashLen = /^\/\S+/.exec(this.state.lines[0] ?? "")?.[0].length ?? 0;
@@ -547,8 +553,8 @@ export class Editor implements Component, Focusable {
                 if (!s || slashLen <= 0 || !isFirstTextLine) return s;
                 const end = slashLen - offset;
                 if (end <= 0) return s;
-                if (end >= s.length) return `\x1b[36m${s}\x1b[39m`;
-                return `\x1b[36m${s.slice(0, end)}\x1b[39m${s.slice(end)}`;
+                if (end >= s.length) return this.commandColor(s);
+                return this.commandColor(s.slice(0, end)) + s.slice(end);
             };
 
             let displayText = layoutLine.text;

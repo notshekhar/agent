@@ -2,7 +2,6 @@
  * Model & provider selection: /model, /provider, /thinking.
  */
 import type { SelectItem } from "@notshekhar/loop-tui";
-import chalk from "chalk";
 import {
     addCustomModel,
     getActiveProvider,
@@ -25,6 +24,7 @@ import {
 import type { AppDeps } from "../deps";
 import type { AppState } from "../state";
 import { listUsableProviders } from "../provider-availability";
+import { err, warn } from "../ui/text";
 
 type ModelHandlers = Pick<
     CommandContext,
@@ -47,7 +47,7 @@ export function createModelHandlers(state: AppState, deps: AppDeps): ModelHandle
         async setModel(id) {
             const resolved = await resolveModelId(id);
             if (!resolved) {
-                history.addSystem(chalk.red(`unknown model: ${id} — try /model to pick from a list`));
+                history.addSystem(err(`unknown model: ${id} — try /model to pick from a list`));
                 tui.requestRender();
                 return;
             }
@@ -58,7 +58,7 @@ export function createModelHandlers(state: AppState, deps: AppDeps): ModelHandle
             // logged-in providers + zero-login ollama + saved custom gateways
             const usable = await listUsableProviders();
             if (usable.length === 0) {
-                history.addSystem(chalk.yellow("no providers available. /login first."));
+                history.addSystem(warn("no providers available. /login first."));
                 tui.requestRender();
                 return;
             }
@@ -74,7 +74,7 @@ export function createModelHandlers(state: AppState, deps: AppDeps): ModelHandle
                 target = pick.value;
             }
             if (!usable.includes(target as ProviderId)) {
-                history.addSystem(chalk.red(`not authorized: ${target}. /login ${target} first.`));
+                history.addSystem(err(`not authorized: ${target}. /login ${target} first.`));
                 tui.requestRender();
                 return;
             }
@@ -168,7 +168,7 @@ export function createModelHandlers(state: AppState, deps: AppDeps): ModelHandle
                 if (op === "add" && raw) {
                     const resolved = await resolveModelId(raw);
                     if (!resolved) {
-                        history.addSystem(chalk.red(`unknown model: ${raw}`));
+                        history.addSystem(err(`unknown model: ${raw}`));
                     } else if (current.includes(resolved)) {
                         history.addSystem(`already scoped: ${resolved}`);
                     } else {
@@ -177,7 +177,7 @@ export function createModelHandlers(state: AppState, deps: AppDeps): ModelHandle
                     }
                 } else if ((op === "rm" || op === "remove") && raw) {
                     if (!current.includes(raw)) {
-                        history.addSystem(chalk.red(`not in scoped list: ${raw}`));
+                        history.addSystem(err(`not in scoped list: ${raw}`));
                     } else {
                         settingsStore.set(
                             "scopedModels",
@@ -200,7 +200,7 @@ export function createModelHandlers(state: AppState, deps: AppDeps): ModelHandle
                 .map((m) => m.id)
                 .sort();
             if (values.length === 0) {
-                history.addSystem(chalk.yellow("no available models — /login first"));
+                history.addSystem(warn("no available models — /login first"));
                 tui.requestRender();
                 return;
             }
@@ -239,9 +239,7 @@ export function createModelHandlers(state: AppState, deps: AppDeps): ModelHandle
                 target = pick.value as ThinkingLevel;
             }
             if (!(THINKING_LEVELS as readonly string[]).includes(target)) {
-                history.addSystem(
-                    chalk.red(`unknown thinking level: ${target}. options: ${THINKING_LEVELS.join(", ")}`),
-                );
+                history.addSystem(err(`unknown thinking level: ${target}. options: ${THINKING_LEVELS.join(", ")}`));
                 tui.requestRender();
                 return;
             }

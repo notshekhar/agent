@@ -7,7 +7,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
 import type { SelectItem } from "@notshekhar/loop-tui";
-import chalk from "chalk";
 import {
     CompactAbortedError,
     clearReadRegistry,
@@ -25,6 +24,7 @@ import { renderSessionBranch } from "../replay";
 import { copyToClipboard } from "../clipboard";
 import { showWelcomeBanner } from "../welcome";
 import { showWorkspaceBanners } from "../startup";
+import { dim } from "../ui/text";
 
 type SessionHandlers = Pick<
     CommandContext,
@@ -63,7 +63,7 @@ export async function resumeSessionById(state: AppState, deps: AppDeps, idOrPath
         if (idOrPath.endsWith(".jsonl") && state.session.path !== idOrPath) {
             history.addSystem(`resumed fork ${state.session.id}`);
             history.addSystem(
-                chalk.dim("selected legacy session was forked; new messages and compactions save to this session"),
+                dim("selected legacy session was forked; new messages and compactions save to this session"),
             );
         } else {
             history.addSystem(`resumed session ${state.session.id}`);
@@ -338,7 +338,7 @@ export function createSessionHandlers(state: AppState, deps: AppDeps): SessionHa
                     history.addSystem(`secret gist: ${url}`);
                     copyToClipboard(url, (ok) => {
                         if (!ok) return;
-                        history.addSystem(chalk.dim("(url copied to clipboard)"));
+                        history.addSystem(dim("(url copied to clipboard)"));
                         tui.requestRender();
                     });
                 }

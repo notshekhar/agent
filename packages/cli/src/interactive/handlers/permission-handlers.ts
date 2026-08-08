@@ -7,7 +7,6 @@
  * settings.json so they can be reviewed and committed with the repo.
  */
 import type { SelectItem } from "@notshekhar/loop-tui";
-import chalk from "chalk";
 import {
     clearPermissionRulesCache,
     parseRuleString,
@@ -18,6 +17,7 @@ import {
 } from "@notshekhar/loop-core";
 import type { AppDeps } from "../deps";
 import type { AppState } from "../state";
+import { dim, err, warn } from "../ui/text";
 
 type PermissionHandlers = Pick<CommandContext, "managePermissions">;
 
@@ -94,15 +94,14 @@ export async function runPermissionsManager(deps: AppDeps): Promise<void> {
             const parsed = parseRuleString(action.value as PermissionAction, raw);
             if (!parsed) {
                 history.addSystem(
-                    chalk.red(`unrecognized rule: ${raw}`) +
-                        chalk.dim(" — expected Tool(pattern), a bare tool name, or *"),
+                    err(`unrecognized rule: ${raw}`) + dim(" — expected Tool(pattern), a bare tool name, or *"),
                 );
                 tui.requestRender();
                 continue;
             }
             const list = perms[action.value as PermissionAction] ?? [];
             if (list.includes(raw)) {
-                history.addSystem(chalk.yellow(`"${raw}" is already a ${action.value} rule`));
+                history.addSystem(warn(`"${raw}" is already a ${action.value} rule`));
                 tui.requestRender();
                 continue;
             }

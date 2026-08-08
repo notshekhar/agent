@@ -9,6 +9,7 @@ import chalk from "chalk";
 import { buildContextReport, getModelSync, type CommandContext } from "@notshekhar/loop-core";
 import type { AppDeps } from "../deps";
 import type { AppState } from "../state";
+import { dim } from "../ui/text";
 
 type ContextHandlers = Pick<CommandContext, "showContext">;
 
@@ -54,7 +55,7 @@ export function createContextHandlers(state: AppState, deps: AppDeps): ContextHa
                 for (const c of report.categories) {
                     history.addSystem(`  ${c.label.padEnd(18)}${fmtTok(c.tokens).padStart(8)} tokens`);
                 }
-                history.addSystem(chalk.dim("  (unknown context window for this model — no percentages)"));
+                history.addSystem(dim("  (unknown context window for this model — no percentages)"));
                 tui.requestRender();
                 return;
             }
@@ -76,7 +77,7 @@ export function createContextHandlers(state: AppState, deps: AppDeps): ContextHa
                     cells.push(chalk.hex(color)("■"));
                 }
             }
-            while (cells.length < CELLS) cells.push(chalk.dim("·"));
+            while (cells.length < CELLS) cells.push(dim("·"));
 
             const pct = (n: number) => `${((n / window) * 100).toFixed(n > 0 && n / window < 0.001 ? 2 : 1)}%`;
             const legend = report.categories.map((c, i) => {
@@ -88,16 +89,16 @@ export function createContextHandlers(state: AppState, deps: AppDeps): ContextHa
             // Info column pinned right of the grid rows.
             const side: string[] = new Array(GRID_ROWS).fill("");
             side[0] = chalk.bold(info?.name ?? state.modelId);
-            side[1] = chalk.dim(state.modelId);
+            side[1] = dim(state.modelId);
             side[2] = `${fmtTok(usedHeadline)}/${fmtTok(window)} tokens (${Math.round((usedHeadline / window) * 100)}%)`;
             side[4] = chalk.bold("Estimated usage by category");
             for (let i = 0; i < legend.length && 5 + i < GRID_ROWS; i++) side[5 + i] = legend[i];
             let next = 5 + legend.length;
             if (next < GRID_ROWS) {
-                side[next++] = `${chalk.dim("·")} Free space: ${fmtTok(report.freeTokens)} (${pct(report.freeTokens)})`;
+                side[next++] = `${dim("·")} Free space: ${fmtTok(report.freeTokens)} (${pct(report.freeTokens)})`;
             }
             if (next < GRID_ROWS) {
-                side[next] = chalk.dim(
+                side[next] = dim(
                     `auto-compact at ${Math.round(report.autoCompactThreshold * 100)}% (${fmtTok(compactAt)})`,
                 );
             }
@@ -107,11 +108,9 @@ export function createContextHandlers(state: AppState, deps: AppDeps): ContextHa
             // Legend lines that didn't fit beside the grid drop below it.
             if (5 + legend.length > GRID_ROWS) {
                 overflow.push(...legend.slice(GRID_ROWS - 5));
-                overflow.push(`${chalk.dim("·")} Free space: ${fmtTok(report.freeTokens)} (${pct(report.freeTokens)})`);
+                overflow.push(`${dim("·")} Free space: ${fmtTok(report.freeTokens)} (${pct(report.freeTokens)})`);
                 overflow.push(
-                    chalk.dim(
-                        `auto-compact at ${Math.round(report.autoCompactThreshold * 100)}% (${fmtTok(compactAt)})`,
-                    ),
+                    dim(`auto-compact at ${Math.round(report.autoCompactThreshold * 100)}% (${fmtTok(compactAt)})`),
                 );
             }
             for (let r = 0; r < GRID_ROWS; r++) {
@@ -125,13 +124,13 @@ export function createContextHandlers(state: AppState, deps: AppDeps): ContextHa
                 history.addSystem(chalk.bold("Skills"));
                 report.skills.forEach((s, i) => {
                     const branch = i === report.skills.length - 1 ? "└" : "├";
-                    history.addSystem(`${chalk.dim(branch)} ${s.name}: ${chalk.dim(`~${s.tokens} tokens`)}`);
+                    history.addSystem(`${dim(branch)} ${s.name}: ${dim(`~${s.tokens} tokens`)}`);
                 });
             }
             if (state.latestContextTokens > 0) {
                 history.addSystem("");
                 history.addSystem(
-                    chalk.dim(
+                    dim(
                         `categories are chars/4 estimates (${fmtTok(report.totalTokens)} total); headline uses the last provider-reported context size`,
                     ),
                 );

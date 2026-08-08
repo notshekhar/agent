@@ -11,7 +11,6 @@
  * the /settings "bash allowlist" row.
  */
 import type { SelectItem } from "@notshekhar/loop-tui";
-import chalk from "chalk";
 import {
     canonicalProjectDir,
     DEFAULT_BASH_DENY,
@@ -23,6 +22,7 @@ import {
 } from "@notshekhar/loop-core";
 import type { AppDeps } from "../deps";
 import type { AppState } from "../state";
+import { warn } from "../ui/text";
 
 type BashDenyHandlers = Pick<CommandContext, "manageBashDeny">;
 
@@ -76,7 +76,7 @@ export async function runBashDenyManager(deps: AppDeps): Promise<void> {
             const pattern = (await promptOnce('command to block (e.g. "rm" or "git commit")')).trim();
             if (!pattern) continue;
             if (entries.includes(pattern)) {
-                history.addSystem(chalk.yellow(`"${pattern}" is already in the denylist`));
+                history.addSystem(warn(`"${pattern}" is already in the denylist`));
                 tui.requestRender();
                 continue;
             }
@@ -158,7 +158,7 @@ export async function runBashAllowManager(deps: AppDeps, cwd: string): Promise<v
             const pattern = (await promptOnce('command to always allow here (e.g. "ls" or "git status")')).trim();
             if (!pattern) continue;
             if (projectEntries.includes(pattern) || globalEntries.includes(pattern)) {
-                history.addSystem(chalk.yellow(`"${pattern}" is already in the allowlist`));
+                history.addSystem(warn(`"${pattern}" is already in the allowlist`));
                 tui.requestRender();
                 continue;
             }

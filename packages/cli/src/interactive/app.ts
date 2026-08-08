@@ -18,7 +18,6 @@ import {
     type EditorTheme,
     type SlashCommand as TuiSlashCommand,
 } from "@notshekhar/loop-tui";
-import chalk from "chalk";
 import {
     envName,
     CommandRegistry,
@@ -52,7 +51,7 @@ import {
     type Session,
     CONFIG_DIR_NAME,
 } from "@notshekhar/loop-core";
-import { getSelectListTheme, initUiModeAndTheme } from "./ui/theme";
+import { getSelectListTheme, initUiModeAndTheme, theme } from "./ui/theme";
 import { applyExtensionUiModes } from "./ui/ui-mode";
 import { registerNoirMode } from "./ui/noir-mode";
 import { applyCanvasWash, resetCanvasWash } from "./ui/canvas-wash";
@@ -86,6 +85,7 @@ import { listUsableProviders } from "./provider-availability";
 import { openBrowser } from "../open-browser";
 import type { AppDeps } from "./deps";
 import type { AppState } from "./state";
+import { dim, muted, warn } from "./ui/text";
 
 export interface InteractiveOptions {
     modelId?: string;
@@ -110,13 +110,21 @@ class PendingMessageLine implements Component {
     render(width: number): string[] {
         const singleLine = this.message.replace(/\s+/g, " ").trim();
         const avail = Math.max(1, width - this.prefix.length);
-        return [chalk.dim(this.prefix) + chalk.gray(truncateToWidth(singleLine, avail))];
+        return [dim(this.prefix) + muted(truncateToWidth(singleLine, avail))];
     }
 }
 
+/**
+ * The composer's chrome. Resolved per call rather than captured once: `/theme`
+ * and `/uimode` swap the active theme mid-session, and a captured colour
+ * function would keep painting the old palette until restart.
+ */
 const editorTheme: EditorTheme = {
-    borderColor: (s) => chalk.cyan(s),
-    selectList: getSelectListTheme(),
+    borderColor: (s) => theme.fg("inputBorder", s),
+    commandColor: (s) => theme.fg("inputCommand", s),
+    get selectList() {
+        return getSelectListTheme();
+    },
 };
 
 /**
@@ -128,12 +136,10 @@ const editorTheme: EditorTheme = {
 async function showNoModelGuidance(history: ChatHistory, tui: TUI): Promise<void> {
     const providers = await listUsableProviders();
     if (providers.length === 0) {
-        history.addSystem(chalk.yellow("No model selected and no provider available. Run /login to get started."));
+        history.addSystem(warn("No model selected and no provider available. Run /login to get started."));
     } else {
         history.addSystem(
-            chalk.yellow(
-                `No model selected. Run /provider to pick one (${providers.join(", ")}), or /login to add another.`,
-            ),
+            warn(`No model selected. Run /provider to pick one (${providers.join(", ")}), or /login to add another.`),
         );
     }
     tui.requestRender();
@@ -461,16 +467,16 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     // Off by default; LOOP_DEBUG_EVENTS=1 enables at startup, Shift+Ctrl+D
     // toggles at runtime.
     setEventTraceSink((line) => {
-        history.addSystem(chalk.dim(`· ${line}`));
+        history.addSystem(dim(`· ${line}`));
         tui.requestRender();
     });
     tui.onDebug = () => {
         const on = toggleEventTrace();
-        history.addSystem(chalk.dim(`· event trace ${on ? "ON" : "off"} → ~/${CONFIG_DIR_NAME}/events-debug.log`));
+        history.addSystem(dim(`· event trace ${on ? "ON" : "off"} → ~/${CONFIG_DIR_NAME}/events-debug.log`));
         tui.requestRender();
     };
     if (isEventTraceEnabled()) {
-        history.addSystem(chalk.dim(`· event trace ON (${envName("DEBUG_EVENTS")}) — Shift+Ctrl+D to toggle`));
+        history.addSystem(dim(`· event trace ON (${envName("DEBUG_EVENTS")}) — Shift+Ctrl+D to toggle`));
     }
 
     // (Active-extensions banner is shown by showWorkspaceBanners, grouped with

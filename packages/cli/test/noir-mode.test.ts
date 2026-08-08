@@ -29,11 +29,20 @@ const tui = { requestRender() {} } as unknown as TUI;
 const strip = (s: string) => s.replace(/\x1b\[[0-9;]*m|\x1b\][^\x07]*\x07/g, "");
 const W = 80;
 
+/** The truecolor SGR the active theme emits for a slot — so colour assertions
+ * say "this element uses the warning slot", not "warning is #e5c07b", and
+ * survive a repaint of the palette. */
+const sgr = (slot: Parameters<typeof theme.fg>[0]) => {
+    const hex = theme.raw(slot) as string;
+    const rgb = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+    return `\x1b[38;2;${rgb.join(";")}m`;
+};
+
 describe("noir mode themes", () => {
     test("night theme resolves the wash color", () => {
         const t = new Theme(NIGHT_THEME);
         expect(t.raw("bgBase")).toBe("#141414");
-        expect(t.raw("bgRaised")).toBe("#242424");
+        expect(t.raw("bgRaised")).toBe("#1f1f21");
     });
 
     test("initTheme finds night via the active mode's theme set", () => {
@@ -176,15 +185,12 @@ describe("noir mode rendering", () => {
     test("tool diamond carries the state color: running yellow, done green, failed red", () => {
         noirOn();
         const c = new ToolExecutionComponent("bash", { command: "x" }, tui, "/repo");
-        // night warning #e5c07b
-        expect(c.render(W).join("\n")).toContain("\x1b[38;2;229;192;123m◆");
+        expect(c.render(W).join("\n")).toContain(`${sgr("warning")}◆`);
         c.updateResult({ content: [{ type: "text", text: "ok" }], isError: false }, false);
-        // night success #98c379
-        expect(c.render(W).join("\n")).toContain("\x1b[38;2;152;195;121m◆");
+        expect(c.render(W).join("\n")).toContain(`${sgr("success")}◆`);
         const f = new ToolExecutionComponent("bash", { command: "x" }, tui, "/repo");
         f.updateResult({ content: [{ type: "text", text: "no" }], isError: true }, false);
-        // night toolError #ff6b6b
-        expect(f.render(W).join("\n")).toContain("\x1b[38;2;255;107;107m◆");
+        expect(f.render(W).join("\n")).toContain(`${sgr("toolError")}◆`);
     });
 
     test("user turns and responses are selectable; alt jumps between turns", () => {
@@ -627,9 +633,9 @@ describe("noir mode rendering", () => {
 
     test("day theme carries the higher-contrast palette", () => {
         const t = new Theme(DAY_THEME);
-        expect(t.raw("bgBase")).toBe("#f4f4f5");
-        expect(t.raw("muted")).toBe("#4b4b52");
-        expect(t.raw("selectionBorder")).toBe("#7c3aed");
+        expect(t.raw("bgBase")).toBe("#fcfcfc");
+        expect(t.raw("muted")).toBe("#71717b");
+        expect(t.raw("selectionBorder")).toBe("#2f58b9");
     });
 
     test("plan keeps the default box look in noir mode (approval surface)", () => {
@@ -677,8 +683,8 @@ describe("noir mode rendering", () => {
         c.updateResult({ content: [{ type: "text", text: "ok" }], isError: false }, false);
         const raw = c.render(W).join("\n");
         expect(strip(raw)).toContain("◆ bash");
-        // muted title color (night gray #8a8a8a), not the bright toolTitle
-        expect(raw).toContain("\x1b[38;2;138;138;138m");
+        // the muted slot, not the bright toolTitle
+        expect(raw).toContain(sgr("muted"));
     });
 
     test("turn summary line renders through the turnSummary slot", () => {
@@ -713,9 +719,9 @@ describe("canvas wash", () => {
         noirOn();
         const { writes, stream } = fakeOut();
         applyCanvasWash(stream);
-        expect(writes).toEqual(["\x1b]11;#141414\x07", "\x1b]10;#e0e0e0\x07"]);
+        expect(writes).toEqual(["\x1b]11;#141414\x07", "\x1b]10;#f5f5f5\x07"]);
         resetCanvasWash(stream);
-        expect(writes).toEqual(["\x1b]11;#141414\x07", "\x1b]10;#e0e0e0\x07", "\x1b]111\x07", "\x1b]110\x07"]);
+        expect(writes).toEqual(["\x1b]11;#141414\x07", "\x1b]10;#f5f5f5\x07", "\x1b]111\x07", "\x1b]110\x07"]);
     });
 
     test("loop mode does not wash, and un-washes a previous wash", () => {
@@ -725,7 +731,7 @@ describe("canvas wash", () => {
         setActiveUiMode("loop");
         initTheme("dark");
         applyCanvasWash(stream); // wash off now → emits the reset
-        expect(writes).toEqual(["\x1b]11;#141414\x07", "\x1b]10;#e0e0e0\x07", "\x1b]111\x07", "\x1b]110\x07"]);
+        expect(writes).toEqual(["\x1b]11;#141414\x07", "\x1b]10;#f5f5f5\x07", "\x1b]111\x07", "\x1b]110\x07"]);
         resetCanvasWash(stream); // already reset → no-op
         expect(writes).toHaveLength(4);
     });

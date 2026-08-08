@@ -6,7 +6,6 @@
  * re-walking the whole prompt chain. Configs persist in ~/.loop/datasources.json.
  */
 import type { SelectItem } from "@notshekhar/loop-tui";
-import chalk from "chalk";
 import {
     MAX_DATASOURCES,
     closePool,
@@ -23,6 +22,7 @@ import {
 } from "@notshekhar/loop-core";
 import type { AppDeps } from "../deps";
 import type { AppState } from "../state";
+import { dim, err, ok } from "../ui/text";
 
 type DatasourceHandlers = Pick<CommandContext, "manageDatasources">;
 
@@ -59,10 +59,10 @@ export function createDatasourceHandlers(_state: AppState, deps: AppDeps): Datas
     }
 
     async function runTest(cfg: DataSourceConfig): Promise<void> {
-        history.addSystem(chalk.dim(`testing ${cfg.type} ${cfg.host}:${cfg.port}/${cfg.database}…`));
+        history.addSystem(dim(`testing ${cfg.type} ${cfg.host}:${cfg.port}/${cfg.database}…`));
         tui.requestRender();
         const result = await testConnection(cfg);
-        history.addSystem(result.ok ? chalk.green("connection ok") : chalk.red(`connection failed: ${result.error}`));
+        history.addSystem(result.ok ? ok("connection ok") : err(`connection failed: ${result.error}`));
         tui.requestRender();
     }
 
@@ -90,7 +90,7 @@ export function createDatasourceHandlers(_state: AppState, deps: AppDeps): Datas
         const raw = (await promptOnce("port", String(cfg.port))).trim();
         const port = Number.parseInt(raw, 10);
         if (!Number.isFinite(port) || port <= 0) {
-            history.addSystem(chalk.red(`invalid port: ${raw}`));
+            history.addSystem(err(`invalid port: ${raw}`));
             tui.requestRender();
             return;
         }
@@ -161,9 +161,9 @@ export function createDatasourceHandlers(_state: AppState, deps: AppDeps): Datas
                     void runTest({ ...cfg });
                     break;
                 case "save": {
-                    const err = missingField(cfg);
-                    if (err) {
-                        history.addSystem(chalk.red(err));
+                    const missing = missingField(cfg);
+                    if (missing) {
+                        history.addSystem(err(missing));
                         tui.requestRender();
                         break;
                     }
@@ -187,19 +187,19 @@ export function createDatasourceHandlers(_state: AppState, deps: AppDeps): Datas
 
     async function newDatasource(): Promise<void> {
         if (listDatasources().length >= MAX_DATASOURCES) {
-            history.addSystem(chalk.red(`maximum ${MAX_DATASOURCES} datasources reached — delete one first`));
+            history.addSystem(err(`maximum ${MAX_DATASOURCES} datasources reached — delete one first`));
             tui.requestRender();
             return;
         }
         const id = (await promptOnce("connection id (e.g. warehouse)")).trim();
         if (!id) return;
         if (!isValidConnectionId(id)) {
-            history.addSystem(chalk.red(`invalid id: ${id} (alphanumeric, dashes, ≤32 chars)`));
+            history.addSystem(err(`invalid id: ${id} (alphanumeric, dashes, ≤32 chars)`));
             tui.requestRender();
             return;
         }
         if (datasourceExists(id)) {
-            history.addSystem(chalk.red(`"${id}" already exists`));
+            history.addSystem(err(`"${id}" already exists`));
             tui.requestRender();
             return;
         }

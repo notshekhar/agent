@@ -2,26 +2,26 @@
 
 exports[`user + assistant messages user message (markdown, bg box, OSC zones) 1`] = `
 [
-  "\x1B]133;A\x07\x1B[48;2;52;53;65m                                                                                \x1B[49m",
-  "\x1B[48;2;52;53;65m \x1B[38;2;212;212;212mfix the \x1B[39m\x1B[38;2;212;212;212mauth\x1B[39m\x1B[38;2;212;212;212m\x1B[38;2;212;212;212m bug in \x1B[39m\x1B[38;2;138;190;183mlogin.ts\x1B[39m                                                   \x1B[49m",
-  "\x1B]133;B\x07\x1B]133;C\x07\x1B[48;2;52;53;65m                                                                                \x1B[49m",
+  "\x1B]133;A\x07\x1B[48;2;27;28;32m                                                                                \x1B[49m",
+  "\x1B[48;2;27;28;32m \x1B[38;2;245;245;245mfix the \x1B[39m\x1B[38;2;245;245;245mauth\x1B[39m\x1B[38;2;245;245;245m\x1B[38;2;245;245;245m bug in \x1B[39m\x1B[38;2;74;119;219mlogin.ts\x1B[39m                                                   \x1B[49m",
+  "\x1B]133;B\x07\x1B]133;C\x07\x1B[48;2;27;28;32m                                                                                \x1B[49m",
 ]
 `;
 
 exports[`user + assistant messages assistant text-only 1`] = `
 [
   "\x1B]133;A\x07",
-  "\x1B]133;B\x07\x1B]133;C\x07 The bug is a missing \x1B[38;2;138;190;183mawait\x1B[39m in the token refresh path.                          ",
+  "\x1B]133;B\x07\x1B]133;C\x07 The bug is a missing \x1B[38;2;74;119;219mawait\x1B[39m in the token refresh path.                          ",
 ]
 `;
 
 exports[`user + assistant messages assistant thinking then text 1`] = `
 [
   "\x1B]133;A\x07",
-  " \x1B[38;2;128;128;128mThe user wants the auth bug fixed.\x1B[39m                                             ",
-  " \x1B[38;2;128;128;128mLook at login.ts first.\x1B[39m                                                        ",
+  " \x1B[38;2;138;138;138mThe user wants the auth bug fixed.\x1B[39m                                             ",
+  " \x1B[38;2;138;138;138mLook at login.ts first.\x1B[39m                                                        ",
   "",
-  "\x1B]133;B\x07\x1B]133;C\x07 Found it — \x1B[38;2;138;190;183mrefresh()\x1B[39m is not awaited.                                           ",
+  "\x1B]133;B\x07\x1B]133;C\x07 Found it — \x1B[38;2;74;119;219mrefresh()\x1B[39m is not awaited.                                           ",
 ]
 `;
 
@@ -30,14 +30,14 @@ exports[`user + assistant messages assistant aborted 1`] = `
   "\x1B]133;A\x07",
   " Let me check                                                                   ",
   "",
-  "\x1B]133;B\x07\x1B]133;C\x07 \x1B[38;2;204;102;102mOperation aborted\x1B[39m                                                              ",
+  "\x1B]133;B\x07\x1B]133;C\x07 \x1B[38;2;224;108;117mOperation aborted\x1B[39m                                                              ",
 ]
 `;
 
 exports[`user + assistant messages assistant error 1`] = `
 [
   "\x1B]133;A\x07",
-  "\x1B]133;B\x07\x1B]133;C\x07 \x1B[38;2;204;102;102mError: connection reset\x1B[39m                                                        ",
+  "\x1B]133;B\x07\x1B]133;C\x07 \x1B[38;2;224;108;117mError: connection reset\x1B[39m                                                        ",
 ]
 `;
 
@@ -45,7 +45,7 @@ exports[`tool execution pending bash (no result yet) 1`] = `
 [
   "",
   "\x1B[48;2;40;40;50m                                                                                \x1B[49m",
-  "\x1B[48;2;40;40;50m \x1B[38;2;128;128;128mbash\x1B[39m \x1B[38;2;128;128;128mbun test\x1B[39m                                                                  \x1B[49m",
+  "\x1B[48;2;40;40;50m \x1B[38;2;138;138;138mbash\x1B[39m \x1B[38;2;138;138;138mbun test\x1B[39m                                                                  \x1B[49m",
   "\x1B[48;2;40;40;50m                                                                                \x1B[49m",
 ]
 `;
@@ -54,9 +54,9 @@ exports[`tool execution bash success, short output 1`] = `
 [
   "",
   "\x1B[48;2;40;50;40m                                                                                \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;212;212;212mbash\x1B[39m \x1B[38;2;128;128;128mecho hi\x1B[39m                                                                   \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;245;245;245mbash\x1B[39m \x1B[38;2;138;138;138mecho hi\x1B[39m                                                                   \x1B[49m",
   "\x1B[48;2;40;50;40m                                                                                \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;128;128;128mhi\x1B[39m                                                                             \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;138;138;138mhi\x1B[39m                                                                             \x1B[49m",
   "\x1B[48;2;40;50;40m                                                                                \x1B[49m",
 ]
 `;
@@ -65,15 +65,15 @@ exports[`tool execution bash success, long output collapsed then expanded 1`] = 
 [
   "",
   "\x1B[48;2;40;50;40m                                                                                \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;212;212;212mbash\x1B[39m \x1B[38;2;128;128;128mseq 12\x1B[39m                                                                    \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;245;245;245mbash\x1B[39m \x1B[38;2;138;138;138mseq 12\x1B[39m                                                                    \x1B[49m",
   "\x1B[48;2;40;50;40m                                                                                \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;128;128;128m1\x1B[39m                                                                              \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;128;128;128m2\x1B[39m                                                                              \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;128;128;128m3\x1B[39m                                                                              \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;128;128;128m4\x1B[39m                                                                              \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;128;128;128m5\x1B[39m                                                                              \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;128;128;128m6\x1B[39m                                                                              \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;102;102;102m… +6 lines (ctrl+e then e to expand)\x1B[39m                                           \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;138;138;138m1\x1B[39m                                                                              \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;138;138;138m2\x1B[39m                                                                              \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;138;138;138m3\x1B[39m                                                                              \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;138;138;138m4\x1B[39m                                                                              \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;138;138;138m5\x1B[39m                                                                              \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;138;138;138m6\x1B[39m                                                                              \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;95;95;95m… +6 lines (ctrl+e then e to expand)\x1B[39m                                           \x1B[49m",
   "\x1B[48;2;40;50;40m                                                                                \x1B[49m",
 ]
 `;
@@ -82,20 +82,20 @@ exports[`tool execution bash success, long output collapsed then expanded 2`] = 
 [
   "",
   "\x1B[48;2;40;50;40m                                                                                \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;212;212;212mbash\x1B[39m \x1B[38;2;128;128;128mseq 12\x1B[39m                                                                    \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;245;245;245mbash\x1B[39m \x1B[38;2;138;138;138mseq 12\x1B[39m                                                                    \x1B[49m",
   "\x1B[48;2;40;50;40m                                                                                \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;128;128;128m1\x1B[39m                                                                              \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;128;128;128m2\x1B[39m                                                                              \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;128;128;128m3\x1B[39m                                                                              \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;128;128;128m4\x1B[39m                                                                              \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;128;128;128m5\x1B[39m                                                                              \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;128;128;128m6\x1B[39m                                                                              \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;128;128;128m7\x1B[39m                                                                              \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;128;128;128m8\x1B[39m                                                                              \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;128;128;128m9\x1B[39m                                                                              \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;128;128;128m10\x1B[39m                                                                             \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;128;128;128m11\x1B[39m                                                                             \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;128;128;128m12\x1B[39m                                                                             \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;138;138;138m1\x1B[39m                                                                              \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;138;138;138m2\x1B[39m                                                                              \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;138;138;138m3\x1B[39m                                                                              \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;138;138;138m4\x1B[39m                                                                              \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;138;138;138m5\x1B[39m                                                                              \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;138;138;138m6\x1B[39m                                                                              \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;138;138;138m7\x1B[39m                                                                              \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;138;138;138m8\x1B[39m                                                                              \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;138;138;138m9\x1B[39m                                                                              \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;138;138;138m10\x1B[39m                                                                             \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;138;138;138m11\x1B[39m                                                                             \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;138;138;138m12\x1B[39m                                                                             \x1B[49m",
   "\x1B[48;2;40;50;40m                                                                                \x1B[49m",
 ]
 `;
@@ -104,9 +104,9 @@ exports[`tool execution bash error output 1`] = `
 [
   "",
   "\x1B[48;2;60;40;40m                                                                                \x1B[49m",
-  "\x1B[48;2;60;40;40m \x1B[38;2;255;85;85mbash\x1B[39m \x1B[38;2;128;128;128mfalse\x1B[39m                                                                     \x1B[49m",
+  "\x1B[48;2;60;40;40m \x1B[38;2;224;108;117mbash\x1B[39m \x1B[38;2;138;138;138mfalse\x1B[39m                                                                     \x1B[49m",
   "\x1B[48;2;60;40;40m                                                                                \x1B[49m",
-  "\x1B[48;2;60;40;40m \x1B[38;2;255;85;85mcommand failed\x1B[39m                                                                 \x1B[49m",
+  "\x1B[48;2;60;40;40m \x1B[38;2;224;108;117mcommand failed\x1B[39m                                                                 \x1B[49m",
   "\x1B[48;2;60;40;40m                                                                                \x1B[49m",
 ]
 `;
@@ -115,12 +115,12 @@ exports[`tool execution edit diff coloring 1`] = `
 [
   "",
   "\x1B[48;2;40;50;40m                                                                                \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;212;212;212medit\x1B[39m \x1B[38;2;128;128;128msrc/a.ts\x1B[39m                                                                  \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;245;245;245medit\x1B[39m \x1B[38;2;138;138;138msrc/a.ts\x1B[39m                                                                  \x1B[49m",
   "\x1B[48;2;40;50;40m                                                                                \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;128;128;128m@@ -1,2 +1,2 @@\x1B[39m                                                                \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;204;102;102m-const a = 1\x1B[39m                                                                   \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;181;189;104m+const a = 2\x1B[39m                                                                   \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;128;128;128m context\x1B[39m                                                                       \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;138;138;138m@@ -1,2 +1,2 @@\x1B[39m                                                                \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;224;108;117m-const a = 1\x1B[39m                                                                   \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;138;168;114m+const a = 2\x1B[39m                                                                   \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;138;138;138m context\x1B[39m                                                                       \x1B[49m",
   "\x1B[48;2;40;50;40m                                                                                \x1B[49m",
 ]
 `;
@@ -129,10 +129,10 @@ exports[`tool execution read with line range + syntax highlight 1`] = `
 [
   "",
   "\x1B[48;2;40;50;40m                                                                                \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;212;212;212mread\x1B[39m \x1B[38;2;128;128;128msrc/a.ts\x1B[39m\x1B[38;2;255;255;0m:10-11\x1B[39m                                                            \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;245;245;245mread\x1B[39m \x1B[38;2;138;138;138msrc/a.ts\x1B[39m\x1B[38;2;229;192;123m:10-11\x1B[39m                                                            \x1B[49m",
   "\x1B[48;2;40;50;40m                                                                                \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;102;102;102m10  \x1B[39m\x1B[38;2;86;156;214mconst\x1B[39m x = \x1B[38;2;181;206;168m1\x1B[39m;                                                               \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;102;102;102m11  \x1B[39m\x1B[38;2;86;156;214mexport\x1B[39m \x1B[38;2;86;156;214mdefault\x1B[39m x;                                                          \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;95;95;95m10  \x1B[39m\x1B[38;2;255;103;141mconst\x1B[39m x = \x1B[38;2;104;205;242m1\x1B[39m;                                                               \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;95;95;95m11  \x1B[39m\x1B[38;2;255;103;141mexport\x1B[39m \x1B[38;2;255;103;141mdefault\x1B[39m x;                                                          \x1B[49m",
   "\x1B[48;2;40;50;40m                                                                                \x1B[49m",
 ]
 `;
@@ -140,20 +140,20 @@ exports[`tool execution read with line range + syntax highlight 1`] = `
 exports[`tool execution task pending with live status, then done with stats 1`] = `
 [
   "",
-  "\x1B[48;2;45;40;56m                                                                                \x1B[49m",
-  "\x1B[48;2;45;40;56m \x1B[38;2;128;128;128mtask explore\x1B[39m \x1B[38;2;128;128;128mread src/login.ts · find the auth code\x1B[39m                            \x1B[49m",
-  "\x1B[48;2;45;40;56m                                                                                \x1B[49m",
+  "\x1B[48;2;19;22;31m                                                                                \x1B[49m",
+  "\x1B[48;2;19;22;31m \x1B[38;2;138;138;138mtask explore\x1B[39m \x1B[38;2;138;138;138mread src/login.ts · find the auth code\x1B[39m                            \x1B[49m",
+  "\x1B[48;2;19;22;31m                                                                                \x1B[49m",
 ]
 `;
 
 exports[`tool execution task pending with live status, then done with stats 2`] = `
 [
   "",
-  "\x1B[48;2;45;40;56m                                                                                \x1B[49m",
-  "\x1B[48;2;45;40;56m \x1B[38;2;212;212;212mtask explore\x1B[39m \x1B[38;2;128;128;128mdone · 3 steps · 41s · $0.0430 · find the auth code\x1B[39m               \x1B[49m",
-  "\x1B[48;2;45;40;56m                                                                                \x1B[49m",
-  "\x1B[48;2;45;40;56m \x1B[38;2;128;128;128mfound it\x1B[39m                                                                       \x1B[49m",
-  "\x1B[48;2;45;40;56m                                                                                \x1B[49m",
+  "\x1B[48;2;19;22;31m                                                                                \x1B[49m",
+  "\x1B[48;2;19;22;31m \x1B[38;2;245;245;245mtask explore\x1B[39m \x1B[38;2;138;138;138mdone · 3 steps · 41s · $0.0430 · find the auth code\x1B[39m               \x1B[49m",
+  "\x1B[48;2;19;22;31m                                                                                \x1B[49m",
+  "\x1B[48;2;19;22;31m \x1B[38;2;138;138;138mfound it\x1B[39m                                                                       \x1B[49m",
+  "\x1B[48;2;19;22;31m                                                                                \x1B[49m",
 ]
 `;
 
@@ -161,11 +161,11 @@ exports[`tool execution sql input preview 1`] = `
 [
   "",
   "\x1B[48;2;40;50;40m                                                                                \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;212;212;212msql\x1B[39m \x1B[38;2;128;128;128mselect id from users where active = 1\x1B[39m                                      \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;245;245;245msql\x1B[39m \x1B[38;2;138;138;138mselect id from users where active = 1\x1B[39m                                      \x1B[49m",
   "\x1B[48;2;40;50;40m                                                                                \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;86;156;214mselect\x1B[39m id \x1B[38;2;86;156;214mfrom\x1B[39m users \x1B[38;2;86;156;214mwhere\x1B[39m active \x1B[38;2;212;212;212m=\x1B[39m \x1B[38;2;181;206;168m1\x1B[39m                                          \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;255;103;141mselect\x1B[39m id \x1B[38;2;255;103;141mfrom\x1B[39m users \x1B[38;2;255;103;141mwhere\x1B[39m active \x1B[38;2;138;138;138m=\x1B[39m \x1B[38;2;104;205;242m1\x1B[39m                                          \x1B[49m",
   "\x1B[48;2;40;50;40m                                                                                \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;128;128;128m2 rows\x1B[39m                                                                         \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;138;138;138m2 rows\x1B[39m                                                                         \x1B[49m",
   "\x1B[48;2;40;50;40m                                                                                \x1B[49m",
 ]
 `;
@@ -174,12 +174,12 @@ exports[`tool execution plan renders input as markdown 1`] = `
 [
   "",
   "\x1B[48;2;40;50;40m                                                                                \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;212;212;212mplan\x1B[39m \x1B[38;2;128;128;128mPlan\x1B[39m                                                                      \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;245;245;245mplan\x1B[39m \x1B[38;2;138;138;138mPlan\x1B[39m                                                                      \x1B[49m",
   "\x1B[48;2;40;50;40m                                                                                \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;240;198;116mPlan\x1B[39m                                                                           \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;74;119;219mPlan\x1B[39m                                                                           \x1B[49m",
   "\x1B[48;2;40;50;40m                                                                                \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;138;190;183m1. \x1B[39mread                                                                        \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;138;190;183m2. \x1B[39medit                                                                        \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;74;119;219m1. \x1B[39mread                                                                        \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;74;119;219m2. \x1B[39medit                                                                        \x1B[49m",
   "\x1B[48;2;40;50;40m                                                                                \x1B[49m",
 ]
 `;
@@ -188,7 +188,7 @@ exports[`tool execution streaming write input tail 1`] = `
 [
   "",
   "\x1B[48;2;40;40;50m                                                                                \x1B[49m",
-  "\x1B[48;2;40;40;50m \x1B[38;2;128;128;128mwrite\x1B[39m \x1B[38;2;128;128;128msrc/new.ts\x1B[39m                                                               \x1B[49m",
+  "\x1B[48;2;40;40;50m \x1B[38;2;138;138;138mwrite\x1B[39m \x1B[38;2;138;138;138msrc/new.ts\x1B[39m                                                               \x1B[49m",
   "\x1B[48;2;40;40;50m                                                                                \x1B[49m",
   "\x1B[48;2;40;40;50m line1                                                                          \x1B[49m",
   "\x1B[48;2;40;40;50m line2                                                                          \x1B[49m",
@@ -199,135 +199,135 @@ exports[`tool execution streaming write input tail 1`] = `
 
 exports[`special message boxes skill invocation collapsed and expanded 1`] = `
 [
-  "\x1B[48;2;45;40;56m                                                                                \x1B[49m",
-  "\x1B[48;2;45;40;56m \x1B[38;2;149;117;205m\x1B[1m[skill]\x1B[22m \x1B[39m\x1B[38;2;212;212;212mverify\x1B[39m\x1B[38;2;102;102;102m (ctrl+e then e to expand)\x1B[39m                                       \x1B[49m",
-  "\x1B[48;2;45;40;56m                                                                                \x1B[49m",
+  "\x1B[48;2;19;22;31m                                                                                \x1B[49m",
+  "\x1B[48;2;19;22;31m \x1B[38;2;101;159;244m\x1B[1m[skill]\x1B[22m \x1B[39m\x1B[38;2;245;245;245mverify\x1B[39m\x1B[38;2;95;95;95m (ctrl+e then e to expand)\x1B[39m                                       \x1B[49m",
+  "\x1B[48;2;19;22;31m                                                                                \x1B[49m",
 ]
 `;
 
 exports[`special message boxes skill invocation collapsed and expanded 2`] = `
 [
-  "\x1B[48;2;45;40;56m                                                                                \x1B[49m",
-  "\x1B[48;2;45;40;56m \x1B[38;2;149;117;205m\x1B[1m[skill]\x1B[22m\x1B[39m                                                                        \x1B[49m",
-  "\x1B[48;2;45;40;56m \x1B[38;2;212;212;212mverify\x1B[39m                                                                         \x1B[49m",
-  "\x1B[48;2;45;40;56m                                                                                \x1B[49m",
-  "\x1B[48;2;45;40;56m \x1B[38;2;212;212;212mcheck it\x1B[39m                                                                       \x1B[49m",
-  "\x1B[48;2;45;40;56m                                                                                \x1B[49m",
+  "\x1B[48;2;19;22;31m                                                                                \x1B[49m",
+  "\x1B[48;2;19;22;31m \x1B[38;2;101;159;244m\x1B[1m[skill]\x1B[22m\x1B[39m                                                                        \x1B[49m",
+  "\x1B[48;2;19;22;31m \x1B[38;2;245;245;245mverify\x1B[39m                                                                         \x1B[49m",
+  "\x1B[48;2;19;22;31m                                                                                \x1B[49m",
+  "\x1B[48;2;19;22;31m \x1B[38;2;245;245;245mcheck it\x1B[39m                                                                       \x1B[49m",
+  "\x1B[48;2;19;22;31m                                                                                \x1B[49m",
 ]
 `;
 
 exports[`special message boxes compaction summary collapsed and expanded 1`] = `
 [
-  "\x1B[48;2;45;40;56m                                                                                \x1B[49m",
-  "\x1B[48;2;45;40;56m \x1B[38;2;149;117;205m\x1B[1m[compaction]\x1B[22m\x1B[39m                                                                   \x1B[49m",
-  "\x1B[48;2;45;40;56m                                                                                \x1B[49m",
-  "\x1B[48;2;45;40;56m \x1B[38;2;212;212;212mCompacted from 123,456 tokens (\x1B[39m\x1B[38;2;102;102;102mctrl+e then e\x1B[39m\x1B[38;2;212;212;212m to expand)\x1B[39m                        \x1B[49m",
-  "\x1B[48;2;45;40;56m                                                                                \x1B[49m",
+  "\x1B[48;2;19;22;31m                                                                                \x1B[49m",
+  "\x1B[48;2;19;22;31m \x1B[38;2;101;159;244m\x1B[1m[compaction]\x1B[22m\x1B[39m                                                                   \x1B[49m",
+  "\x1B[48;2;19;22;31m                                                                                \x1B[49m",
+  "\x1B[48;2;19;22;31m \x1B[38;2;245;245;245mCompacted from 123,456 tokens (\x1B[39m\x1B[38;2;95;95;95mctrl+e then e\x1B[39m\x1B[38;2;245;245;245m to expand)\x1B[39m                        \x1B[49m",
+  "\x1B[48;2;19;22;31m                                                                                \x1B[49m",
 ]
 `;
 
 exports[`special message boxes compaction summary collapsed and expanded 2`] = `
 [
-  "\x1B[48;2;45;40;56m                                                                                \x1B[49m",
-  "\x1B[48;2;45;40;56m \x1B[38;2;149;117;205m\x1B[1m[compaction]\x1B[22m\x1B[39m                                                                   \x1B[49m",
-  "\x1B[48;2;45;40;56m                                                                                \x1B[49m",
-  "\x1B[48;2;45;40;56m \x1B[38;2;212;212;212mCompacted from 123,456 tokens\x1B[39m                                                  \x1B[49m",
-  "\x1B[48;2;45;40;56m                                                                                \x1B[49m",
-  "\x1B[48;2;45;40;56m \x1B[38;2;212;212;212mWe fixed auth.\x1B[39m                                                                 \x1B[49m",
-  "\x1B[48;2;45;40;56m                                                                                \x1B[49m",
+  "\x1B[48;2;19;22;31m                                                                                \x1B[49m",
+  "\x1B[48;2;19;22;31m \x1B[38;2;101;159;244m\x1B[1m[compaction]\x1B[22m\x1B[39m                                                                   \x1B[49m",
+  "\x1B[48;2;19;22;31m                                                                                \x1B[49m",
+  "\x1B[48;2;19;22;31m \x1B[38;2;245;245;245mCompacted from 123,456 tokens\x1B[39m                                                  \x1B[49m",
+  "\x1B[48;2;19;22;31m                                                                                \x1B[49m",
+  "\x1B[48;2;19;22;31m \x1B[38;2;245;245;245mWe fixed auth.\x1B[39m                                                                 \x1B[49m",
+  "\x1B[48;2;19;22;31m                                                                                \x1B[49m",
 ]
 `;
 
 exports[`special message boxes branch summary collapsed 1`] = `
 [
-  "\x1B[48;2;45;40;56m                                                                                \x1B[49m",
-  "\x1B[48;2;45;40;56m \x1B[38;2;149;117;205m\x1B[1m[branch]\x1B[22m\x1B[39m                                                                       \x1B[49m",
-  "\x1B[48;2;45;40;56m                                                                                \x1B[49m",
-  "\x1B[48;2;45;40;56m \x1B[38;2;212;212;212mBranch summary (\x1B[39m\x1B[38;2;102;102;102mctrl+e then e\x1B[39m\x1B[38;2;212;212;212m to expand)\x1B[39m                                       \x1B[49m",
-  "\x1B[48;2;45;40;56m                                                                                \x1B[49m",
+  "\x1B[48;2;19;22;31m                                                                                \x1B[49m",
+  "\x1B[48;2;19;22;31m \x1B[38;2;101;159;244m\x1B[1m[branch]\x1B[22m\x1B[39m                                                                       \x1B[49m",
+  "\x1B[48;2;19;22;31m                                                                                \x1B[49m",
+  "\x1B[48;2;19;22;31m \x1B[38;2;245;245;245mBranch summary (\x1B[39m\x1B[38;2;95;95;95mctrl+e then e\x1B[39m\x1B[38;2;245;245;245m to expand)\x1B[39m                                       \x1B[49m",
+  "\x1B[48;2;19;22;31m                                                                                \x1B[49m",
 ]
 `;
 
 exports[`special message boxes dynamic border 1`] = `
 [
-  "\x1B[38;2;95;135;255m────────────────────\x1B[39m",
+  "\x1B[38;2;63;67;75m────────────────────\x1B[39m",
 ]
 `;
 
 exports[`chat history end-to-end a small conversation renders stably 1`] = `
 [
   "",
-  "\x1B]133;A\x07\x1B[48;2;52;53;65m                                                                                \x1B[49m",
-  "\x1B[48;2;52;53;65m \x1B[38;2;212;212;212mrun the tests\x1B[39m                                                                  \x1B[49m",
-  "\x1B]133;B\x07\x1B]133;C\x07\x1B[48;2;52;53;65m                                                                                \x1B[49m",
+  "\x1B]133;A\x07\x1B[48;2;27;28;32m                                                                                \x1B[49m",
+  "\x1B[48;2;27;28;32m \x1B[38;2;245;245;245mrun the tests\x1B[39m                                                                  \x1B[49m",
+  "\x1B]133;B\x07\x1B]133;C\x07\x1B[48;2;27;28;32m                                                                                \x1B[49m",
   "",
   "",
   " Running them now.                                                              ",
   "",
   "\x1B[48;2;40;50;40m                                                                                \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;212;212;212mbash\x1B[39m \x1B[38;2;128;128;128mbun test\x1B[39m                                                                  \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;245;245;245mbash\x1B[39m \x1B[38;2;138;138;138mbun test\x1B[39m                                                                  \x1B[49m",
   "\x1B[48;2;40;50;40m                                                                                \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;128;128;128m12 pass\x1B[39m                                                                        \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;138;138;138m12 pass\x1B[39m                                                                        \x1B[49m",
   "\x1B[48;2;40;50;40m                                                                                \x1B[49m",
   "\x1B]133;A\x07",
   "\x1B]133;B\x07\x1B]133;C\x07 All green.                                                                     ",
-  " model switched                                                                 ",
+  " \x1B[38;2;95;95;95mmodel switched\x1B[39m                                                                 ",
   "",
-  " /model sonnet                                                                  ",
+  " \x1B[38;2;74;119;219m/model\x1B[39m\x1B[38;2;95;95;95m sonnet\x1B[39m                                                                  ",
   " post-turn hook ran                                                             ",
-  " error: boom                                                                    ",
+  " \x1B[38;2;224;108;117merror: boom\x1B[39m                                                                    ",
   "",
-  " ※ recap: Fixed the tests.                                                      ",
-  "   (disable recaps in /settings)                                                ",
+  " \x1B[38;2;95;95;95m※ recap: Fixed the tests.\x1B[39m                                                      ",
+  " \x1B[38;2;95;95;95m  (disable recaps in /settings)\x1B[39m                                                ",
   "",
-  "\x1B[48;2;45;40;56m                                                                                \x1B[49m",
-  "\x1B[48;2;45;40;56m \x1B[38;2;149;117;205m\x1B[1m[compaction]\x1B[22m\x1B[39m                                                                   \x1B[49m",
-  "\x1B[48;2;45;40;56m                                                                                \x1B[49m",
-  "\x1B[48;2;45;40;56m \x1B[38;2;212;212;212mCompacted from 5,000 tokens (\x1B[39m\x1B[38;2;102;102;102mctrl+e then e\x1B[39m\x1B[38;2;212;212;212m to expand)\x1B[39m                          \x1B[49m",
-  "\x1B[48;2;45;40;56m                                                                                \x1B[49m",
+  "\x1B[48;2;19;22;31m                                                                                \x1B[49m",
+  "\x1B[48;2;19;22;31m \x1B[38;2;101;159;244m\x1B[1m[compaction]\x1B[22m\x1B[39m                                                                   \x1B[49m",
+  "\x1B[48;2;19;22;31m                                                                                \x1B[49m",
+  "\x1B[48;2;19;22;31m \x1B[38;2;245;245;245mCompacted from 5,000 tokens (\x1B[39m\x1B[38;2;95;95;95mctrl+e then e\x1B[39m\x1B[38;2;245;245;245m to expand)\x1B[39m                          \x1B[49m",
+  "\x1B[48;2;19;22;31m                                                                                \x1B[49m",
   "",
-  "\x1B[48;2;45;40;56m                                                                                \x1B[49m",
-  "\x1B[48;2;45;40;56m \x1B[38;2;149;117;205m\x1B[1m[branch]\x1B[22m\x1B[39m                                                                       \x1B[49m",
-  "\x1B[48;2;45;40;56m                                                                                \x1B[49m",
-  "\x1B[48;2;45;40;56m \x1B[38;2;212;212;212mBranch summary (\x1B[39m\x1B[38;2;102;102;102mctrl+e then e\x1B[39m\x1B[38;2;212;212;212m to expand)\x1B[39m                                       \x1B[49m",
-  "\x1B[48;2;45;40;56m                                                                                \x1B[49m",
+  "\x1B[48;2;19;22;31m                                                                                \x1B[49m",
+  "\x1B[48;2;19;22;31m \x1B[38;2;101;159;244m\x1B[1m[branch]\x1B[22m\x1B[39m                                                                       \x1B[49m",
+  "\x1B[48;2;19;22;31m                                                                                \x1B[49m",
+  "\x1B[48;2;19;22;31m \x1B[38;2;245;245;245mBranch summary (\x1B[39m\x1B[38;2;95;95;95mctrl+e then e\x1B[39m\x1B[38;2;245;245;245m to expand)\x1B[39m                                       \x1B[49m",
+  "\x1B[48;2;19;22;31m                                                                                \x1B[49m",
 ]
 `;
 
 exports[`chat history end-to-end skill user message + session-start hook context 1`] = `
 [
   "",
-  "\x1B[48;2;45;40;56m                                                                                \x1B[49m",
-  "\x1B[48;2;45;40;56m \x1B[38;2;149;117;205m\x1B[1m[skill]\x1B[22m \x1B[39m\x1B[38;2;212;212;212mverify\x1B[39m\x1B[38;2;102;102;102m (ctrl+e then e to expand)\x1B[39m                                       \x1B[49m",
-  "\x1B[48;2;45;40;56m                                                                                \x1B[49m",
-  "\x1B]133;A\x07\x1B[48;2;52;53;65m                                                                                \x1B[49m",
-  "\x1B[48;2;52;53;65m \x1B[38;2;212;212;212mdo it\x1B[39m                                                                          \x1B[49m",
-  "\x1B]133;B\x07\x1B]133;C\x07\x1B[48;2;52;53;65m                                                                                \x1B[49m",
+  "\x1B[48;2;19;22;31m                                                                                \x1B[49m",
+  "\x1B[48;2;19;22;31m \x1B[38;2;101;159;244m\x1B[1m[skill]\x1B[22m \x1B[39m\x1B[38;2;245;245;245mverify\x1B[39m\x1B[38;2;95;95;95m (ctrl+e then e to expand)\x1B[39m                                       \x1B[49m",
+  "\x1B[48;2;19;22;31m                                                                                \x1B[49m",
+  "\x1B]133;A\x07\x1B[48;2;27;28;32m                                                                                \x1B[49m",
+  "\x1B[48;2;27;28;32m \x1B[38;2;245;245;245mdo it\x1B[39m                                                                          \x1B[49m",
+  "\x1B]133;B\x07\x1B]133;C\x07\x1B[48;2;27;28;32m                                                                                \x1B[49m",
 ]
 `;
 
 exports[`chat history end-to-end tools expanded toggle re-renders expanded 1`] = `
 [
   "",
-  "\x1B]133;A\x07\x1B[48;2;52;53;65m                                                                                \x1B[49m",
-  "\x1B[48;2;52;53;65m \x1B[38;2;212;212;212mgo\x1B[39m                                                                             \x1B[49m",
-  "\x1B]133;B\x07\x1B]133;C\x07\x1B[48;2;52;53;65m                                                                                \x1B[49m",
+  "\x1B]133;A\x07\x1B[48;2;27;28;32m                                                                                \x1B[49m",
+  "\x1B[48;2;27;28;32m \x1B[38;2;245;245;245mgo\x1B[39m                                                                             \x1B[49m",
+  "\x1B]133;B\x07\x1B]133;C\x07\x1B[48;2;27;28;32m                                                                                \x1B[49m",
   "",
   "\x1B[48;2;40;50;40m                                                                                \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;212;212;212mbash\x1B[39m \x1B[38;2;128;128;128mseq 12\x1B[39m                                                                    \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;245;245;245mbash\x1B[39m \x1B[38;2;138;138;138mseq 12\x1B[39m                                                                    \x1B[49m",
   "\x1B[48;2;40;50;40m                                                                                \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;128;128;128m1\x1B[39m                                                                              \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;128;128;128m2\x1B[39m                                                                              \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;128;128;128m3\x1B[39m                                                                              \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;128;128;128m4\x1B[39m                                                                              \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;128;128;128m5\x1B[39m                                                                              \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;128;128;128m6\x1B[39m                                                                              \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;128;128;128m7\x1B[39m                                                                              \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;128;128;128m8\x1B[39m                                                                              \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;128;128;128m9\x1B[39m                                                                              \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;128;128;128m10\x1B[39m                                                                             \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;128;128;128m11\x1B[39m                                                                             \x1B[49m",
-  "\x1B[48;2;40;50;40m \x1B[38;2;128;128;128m12\x1B[39m                                                                             \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;138;138;138m1\x1B[39m                                                                              \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;138;138;138m2\x1B[39m                                                                              \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;138;138;138m3\x1B[39m                                                                              \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;138;138;138m4\x1B[39m                                                                              \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;138;138;138m5\x1B[39m                                                                              \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;138;138;138m6\x1B[39m                                                                              \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;138;138;138m7\x1B[39m                                                                              \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;138;138;138m8\x1B[39m                                                                              \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;138;138;138m9\x1B[39m                                                                              \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;138;138;138m10\x1B[39m                                                                             \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;138;138;138m11\x1B[39m                                                                             \x1B[49m",
+  "\x1B[48;2;40;50;40m \x1B[38;2;138;138;138m12\x1B[39m                                                                             \x1B[49m",
   "\x1B[48;2;40;50;40m                                                                                \x1B[49m",
 ]
 `;

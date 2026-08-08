@@ -1,5 +1,5 @@
-import chalk from "chalk";
 import { Loader, type Component, type Container, type TUI } from "@notshekhar/loop-tui";
+import { accent, dim } from "./ui/text";
 
 export interface WorkingIndicator {
     /** Show/update the spinner in the status slot (Esc-to-interrupt hint added). */
@@ -35,15 +35,15 @@ export function createWorkingIndicator(
     const oscProgress = supportsOscProgress();
 
     function showWorking(message = "Generating…"): void {
-        const fullMsg = `${message} ${chalk.dim("(Esc to interrupt)")}`;
+        const fullMsg = `${message} ${dim("(Esc to interrupt)")}`;
         if (workingLoader) {
             workingLoader.setMessage(fullMsg);
             return;
         }
         workingLoader = new Loader(
             tui,
-            (s) => chalk.cyan(s),
-            (s) => chalk.dim(s),
+            (s) => accent(s),
+            (s) => dim(s),
             fullMsg,
         );
         statusContainer.clear();

@@ -1,15 +1,20 @@
 import { PRODUCT_NAME } from "@notshekhar/loop-core";
 import { type Component, truncateToWidth, type TUI, visibleWidth } from "@notshekhar/loop-tui";
-import chalk from "chalk";
+import { mix } from "../ui/palette";
+import { fgHex, isLightTheme, theme } from "../ui/theme";
 
 /**
- * Startup welcome banner — loop's answer to Claude Code's masthead, minus the
- * border box. A pixelated "loop" ring sits on the left with a comet of light
- * chasing its way around (the animation), identity + tips to the right.
+ * Startup welcome banner, styled to match the desktop app: a vertical gradient
+ * rule down the left edge — the theme's accent (the desktop's `--primary`)
+ * ramped from a pale tint at the top to a deep one at the bottom — with the
+ * product name and greeting beside it, then an aligned label/value block.
  *
- * The ring spins for a couple of rotations on appearance, then settles to a
- * static glow and stops its timer so it never churns renders once it has
- * scrolled up into the terminal's scrollback.
+ * Every colour resolves through the active theme, so the banner follows
+ * whichever UI mode and light/dark theme is in play rather than pinning the
+ * dark palette's hexes.
+ *
+ * Static by design — it renders once and never animates, so it costs nothing
+ * after it scrolls up into the terminal's scrollback.
  */
 
 export interface WelcomeBannerInfo {
@@ -21,51 +26,47 @@ export interface WelcomeBannerInfo {
     session: string;
     /** Non-default agent name, or null. */
     agent: string | null;
+    /** Current git branch, or null when not a repo / detached. */
+    branch: string | null;
     /** Working directory (already ~-shortened). */
     cwd: string;
     /** loop version, if known. */
     version?: string;
 }
 
-// 4×4 pixel ring (each cell renders as a 2-wide block so it reads square in a
-// terminal). Full square perimeter — corners filled — with a hollow centre so
-// the settled shape clearly reads as a loop. The animation walks a bright
-// "head" clockwise around the perimeter with a fading tail behind it: a loop,
-// going in a circle.
-const RING: ReadonlyArray<readonly [number, number]> = [
-    [0, 0],
-    [0, 1],
-    [0, 2],
-    [0, 3],
-    [1, 3],
-    [2, 3],
-    [3, 3],
-    [3, 2],
-    [3, 1],
-    [3, 0],
-    [2, 0],
-    [1, 0],
-];
+const BAR = "█";
+/** Space between the rule and the text column. */
+const BAR_GAP = "  ";
+/** Space between the label column and the value column. */
+const LABEL_GAP = "  ";
 
-const GRID_SIZE = 4;
-const PIXEL = "██";
-const GAP = "  ";
-const FRAME_MS = 90;
-const ROTATIONS = 2; // spin twice, then settle
+/**
+ * Where the rule's endpoints sit relative to the accent: `top` is how far it
+ * is lightened, `bottom` how far it is darkened. On a light terminal the pale
+ * end has to stay well short of white or the top of the rule disappears
+ * against the canvas, so its ramp is both shallower and shifted darker.
+ */
+const RAMP = {
+    dark: { top: 0.55, bottom: 0.6 },
+    light: { top: 0.26, bottom: 0.5 },
+};
 
-// Comet palette: head brightest, two trailing pixels dimmer, rest a faint glow.
-const HEAD = chalk.hex("#d6fff7").bold;
-const TRAIL1 = chalk.hex("#8abeb7").bold;
-const TRAIL2 = chalk.hex("#5e8e88").bold;
-const REST = chalk.hex("#3a4f4c").bold;
-const SETTLED = chalk.hex("#8abeb7").bold;
-
-const ORANGE = chalk.hex("#e09956");
+/**
+ * The rule's colours, top to bottom, over `rows` lines. Built from the theme's
+ * accent so the banner restyles with the theme; falls back to a flat accent
+ * when the accent is a 256-index or the terminal default (a custom theme's
+ * choice we cannot interpolate).
+ */
+function barColors(rows: number): Array<string | null> {
+    const accent = theme.raw("accent");
+    if (typeof accent !== "string" || !accent.startsWith("#")) return Array(rows).fill(null);
+    const ramp = isLightTheme() ? RAMP.light : RAMP.dark;
+    const top = mix(accent, "#ffffff", ramp.top);
+    const bottom = mix(accent, "#000000", ramp.bottom);
+    return Array.from({ length: rows }, (_, i) => mix(top, bottom, rows > 1 ? i / (rows - 1) : 0));
+}
 
 export class WelcomeBanner implements Component {
-    private frame = 0;
-    private timer: NodeJS.Timeout | null = null;
-    private settled = false;
     private cachedWidth?: number;
     private cachedLines?: string[];
     /** Optional "update available" line, set asynchronously after the network check. */
@@ -83,93 +84,64 @@ export class WelcomeBanner implements Component {
         this.tui.requestRender();
     }
 
-    start(): void {
-        if (this.timer) return;
-        this.timer = setInterval(() => {
-            this.frame++;
-            this.cachedLines = undefined;
-            // After ROTATIONS full loops, freeze on the settled ring.
-            if (this.frame >= RING.length * ROTATIONS) {
-                this.settled = true;
-                this.stop();
-            }
-            this.tui.requestRender();
-        }, FRAME_MS);
-    }
-
-    stop(): void {
-        if (this.timer) {
-            clearInterval(this.timer);
-            this.timer = null;
-        }
-    }
-
     invalidate(): void {
         this.cachedLines = undefined;
         this.cachedWidth = undefined;
     }
 
-    /** Color a ring pixel by its distance behind the comet head. */
-    private pixel(index: number): string {
-        if (this.settled) return SETTLED(PIXEL);
-        const head = this.frame % RING.length;
-        const dist = (head - index + RING.length) % RING.length;
-        if (dist === 0) return HEAD(PIXEL);
-        if (dist === 1) return TRAIL1(PIXEL);
-        if (dist === 2) return TRAIL2(PIXEL);
-        return REST(PIXEL);
-    }
-
-    /** The 5 rendered icon rows (10 visible cols each). */
-    private iconRows(): string[] {
-        const rows: string[] = [];
-        for (let r = 0; r < GRID_SIZE; r++) {
-            let row = "";
-            for (let c = 0; c < GRID_SIZE; c++) {
-                const ringIndex = RING.findIndex(([rr, cc]) => rr === r && cc === c);
-                row += ringIndex >= 0 ? this.pixel(ringIndex) : "  ";
-            }
-            rows.push(row);
-        }
+    /** The label/value rows, in display order. */
+    private rows(): Array<readonly [string, string]> {
+        const rows: Array<readonly [string, string]> = [];
+        if (this.info.version) rows.push(["version", theme.fg("text", this.info.version)]);
+        rows.push([
+            "model",
+            this.info.model
+                ? theme.fg("text", this.info.model)
+                : theme.fg("warning", "no model — run /login or /provider"),
+        ]);
+        if (this.info.branch) rows.push(["branch", theme.fg("text", this.info.branch)]);
+        rows.push(["cwd", theme.fg("text", this.info.cwd)]);
+        rows.push([
+            "session",
+            this.info.session === "unsaved" ? theme.fg("dim", "unsaved") : theme.fg("text", this.info.session),
+        ]);
+        if (this.info.agent) rows.push(["agent", theme.fg("text", this.info.agent)]);
         return rows;
     }
 
     render(width: number): string[] {
         if (this.cachedLines && this.cachedWidth === width) return this.cachedLines;
 
-        const icon = this.iconRows();
+        const rows = this.rows();
+        const labelWidth = Math.max(...rows.map(([label]) => label.length));
 
-        const modelLabel = this.info.model || chalk.yellow("no model — run /login or /provider");
-        const sessionLabel = this.info.session === "unsaved" ? chalk.dim("unsaved") : this.info.session;
-        const idLine =
-            chalk.bold(PRODUCT_NAME) +
-            chalk.dim(" · ") +
-            modelLabel +
-            chalk.dim(" · ") +
-            sessionLabel +
-            (this.info.agent ? chalk.dim(" · agent ") + this.info.agent : "");
-
-        // One text row beside each of the icon's 4 rows.
-        const textRows: string[] = [
-            chalk.bold(`Welcome to ${PRODUCT_NAME}, ${this.info.name}!`) +
-                (this.info.version ? chalk.dim(`  v${this.info.version}`) : ""),
-            idLine,
-            chalk.dim(this.info.cwd),
-            ORANGE("Tips") +
-                chalk.dim("  /help · Ctrl+E navigates transcript · Shift+Tab cycles agents · Ctrl+C twice to quit"),
+        // Everything that sits beside the gradient rule, in order.
+        const beside: string[] = [
+            theme.fg("text", theme.bold(PRODUCT_NAME)),
+            theme.fg("muted", `Welcome back, ${this.info.name}`),
+            "",
+            ...rows.map(([label, value]) => theme.fg("dim", label.padEnd(labelWidth)) + LABEL_GAP + value),
         ];
-
-        const lines: string[] = [""];
-        for (let i = 0; i < GRID_SIZE; i++) {
-            const text = textRows[i] ?? "";
-            // " " left margin + icon + gap + text
-            lines.push(` ${icon[i]}${GAP}${text}`);
-        }
-        // Update-available line, aligned under the text column (no icon beside it).
         if (this.updateNotice) {
-            const indent = " " + " ".repeat(GRID_SIZE * 2) + GAP;
-            lines.push(indent + chalk.yellow(this.updateNotice));
+            beside.push("");
+            beside.push(theme.fg("warning", this.updateNotice));
         }
+        // The rule must end on the last row that has something beside it — a
+        // trailing blank would leave a bar segment hanging under the block.
+        while (beside.length > 0 && beside[beside.length - 1] === "") beside.pop();
+
+        const bar = barColors(beside.length);
+        const lines: string[] = [""];
+        for (let i = 0; i < beside.length; i++) {
+            const hex = bar[i];
+            const rule = hex ? fgHex(hex, BAR) : theme.fg("accent", BAR);
+            lines.push(` ${rule}${BAR_GAP}${beside[i]}`);
+        }
+        lines.push("");
+        lines.push(
+            ` ${theme.fg("dim", "type ")}${theme.fg("text", theme.bold("/help"))}${theme.fg("dim", " for slash commands")}`,
+        );
+        lines.push(` ${theme.fg("dim", "ctrl+e transcript · shift+tab agents · ctrl+c twice to quit")}`);
         lines.push("");
 
         // Truncate then pad each line to full width so the differential

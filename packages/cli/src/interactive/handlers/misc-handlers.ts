@@ -24,6 +24,7 @@ import { readClipboardImageToFile } from "../clipboard-image";
 import { startLogin, startLogout } from "../login-flow";
 import { loadChangelogEntries } from "../../changelog";
 import { resolveAvailableUpdate, runUpgrade } from "../../commands";
+import { accent, dim, warn } from "../ui/text";
 
 type MiscHandlers = Pick<
     CommandContext,
@@ -76,18 +77,18 @@ export function createMiscHandlers(state: AppState, deps: AppDeps): MiscHandlers
                 monthRow[GUTTER + c + i] = lbl[i];
             }
         }
-        history.addSystem(chalk.dim(monthRow.join("")));
+        history.addSystem(dim(monthRow.join("")));
 
         const dayLabels = ["", "Mon", "", "Wed", "", "Fri", ""];
         for (let r = 0; r < 7; r++) {
-            let line = chalk.dim(dayLabels[r].padEnd(GUTTER));
+            let line = dim(dayLabels[r].padEnd(GUTTER));
             for (let c = 0; c < grid.weeks; c++) line += square(grid.cells[r][c]);
             history.addSystem(line);
         }
 
         const legend = [0, 1, 2, 3, 4].map((l) => chalk.hex(ramp[l])("■")).join("");
         history.addSystem("");
-        history.addSystem(`${" ".repeat(GUTTER)}${chalk.dim("Less ")}${legend}${chalk.dim(" More")}`);
+        history.addSystem(`${" ".repeat(GUTTER)}${dim("Less ")}${legend}${dim(" More")}`);
 
         // Streak stats, computed in core alongside the grid — same numbers
         // the web UI's usage dialog shows.
@@ -102,9 +103,7 @@ export function createMiscHandlers(state: AppState, deps: AppDeps): MiscHandlers
             });
         };
         const stat = (label: string, value: string, note = "") =>
-            history.addSystem(
-                `  ${chalk.dim(label.padEnd(16))}${chalk.bold(value)}${note ? `   ${chalk.dim(note)}` : ""}`,
-            );
+            history.addSystem(`  ${dim(label.padEnd(16))}${chalk.bold(value)}${note ? `   ${dim(note)}` : ""}`);
         history.addSystem("");
         stat("current streak", days(st.currentStreak), st.currentStreak >= 3 ? "🔥" : "");
         stat("longest streak", days(st.longestStreak));
@@ -135,7 +134,7 @@ export function createMiscHandlers(state: AppState, deps: AppDeps): MiscHandlers
             const fmtUsd = (v: number) => `$${v.toFixed(4)}`;
             const row = (label: string, usd: number, extra = "") =>
                 history.addSystem(
-                    `  ${chalk.dim(label.padEnd(14))}${chalk.cyan(fmtUsd(usd).padStart(10))}${extra ? `   ${chalk.dim(extra)}` : ""}`,
+                    `  ${dim(label.padEnd(14))}${accent(fmtUsd(usd).padStart(10))}${extra ? `   ${dim(extra)}` : ""}`,
                 );
 
             history.addSystem(chalk.bold("cost"));
@@ -155,9 +154,7 @@ export function createMiscHandlers(state: AppState, deps: AppDeps): MiscHandlers
             for (const [p, v] of providers) row(`  ${p}`, v);
             // Daily/cwd buckets are new — older lifetime spend predates them.
             if (st.lifetimeUsd > 0 && st.monthUsd === 0 && st.cwdUsd === 0) {
-                history.addSystem(
-                    chalk.dim("  (time/directory tracking starts now — lifetime includes earlier spend)"),
-                );
+                history.addSystem(dim("  (time/directory tracking starts now — lifetime includes earlier spend)"));
             }
             tui.requestRender();
         },
@@ -239,7 +236,7 @@ export function createMiscHandlers(state: AppState, deps: AppDeps): MiscHandlers
             );
             if (probe.allowed.length === 0) {
                 history.addSystem(
-                    chalk.yellow(
+                    warn(
                         isPdf
                             ? `${state.modelId} cannot take PDF attachments (provider needs inline-PDF support). Try an anthropic/google/openai model.`
                             : `${state.modelId} does not accept images. Pick a vision model via /model first.`,
@@ -253,7 +250,7 @@ export function createMiscHandlers(state: AppState, deps: AppDeps): MiscHandlers
                 path = readClipboardImageToFile() ?? undefined;
                 if (!path) {
                     history.addSystem(
-                        chalk.yellow(
+                        warn(
                             "no image in clipboard. Copy one (Cmd+C on a Finder file or screenshot), use `/attach <path>`, or press Ctrl+I to pick a file.",
                         ),
                     );
@@ -336,7 +333,7 @@ export function createMiscHandlers(state: AppState, deps: AppDeps): MiscHandlers
             await runUpgrade(version);
         },
         stub(name) {
-            history.addSystem(chalk.yellow(`/${name} not implemented yet`));
+            history.addSystem(warn(`/${name} not implemented yet`));
             tui.requestRender();
         },
         async openMemory() {
@@ -352,7 +349,7 @@ export function createMiscHandlers(state: AppState, deps: AppDeps): MiscHandlers
             candidates.push({ label: "Agent memory (auto)", path: memIndex, exists: existsSync(memIndex) });
             const items = candidates.map((c) => ({
                 value: c.path,
-                label: `${c.label.padEnd(24)} ${c.path.replace(process.env.HOME ?? "", "~")}${c.exists ? "" : chalk.dim(" (create)")}`,
+                label: `${c.label.padEnd(24)} ${c.path.replace(process.env.HOME ?? "", "~")}${c.exists ? "" : dim(" (create)")}`,
             }));
             const pick = await selectOnce(items, "memory — pick a file to edit");
             if (!pick) return;

@@ -3,7 +3,6 @@
  * Pulled out of app.ts so the app file stays an orchestrator.
  */
 import type { SelectItem, TUI } from "@notshekhar/loop-tui";
-import chalk from "chalk";
 import {
     getMcpManager,
     getExtensionHost,
@@ -29,6 +28,7 @@ import type { AppState } from "./state";
 import { checkForUpdate } from "../commands";
 import { setWelcomeUpdateNotice } from "./welcome";
 import { getNewEntries, loadChangelogEntries } from "../changelog";
+import { dim, warn } from "./ui/text";
 
 /**
  * What's-new: show changelog entries the user hasn't seen yet (fresh
@@ -44,7 +44,7 @@ export function showWhatsNew(history: ChatHistory, version: string | undefined, 
     if (lastSeen !== version) {
         const fresh = getNewEntries(loadChangelogEntries(), lastSeen);
         if (fresh.length > 0) {
-            history.addSystem(chalk.dim(`Updated to v${version} — what's new:`));
+            history.addSystem(dim(`Updated to v${version} — what's new:`));
             history.addMarkdown(fresh.map((e) => e.content).join("\n\n"));
         }
         settingsStore.set("lastChangelogVersion", version);
@@ -74,20 +74,20 @@ export async function showWorkspaceBanners(history: ChatHistory, cwd: string): P
     if ((settingsStore.get("workspaceContext") as boolean) !== false) {
         const ws = loadWorkspaceContext(cwd);
         if (ws.files.length > 0) {
-            history.addSystem(chalk.dim(`workspace context (${ws.files.length}):`));
+            history.addSystem(dim(`workspace context (${ws.files.length}):`));
             for (const f of ws.files) {
-                history.addSystem(chalk.dim(`  • ${f.replace(process.env.HOME ?? "", "~")}`));
+                history.addSystem(dim(`  • ${f.replace(process.env.HOME ?? "", "~")}`));
             }
         } else {
-            history.addSystem(chalk.dim("workspace context: none (AGENTS.md, CLAUDE.md not found)"));
+            history.addSystem(dim("workspace context: none (AGENTS.md, CLAUDE.md not found)"));
         }
     }
     if ((settingsStore.get("skills") as boolean) !== false) {
         const sk = await loadProjectSkills(cwd);
         if (sk.skills.length > 0) {
-            history.addSystem(chalk.dim(`skills (${sk.skills.length}):`));
+            history.addSystem(dim(`skills (${sk.skills.length}):`));
             for (const s of sk.skills) {
-                history.addSystem(chalk.dim(`  • ${s.name} — ${s.description.slice(0, 80)}`));
+                history.addSystem(dim(`  • ${s.name} — ${s.description.slice(0, 80)}`));
             }
         }
     }
@@ -98,7 +98,7 @@ export async function showWorkspaceBanners(history: ChatHistory, cwd: string): P
         const MAX = 8;
         const shown = exts.slice(0, MAX).join(" · ");
         const extra = exts.length > MAX ? ` · +${exts.length - MAX} more` : "";
-        history.addSystem(chalk.dim(`extensions: ${shown}${extra}`));
+        history.addSystem(dim(`extensions: ${shown}${extra}`));
     }
 }
 
@@ -113,8 +113,8 @@ export async function runStartupTrustAndHooks(state: AppState, deps: AppDeps): P
     if (hasProjectTrustInputs(state.cwd) && getTrustDecision(state.cwd) === null) {
         const opts = getTrustOptions(state.cwd);
         history.addSystem(
-            chalk.yellow(`Trust this project folder?\n${state.cwd}`) +
-                chalk.dim(
+            warn(`Trust this project folder?\n${state.cwd}`) +
+                dim(
                     `\nTrusting lets ${PRODUCT_NAME} load this repo's ${CONFIG_DIR_NAME}/.claude settings, hooks, and skills.`,
                 ),
         );
@@ -126,10 +126,10 @@ export async function runStartupTrustAndHooks(state: AppState, deps: AppDeps): P
             if (chosen.remember) setTrust(chosen.savePath, chosen.trusted);
             else if (chosen.trusted) trustForSession(state.cwd); // session-only: in-memory, not persisted
             history.addSystem(
-                chalk.dim(chosen.trusted ? "project trusted" : "project not trusted — project hooks/skills disabled"),
+                dim(chosen.trusted ? "project trusted" : "project not trusted — project hooks/skills disabled"),
             );
         } else {
-            history.addSystem(chalk.dim("trust prompt dismissed — treating project as untrusted for now"));
+            history.addSystem(dim("trust prompt dismissed — treating project as untrusted for now"));
         }
         tui.requestRender();
     }
@@ -154,7 +154,7 @@ export async function runStartupTrustAndHooks(state: AppState, deps: AppDeps): P
         history.addHook(`hooks (${total}):`);
         for (const [ev, groups] of hookEvents) {
             const cmds = groups!.flatMap((g) => g.hooks ?? []).map((h) => shortCmd(h.command));
-            history.addSystem(chalk.dim(`    • ${ev}: ${cmds.join(", ")}`));
+            history.addSystem(dim(`    • ${ev}: ${cmds.join(", ")}`));
         }
         tui.requestRender();
     }
@@ -200,7 +200,7 @@ export function startMcpServers(state: AppState, deps: AppDeps): void {
             .join(", ");
         history.addHook(`MCP: ${summary}`);
         for (const s of servers) {
-            if (s.status === "error" && s.error) history.addSystem(chalk.dim(`    • ${s.name}: ${s.error}`));
+            if (s.status === "error" && s.error) history.addSystem(dim(`    • ${s.name}: ${s.error}`));
         }
         tui.requestRender();
     });

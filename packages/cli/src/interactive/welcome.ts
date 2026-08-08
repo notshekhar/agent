@@ -1,7 +1,8 @@
 /**
  * Builds + shows the startup welcome banner and keeps a single live instance so
- * its animation timer is stopped before a new one is created (on /new, /clear).
+ * a late-arriving update notice lands on the banner currently on screen.
  */
+import { execFileSync } from "node:child_process";
 import os from "node:os";
 import { DEFAULT_AGENT_NAME } from "@notshekhar/loop-core";
 import { WelcomeBanner } from "./components/welcome-banner";
@@ -37,20 +38,38 @@ function shortenPath(p: string): string {
     return home && p.startsWith(home) ? `~${p.slice(home.length)}` : p;
 }
 
+/**
+ * Current branch name, or null outside a repo / on a detached HEAD. Sync and
+ * short-timeout on purpose: it runs once per banner during startup, and a
+ * missing or slow git must never delay the first paint.
+ */
+function gitBranch(cwd: string): string | null {
+    try {
+        const out = execFileSync("git", ["rev-parse", "--abbrev-ref", "HEAD"], {
+            cwd,
+            encoding: "utf8",
+            timeout: 500,
+            stdio: ["ignore", "pipe", "ignore"],
+        }).trim();
+        return out && out !== "HEAD" ? out : null;
+    } catch {
+        return null;
+    }
+}
+
 /** Render the masthead into chat history; replaces any prior live banner. */
 export function showWelcomeBanner(history: ChatHistory, state: AppState, deps: AppDeps): void {
-    activeBanner?.stop();
     const banner = new WelcomeBanner(deps.tui, {
         name: username(),
         model: state.modelId,
         session: state.session?.id ?? "unsaved",
         agent: state.agent !== DEFAULT_AGENT_NAME ? state.agent : null,
+        branch: gitBranch(state.cwd),
         cwd: shortenPath(state.cwd),
         version: deps.version,
     });
     activeBanner = banner;
     if (updateNotice) banner.setUpdateNotice(updateNotice);
     history.addChild(banner);
-    banner.start();
     deps.tui.requestRender();
 }

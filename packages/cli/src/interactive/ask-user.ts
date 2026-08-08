@@ -18,11 +18,11 @@ import {
     Text,
 } from "@notshekhar/loop-tui";
 import type { AskAnswer, AskQuestion, AskUserBridge } from "@notshekhar/loop-core";
-import chalk from "chalk";
 import { isEsc, isLeft, isRight } from "./keys";
 import type { SelectorHost } from "./selectors";
 import { DynamicBorder } from "./ui/messages";
 import { getSelectListTheme } from "./ui/theme";
+import { accentTitle, dim } from "./ui/text";
 
 const OTHER = "__other__";
 const DONE = "__done__";
@@ -75,14 +75,12 @@ export function createAskUserBridge(deps: AskUserDeps): AskUserBridge {
     /** Header chip + question text + list/editor + help line, per question. */
     const buildWrapper = (q: AskQuestion, progress: string, body: SelectList | Editor, help: string): Container => {
         const wrapper = new Container();
-        wrapper.addChild(
-            new Text(chalk.bold.cyan(` [${q.header}]`) + (progress ? chalk.dim(`  ${progress}`) : ""), 0, 0),
-        );
+        wrapper.addChild(new Text(accentTitle(` [${q.header}]`) + (progress ? dim(`  ${progress}`) : ""), 0, 0));
         wrapper.addChild(new Text(` ${q.question}`, 0, 0));
         wrapper.addChild(new DynamicBorder());
         wrapper.addChild(body as never);
         wrapper.addChild(new DynamicBorder());
-        wrapper.addChild(new Text(chalk.dim(` ${help}`), 0, 0));
+        wrapper.addChild(new Text(dim(` ${help}`), 0, 0));
         return wrapper;
     };
 

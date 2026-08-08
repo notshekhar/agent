@@ -10,6 +10,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { MarkdownTheme, SelectListTheme } from "@notshekhar/loop-tui";
 import chalk from "chalk";
+import { luminance } from "./palette";
 import { DARK_THEME, type ThemeColors, type ThemeJson } from "./themes";
 import { activeUiMode, setActiveUiMode } from "./ui-mode";
 
@@ -185,6 +186,33 @@ export const theme: Theme = new Proxy({} as Theme, {
         return (activeTheme as unknown as Record<string | symbol, unknown>)[prop];
     },
 });
+
+/** Whether a theme has been activated yet — lets helpers degrade to plain
+ * chalk on paths that run before `initTheme` (print mode, early startup). */
+export function themeReady(): boolean {
+    return activeTheme !== null;
+}
+
+/**
+ * Colour text with a hex outside the theme's named slots, honouring the
+ * terminal's colour depth exactly as `theme.fg` does. For values a theme
+ * cannot name because they are computed — the welcome banner interpolates a
+ * gradient from the accent, and a slot per step would be absurd.
+ */
+export function fgHex(hex: string, text: string): string {
+    return `${fgAnsi(hex, detectColorMode())}${text}\x1b[39m`;
+}
+
+/**
+ * True when the active theme paints dark text — i.e. it is meant for a light
+ * terminal. Derived from the `text` slot rather than the theme's name so
+ * custom themes and extension modes classify correctly too.
+ */
+export function isLightTheme(): boolean {
+    const text = activeTheme?.raw("text");
+    if (typeof text !== "string" || !text.startsWith("#")) return false;
+    return luminance(text) < 0.5;
+}
 
 function customThemesDir(): string {
     const home = process.env.HOME ?? process.env.USERPROFILE ?? "";

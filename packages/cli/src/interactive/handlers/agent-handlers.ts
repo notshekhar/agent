@@ -2,7 +2,6 @@
  * Agent management: /agents and one-shot /<agent> <message>.
  */
 import type { SelectItem } from "@notshekhar/loop-tui";
-import chalk from "chalk";
 import {
     AGENT_TOOL_NAMES,
     DEFAULT_AGENT_NAME,
@@ -26,6 +25,7 @@ import {
 } from "@notshekhar/loop-core";
 import type { AppDeps } from "../deps";
 import type { AppState } from "../state";
+import { dim, err, warn } from "../ui/text";
 
 type AgentHandlers = Pick<CommandContext, "useAgent" | "manageAgents" | "togglePlanMode">;
 
@@ -63,8 +63,7 @@ export function createAgentHandlers(state: AppState, deps: AppDeps): AgentHandle
                 state.planModeViaCycle = false;
                 statusLine.setPlanMode(true);
                 history.addSystem(
-                    chalk.yellow("plan mode on") +
-                        chalk.dim(" — edits rejected, bash read-only; accept a plan or /plan to turn off"),
+                    warn("plan mode on") + dim(" — edits rejected, bash read-only; accept a plan or /plan to turn off"),
                 );
                 tui.requestRender();
             }
@@ -73,7 +72,7 @@ export function createAgentHandlers(state: AppState, deps: AppDeps): AgentHandle
         },
         useAgent(name, message) {
             if (!agentExists(name)) {
-                history.addSystem(chalk.red(`unknown agent: ${name} — /agents to create one`));
+                history.addSystem(err(`unknown agent: ${name} — /agents to create one`));
                 tui.requestRender();
                 return;
             }
@@ -82,7 +81,7 @@ export function createAgentHandlers(state: AppState, deps: AppDeps): AgentHandle
             // session agent happens only via /agents → use.
             if (message?.trim()) {
                 state.oneShotAgent = name;
-                history.addSystem(chalk.dim(`agent for this message: ${name}`));
+                history.addSystem(dim(`agent for this message: ${name}`));
                 tui.requestRender();
                 if (editor.onSubmit) void editor.onSubmit(message);
                 return;
@@ -163,12 +162,12 @@ export function createAgentHandlers(state: AppState, deps: AppDeps): AgentHandle
                     const name = (await promptOnce("agent name (e.g. reviewer)")).trim();
                     if (!name) continue;
                     if (!isValidAgentName(name)) {
-                        history.addSystem(chalk.red(`invalid name: ${name} (alphanumeric, dashes, ≤32 chars)`));
+                        history.addSystem(err(`invalid name: ${name} (alphanumeric, dashes, ≤32 chars)`));
                         tui.requestRender();
                         continue;
                     }
                     if (agentExists(name) || commands.has(name)) {
-                        history.addSystem(chalk.red(`"${name}" already exists (agent or command)`));
+                        history.addSystem(err(`"${name}" already exists (agent or command)`));
                         tui.requestRender();
                         continue;
                     }
@@ -271,7 +270,7 @@ export function createAgentHandlers(state: AppState, deps: AppDeps): AgentHandle
                     const current = getAgentPrompt(name) ?? DEFAULT_BASE_PROMPT;
                     // Built-ins: tools are fixed but still previewed before editing.
                     if (isBuiltin) {
-                        history.addSystem(chalk.dim(`tools (fixed): ${toolsLabel(currentTools)}`));
+                        history.addSystem(dim(`tools (fixed): ${toolsLabel(currentTools)}`));
                         tui.requestRender();
                     }
                     const edited = await promptOnce(

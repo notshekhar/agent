@@ -3,6 +3,7 @@ import type { StatusLineContext, StatusSegment } from "@notshekhar/loop-core";
 import type { Component } from "@notshekhar/loop-tui";
 import chalk from "chalk";
 import { formatClock, formatCountdown } from "../time";
+import { accent, dim, err, ok, warn } from "../ui/text";
 
 function fmtTokens(n: number): string {
     if (n < 1000) return String(n);
@@ -119,15 +120,15 @@ export class StatusLine implements Component {
 
     render(width: number): string[] {
         if (this.hint !== null) {
-            return [ansiSlice(chalk.dim(this.hint), width)];
+            return [ansiSlice(dim(this.hint), width)];
         }
         let ctxStr: string;
         if (this.ctxMax > 0) {
             const pct = (this.ctxUsed / this.ctxMax) * 100;
             const body = `ctx ${fmtTokens(this.ctxUsed)}/${fmtTokens(this.ctxMax)} (${pct.toFixed(1)}%)`;
-            ctxStr = pct > 90 ? chalk.red(body) : pct > 70 ? chalk.yellow(body) : chalk.dim(body);
+            ctxStr = pct > 90 ? err(body) : pct > 70 ? warn(body) : dim(body);
         } else {
-            ctxStr = chalk.dim(`ctx ${fmtTokens(this.ctxUsed)}`);
+            ctxStr = dim(`ctx ${fmtTokens(this.ctxUsed)}`);
         }
         const sid = this.sessionId ? this.sessionId.slice(0, 8) : "unsaved";
         const showThinking = this.modelReasoning && this.thinking && this.thinking !== "off";
@@ -138,16 +139,16 @@ export class StatusLine implements Component {
         const agentStr =
             (this.agent && this.agent !== "default"
                 ? chalk.hex("#e09956")(`agent ${this.agent}`)
-                : chalk.dim("agent default")) + chalk.dim(" (shift+tab)");
-        const identity = [agentStr, chalk.cyan(modelLabel)];
-        if (this.planMode) identity.push(chalk.yellow("plan mode (read-only)"));
-        const usage = [chalk.dim(`session ${sid}`), chalk.green(this.cost), ctxStr];
+                : dim("agent default")) + dim(" (shift+tab)");
+        const identity = [agentStr, accent(modelLabel)];
+        if (this.planMode) identity.push(warn("plan mode (read-only)"));
+        const usage = [dim(`session ${sid}`), ok(this.cost), ctxStr];
         if (this.timerEndsAt !== null) {
             const remaining = this.timerEndsAt - Date.now();
             const body = `timer ${formatCountdown(remaining)}`;
-            usage.push(remaining < 60_000 ? chalk.yellow(body) : chalk.dim(body));
+            usage.push(remaining < 60_000 ? warn(body) : dim(body));
         }
-        if (this.clockEnabled) usage.push(chalk.dim(formatClock()));
+        if (this.clockEnabled) usage.push(dim(formatClock()));
 
         // Extension contributions: rows[0]=identity, rows[1]=usage, >1 = extra.
         const { contributors, transforms } = getExtensionHost().getStatusLine();
@@ -215,7 +216,7 @@ function normalizeSegments(out: StatusSegment | StatusSegment[] | string | null 
 }
 
 function wrapParts(parts: string[], width: number): string[] {
-    const sep = chalk.dim(" · ");
+    const sep = dim(" · ");
     const sepLen = ansiLen(sep);
     const lines: string[] = [];
     let cur = "";
