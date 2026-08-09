@@ -764,7 +764,7 @@ describe("a core that restarts", () => {
         };
       };
     }
-    window.loop = bridge as unknown as typeof window.loop;
+    window.loop = bridge as unknown as NonNullable<typeof window.loop>;
     return {
       calls,
       announce: (running: boolean) => announce?.(running),

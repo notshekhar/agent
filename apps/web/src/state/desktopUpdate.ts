@@ -23,8 +23,17 @@ export class DesktopUpdateStateReadError extends Schema.TaggedErrorClass<Desktop
   }
 }
 
+/**
+ * `window.loop.updater` first, upstream's `window.desktopBridge` as a fallback.
+ *
+ * loop's desktop shell implements this contract but hangs it off its own bridge
+ * (apps/desktop/src/preload.ts), because exposing `window.desktopBridge` would
+ * flip `isElectron` and send auth and connection setup down upstream paths this
+ * shell has never had — the same reasoning as `components/preview/previewBridge.ts`.
+ */
 function getDesktopUpdateBridge(): DesktopUpdateBridge | undefined {
-  return typeof window === "undefined" ? undefined : window.desktopBridge;
+  if (typeof window === "undefined") return undefined;
+  return (window.loop?.updater as DesktopUpdateBridge | undefined) ?? window.desktopBridge;
 }
 
 export function createDesktopUpdateStateAtom(getBridge: () => DesktopUpdateBridge | undefined) {

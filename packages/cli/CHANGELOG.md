@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.17.0] - 2026-08-09
+
+### Added
+
+- **The desktop app updates itself.** When a newer release exists, a row appears above Settings in the sidebar: click it to download, and when that finishes it becomes a Restart button. No terminal, no reinstall script. It checks shortly after launch and every six hours after that, and when there is nothing to install it shows nothing at all.
+- The download is **verified against the checksum published with the release before anything is replaced**, and a mismatch throws the download away rather than installing it. This is the difference between a failed update and no working app left to retry from — the archives are ~170MB and a truncated one that installed would leave nothing behind to fix it with.
+- The swap keeps the old copy until the new one is in place, and puts it back if the move fails, so an interrupted update cannot leave the machine without an application.
+- All three platforms. macOS and Linux swap in place, which is safe because a running process keeps the files it is using alive under the backup name. Windows keeps a running executable locked, so it hands the swap to a small script that waits for the app to exit, replaces it, and starts it again.
+- Updating is off in a development build, where "replace the install directory" would mean renaming a checkout out from under whoever is working in it.
+
+### Note
+
+Electron's own updater is not what does this. On macOS it requires a Developer-ID-signed app and these builds are ad-hoc signed, so it would refuse — the app instead performs the same steps `install-desktop.sh` already did, in-process.
+
 ## [0.16.11] - 2026-08-09
 
 ### Fixed

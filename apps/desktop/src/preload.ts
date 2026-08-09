@@ -86,6 +86,11 @@ ipcRenderer.on("loop:status", (_event, payload: { running?: boolean }) => {
   for (const listener of statusListeners) listener(payload?.running === true);
 });
 
+const updateStateListeners = new Set<(state: unknown) => void>();
+ipcRenderer.on("loop:update.state", (_event, state: unknown) => {
+  for (const listener of updateStateListeners) listener(state);
+});
+
 const gitActionListeners = new Set<(event: unknown) => void>();
 ipcRenderer.on("loop:gitAction", (_event, payload: unknown) => {
   for (const listener of gitActionListeners) listener(payload);
@@ -133,6 +138,27 @@ contextBridge.exposeInMainWorld("loop", {
   onStatus(listener: (running: boolean) => void): () => void {
     statusListeners.add(listener);
     return () => statusListeners.delete(listener);
+  },
+  /**
+   * In-app updates, shaped as upstream's `DesktopBridge` update surface.
+   *
+   * Hung off `window.loop` rather than `window.desktopBridge` for the same
+   * reason as `preview`: exposing that name would flip the renderer's
+   * `isElectron` and route auth, connection setup and much else down upstream
+   * paths this shell has never had. The renderer's update UI already exists and
+   * only needs these five methods.
+   */
+  updater: {
+    getUpdateState: () => ipcRenderer.invoke("loop:update.state"),
+    checkForUpdate: () => ipcRenderer.invoke("loop:update.check"),
+    downloadUpdate: () => ipcRenderer.invoke("loop:update.download"),
+    installUpdate: () => ipcRenderer.invoke("loop:update.install"),
+    /** For the toast's release-notes link; main refuses anything but http(s). */
+    openExternal: (url: string) => ipcRenderer.invoke("loop:update.openExternal", { url }),
+    onUpdateState(listener: (state: unknown) => void): () => void {
+      updateStateListeners.add(listener);
+      return () => updateStateListeners.delete(listener);
+    },
   },
   fs: {
     list(cwd: string) {

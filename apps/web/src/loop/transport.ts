@@ -368,6 +368,12 @@ interface LoopDesktopBridge {
    * without it is exactly the shell this had before — no worse.
    */
   onStatus?(listener: (running: boolean) => void): () => void;
+  /**
+   * In-app updates — upstream's `DesktopBridge` update surface, hung off this
+   * bridge rather than `window.desktopBridge`. See components/desktopUpdateBridge.ts.
+   * Typed as `unknown` to keep this module free of contract imports.
+   */
+  updater?: unknown;
   /** Folder-less calls route here. */
   anchorCwd(): Promise<string | undefined>;
   fs?: LoopFilesystemBridge;

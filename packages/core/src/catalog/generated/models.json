@@ -4041,11 +4041,11 @@
     "provider": "openrouter",
     "name": "Qwen3.5 397B-A17B",
     "contextWindow": 262144,
-    "maxOutput": 65536,
+    "maxOutput": 262144,
     "cost": {
-      "input": 0.39,
-      "output": 2.34,
-      "cacheRead": 0,
+      "input": 0.5,
+      "output": 3.6,
+      "cacheRead": 0.3,
       "cacheWrite": 0
     },
     "reasoning": true,

@@ -15,6 +15,7 @@ import {
   shell,
   utilityProcess,
 } from "electron";
+import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { extname, join, normalize, resolve } from "node:path";
@@ -24,6 +25,8 @@ import { LoopProcess, resolveLoopBinary } from "./loopProcess.js";
 import { HostClient, type HostProcess } from "./hostClient.js";
 import { HOST_CALLBACKS, TERMINAL_PORT_CHANNEL } from "./hostProtocol.js";
 import { PreviewManager, type PreviewColorScheme } from "./preview.js";
+import { UpdateManager } from "./updateManager.js";
+import type { Arch, Platform } from "./updater.js";
 
 const RENDERER_SCHEME = "app";
 const RENDERER_ORIGIN = `${RENDERER_SCHEME}://loop`;
@@ -377,6 +380,72 @@ app.whenReady().then(() => {
    * it — see preview.ts. Everything here is keyed by the renderer's tab id,
    * which is the only name the two halves share.
    */
+  /**
+   * In-app updates.
+   *
+   * Only for a packaged build: `app.isPackaged` is false when running from the
+   * repo, and there "replace the install directory" would mean renaming a
+   * checkout out from under the developer. Disabled is a state the pill already
+   * understands, so it simply does not appear.
+   */
+  const updates = new UpdateManager({
+    currentVersion: app.getVersion(),
+    platform: process.platform as Platform,
+    arch: process.arch === "arm64" ? "arm64" : ("x64" as Arch),
+    execPath: process.execPath,
+    enabled: app.isPackaged,
+    run: (command, args) =>
+      new Promise<void>((resolveRun, rejectRun) => {
+        const child = spawn(command, [...args], { stdio: "ignore" });
+        child.on("error", rejectRun);
+        child.on("exit", (code) =>
+          code === 0 ? resolveRun() : rejectRun(new Error(`${command} exited ${code}`)),
+        );
+      }),
+    // Detached and unref'd, or the helper dies with the process it is waiting for.
+    spawnDetached: (command, args) => {
+      spawn(command, [...args], { detached: true, stdio: "ignore" }).unref();
+    },
+    restart: () => {
+      app.relaunch();
+      app.quit();
+    },
+  });
+  updates.on("state", (state) => forwardToRenderer("loop:update.state", state));
+  ipcMain.handle("loop:update.state", () => updates.state);
+  ipcMain.handle("loop:update.check", async () => ({ checked: true, state: await updates.check() }));
+  ipcMain.handle("loop:update.download", async () => {
+    const state = await updates.download();
+    return { accepted: true, completed: state.status === "downloaded", state };
+  });
+  /**
+   * Open a link in the real browser, for the update toast's release notes.
+   *
+   * Restricted to http(s): this is reachable from the renderer, and handing an
+   * arbitrary string to the OS opener is how a `file:` or custom-scheme URL
+   * turns into launching something local.
+   */
+  ipcMain.handle("loop:update.openExternal", async (_event, p: { url: string }) => {
+    try {
+      const parsed = new URL(p.url);
+      if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return false;
+      await shell.openExternal(parsed.toString());
+      return true;
+    } catch {
+      return false;
+    }
+  });
+  ipcMain.handle("loop:update.install", async () => {
+    const state = await updates.install();
+    return { accepted: true, completed: false, state };
+  });
+  // One check shortly after launch, then every six hours. Delayed so it never
+  // competes with the window's first paint.
+  if (app.isPackaged) {
+    setTimeout(() => void updates.check(), 10_000);
+    setInterval(() => void updates.check(), 6 * 60 * 60 * 1000);
+  }
+
   previews.on("state", (state) => forwardToRenderer("loop:preview.state", state));
   previews.on("frame", (frame) => forwardToRenderer("loop:preview.frame", frame));
   ipcMain.handle("loop:preview.config", () => previews.getPreviewConfig());
