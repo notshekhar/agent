@@ -34,7 +34,8 @@
     "patchedDependencies": {
         "@effect/vitest@4.0.0-beta.103": "patches/@effect__vitest@4.0.0-beta.103.patch",
         "@pierre/diffs@1.3.0-beta.10": "patches/@pierre%2Fdiffs@1.3.0-beta.10.patch",
-        "effect@4.0.0-beta.103": "patches/effect@4.0.0-beta.103.patch"
+        "effect@4.0.0-beta.103": "patches/effect@4.0.0-beta.103.patch",
+        "@pierre/trees@1.0.0-beta.4": "patches/@pierre%2Ftrees@1.0.0-beta.4.patch"
     },
     "overrides": {
         "@effect/atom-react": "4.0.0-beta.103",

@@ -6,7 +6,7 @@ import type { EnvironmentId, ProjectEntry } from "@loop/contracts";
 import { FileTree, useFileTree, useFileTreeSearch } from "@pierre/trees/react";
 import { serializeComposerFileLink } from "@loop/shared/composerTrigger";
 import { RotateCw } from "lucide-react";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "~/components/ui/button";
 import { InputGroup, InputGroupInput } from "~/components/ui/input-group";
@@ -247,13 +247,22 @@ export default function FileBrowserPanel({
     unsafeCSS: TREE_UNSAFE_CSS,
   });
   const search = useFileTreeSearch(model);
+  // The field holds the text as typed: the tree lowercases and trims what it
+  // matches on, so echoing its value back would rewrite the user's input.
+  const [searchText, setSearchText] = useState("");
   const handleSearchValueChange = (value: string) => {
+    setSearchText(value);
     if (value.trim().length === 0) {
       search.close();
       return;
     }
     search.setValue(value);
   };
+  // Whoever closes the search owns the field too: Escape, and the reveal below
+  // when a file is opened from outside the tree.
+  useEffect(() => {
+    if (!search.isOpen && searchText.length > 0) setSearchText("");
+  }, [search.isOpen, searchText]);
 
   useEffect(() => {
     if (previousTreePathsRef.current === treePaths) return;
@@ -355,7 +364,7 @@ export default function FileBrowserPanel({
         <FileSearchField
           name="project-files-search"
           ariaLabel={`Search ${projectName} files`}
-          value={search.value}
+          value={searchText}
           onValueChange={handleSearchValueChange}
           onClose={search.close}
         />
