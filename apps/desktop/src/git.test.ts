@@ -482,7 +482,17 @@ describe("index-aware status", () => {
       await writeFile(join(conflicted, "war.txt"), "ours\n");
       await run2(conflicted, "add", ".");
       await run2(conflicted, "commit", "-m", "ours");
-      await run("git", ["merge", "other"], { cwd: conflicted }).catch(() => undefined);
+      // Through `run2`, so the merge gets the same identity every commit above
+      // used: a runner with no global git config cannot merge without one, and
+      // the failure would otherwise be swallowed and read as "no conflict".
+      // A conflicting merge exits non-zero, which is the expected outcome here.
+      await run2(conflicted, "merge", "other").catch(() => undefined);
+
+      // Assert against git itself before trusting the parse: if the merge did
+      // not actually conflict, the interesting assertion below would fail for a
+      // reason that has nothing to do with the code under test.
+      const raw = await run("git", ["status", "--porcelain=v2", "-z"], { cwd: conflicted });
+      expect(raw.stdout.includes("u ")).toBe(true);
 
       const result = await status(conflicted);
       expect(result.hasConflicts).toBe(true);
