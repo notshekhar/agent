@@ -252,7 +252,31 @@ function forwardToRenderer(channel: string, payload: unknown): void {
   }
 }
 
+/**
+ * One loop per profile.
+ *
+ * Nothing enforced this, so launching the app again — from the Dock, from
+ * Spotlight, or by an agent running `open -a Loop` — started a whole second
+ * copy: two dock icons, and underneath them two cores serving RPC, two sets of
+ * PTYs drawing on the same system-wide pty pool, and two processes writing the
+ * same `agent.db`. The duplicate icon is the visible half; sharing a SQLite
+ * database between two writers is the half that matters.
+ *
+ * Electron keys this lock on the user-data directory, so a deliberate second
+ * profile (`--user-data-dir`, which is how the app is driven under test) is
+ * still free to run alongside. Only accidental duplicates of the same install
+ * are refused.
+ *
+ * Everything at module scope so far is inert — `CoreHost`'s constructor only
+ * records a cwd — so quitting here starts nothing that needs unwinding.
+ */
+const gotSingleInstanceLock = app.requestSingleInstanceLock();
+if (!gotSingleInstanceLock) app.quit();
+
 app.whenReady().then(() => {
+  // `quit()` above is not immediate; without this the loser of the race would
+  // still spin up a core and a window before the process went away.
+  if (!gotSingleInstanceLock) return;
   protocol.handle(RENDERER_SCHEME, serveRenderer);
 
   /**
@@ -525,6 +549,25 @@ app.whenReady().then(() => {
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  });
+
+  /**
+   * Someone tried to launch a second copy — show them the one already running.
+   *
+   * Refusing to start without this would look like the app failing to open: the
+   * click does nothing, no window appears, and the natural response is to click
+   * again. Raising the existing window is what makes the single instance feel
+   * intentional rather than broken. A minimized window has to be restored
+   * first; `focus()` alone leaves it in the Dock.
+   */
+  app.on("second-instance", () => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      createWindow();
+      return;
+    }
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
   });
 });
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.17.1] - 2026-08-09
+
+### Fixed
+
+- **Launching loop when it is already running raises the window it already has, instead of starting a second copy.** Nothing stopped a second instance, so opening the app again — from the Dock, from Spotlight, or by anything scripted running `open -a Loop` — left two icons and two entirely separate applications. The duplicate icon was the visible half. Underneath it were two cores answering RPC, two sets of terminals drawing on the same system-wide pty pool, and two processes writing the same session database, which is the half worth caring about. A second launch now brings the running window forward, restoring it first if it was minimized. Running a deliberately separate profile is unaffected.
+
 ## [0.17.0] - 2026-08-09
 
 ### Added
