@@ -88,6 +88,14 @@ interface AnnotatableCodeViewProps {
     fileKey: string,
     collapsed: boolean,
   ) => ReactNode;
+  /**
+   * The right-hand end of a file's header row, where per-file actions belong.
+   *
+   * Optional, because the review pane has nothing to put there; the diff panel
+   * uses it for discard, so a change can be thrown away without first opening
+   * the source-control sidebar.
+   */
+  renderHeaderMetadata?: (fileDiff: FileDiffMetadata, fileKey: string) => ReactNode;
 }
 
 interface DiffSelectionContext {
@@ -103,6 +111,7 @@ export function AnnotatableCodeView({
   viewerRef,
   className,
   renderHeaderPrefix,
+  renderHeaderMetadata,
 }: AnnotatableCodeViewProps) {
   const addReviewComment = useComposerDraftStore((store) => store.addReviewComment);
   const removeReviewComment = useComposerDraftStore((store) => store.removeReviewComment);
@@ -274,6 +283,11 @@ export function AnnotatableCodeView({
       renderHeaderPrefix={(item) =>
         item.type === "diff"
           ? renderHeaderPrefix(item.fileDiff, item.id, item.collapsed === true)
+          : null
+      }
+      renderHeaderMetadata={(item) =>
+        item.type === "diff" && renderHeaderMetadata
+          ? renderHeaderMetadata(item.fileDiff, item.id)
           : null
       }
       renderAnnotation={(annotation) => (

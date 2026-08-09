@@ -8,6 +8,8 @@ import { promisify } from "node:util";
 import {
   MAX_CONCURRENT_GIT,
   diffPreview,
+  gitInvocationCount,
+  repositorySummary,
   status,
   withGitSlot,
   workspaceRepositories,
@@ -581,4 +583,113 @@ describe("staged and unstaged diff sources", () => {
     expect(workingTree?.diff).toContain("+STAGED");
     expect(workingTree?.diff).toContain("+UNSTAGED");
   });
+});
+
+/**
+ * What a repository row costs.
+ *
+ * The folder-of-repositories list calls this once per repository, so its cost
+ * is multiplied by however many checkouts someone keeps in a folder — fifty is
+ * ordinary. It went through `status`, which answers seven commands' worth of
+ * questions the row never asks, and the waste was felt as the folder appearing
+ * to hang rather than as a number anyone could see.
+ */
+describe("repository summaries", () => {
+  test("reports the branch, the file count and the line counts", async () => {
+    const summary = await repositorySummary(repo);
+    expect(summary.branch).toBe("feature");
+    // The edited file and the untracked one.
+    expect(summary.filesChanged).toBe(2);
+    expect(summary.insertions).toBe(1);
+    expect(summary.files.map((file) => file.path).toSorted()).toEqual([
+      "tracked.txt",
+      "untracked.txt",
+    ]);
+  });
+
+  test("agrees with the full status it replaced", async () => {
+    // The row would otherwise be quietly wrong in a way nothing else checks.
+    // The two do differ on one point by design: a summary counts an untracked
+    // DIRECTORY as one entry where the full status lists every file inside it,
+    // which is what makes the summary cheap. This fixture has an untracked
+    // file rather than a directory, so the counts coincide.
+    const [summary, full] = await Promise.all([repositorySummary(repo), status(repo)]);
+    expect(summary.branch).toBe(full.refName);
+    expect(summary.filesChanged).toBe(full.workingTree.files.length);
+    expect(summary.insertions).toBe(full.workingTree.insertions);
+    expect(summary.deletions).toBe(full.workingTree.deletions);
+  });
+
+  test("spends two git invocations, not seven", async () => {
+    // The entire point of the function. A regression here is invisible on one
+    // repository and painful on fifty, so it is pinned rather than trusted.
+    const before = gitInvocationCount();
+    await repositorySummary(repo);
+    expect(gitInvocationCount() - before).toBe(2);
+  });
+
+  test("has no branch to report on a detached HEAD", async () => {
+    const detached = await mkdtemp(join(tmpdir(), "loop-detached-"));
+    try {
+      const run3 = (...args: string[]) =>
+        run("git", args, {
+          cwd: detached,
+          env: {
+            ...process.env,
+            GIT_AUTHOR_NAME: "loop",
+            GIT_AUTHOR_EMAIL: "loop@example.com",
+            GIT_COMMITTER_NAME: "loop",
+            GIT_COMMITTER_EMAIL: "loop@example.com",
+          },
+        });
+      await run3("init", "--initial-branch=main");
+      await writeFile(join(detached, "a.txt"), "one\n");
+      await run3("add", ".");
+      await run3("commit", "-m", "first");
+      const { stdout } = await run3("rev-parse", "HEAD");
+      await run3("checkout", stdout.trim());
+
+      // `# branch.head (detached)` is not a branch name to put in a row.
+      expect((await repositorySummary(detached)).branch).toBeNull();
+    } finally {
+      await rm(detached, { recursive: true, force: true });
+    }
+  });
+});
+
+/**
+ * The cost of an untracked directory.
+ *
+ * Enumerating every untracked file is what made a folder of repositories slow:
+ * a repository holding an unignored `node_modules` is walked in its entirety to
+ * answer a question a summary row does not ask.
+ */
+test("a summary counts an untracked directory as one entry", async () => {
+  const sandbox = await mkdtemp(join(tmpdir(), "loop-untracked-"));
+  try {
+    const run4 = (...args: string[]) =>
+      run("git", args, {
+        cwd: sandbox,
+        env: {
+          ...process.env,
+          GIT_AUTHOR_NAME: "loop",
+          GIT_AUTHOR_EMAIL: "loop@example.com",
+          GIT_COMMITTER_NAME: "loop",
+          GIT_COMMITTER_EMAIL: "loop@example.com",
+        },
+      });
+    await run4("init", "--initial-branch=main");
+    await writeFile(join(sandbox, "tracked.txt"), "one\n");
+    await run4("add", ".");
+    await run4("commit", "-m", "first");
+    await mkdir(join(sandbox, "heavy"), { recursive: true });
+    for (let index = 0; index < 25; index++) {
+      await writeFile(join(sandbox, "heavy", `file-${index}.txt`), "x\n");
+    }
+
+    // One row for `heavy/`, not twenty-five — the whole point.
+    expect((await repositorySummary(sandbox)).filesChanged).toBe(1);
+  } finally {
+    await rm(sandbox, { recursive: true, force: true });
+  }
 });

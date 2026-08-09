@@ -105,3 +105,53 @@ push the filename around.
   and the panel underneath it has been driven end to end, but the last few
   attempts to open the new tab under automation clicked the wrong element. Open
   it by hand before trusting it.
+
+---
+
+## 4. The diff panel's scope picker was removed, and should come back deliberately
+
+**Where:** `apps/web/src/components/DiffPanel.tsx`, where a `DropdownMenu`
+offering "Working tree", "Branch changes", "Latest turn" and a specific turn
+used to sit in the header.
+
+**Why it went.** It mostly offered ways to end up looking at something other
+than the work in progress. Turn-scoped diffs in particular assume changes are
+followed turn by turn, which is not how this project is worked on, and the
+picker's presence made the panel's default state ambiguous — a stored selection
+of "branch changes" would silently persist across sessions.
+
+**What is still there.** All of it, minus the control: `selectedTurnId`,
+`selectTurn`, `orderedTurnDiffSummaries`, the checkpoint-diff query and the
+whole branch-range source are untouched and working. `selectedGitScope` is
+pinned to `"unstaged"`, which is the only line that has to change to bring the
+choice back.
+
+**If it returns**, the two things to decide first: where the control lives now
+that the header also carries commit/push and the per-file revert, and whether a
+scope should persist across sessions at all — reopening the panel to a
+half-remembered comparison is what made the old one confusing.
+
+---
+
+## 4. The diff panel's scope picker was removed, and should come back deliberately
+
+**Where:** `apps/web/src/components/DiffPanel.tsx`, where a `DropdownMenu`
+offering "Working tree", "Branch changes", "Latest turn" and a specific turn
+used to sit in the header.
+
+**Why it went.** Turn-scoped diffs assume changes are followed turn by turn,
+which is not how this project is worked on, so the picker mostly offered ways to
+end up looking at something other than the work in progress — and a stored
+selection of "branch changes" persisted across sessions, making the panel's
+default state ambiguous.
+
+**What is still there.** All of it, minus the control: `selectedTurnId`,
+`selectTurn`, `orderedTurnDiffSummaries`, the checkpoint-diff query and the
+branch-range source are untouched and working. `selectedGitScope` is pinned to
+`"unstaged"`, which is the only line that has to change to offer the choice
+again.
+
+**If it returns**, two things to decide first: where the control lives now that
+the header also carries commit/push, and whether a scope should persist across
+sessions at all — reopening the panel to a half-remembered comparison is what
+made the old one confusing.

@@ -45,8 +45,9 @@ import { resolveThreadRouteRef } from "../threadRoutes";
 import { useClientSettings } from "../hooks/useSettings";
 import { formatShortTimestamp } from "../timestampFormat";
 import { DiffPanelLoadingState, DiffPanelShell, type DiffPanelMode } from "./DiffPanelShell";
-import { CommitBox } from "./scm/CommitBox";
-import { SourceControlPanel } from "./scm/SourceControlPanel";
+import { loopGit } from "../loop/transport";
+import GitActionsControl from "./GitActionsControl";
+import { DiscardFileButton } from "./scm/DiscardFileButton";
 import { hasIndexView } from "./scm/scmGroups";
 import { DiffStatLabel } from "./chat/DiffStatLabel";
 import { AnnotatableCodeView, type AnnotatableCodeViewHandle } from "./diffs/AnnotatableCodeView";
@@ -348,9 +349,6 @@ export default function DiffPanel({
    * of its own: it describes the very patch on screen, and the comment
    * affordances, scope and scroll all belong to this panel.
    */
-  const [scmOpen, setScmOpen] = useState(false);
-  const [scmWidth, setScmWidth] = useState(260);
-  const [scmSelectedPath, setScmSelectedPath] = useState<string | null>(null);
   const [scmOverride, setScmOverride] = useState<GitStatus | null>(null);
   const polledStatus = gitStatusQuery.data ?? null;
   useEffect(() => {
@@ -387,7 +385,13 @@ export default function DiffPanel({
   }, [diffSelection, orderedTurnDiffSummaries, routeThreadRef]);
 
   const selectedTurnId = diffSelection.kind === "turn" ? diffSelection.turnId : null;
-  const selectedGitScope = diffSelection.kind === "unstaged" ? "unstaged" : "branch";
+  /**
+   * Always the working tree, while the scope picker is gone.
+   *
+   * A stored selection of "branch changes" would otherwise strand the panel
+   * there with no control left to change it back.
+   */
+  const selectedGitScope = "unstaged" as const;
   const selectedBaseRef = diffSelection.kind === "branch" ? diffSelection.baseRef : null;
   const selectedFilePath = diffSelection.kind === "turn" ? diffSelection.filePath : null;
   const selectedFileRevealRequestId =
@@ -451,9 +455,6 @@ export default function DiffPanel({
             cwd: activeCwd,
             ...(selectedBaseRef ? { baseRef: selectedBaseRef } : {}),
             ignoreWhitespace: diffIgnoreWhitespace,
-            // Source control reads the whole file with its changes marked
-            // inside it, rather than hunks with three lines around them.
-            ...(scmOpen ? { contextLines: 100_000 } : {}),
           },
         })
       : null,
@@ -471,7 +472,6 @@ export default function DiffPanel({
             cwd: serverConfig.cwd,
             ...(selectedBaseRef ? { baseRef: selectedBaseRef } : {}),
             ignoreWhitespace: diffIgnoreWhitespace,
-            ...(scmOpen ? { contextLines: 100_000 } : {}),
           },
         })
       : null,
@@ -618,33 +618,13 @@ export default function DiffPanel({
       }),
     );
   }, [renderablePatch]);
-  /**
-   * Narrowed to the file selected in the source-control list.
-   *
-   * Filtered rather than scrolled to, and filtered HERE so the patch still goes
-   * through the panel's own renderer: commenting, annotations and collapsing
-   * are that renderer's, and a bespoke diff view would have none of them.
-   */
-  const scmVisibleFiles = useMemo(
-    () =>
-      !scmOpen || scmSelectedPath === null
-        ? renderableFiles
-        : renderableFiles.filter(
-            // `name` is the path in this metadata — NOT `newPath`, which does
-            // not exist on it. Comparing a missing field matched nothing, so
-            // selecting a file emptied the pane instead of narrowing it.
-            (fileDiff) => fileDiff.name === scmSelectedPath || fileDiff.prevName === scmSelectedPath,
-          ),
-    [renderableFiles, scmSelectedPath, scmOpen],
-  );
-
   const codeViewFiles = useMemo(() => {
     // Keys are paths now, which CodeView indexes by, so a patch that somehow
     // names the same path twice would have the second file overwrite the
     // first. Disambiguating keeps both rows; it costs the repeat its stable
     // identity, which is the right trade for something that should not happen.
     const seen = new Map<string, number>();
-    return scmVisibleFiles.map((fileDiff) => {
+    return renderableFiles.map((fileDiff) => {
       const baseKey = buildFileDiffRenderKey(fileDiff);
       const repeats = seen.get(baseKey) ?? 0;
       seen.set(baseKey, repeats + 1);
@@ -656,7 +636,7 @@ export default function DiffPanel({
         collapsed: collapsedDiffFileKeys.has(fileKey),
       };
     });
-  }, [collapsedDiffFileKeys, scmVisibleFiles]);
+  }, [collapsedDiffFileKeys, renderableFiles]);
   const diffFileKeys = useMemo(() => codeViewFiles.map((file) => file.fileKey), [codeViewFiles]);
   const allDiffFilesCollapsed = areAllDiffFilesCollapsed(diffFileKeys, collapsedDiffFileKeys);
   const diffLineStat = useMemo(() => getDiffLineStat(renderableFiles), [renderableFiles]);
@@ -744,129 +724,34 @@ export default function DiffPanel({
           // the list cannot honour.
           <span className="shrink-0 text-xs font-medium text-foreground">Repositories</span>
         ) : null}
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            className={cn(
-              "inline-flex h-6 max-w-full items-center gap-1 rounded-md bg-muted/70 px-2 text-xs font-medium text-foreground outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring",
-              showingRepositoryList && "hidden",
-              // A pinned repository tab has one scope worth offering: its own
-              // working tree. Turn scopes belong to the thread, which ran
-              // somewhere else, and the tab is already named for the repo.
-              pinnedRepository !== undefined && "hidden",
+        {/*
+          The scope picker is gone for now.
+          
+          It offered "working tree", "branch changes" and a turn to compare
+          against, and turn-scoped diffs are not how this project's changes are
+          followed — so the picker mostly offered ways to end up looking at
+          something other than the work in progress. The panel shows the working
+          tree; see FOLLOWUPS.md for bringing the other scopes back deliberately.
+        */}
+        {activeCwd != null && selectedTurnId === null && !showingRepositoryList ? (
+          <>
+            {/* The same control the chat header carries, so committing has one
+                implementation and one set of behaviours rather than two. */}
+            <GitActionsControl
+              gitCwd={activeCwd}
               /**
-               * Hidden until it is known that a scope even applies.
+               * The same inputs the chat header gives it.
                *
-               * `showingRepositoryList` only becomes true once the preview has
-               * come back, so a folder of repositories painted "Working tree"
-               * for a frame and then swapped it for "Repositories" — a visible
-               * flicker on every open. Waiting for the status to say what this
-               * folder is shows one label, once.
+               * A bare route ref is not enough: on a draft route there is no
+               * thread yet, and the control reads the draft to know which
+               * files a commit would cover — without it the menu comes up
+               * with none of its actions offered.
                */
-              scmStatus === null && "hidden",
-              scmStatus?.isWorkspaceRoot === true && "hidden",
-            )}
-            aria-label={`Diff scope: ${selectedScopeLabel}`}
-          >
-            <span className="truncate">{selectedScopeLabel}</span>
-            <ChevronDownIcon className="size-3.5 shrink-0 text-muted-foreground" />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-60">
-            <DropdownMenuItem
-              className={
-                selectedTurnId === null && selectedGitScope === "unstaged"
-                  ? "bg-foreground/[0.08]"
-                  : undefined
-              }
-              onClick={() => selectGitScope("unstaged")}
-            >
-              <span>Working tree</span>
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              className={
-                selectedTurnId === null && selectedGitScope === "branch"
-                  ? "bg-foreground/[0.08]"
-                  : undefined
-              }
-              onClick={() => selectGitScope("branch")}
-            >
-              <span>Branch changes</span>
-            </DropdownMenuItem>
-            {/*
-              Turn-scoped diffs belong to the thread, not to a repository. A
-              repository opened as its own tab from a folder of repositories has
-              no turns of its own — the thread ran somewhere else — so these
-              would be empty or show another repository's work.
-            */}
-            {pinnedRepository === undefined ? (
-              <>
-            <DropdownMenuItem
-              className={
-                selectedTurnId !== null && selectedTurn?.turnId === latestTurn?.turnId
-                  ? "bg-foreground/[0.08]"
-                  : undefined
-              }
-              onClick={() => {
-                if (latestTurn) selectTurn(latestTurn.turnId);
-              }}
-            >
-              <span>Latest turn</span>
-            </DropdownMenuItem>
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger>Turn</DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="w-64">
-                {orderedTurnDiffSummaries.map((summary) => {
-                  const turnCount =
-                    summary.checkpointTurnCount ??
-                    inferredCheckpointTurnCountByTurnId[summary.turnId] ??
-                    "?";
-                  return (
-                    <DropdownMenuItem
-                      key={summary.turnId}
-                      className={
-                        summary.turnId === selectedTurn?.turnId ? "bg-foreground/[0.08]" : undefined
-                      }
-                      onClick={() => selectTurn(summary.turnId)}
-                    >
-                      <span>Turn {turnCount}</span>
-                      <span className="ml-auto text-xs tabular-nums text-muted-foreground">
-                        {formatShortTimestamp(summary.completedAt, settings.timestampFormat)}
-                      </span>
-                    </DropdownMenuItem>
-                  );
-                })}
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
-              </>
-            ) : null}
-          </DropdownMenuContent>
-        </DropdownMenu>
-        {activeCwd != null && selectedTurnId === null && hasIndexView(scmStatus) ? (
-          <button
-            type="button"
-            onClick={() =>
-              setScmOpen((open) => {
-                // Closing drops the file filter with it, or reopening would
-                // silently still be narrowed to a long-forgotten choice.
-                if (open) setScmSelectedPath(null);
-                return !open;
-              })
-            }
-            aria-label={scmOpen ? "Hide source control" : "Show source control"}
-            className={cn(
-              "inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-2 text-xs font-medium transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
-              scmOpen
-                ? "bg-primary/15 text-foreground ring-1 ring-primary/40"
-                : "bg-muted/70 text-muted-foreground hover:bg-muted",
-            )}
-          >
-            <GitBranchIcon className="size-3.5 shrink-0" />
-            <span>Source Control</span>
-            {(scmStatus?.stagedCount ?? 0) + (scmStatus?.unstagedCount ?? 0) > 0 && (
-              <span className="rounded-full bg-foreground/10 px-1.5 text-[10px] tabular-nums">
-                {(scmStatus?.stagedCount ?? 0) + (scmStatus?.unstagedCount ?? 0)}
-              </span>
-            )}
-          </button>
+              activeThreadRef={diffSelectionRef}
+              {...(typeof composerDraftTarget === "string" ? { draftId: composerDraftTarget } : {})}
+            />
+            <span className="h-4 w-px shrink-0 bg-border" aria-hidden />
+          </>
         ) : null}
         {openRepository !== null && pinnedRepository === undefined ? (
           <button
@@ -1112,7 +997,6 @@ export default function DiffPanel({
         </div>
       ) : (
         <>
-          <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
           <div className="diff-panel-viewport flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
             {isSelectedPatchTruncated && (
               <p className="shrink-0 border-b border-border/70 bg-muted/40 px-3 py-1.5 text-[11px] text-muted-foreground">
@@ -1163,6 +1047,33 @@ export default function DiffPanel({
                   key={collapseScopeKey ?? reviewSectionId}
                   className="diff-render-surface h-full min-h-0 overflow-auto"
                   files={codeViewFiles}
+                  /**
+                   * Discard, on the file's own header.
+                   *
+                   * The source-control sidebar has this too, but reverting one
+                   * file is the commonest thing to want while reading a patch
+                   * and opening a second surface to do it is a detour. Only
+                   * where it can mean something: a working-tree scope in a real
+                   * repository, never over a historical turn diff.
+                   */
+                  {...(activeCwd != null &&
+                  selectedTurnId === null &&
+                  hasIndexView(scmStatus) &&
+                  typeof loopGit()?.discard === "function"
+                    ? {
+                        renderHeaderMetadata: (fileDiff: { name: string }) => (
+                          <DiscardFileButton
+                            cwd={activeCwd}
+                            path={fileDiff.name}
+                            status={scmStatus}
+                            onDiscarded={(next) => {
+                              setScmOverride(next);
+                              refreshSelectedPatch.current();
+                            }}
+                          />
+                        ),
+                      }
+                    : {})}
                   sectionId={reviewSectionId}
                   sectionTitle={reviewSectionTitle}
                   composerDraftTarget={composerDraftTarget}
@@ -1228,59 +1139,6 @@ export default function DiffPanel({
                   </pre>
                 </div>
               </div>
-            )}
-          </div>
-            {scmOpen && activeCwd != null && hasIndexView(scmStatus) && (
-              <aside
-                className="relative flex shrink-0 flex-col overflow-hidden border-l border-border/70"
-                style={{ width: `${scmWidth}px` }}
-              >
-                <div className="min-h-0 flex-1 overflow-y-auto">
-                  <SourceControlPanel
-                    cwd={activeCwd}
-                    status={scmStatus}
-                    onStatusChange={setScmOverride}
-                    selectedPath={scmSelectedPath}
-                    onOpenFile={(path) =>
-                      // Clicking the open file again clears the filter, which is
-                      // the way back to the whole patch.
-                      setScmSelectedPath((current) => (current === path ? null : path))
-                    }
-                  />
-                </div>
-                <CommitBox
-                  cwd={activeCwd}
-                  status={scmStatus}
-                  onCommitted={(next) => {
-                    setScmOverride(next);
-                    // The patch on screen is now history: committing empties
-                    // the working tree, and nothing else here would notice —
-                    // the status poll drives the refresh, and this write
-                    // bypassed it by answering directly.
-                    refreshSelectedPatch.current();
-                  }}
-                />
-                {/* Long paths are the norm here, so the width has to be movable. */}
-                <div
-                  role="separator"
-                  aria-orientation="vertical"
-                  aria-label="Resize source control"
-                  className="absolute inset-y-0 -left-1 w-2 cursor-col-resize hover:bg-primary/30"
-                  onPointerDown={(event) => {
-                    event.preventDefault();
-                    const startX = event.clientX;
-                    const startWidth = scmWidth;
-                    const onMove = (move: PointerEvent) =>
-                      setScmWidth(Math.min(560, Math.max(160, startWidth - (move.clientX - startX))));
-                    const onUp = () => {
-                      window.removeEventListener("pointermove", onMove);
-                      window.removeEventListener("pointerup", onUp);
-                    };
-                    window.addEventListener("pointermove", onMove);
-                    window.addEventListener("pointerup", onUp);
-                  }}
-                />
-              </aside>
             )}
           </div>
         </>

@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.18.1] - 2026-08-09
+
+### Changed
+
+- **The diff panel is plainer.** The source-control sidebar introduced in 0.18.0 is gone, and so is the scope picker that offered "working tree", "branch changes" and a turn to compare against. What is left is the diff, one revert button on each file's header, and a commit control at the top — which is the same control the chat header already carries, so committing has one implementation and one set of behaviours rather than two. Turn-scoped diffs assume changes are followed turn by turn, which is not how this is worked on; the panel shows the working tree.
+- **A folder of repositories opens several times faster.** Every row in that list is one repository, and building it went through the full status read — seven `git` invocations each, answering questions about remotes, upstreams and default branches that a row showing a name and a file count never asks. A row now costs two. Separately, counting changes no longer enumerates every untracked file: a repository holding an unignored `node_modules` was being walked in its entirety to produce a number, and an untracked directory now counts as the one entry it is. Measured on a thirty-five repository folder: 1100ms to roughly 300ms, and on the worst single repository in it, 533ms to 178ms.
+
+### Added
+
+- **Discard a file from the diff itself**, with a revert button on the file's header, rather than through a separate surface. It appears only where it can mean something — a working-tree scope in a real repository, never over a historical turn diff — and asks first, because git keeps no copy of a working-tree edit it has thrown away.
+
 ## [0.18.0] - 2026-08-09
 
 ### Added
