@@ -10,7 +10,21 @@ export const ReviewDiffPreviewInput = Schema.Struct({
 });
 export type ReviewDiffPreviewInput = typeof ReviewDiffPreviewInput.Type;
 
-export const ReviewDiffPreviewSourceKind = Schema.Literals(["working-tree", "branch-range"]);
+/**
+ * The kinds the shell can send.
+ *
+ * `staged` and `unstaged` are the source-control panel's two halves. They must
+ * be listed here even though the review pane never selects them: the schema
+ * validates the whole result, so one unrecognised `kind` rejects the entire
+ * preview and the pane renders "git returned an unexpected diff preview"
+ * instead of the diff it was perfectly capable of showing.
+ */
+export const ReviewDiffPreviewSourceKind = Schema.Literals([
+  "working-tree",
+  "branch-range",
+  "staged",
+  "unstaged",
+]);
 export type ReviewDiffPreviewSourceKind = typeof ReviewDiffPreviewSourceKind.Type;
 
 export const ReviewDiffPreviewSource = Schema.Struct({

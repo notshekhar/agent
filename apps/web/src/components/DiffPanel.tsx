@@ -44,6 +44,8 @@ import { resolveThreadRouteRef } from "../threadRoutes";
 import { useClientSettings } from "../hooks/useSettings";
 import { formatShortTimestamp } from "../timestampFormat";
 import { DiffPanelLoadingState, DiffPanelShell, type DiffPanelMode } from "./DiffPanelShell";
+import { SourceControlPanel } from "./scm/SourceControlPanel";
+import { hasIndexView } from "./scm/scmGroups";
 import { DiffStatLabel } from "./chat/DiffStatLabel";
 import { AnnotatableCodeView, type AnnotatableCodeViewHandle } from "./diffs/AnnotatableCodeView";
 import { WorkspaceRepositoryList } from "./diffs/WorkspaceRepositoryList";
@@ -314,6 +316,24 @@ export default function DiffPanel({
     ),
   );
   const isGitRepo = gitStatusQuery.data?.isRepo ?? true;
+  /**
+   * The status the source-control panel draws, seeded from the poll.
+   *
+   * Held locally because every index write answers with the repository's fresh
+   * status: adopting that directly repaints the moment git is done, rather than
+   * leaving the panel stale until the next poll comes round. The poll still
+   * wins whenever it produces something newer, which is what picks up changes
+   * made outside the app.
+   */
+  const [scmOverride, setScmOverride] = useState<GitStatus | null>(null);
+  const polledStatus = gitStatusQuery.data ?? null;
+  useEffect(() => {
+    // A fresh poll supersedes an override; they describe the same repository
+    // and the poll is the one that sees the outside world.
+    setScmOverride(null);
+  }, [polledStatus]);
+  const scmStatus = scmOverride ?? (polledStatus as GitStatus | null);
+  const setScmStatus = useCallback((next: GitStatus) => setScmOverride(next), []);
   const { turnDiffSummaries, inferredCheckpointTurnCountByTurnId } =
     useTurnDiffSummaries(activeThread);
   const orderedTurnDiffSummaries = useMemo(
@@ -988,6 +1008,23 @@ export default function DiffPanel({
         </div>
       ) : (
         <>
+          {/*
+            Source control, above the patch it describes.
+            
+            This is where the flat "files changed" list used to be the whole
+            story. It only appears for a real repository with an index — a
+            folder of repositories renders the list above instead, and a shell
+            too old to report `changes` falls through to the diff alone.
+          */}
+          {selectedTurnId === null && activeCwd != null && hasIndexView(scmStatus) && (
+            <div className="max-h-[45%] shrink-0 overflow-y-auto border-b border-border/70">
+              <SourceControlPanel
+                cwd={activeCwd}
+                status={scmStatus}
+                onStatusChange={setScmStatus}
+              />
+            </div>
+          )}
           <div className="diff-panel-viewport flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
             {isSelectedPatchTruncated && (
               <p className="shrink-0 border-b border-border/70 bg-muted/40 px-3 py-1.5 text-[11px] text-muted-foreground">
