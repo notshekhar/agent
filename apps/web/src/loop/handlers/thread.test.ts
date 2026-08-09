@@ -724,3 +724,97 @@ describe("a live turn whose end never arrived", () => {
     expect(status).toBe("running");
   });
 });
+
+/**
+ * Recovering from a core restart.
+ *
+ * loop tracks event subscribers per TRANSPORT, so when the desktop shell's core
+ * dies and main restarts it, the attach that belonged to the old one is gone.
+ * Nothing re-attached and `attached` still named the session, so the rebuild
+ * path never tried again: the thread went permanently silent — turns ran to
+ * completion with the transcript frozen, and only a reload brought it back.
+ *
+ * The recovery already existed; it was unreachable in the desktop app, because
+ * `onLoopConnectionChange` returned a no-op there while main was announcing the
+ * restart to nobody. These pin the wire, not just the intent.
+ */
+describe("a core that restarts", () => {
+  function shell(input: { readonly withStatus: boolean }) {
+    const hadWindow = globals.window !== undefined;
+    globals.window ??= globals as unknown as Window & typeof globalThis;
+    const previous = window.loop;
+    const calls: Array<string> = [];
+    let announce: ((running: boolean) => void) | undefined;
+    const bridge: Record<string, unknown> = {
+      call: (method: string) => {
+        calls.push(method);
+        if (method === "session.history")
+          return Promise.resolve({ sessionId: "01REC", info, entries: [], seq: 0, running: false });
+        if (method === "session.attach") return Promise.resolve({ ok: true, running: false });
+        return Promise.resolve({});
+      },
+      onEvent: () => () => {},
+      anchorCwd: () => Promise.resolve(undefined),
+    };
+    if (input.withStatus) {
+      bridge["onStatus"] = (listener: (running: boolean) => void) => {
+        announce = listener;
+        return () => {
+          announce = undefined;
+        };
+      };
+    }
+    window.loop = bridge as unknown as typeof window.loop;
+    return {
+      calls,
+      announce: (running: boolean) => announce?.(running),
+      hasListener: () => announce !== undefined,
+      restore: () => {
+        if (previous === undefined) delete window.loop;
+        else window.loop = previous;
+        if (!hadWindow) delete globals.window;
+      },
+    };
+  }
+
+  it("subscribes to the shell's status channel", async () => {
+    const s = shell({ withStatus: true });
+    try {
+      const { onLoopConnectionChange } = await import("../transport.ts");
+      const stop = onLoopConnectionChange(() => {});
+      // A no-op would never register, which is exactly the bug.
+      expect(s.hasListener()).toBe(true);
+      stop();
+      expect(s.hasListener()).toBe(false);
+    } finally {
+      s.restore();
+    }
+  });
+
+  it("reports the core coming back as an open connection", async () => {
+    const s = shell({ withStatus: true });
+    try {
+      const { onLoopConnectionChange } = await import("../transport.ts");
+      const seen: string[] = [];
+      const stop = onLoopConnectionChange((state) => seen.push(state));
+      s.announce(false);
+      s.announce(true);
+      stop();
+      // `open` is the only state the re-attach path acts on.
+      expect(seen).toEqual(["closed", "open"]);
+    } finally {
+      s.restore();
+    }
+  });
+
+  it("is inert on a shell too old to report status", async () => {
+    const s = shell({ withStatus: false });
+    try {
+      const { onLoopConnectionChange } = await import("../transport.ts");
+      // No throw, and nothing to unsubscribe — the behaviour it had before.
+      expect(() => onLoopConnectionChange(() => {})()).not.toThrow();
+    } finally {
+      s.restore();
+    }
+  });
+});

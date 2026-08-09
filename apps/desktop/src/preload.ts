@@ -71,6 +71,21 @@ ipcRenderer.on(TERMINAL_PORT_CHANNEL, (event) => {
   port.start();
 });
 
+/**
+ * Whether loop's core is up, so the renderer can re-subscribe when it comes back.
+ *
+ * main restarts a crashed core and announces it on this channel, but nothing
+ * received it: the payload stopped at the preload boundary. loop tracks event
+ * subscribers per transport, so the attach belonging to the dead core is gone
+ * and nothing re-attached — the thread went permanently silent, turns ran to
+ * completion with the transcript frozen, and only a reload brought it back.
+ * Forwarding it is what lets `onLoopConnectionChange` do its job here.
+ */
+const statusListeners = new Set<(running: boolean) => void>();
+ipcRenderer.on("loop:status", (_event, payload: { running?: boolean }) => {
+  for (const listener of statusListeners) listener(payload?.running === true);
+});
+
 const gitActionListeners = new Set<(event: unknown) => void>();
 ipcRenderer.on("loop:gitAction", (_event, payload: unknown) => {
   for (const listener of gitActionListeners) listener(payload);
@@ -113,6 +128,11 @@ contextBridge.exposeInMainWorld("loop", {
   onEvent(listener: (event: LoopEvent) => void): () => void {
     listeners.add(listener);
     return () => listeners.delete(listener);
+  },
+  /** Core up/down, so a view holding a subscription can renew it. */
+  onStatus(listener: (running: boolean) => void): () => void {
+    statusListeners.add(listener);
+    return () => statusListeners.delete(listener);
   },
   fs: {
     list(cwd: string) {

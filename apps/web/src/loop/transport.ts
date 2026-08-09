@@ -363,6 +363,11 @@ export interface LoopWindowBridge {
 interface LoopDesktopBridge {
   call(method: string, params: unknown, cwd: string | undefined): Promise<unknown>;
   onEvent(listener: (event: LoopEvent) => void): () => void;
+  /**
+   * Core up/down. Optional: an older preload does not send it, and a shell
+   * without it is exactly the shell this had before — no worse.
+   */
+  onStatus?(listener: (running: boolean) => void): () => void;
   /** Folder-less calls route here. */
   anchorCwd(): Promise<string | undefined>;
   fs?: LoopFilesystemBridge;
@@ -573,8 +578,29 @@ export function onLoopEvent(listener: (event: LoopEvent) => void): () => void {
 }
 
 /** Connection state, for the shells that show a disconnected banner. */
+/**
+ * Connection state, for the shells that show a disconnected banner — and for
+ * the thread view, which re-attaches on every `open`.
+ *
+ * The desktop shell used to return a no-op here, which quietly disabled that
+ * recovery: loop tracks event subscribers per TRANSPORT, so when main restarts
+ * a crashed core the attach that belonged to the old one is gone and nothing
+ * asks again. The thread went permanently silent — turns ran to completion with
+ * the transcript frozen, and only a reload brought it back. main already
+ * announced the restart; nothing was listening.
+ *
+ * Reported as `open`/`closed` rather than the socket's fuller lifecycle
+ * because that is all the shell knows, and `open` is the only state the
+ * re-attach path acts on.
+ */
 export function onLoopConnectionChange(listener: (state: ConnectionState) => void): () => void {
-  if (isDesktopShell()) return () => {};
+  const bridge = typeof window !== "undefined" ? window.loop : undefined;
+  if (bridge) {
+    // A preload that predates the status channel leaves this undefined; there
+    // is nothing to report and nothing to recover from, as before.
+    if (!bridge.onStatus) return () => {};
+    return bridge.onStatus((running) => listener(running ? "open" : "closed"));
+  }
   return socket.onStateChange(listener);
 }
 

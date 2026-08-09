@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.16.11] - 2026-08-09
+
+### Fixed
+
+- **A thread no longer goes silent for good when loop's core restarts.** loop tracks event subscribers per connection, so when the desktop app's core exits and is restarted the subscription that belonged to the old one is gone. The recovery for this already existed — the thread view re-attaches whenever the connection reopens — but it could never run in the desktop app: the hook it listens on was hardcoded to do nothing there, and the shell was announcing the restart on a channel that stopped dead at the preload boundary with nothing on the other side. Until the window was reloaded the transcript stayed frozen: turns ran to completion and the chat showed none of it, which is exactly the shape of a chat that "only renders once loop stops". The announcement is now delivered and the reattach happens on its own. Verified by killing the core out from under a live thread: the app reconnects within a second and the next turn streams normally.
+
 ## [0.16.10] - 2026-08-09
 
 ### Fixed
