@@ -66,6 +66,7 @@ import {
   serializeTableElementToMarkdown,
 } from "../markdown-clipboard";
 import { remarkNormalizeListItemIndentation } from "../markdown-list-indentation";
+import { rehypeMarkdownSourceLines } from "../markdown-source-lines";
 import {
   normalizeMarkdownLinkDestination,
   resolveInlineCodeFileLinkMeta,
@@ -102,6 +103,12 @@ interface ChatMarkdownProps {
   className?: string;
   /** Treat single newlines as hard breaks — chat-style user input. */
   lineBreaks?: boolean;
+  /**
+   * Stamp each rendered block with the source lines it came from, so a
+   * selection in the rendering can be turned back into a line range. Only the
+   * file preview needs it; chat messages have no source file to point at.
+   */
+  sourceLines?: boolean;
 }
 
 const EMPTY_MARKDOWN_SKILLS: ReadonlyArray<Pick<ServerProviderSkill, "name" | "displayName">> = [];
@@ -169,6 +176,15 @@ const CHAT_MARKDOWN_REMARK_PLUGINS_WITH_BREAKS = [
 const CHAT_MARKDOWN_REHYPE_PLUGINS = [
   rehypeRaw,
   [rehypeSanitize, CHAT_MARKDOWN_SANITIZE_SCHEMA],
+] satisfies NonNullable<ReactMarkdownOptions["rehypePlugins"]>;
+
+/**
+ * The line stamps go on AFTER sanitising — the schema strips unknown
+ * attributes, so adding them earlier would delete them again.
+ */
+const CHAT_MARKDOWN_REHYPE_PLUGINS_WITH_SOURCE_LINES = [
+  ...CHAT_MARKDOWN_REHYPE_PLUGINS,
+  rehypeMarkdownSourceLines,
 ] satisfies NonNullable<ReactMarkdownOptions["rehypePlugins"]>;
 
 function extractFenceLanguage(className: string | undefined): string {
@@ -1260,6 +1276,7 @@ function ChatMarkdown({
   skills = EMPTY_MARKDOWN_SKILLS,
   className,
   lineBreaks = false,
+  sourceLines = false,
 }: ChatMarkdownProps) {
   const { resolvedTheme } = useTheme();
   const createAssetUrl = useAtomQueryRunner(assetEnvironment.createUrl, {
@@ -1606,7 +1623,11 @@ function ChatMarkdown({
         remarkPlugins={
           lineBreaks ? CHAT_MARKDOWN_REMARK_PLUGINS_WITH_BREAKS : CHAT_MARKDOWN_REMARK_PLUGINS
         }
-        rehypePlugins={CHAT_MARKDOWN_REHYPE_PLUGINS}
+        rehypePlugins={
+          sourceLines
+            ? CHAT_MARKDOWN_REHYPE_PLUGINS_WITH_SOURCE_LINES
+            : CHAT_MARKDOWN_REHYPE_PLUGINS
+        }
         components={markdownComponents}
         urlTransform={markdownUrlTransform}
       >

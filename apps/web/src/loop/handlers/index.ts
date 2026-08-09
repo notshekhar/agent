@@ -25,8 +25,11 @@ import {
 } from "@loop/contracts";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
+import * as Queue from "effect/Queue";
 import * as Stream from "effect/Stream";
 
+import { onConfigReloaded } from "../reload.ts";
+import { createAssetUrl } from "./assets.ts";
 import { dispatchCommand } from "./dispatch.ts";
 import { browse, listEntries, readFile, searchEntries } from "./files.ts";
 import { openInEditor } from "./editors.ts";
@@ -125,7 +128,18 @@ export const makeHandlers = (options: HandlerOptions) =>
         ),
       );
       let lastFingerprint: string | null = null;
-      const updates = Stream.tick(SERVER_CONFIG_POLL).pipe(
+      // `/reload` re-reads loop out of band, so it also has to be able to make
+      // this subscription re-read NOW. Merged into the tick rather than given
+      // its own stream so both paths land on the same fingerprint comparison:
+      // a reload that changed nothing must not churn every atom hanging off
+      // the config.
+      const reloads = Stream.callback<void>((queue) =>
+        Effect.acquireRelease(
+          Effect.sync(() => onConfigReloaded(() => Queue.offerUnsafe(queue, undefined))),
+          (unsubscribe) => Effect.sync(unsubscribe),
+        ).pipe(Effect.asVoid),
+      );
+      const updates = Stream.merge(Stream.tick(SERVER_CONFIG_POLL), reloads).pipe(
         // Drop the failure: a poll that cannot reach loop must not tear down a
         // subscription the whole UI hangs off.
         Stream.mapEffect(() => buildServerConfig(options).pipe(Effect.option)),
@@ -203,7 +217,7 @@ export const makeHandlers = (options: HandlerOptions) =>
   "projects.writeFile": () => fail("projects.writeFile"),
   "shell.openInEditor": (input) => openInEditor(input),
     "filesystem.browse": (input) => browse(input),
-  "assets.createUrl": () => fail("assets.createUrl"),
+    "assets.createUrl": (input) => createAssetUrl(input),
     "subscribeVcsStatus": (input) => statusStream(input.cwd),
   "vcs.pull": () => fail("vcs.pull"),
     "vcs.refreshStatus": (input) => refreshStatus(input),

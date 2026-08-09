@@ -1,6 +1,6 @@
-import { SettingsIcon } from "lucide-react";
+import { ChartNoAxesColumnIcon, SettingsIcon } from "lucide-react";
 import { memo, useCallback } from "react";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 
 import { APP_BASE_NAME } from "../../branding";
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
@@ -101,19 +101,41 @@ function LoopWordmark() {
 
 export const SidebarChromeFooter = memo(function SidebarChromeFooter() {
   const navigate = useNavigate();
+  const pathname = useLocation({ select: (location) => location.pathname });
   const { isMobile, setOpenMobile } = useSidebar();
-  const handleSettingsClick = useCallback(() => {
-    if (isMobile) {
-      setOpenMobile(false);
-    }
-    void navigate({ to: "/settings" });
-  }, [isMobile, navigate, setOpenMobile]);
+  // One handler shape for both rows: closing the mobile drawer is part of
+  // navigating away from it, not part of what each destination means.
+  const navigateFromFooter = useCallback(
+    (to: "/usage" | "/settings") => {
+      if (isMobile) {
+        setOpenMobile(false);
+      }
+      void navigate({ to });
+    },
+    [isMobile, navigate, setOpenMobile],
+  );
+  const handleUsageClick = useCallback(() => navigateFromFooter("/usage"), [navigateFromFooter]);
+  const handleSettingsClick = useCallback(
+    () => navigateFromFooter("/settings"),
+    [navigateFromFooter],
+  );
 
   return (
     <SidebarFooter className="p-[var(--sidebar-content-inset)]">
       <SidebarProviderUpdatePill />
       <SidebarUpdatePill />
       <SidebarMenu>
+        {/* Usage sits above Settings because it is the one you open often and
+            close again — spend and streak are a glance, not a configuration
+            session. Unlike Settings it highlights when active: it is a
+            destination in the main body, so the sidebar has to say you are
+            already there. */}
+        <SidebarMenuItem>
+          <SidebarMenuButton isActive={pathname === "/usage"} onClick={handleUsageClick}>
+            <ChartNoAxesColumnIcon />
+            <span>Usage</span>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
         <SidebarMenuItem>
           <SidebarMenuButton onClick={handleSettingsClick}>
             <SettingsIcon />

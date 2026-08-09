@@ -84,6 +84,7 @@ import {
   removeInlineTerminalContextPlaceholder,
 } from "../../lib/terminalContext";
 import { useComposerPathSearch } from "../../lib/composerPathSearchState";
+import { runConfigReload } from "../../lib/configReload";
 import { type ElementContextDraft } from "../../lib/elementContext";
 import { ComposerPendingElementContexts } from "./ComposerPendingElementContexts";
 import { ComposerPendingReviewComments } from "./ComposerPendingReviewComments";
@@ -1004,6 +1005,27 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           label: "/clear",
           description: "Start a new thread in this project",
         },
+        {
+          // The terminal's /reload. Without it, an edit to settings.json (or
+          // an agent, or an MCP entry) stayed invisible until the app was
+          // restarted, because loop serves settings from an in-memory cache
+          // and caches its model catalog for the life of the process.
+          id: "slash:reload",
+          type: "slash-command",
+          command: "reload",
+          label: "/reload",
+          description: "Re-read settings, agents, commands, models and MCP servers from disk",
+        },
+        {
+          // `/cost` and `/steak` are the terminal's names for the two halves
+          // of the usage page. One entry, because in the app they are one
+          // screen.
+          id: "slash:usage",
+          type: "slash-command",
+          command: "usage",
+          label: "/usage",
+          description: "Spend and token usage",
+        },
       ] satisfies ReadonlyArray<Extract<ComposerCommandItem, { type: "slash-command" }>>;
       const providerSlashCommandItems = (selectedProviderStatus?.slashCommands ?? []).map(
         (command) => ({
@@ -1655,7 +1677,21 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           props.onNewThread?.();
           return;
         }
-        void navigate({ to: item.command === "mcp" ? "/settings/mcp" : "/settings/agents" });
+        if (item.command === "reload") {
+          // Stays on the thread: a reload is something you do mid-work, and
+          // navigating away from the conversation to prove it happened would
+          // cost more than the toast it already reports through.
+          void runConfigReload(gitCwd ?? undefined);
+          return;
+        }
+        void navigate({
+          to:
+            item.command === "mcp"
+              ? "/settings/mcp"
+              : item.command === "usage"
+                ? "/usage"
+                : "/settings/agents",
+        });
         return;
       }
       if (item.type === "provider-slash-command") {
@@ -1961,7 +1997,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         // unique image into the overflow list for nothing.
         const existingDedupKeys = new Set(
           composerImagesRef.current.map(
-            (image) => `${image.mimeType} ${image.sizeBytes} ${image.name}`,
+            (image) => `${image.mimeType}\u0000${image.sizeBytes}\u0000${image.name}`,
           ),
         );
         const capacity = Math.max(
@@ -1972,7 +2008,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
           (attachment) =>
             !existingIds.has(attachment.id) &&
             !existingDedupKeys.has(
-              `${attachment.mimeType} ${attachment.sizeBytes} ${attachment.name}`,
+              `${attachment.mimeType}\u0000${attachment.sizeBytes}\u0000${attachment.name}`,
             ),
         );
         // Anything past the attachment limit cannot be restored. The entry is
@@ -2064,7 +2100,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     // the composer has been cleared the user can type something genuinely
     // new (or switch threads) while encoding continues, and that deserves its
     // own entry.
-    const snapshotKey = `${String(composerDraftTarget)} ${prompt} ${images
+    const snapshotKey = `${String(composerDraftTarget)}\u0000${prompt}\u0000${images
       .map((image) => image.id)
       .join(",")}`;
     if (stashInFlightRef.current.has(snapshotKey)) return;

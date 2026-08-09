@@ -1,8 +1,20 @@
 import { MessageCircle, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Button } from "~/components/ui/button";
 import { Textarea } from "~/components/ui/textarea";
+
+/**
+ * Put text selection back inside the comment card.
+ *
+ * `@pierre/diffs` injects a document-wide `[data-annotation-slot] { user-select:
+ * none }` (dist/editor/editor.js) so dragging across a code row selects lines
+ * rather than text — and every annotation this file renders is portaled into
+ * one of those slots. Chromium does not paint a caret in a field it believes is
+ * unselectable, so the comment box took typing while showing no cursor at all,
+ * and a saved comment could not be selected or copied.
+ */
+const SELECTABLE = "select-text [-webkit-user-select:text]";
 
 interface LocalCommentAnnotationProps {
   kind: "draft" | "comment";
@@ -22,12 +34,44 @@ export function LocalCommentAnnotation({
   onDelete,
 }: LocalCommentAnnotationProps) {
   const [text, setText] = useState("");
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  /**
+   * Take the caret, and take it back.
+   *
+   * MEASURED: after a real click on the gutter the comment box opened with
+   * `document.activeElement` still on `body` — React's `autoFocus` ran, and
+   * something after it took the focus away again. `@pierre/diffs` re-renders
+   * the row the annotation is slotted into as part of opening it, and that
+   * lands in a later frame than the mount. So the box looked normal, showed no
+   * cursor, and swallowed every keystroke until it was clicked.
+   *
+   * Two attempts, a frame apart, and never over a focus the user has already
+   * moved into the card itself — clicking Cancel must not be undone by the
+   * second attempt.
+   */
+  useEffect(() => {
+    if (kind !== "draft") return;
+    let frame = 0;
+    const claim = () => {
+      const input = inputRef.current;
+      if (!input) return;
+      const active = document.activeElement;
+      if (active !== null && input.closest("[data-file-comment-annotation]")?.contains(active)) {
+        return;
+      }
+      input.focus();
+    };
+    claim();
+    frame = requestAnimationFrame(claim);
+    return () => cancelAnimationFrame(frame);
+  }, [kind]);
 
   if (kind === "comment") {
     return (
       <div
         data-file-comment-annotation
-        className="mx-3 my-2 rounded-xl border border-border/70 bg-background p-3 shadow-sm"
+        className={`mx-3 my-2 rounded-xl border border-border/70 bg-background p-3 shadow-sm ${SELECTABLE}`}
         contentEditable={false}
         onPointerDown={(event) => event.stopPropagation()}
       >
@@ -49,7 +93,7 @@ export function LocalCommentAnnotation({
   return (
     <div
       data-file-comment-annotation
-      className="mx-3 my-2 rounded-xl border border-border/70 bg-background p-3 shadow-lg"
+      className={`mx-3 my-2 rounded-xl border border-border/70 bg-background p-3 shadow-lg ${SELECTABLE}`}
       contentEditable={false}
       onPointerDown={(event) => event.stopPropagation()}
     >
@@ -59,6 +103,7 @@ export function LocalCommentAnnotation({
       </div>
       <div className="mt-1 text-xs text-muted-foreground">Comment on lines {rangeLabel}</div>
       <Textarea
+        ref={inputRef}
         autoFocus
         className="mt-3"
         size="sm"

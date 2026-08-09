@@ -55,6 +55,27 @@ ipcRenderer.on("loop:fullscreen", (_event, fullscreen: boolean) => {
   for (const listener of fullscreenListeners) listener(fullscreen);
 });
 
+const previewStateListeners = new Set<(tabId: string, state: unknown) => void>();
+ipcRenderer.on("loop:preview.state", (_event, state: { tabId: string }) => {
+  for (const listener of previewStateListeners) listener(state.tabId, state);
+});
+
+const previewFrameListeners = new Set<(frame: unknown) => void>();
+ipcRenderer.on("loop:preview.frame", (_event, frame: unknown) => {
+  for (const listener of previewFrameListeners) listener(frame);
+});
+
+/**
+ * Operations the browser panel offers but loop's shell does not implement.
+ *
+ * A missing method would be a `TypeError` deep inside the panel; this is the
+ * same refusal said in a sentence the toast can show. See preview.ts for what
+ * is and is not wired.
+ */
+function unsupported(what: string): () => Promise<never> {
+  return () => Promise.reject(new Error(`${what} isn't supported in loop's desktop app yet.`));
+}
+
 contextBridge.exposeInMainWorld("loop", {
   call(method: string, params: unknown, cwd: string | undefined): Promise<unknown> {
     // `cwd` rides as a parameter rather than picking a process: one loop child
@@ -73,6 +94,9 @@ contextBridge.exposeInMainWorld("loop", {
     },
     read(cwd: string, relativePath: string) {
       return ipcRenderer.invoke("loop:fs.read", { cwd, relativePath });
+    },
+    readAsset(absolutePath: string) {
+      return ipcRenderer.invoke("loop:fs.readAsset", { absolutePath });
     },
     browse(partialPath: string, cwd: string | undefined) {
       return ipcRenderer.invoke("loop:fs.browse", { partialPath, cwd });
@@ -117,6 +141,82 @@ contextBridge.exposeInMainWorld("loop", {
     onOutput(listener: (event: unknown) => void): () => void {
       terminalListeners.add(listener);
       return () => terminalListeners.delete(listener);
+    },
+  },
+  /**
+   * The browser panel's half of the webview.
+   *
+   * Shaped as upstream's `DesktopPreviewBridge` (apps/web/src/loop/contracts/ipc.ts)
+   * because that is what the panel calls — but hung off `window.loop`, not
+   * `window.desktopBridge`. Exposing the latter would flip the renderer's
+   * `isElectron` to true and route auth, connection setup and the update
+   * checker through upstream desktop methods this shell has never had.
+   */
+  preview: {
+    getPreviewConfig: () => ipcRenderer.invoke("loop:preview.config"),
+    createTab: (tabId: string) => ipcRenderer.invoke("loop:preview.createTab", { tabId }),
+    closeTab: (tabId: string) => ipcRenderer.invoke("loop:preview.closeTab", { tabId }),
+    registerWebview: (tabId: string, webContentsId: number) =>
+      ipcRenderer.invoke("loop:preview.registerWebview", { tabId, webContentsId }),
+    navigate: (tabId: string, url: string) =>
+      ipcRenderer.invoke("loop:preview.navigate", { tabId, url }),
+    goBack: (tabId: string) => ipcRenderer.invoke("loop:preview.goBack", { tabId }),
+    goForward: (tabId: string) => ipcRenderer.invoke("loop:preview.goForward", { tabId }),
+    refresh: (tabId: string) => ipcRenderer.invoke("loop:preview.refresh", { tabId }),
+    hardReload: (tabId: string) => ipcRenderer.invoke("loop:preview.hardReload", { tabId }),
+    zoomIn: (tabId: string) => ipcRenderer.invoke("loop:preview.zoomIn", { tabId }),
+    zoomOut: (tabId: string) => ipcRenderer.invoke("loop:preview.zoomOut", { tabId }),
+    resetZoom: (tabId: string) => ipcRenderer.invoke("loop:preview.resetZoom", { tabId }),
+    setColorScheme: (tabId: string, colorScheme: string) =>
+      ipcRenderer.invoke("loop:preview.setColorScheme", { tabId, colorScheme }),
+    openDevTools: (tabId: string) => ipcRenderer.invoke("loop:preview.openDevTools", { tabId }),
+    clearCookies: () => ipcRenderer.invoke("loop:preview.clearCookies"),
+    clearCache: () => ipcRenderer.invoke("loop:preview.clearCache"),
+    captureScreenshot: (tabId: string) => ipcRenderer.invoke("loop:preview.screenshot", { tabId }),
+    revealArtifact: (path: string) => ipcRenderer.invoke("loop:preview.revealArtifact", { path }),
+    copyArtifactToClipboard: (path: string) =>
+      ipcRenderer.invoke("loop:preview.copyArtifact", { path }),
+    // No annotation overlay ships in the guest, so there is no theme to push
+    // into it — but the host syncs one on every theme change and must not see
+    // a rejection for it.
+    setAnnotationTheme: () => Promise.resolve(),
+    pickElement: unsupported("Picking an element"),
+    cancelPickElement: () => Promise.resolve(),
+    pictureInPicture: {
+      open: unsupported("Popping the preview out"),
+      close: unsupported("Popping the preview out"),
+    },
+    recording: {
+      startScreencast: (tabId: string) =>
+        ipcRenderer.invoke("loop:preview.startScreencast", { tabId }),
+      stopScreencast: (tabId: string) =>
+        ipcRenderer.invoke("loop:preview.stopScreencast", { tabId }),
+      save: (tabId: string, mimeType: string, data: Uint8Array) =>
+        ipcRenderer.invoke("loop:preview.saveRecording", { tabId, mimeType, data }),
+      onFrame(listener: (frame: unknown) => void): () => void {
+        previewFrameListeners.add(listener);
+        return () => previewFrameListeners.delete(listener);
+      },
+    },
+    // Reached only when the agent drives the browser, which needs server-side
+    // methods loop does not implement (`previewAutomation.*` all fail).
+    automation: {
+      status: unsupported("Browser automation"),
+      snapshot: unsupported("Browser automation"),
+      click: unsupported("Browser automation"),
+      type: unsupported("Browser automation"),
+      press: unsupported("Browser automation"),
+      scroll: unsupported("Browser automation"),
+      evaluate: unsupported("Browser automation"),
+      waitFor: unsupported("Browser automation"),
+    },
+    onStateChange(listener: (tabId: string, state: unknown) => void): () => void {
+      previewStateListeners.add(listener);
+      return () => previewStateListeners.delete(listener);
+    },
+    /** No agent cursor without automation, so this never fires. */
+    onPointerEvent(): () => void {
+      return () => {};
     },
   },
   window: {

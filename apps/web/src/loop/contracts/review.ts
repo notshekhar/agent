@@ -25,6 +25,16 @@ export const ReviewDiffPreviewSource = Schema.Struct({
 });
 export type ReviewDiffPreviewSource = typeof ReviewDiffPreviewSource.Type;
 
+export const ReviewWorkspaceRepository = Schema.Struct({
+  /** Path relative to the folder that was opened, e.g. `group/billing`. */
+  path: TrimmedNonEmptyString,
+  branch: Schema.NullOr(TrimmedNonEmptyString),
+  filesChanged: Schema.Int,
+  insertions: Schema.Int,
+  deletions: Schema.Int,
+});
+export type ReviewWorkspaceRepository = typeof ReviewWorkspaceRepository.Type;
+
 export const ReviewDiffPreviewResult = Schema.Struct({
   cwd: TrimmedNonEmptyString,
   // Wire-shaped on purpose: this crosses the RPC boundary as JSON, so the
@@ -34,6 +44,15 @@ export const ReviewDiffPreviewResult = Schema.Struct({
   // review pane never rendered a diff at all.
   generatedAt: Schema.DateTimeUtcFromString,
   sources: Schema.Array(ReviewDiffPreviewSource),
+  /**
+   * Repositories nested under `cwd`, when `cwd` is a folder of repositories
+   * rather than one itself. Absent for an ordinary repo.
+   *
+   * `sources` is empty alongside this: there is nothing to diff at that level.
+   * The panel lists these — the ones with changes first — and asks again with
+   * a child's path when one is opened.
+   */
+  workspaceRepositories: Schema.optional(Schema.Array(ReviewWorkspaceRepository)),
 });
 export type ReviewDiffPreviewResult = typeof ReviewDiffPreviewResult.Type;
 

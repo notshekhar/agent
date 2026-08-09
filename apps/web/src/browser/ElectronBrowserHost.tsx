@@ -4,6 +4,7 @@ import { parseScopedThreadKey } from "@loop/runtime/environment";
 import { FILL_PREVIEW_VIEWPORT } from "@loop/contracts";
 import { useEffect, useMemo } from "react";
 
+import { previewBridge } from "~/components/preview/previewBridge";
 import { isDesktopShell } from "~/env";
 import { useTheme } from "~/hooks/useTheme";
 import { useActivePreviewSessions } from "~/previewStateStore";
@@ -37,7 +38,7 @@ export function ElectronBrowserHost() {
   );
 
   useEffect(() => {
-    const preview = window.desktopBridge?.preview;
+    const preview = previewBridge;
     if (!preview) return;
 
     let lastSerializedTheme = "";
@@ -70,7 +71,7 @@ export function ElectronBrowserHost() {
   }, [resolvedTheme]);
 
   useEffect(() => {
-    const preview = window.desktopBridge?.preview;
+    const preview = previewBridge;
     if (!preview) return;
     return preview.onPointerEvent((event) => {
       useBrowserPointerStore.getState().apply(event);

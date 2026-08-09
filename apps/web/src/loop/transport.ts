@@ -47,9 +47,19 @@ export type ReadWorkspaceFileResult =
  * filesystem, so this is the one capability that genuinely differs between the
  * two shells rather than merely being routed differently.
  */
+export type ReadWorkspaceAssetResult =
+  | { readonly ok: true; readonly data: Uint8Array; readonly mimeType: string }
+  | { readonly ok: false; readonly failure: string };
+
 export interface LoopFilesystemBridge {
   list(cwd: string): Promise<{ entries: readonly WorkspaceEntry[]; truncated: boolean }>;
   read(cwd: string, relativePath: string): Promise<ReadWorkspaceFileResult>;
+  /**
+   * Raw bytes for a non-text file. Optional: older shells only have `read`,
+   * which refuses binary, and the caller falls back to reporting the asset as
+   * unavailable rather than crashing.
+   */
+  readAsset?(absolutePath: string): Promise<ReadWorkspaceAssetResult>;
   browse(
     partialPath: string,
     cwd: string | undefined,
@@ -113,6 +123,10 @@ export interface GitRef {
 
 export interface GitStatus {
   readonly isRepo: boolean;
+  /** `isRepo` is true only because the folder CONTAINS repositories; it has no
+   * branch of its own. Absent on a real single repository, and on any shell
+   * older than the flag. */
+  readonly isWorkspaceRoot?: boolean;
   readonly hasPrimaryRemote: boolean;
   readonly isDefaultRef: boolean;
   readonly refName: string | null;
@@ -212,7 +226,18 @@ export interface LoopGitBridge {
   diffPreview?(
     cwd: string,
     options: { baseRef?: string; ignoreWhitespace?: boolean },
-  ): Promise<{ isRepo: boolean; sources: readonly GitDiffPreviewSource[] }>;
+  ): Promise<{
+    isRepo: boolean;
+    sources: readonly GitDiffPreviewSource[];
+    /** Set only when `cwd` holds repositories rather than being one. */
+    workspaceRepositories?: readonly {
+      path: string;
+      branch: string | null;
+      filesChanged: number;
+      insertions: number;
+      deletions: number;
+    }[];
+  }>;
   /**
    * Commit / push / PR. Resolves with git's own message on failure rather than
    * rejecting, so the toast shows "lint failed" and not an IPC wrapper.
@@ -330,6 +355,14 @@ interface LoopDesktopBridge {
   shell?: LoopShellBridge;
   sourceControl?: LoopSourceControlBridge;
   window?: LoopWindowBridge;
+  /**
+   * The browser panel's webview control surface — upstream's
+   * `DesktopPreviewBridge`, which lives here rather than on
+   * `window.desktopBridge` (see components/preview/previewBridge.ts). Typed as
+   * `unknown` to keep this module free of contract imports; the one consumer
+   * narrows it.
+   */
+  preview?: unknown;
 }
 
 declare global {

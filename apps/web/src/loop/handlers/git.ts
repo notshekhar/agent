@@ -207,6 +207,11 @@ export const diffPreview = Effect.fnUntraced(function* (input: {
     cwd: input.cwd,
     generatedAt: new Date().toISOString(),
     sources: preview.sources,
+    // Present only when `cwd` is a folder of repositories; the panel uses it
+    // to explain a diff whose paths span several of them.
+    ...(preview.workspaceRepositories
+      ? { workspaceRepositories: preview.workspaceRepositories }
+      : {}),
   }).pipe(
     Effect.mapError(
       () =>

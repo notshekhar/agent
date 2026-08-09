@@ -2,6 +2,7 @@ export const WORKSPACE_BROWSER_PREVIEW_EXTENSIONS = [".htm", ".html", ".pdf"] as
 
 export const WORKSPACE_IMAGE_PREVIEW_EXTENSIONS = [
   ".avif",
+  ".bmp",
   ".gif",
   ".ico",
   ".jpeg",

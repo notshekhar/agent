@@ -48,6 +48,7 @@ import {
     loginApiKey,
     logout,
     parseCustomProviderId,
+    settingsStore,
 } from "../auth";
 import {
     answerAuthFlow,
@@ -154,6 +155,7 @@ const RPC_METHODS = [
     "usage.steak",
     "settings.list",
     "settings.set",
+    "config.reload",
     "context.report",
     "extension.list",
     "extension.setEnabled",
@@ -1117,6 +1119,51 @@ export class RpcServer {
                 return pollMcpLogin(String(params.flowId ?? ""), Number(params.cursor ?? 0));
             case "mcp.login.cancel":
                 return cancelMcpLogin(String(params.flowId ?? ""));
+            case "config.reload": {
+                // The GUI's `/reload`, and the same act as the terminal's: every
+                // config surface re-read from disk and the model catalog
+                // re-fetched, in one round trip.
+                //
+                // Editing settings.json (or an agent, or an MCP entry) by hand
+                // was invisible to a running server — CachedStore serves reads
+                // from memory and the catalog is cached for the process — so the
+                // only way to pick an edit up was to restart the app. Now it is
+                // a call.
+                //
+                // Deliberately NOT here: the session's own model/agent choice.
+                // A reload refreshes what the app knows, it does not re-decide
+                // what an open conversation is running.
+                settingsStore.refresh();
+
+                const reloadCwd = String(params.cwd ?? process.cwd());
+
+                // Prompts, skills and agents are read from disk at registration,
+                // so the registry is rebuilt rather than mutated. Extension
+                // command contributions are re-applied on top, exactly as the
+                // constructor does, or a reload would silently drop them.
+                const fresh = new CommandRegistry();
+                await registerBuiltins(fresh, { cwd: reloadCwd });
+                getExtensionHost().applyCommands(fresh);
+                this.commands = fresh;
+
+                bustCatalogCache();
+                const catalog = await getCatalog({ refresh: true });
+
+                // MCP: close resets the manager's `initialized` flag (init() is
+                // a no-op once connected), so added/removed/edited servers are
+                // actually re-read rather than the old connections being kept.
+                await getMcpManager().close();
+                await getMcpManager().init(reloadCwd);
+
+                const models = Object.values(catalog);
+                return {
+                    models: models.length,
+                    availableModels: models.filter((m) => m.available).length,
+                    commands: this.commands.list().length,
+                    agents: listAgents().length,
+                    providers: (await listUsableProviders()).length,
+                };
+            }
             case "settings.set": {
                 const key = String(params.key);
                 const entry = WEB_SETTINGS.find((s) => s.key === key);

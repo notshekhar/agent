@@ -29,12 +29,14 @@ import { useNavigate, useParams } from "@tanstack/react-router";
 import * as Option from "effect/Option";
 import {
   ArrowLeftIcon,
+  ChartNoAxesColumnIcon,
   CornerLeftUpIcon,
   FileSearchIcon,
   FolderIcon,
   FolderPlusIcon,
   LinkIcon,
   MessageSquareIcon,
+  RotateCcwIcon,
   SettingsIcon,
   SquarePenIcon,
   TextSearchIcon,
@@ -69,6 +71,7 @@ import { useEnvironments, usePrimaryEnvironmentId } from "../state/environments"
 import { useProjects, useThreadShells } from "../state/entities";
 import { useThreadSearch } from "../state/queries";
 import { resolveThreadActionProjectRef, startNewThreadFromContext } from "../lib/chatThreadActions";
+import { runConfigReload } from "../lib/configReload";
 import {
   appendBrowsePathSegment,
   ensureBrowseDirectoryPath,
@@ -1463,6 +1466,34 @@ function OpenCommandPaletteDialog(props: {
       },
     });
   }
+
+  actionItems.push({
+    kind: "action",
+    value: "action:usage",
+    // `/cost` and `/steak` are the terminal's names for the two halves of this
+    // page, so both find it — the app's word for it is not the only one people
+    // know it by.
+    searchTerms: ["usage", "cost", "spend", "tokens", "steak", "streak", "billing"],
+    title: "Open usage",
+    icon: <ChartNoAxesColumnIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      await navigate({ to: "/usage" });
+    },
+  });
+
+  actionItems.push({
+    kind: "action",
+    value: "action:reload",
+    searchTerms: ["reload", "refresh", "config", "settings.json", "agents", "models", "mcp"],
+    title: "Reload configuration",
+    description: "Re-read settings, agents, commands, models and MCP servers from disk",
+    icon: <RotateCcwIcon className={ITEM_ICON_CLASS} />,
+    run: async () => {
+      // The open project's folder, so the project-scoped half of loop's config
+      // (that repo's MCP servers and commands) is re-read too.
+      await runConfigReload(currentProjectCwd ?? undefined);
+    },
+  });
 
   actionItems.push({
     kind: "action",

@@ -618,6 +618,36 @@ describe("rpc: auth / catalog / cost", () => {
         expect(res.error).toBeUndefined();
         expect(typeof res.result).toBe("object");
     });
+
+    /**
+     * `config.reload` has to be EXECUTED, not merely dispatched-to.
+     *
+     * It shipped once with an unimported `settingsStore`, which is a plain
+     * ReferenceError the moment the branch runs — and nothing ran it, so the
+     * first thing to find out was the user's `/reload`. Any assertion here
+     * would have caught it; the point is that the branch executes at all.
+     */
+    test("config.reload re-reads config and reports what it found", async () => {
+        const { call } = harness();
+        const res = await call("config.reload", { cwd: CWD });
+        expect(res.error).toBeUndefined();
+        const summary = res.result as Record<string, number>;
+        // Counts, not just an object: they are what the client shows as proof
+        // the reload did something, and a missing field renders as "0".
+        for (const key of ["models", "availableModels", "commands", "agents", "providers"]) {
+            expect(typeof summary[key]).toBe("number");
+        }
+        // The catalog is real, so a reload that reports zero models re-read
+        // nothing — which is the failure this call exists to prevent.
+        expect(summary.models).toBeGreaterThan(0);
+        expect(summary.commands).toBeGreaterThan(0);
+    });
+
+    test("config.reload is advertised, so a client can tell an older loop", async () => {
+        const { call } = harness();
+        const { result } = await call("server.info");
+        expect(result.methods).toContain("config.reload");
+    });
 });
 
 describe("rpc: client over a unix socket (end to end)", () => {

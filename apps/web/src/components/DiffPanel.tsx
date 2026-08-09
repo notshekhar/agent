@@ -10,6 +10,7 @@ import {
   ArrowRightIcon,
   CheckIcon,
   ChevronDownIcon,
+  ChevronLeftIcon,
   ChevronRightIcon,
   ChevronsDownUpIcon,
   ChevronsUpDownIcon,
@@ -21,7 +22,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useOpenInPreferredEditor } from "../editorPreferences";
-import { type DraftId } from "../composerDraftStore";
+import { type DraftId, useComposerDraftStore } from "../composerDraftStore";
 import { openDiffFilePrimaryAction } from "../diffFileActions";
 import { useCheckpointDiff } from "~/lib/checkpointDiffState";
 import { cn } from "~/lib/utils";
@@ -38,12 +39,14 @@ import {
 import { areAllDiffFilesCollapsed, toggleAllDiffFiles } from "../lib/diffCollapse";
 import { useTurnDiffSummaries } from "../hooks/useTurnDiffSummaries";
 import { useProject, useThread } from "../state/entities";
+import { scopeThreadRef } from "@loop/runtime/environment";
 import { resolveThreadRouteRef } from "../threadRoutes";
 import { useClientSettings } from "../hooks/useSettings";
 import { formatShortTimestamp } from "../timestampFormat";
 import { DiffPanelLoadingState, DiffPanelShell, type DiffPanelMode } from "./DiffPanelShell";
 import { DiffStatLabel } from "./chat/DiffStatLabel";
 import { AnnotatableCodeView, type AnnotatableCodeViewHandle } from "./diffs/AnnotatableCodeView";
+import { WorkspaceRepositoryList } from "./diffs/WorkspaceRepositoryList";
 import { Button } from "./ui/button";
 import { ToggleGroup, Toggle } from "./ui/toggle-group";
 import { Switch } from "./ui/switch";
@@ -232,6 +235,14 @@ export default function DiffPanel({
     scopeKey: null,
     fileKeys: EMPTY_COLLAPSED_DIFF_FILE_KEYS,
   }));
+  /**
+   * Which nested repository is open, when the project is a folder of them.
+   *
+   * Null means the list. Selecting one re-points every git query at that
+   * repository's own path, so from there down this is an ordinary single-repo
+   * diff — same base-ref picker, same scopes, same everything.
+   */
+  const [openRepository, setOpenRepository] = useState<string | null>(null);
   const codeViewRef = useRef<AnnotatableCodeViewHandle>(null);
 
   const routeThreadRef = useParams({
@@ -240,35 +251,65 @@ export default function DiffPanel({
   });
   const activeThreadId = routeThreadRef?.threadId ?? null;
   const activeThread = useThread(routeThreadRef);
-  const activeProjectId = activeThread?.projectId ?? null;
+  /**
+   * A thread that has not been sent yet still belongs to a folder.
+   *
+   * Turn diffs need a server thread — there are no turns before one exists —
+   * but the working tree does not: it only needs a cwd. Reading that from the
+   * draft (the same fallback the terminal drawer uses) is what lets the panel
+   * open on a brand new thread, where it used to say "select a thread" over a
+   * folder full of uncommitted changes.
+   */
+  const draftThread = useComposerDraftStore((store) =>
+    // A draft route has no thread ref at all — the draft is keyed by its own
+    // id, which is exactly what `composerDraftTarget` carries. Looking it up
+    // by ref found nothing, so the panel opened onto "select a thread".
+    typeof composerDraftTarget === "string"
+      ? store.getDraftSession(composerDraftTarget)
+      : store.getDraftSessionByRef(composerDraftTarget),
+  );
+  const diffEnvironmentId = activeThread?.environmentId ?? draftThread?.environmentId ?? null;
+  const activeProjectId = activeThread?.projectId ?? draftThread?.projectId ?? null;
   const activeProject = useProject(
-    activeThread && activeProjectId
+    diffEnvironmentId && activeProjectId
       ? {
-          environmentId: activeThread.environmentId,
+          environmentId: diffEnvironmentId,
           projectId: activeProjectId,
         }
       : null,
   );
-  const activeCwd = activeThread?.worktreePath ?? activeProject?.workspaceRoot;
-  const serverConfig = useAtomValue(
-    serverEnvironment.configValueAtom(activeThread?.environmentId ?? null),
-  );
+  const projectCwd = activeThread?.worktreePath ?? activeProject?.workspaceRoot;
+  const activeCwd =
+    projectCwd && openRepository ? `${projectCwd.replace(/\/$/, "")}/${openRepository}` : projectCwd;
+  const serverConfig = useAtomValue(serverEnvironment.configValueAtom(diffEnvironmentId));
   const openInPreferredEditor = useOpenInPreferredEditor(
-    activeThread?.environmentId ?? null,
+    diffEnvironmentId,
     serverConfig?.availableEditors ?? [],
   );
   const gitStatusQuery = useEnvironmentQuery(
-    activeThread !== null && activeThread !== undefined && activeCwd != null
+    diffEnvironmentId !== null && activeCwd != null
       ? vcsEnvironment.status({
-          environmentId: activeThread.environmentId,
+          environmentId: diffEnvironmentId,
           input: { cwd: activeCwd },
         })
       : null,
   );
+  /**
+   * What the scope and base-ref pickers write against.
+   *
+   * A draft route has no thread ref, and every picker here bailed on that —
+   * the panel was stuck on whatever scope it opened with, which in a folder of
+   * repositories meant "branch changes" and so only the one repo that had
+   * commits ahead. The draft carries the same pre-allocated thread id the
+   * server thread will get, so a selection made now survives the promotion.
+   */
+  const diffSelectionRef =
+    routeThreadRef ??
+    (draftThread ? scopeThreadRef(draftThread.environmentId, draftThread.threadId) : null);
   const diffSelection = useDiffPanelStore((state) =>
     selectThreadDiffPanelSelection(
       state.byThreadKey,
-      routeThreadRef,
+      diffSelectionRef,
       initialGitScope === "unstaged",
     ),
   );
@@ -346,7 +387,7 @@ export default function DiffPanel({
   );
   const activeCheckpointDiff = useCheckpointDiff(
     {
-      environmentId: activeThread?.environmentId ?? null,
+      environmentId: diffEnvironmentId,
       threadId: activeThreadId,
       fromTurnCount: selectedCheckpointRange?.fromTurnCount ?? null,
       toTurnCount: selectedCheckpointRange?.toTurnCount ?? null,
@@ -356,9 +397,9 @@ export default function DiffPanel({
     { enabled: isGitRepo && selectedTurn !== undefined },
   );
   const primaryBranchDiffPreview = useEnvironmentQuery(
-    selectedTurnId === null && activeThread && activeCwd
+    selectedTurnId === null && diffEnvironmentId && activeCwd
       ? reviewEnvironment.diffPreview({
-          environmentId: activeThread.environmentId,
+          environmentId: diffEnvironmentId,
           input: {
             cwd: activeCwd,
             ...(selectedBaseRef ? { baseRef: selectedBaseRef } : {}),
@@ -373,9 +414,9 @@ export default function DiffPanel({
     serverConfig?.cwd !== undefined &&
     serverConfig.cwd !== activeCwd;
   const fallbackBranchDiffPreview = useEnvironmentQuery(
-    shouldRetryBranchDiffAtEnvironmentCwd && activeThread && serverConfig
+    shouldRetryBranchDiffAtEnvironmentCwd && diffEnvironmentId && serverConfig
       ? reviewEnvironment.diffPreview({
-          environmentId: activeThread.environmentId,
+          environmentId: diffEnvironmentId,
           input: {
             cwd: serverConfig.cwd,
             ...(selectedBaseRef ? { baseRef: selectedBaseRef } : {}),
@@ -387,16 +428,26 @@ export default function DiffPanel({
   const branchDiffPreview = shouldRetryBranchDiffAtEnvironmentCwd
     ? fallbackBranchDiffPreview
     : primaryBranchDiffPreview;
+  /**
+   * A folder of repositories, not one itself.
+   *
+   * There is no single branch, remote or base ref here — each repository
+   * resolved its own — so the header says what it is comparing instead of
+   * offering a ref picker that could not mean anything.
+   */
+  const workspaceRepositories = branchDiffPreview.data?.workspaceRepositories ?? null;
+  /** The list stands in for the diff only at the folder level. */
+  const showingRepositoryList = openRepository === null && (workspaceRepositories?.length ?? 0) > 0;
   const selectedGitSource = branchDiffPreview.data?.sources.find(
     (source) => source.kind === (selectedGitScope === "unstaged" ? "working-tree" : "branch-range"),
   );
   const localBranchRefs = useEnvironmentQuery(
     selectedTurnId === null &&
       selectedGitScope === "branch" &&
-      activeThread &&
+      diffEnvironmentId &&
       branchDiffPreview.data?.cwd
       ? vcsEnvironment.listRefs({
-          environmentId: activeThread.environmentId,
+          environmentId: diffEnvironmentId,
           input: {
             cwd: branchDiffPreview.data.cwd,
             includeMatchingRemoteRefs: true,
@@ -410,10 +461,10 @@ export default function DiffPanel({
   const remoteBranchRefs = useEnvironmentQuery(
     selectedTurnId === null &&
       selectedGitScope === "branch" &&
-      activeThread &&
+      diffEnvironmentId &&
       branchDiffPreview.data?.cwd
       ? vcsEnvironment.listRefs({
-          environmentId: activeThread.environmentId,
+          environmentId: diffEnvironmentId,
           input: {
             cwd: branchDiffPreview.data.cwd,
             includeMatchingRemoteRefs: true,
@@ -605,20 +656,29 @@ export default function DiffPanel({
     useDiffPanelStore.getState().selectTurn(routeThreadRef, turnId);
   };
   const selectGitScope = (scope: "branch" | "unstaged") => {
-    if (!routeThreadRef) return;
-    useDiffPanelStore.getState().selectGitScope(routeThreadRef, scope);
+    if (!diffSelectionRef) return;
+    useDiffPanelStore.getState().selectGitScope(diffSelectionRef, scope);
   };
   const selectBranchBaseRef = (baseRef: string | null) => {
-    if (!routeThreadRef) return;
-    useDiffPanelStore.getState().selectBranchBaseRef(routeThreadRef, baseRef);
+    if (!diffSelectionRef) return;
+    useDiffPanelStore.getState().selectBranchBaseRef(diffSelectionRef, baseRef);
   };
 
   const headerRow = (
     <>
       <div className="flex min-w-0 flex-1 items-center gap-3 [-webkit-app-region:no-drag]">
+        {showingRepositoryList ? (
+          // Nothing here is per-scope yet: the list is the whole view, and a
+          // "working tree / branch changes" picker over it would be a choice
+          // the list cannot honour.
+          <span className="shrink-0 text-xs font-medium text-foreground">Repositories</span>
+        ) : null}
         <DropdownMenu>
           <DropdownMenuTrigger
-            className="inline-flex h-6 max-w-full items-center gap-1 rounded-md bg-muted/70 px-2 text-xs font-medium text-foreground outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring"
+            className={cn(
+              "inline-flex h-6 max-w-full items-center gap-1 rounded-md bg-muted/70 px-2 text-xs font-medium text-foreground outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring",
+              showingRepositoryList && "hidden",
+            )}
             aria-label={`Diff scope: ${selectedScopeLabel}`}
           >
             <span className="truncate">{selectedScopeLabel}</span>
@@ -684,6 +744,17 @@ export default function DiffPanel({
             </DropdownMenuSub>
           </DropdownMenuContent>
         </DropdownMenu>
+        {openRepository !== null ? (
+          <button
+            type="button"
+            onClick={() => setOpenRepository(null)}
+            className="inline-flex h-6 min-w-0 shrink items-center gap-1 rounded-md bg-muted/70 px-2 text-xs font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring"
+            aria-label={`Back to all repositories (currently ${openRepository})`}
+          >
+            <ChevronLeftIcon className="size-3.5 shrink-0 text-muted-foreground" />
+            <span className="truncate">{openRepository}</span>
+          </button>
+        ) : null}
         {selectedTurnId === null && selectedGitScope === "branch" && selectedGitSource?.baseRef && (
           <div
             className="flex min-w-0 max-w-full items-center gap-2 overflow-hidden text-xs text-muted-foreground"
@@ -898,10 +969,15 @@ export default function DiffPanel({
 
   return (
     <DiffPanelShell mode={mode} header={headerRow}>
-      {!activeThread ? (
+      {!activeCwd ? (
         <div className="flex flex-1 items-center justify-center px-5 text-center text-xs text-muted-foreground/70">
           Select a thread to inspect turn diffs.
         </div>
+      ) : showingRepositoryList ? (
+        <WorkspaceRepositoryList
+          repositories={workspaceRepositories ?? []}
+          onOpen={setOpenRepository}
+        />
       ) : !isGitRepo ? (
         <div className="flex flex-1 items-center justify-center px-5 text-center text-xs text-muted-foreground/70">
           Turn diffs are unavailable because this project is not a git repository.

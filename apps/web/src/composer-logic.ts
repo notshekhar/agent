@@ -8,7 +8,7 @@ export type ComposerTriggerKind = "path" | "slash-command" | "skill";
  * the proposed-plan card. So the composer's slash commands are the two that
  * mean something here: pick a model, or manage agents.
  */
-export type ComposerSlashCommand = "model" | "agents" | "mcp" | "clear";
+export type ComposerSlashCommand = "model" | "agents" | "mcp" | "clear" | "reload" | "usage";
 
 export interface ComposerTrigger {
   kind: ComposerTriggerKind;
@@ -315,6 +315,13 @@ export function parseStandaloneComposerSlashCommand(
   // equivalent is a new thread. Without this they were sent to the model as
   // literal text, which is what "/clear is not working" looked like.
   if (/^\/(clear|new)\s*$/i.test(trimmed)) return "clear";
+  // `/reload` re-reads loop's config from disk. The terminal has always had
+  // it; without it here, editing settings.json meant restarting the app,
+  // because loop serves settings from an in-memory cache.
+  if (/^\/reload\s*$/i.test(trimmed)) return "reload";
+  // `/cost` and `/steak` are two halves of one page in the app, so both open
+  // it — a user reaching for either wants the same screen.
+  if (/^\/(usage|cost|steak)\s*$/i.test(trimmed)) return "usage";
   return null;
 }
 

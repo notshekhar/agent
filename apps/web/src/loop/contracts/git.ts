@@ -201,6 +201,19 @@ const VcsStatusChangeRequest = Schema.Struct({
 
 const VcsStatusLocalShape = {
   isRepo: Schema.Boolean,
+  /**
+   * The folder is not itself a repository but CONTAINS them — the case loop
+   * reports as a repo so the diff surface can span every child repository.
+   *
+   * It has to be distinguishable, because such a folder has no branch, and
+   * `refName: null` on its own reads as a detached HEAD: a plain folder that
+   * happened to hold a checkout was told to "create and checkout a refName"
+   * when what it actually needed was `git init`.
+   *
+   * Optional so an older environment, and every existing fixture, decodes
+   * unchanged — absent means "not known to be one", which is the safe read.
+   */
+  isWorkspaceRoot: Schema.optional(Schema.Boolean),
   sourceControlProvider: Schema.optional(SourceControlProviderInfo),
   hasPrimaryRemote: Schema.Boolean,
   isDefaultRef: Schema.Boolean,

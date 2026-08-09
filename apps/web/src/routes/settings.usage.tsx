@@ -1,13 +1,13 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
-import { LoopUsageSettings } from "../components/loop/LoopUsageSettings";
-
-function SettingsUsageRoute() {
-  // The GUI form of the terminal's /cost and /steak. Upstream has no
-  // counterpart — both are loop's own — so this route is loop's.
-  return <LoopUsageSettings />;
-}
-
+/**
+ * Usage moved out of Settings and into the sidebar (`/usage`), because it
+ * reports rather than configures. The old path stays as a redirect: it is what
+ * bookmarks, the settings search index and any older desktop build still point
+ * at, and a dead route there would read as the feature having been removed.
+ */
 export const Route = createFileRoute("/settings/usage")({
-  component: SettingsUsageRoute,
+  beforeLoad: () => {
+    throw redirect({ to: "/usage", replace: true });
+  },
 });

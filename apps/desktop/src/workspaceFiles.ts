@@ -182,6 +182,60 @@ export async function readWorkspaceFile(
   };
 }
 
+/** Image previews. Big enough for a screenshot, small enough to not stall IPC. */
+const MAX_ASSET_BYTES = 32 * 1024 * 1024;
+
+const ASSET_MIME_TYPES: Readonly<Record<string, string>> = {
+  ".avif": "image/avif",
+  ".bmp": "image/bmp",
+  ".gif": "image/gif",
+  ".ico": "image/x-icon",
+  ".jpeg": "image/jpeg",
+  ".jpg": "image/jpeg",
+  ".png": "image/png",
+  ".svg": "image/svg+xml",
+  ".webp": "image/webp",
+};
+
+export type ReadAssetResult =
+  | { readonly ok: true; readonly data: Uint8Array; readonly mimeType: string }
+  | { readonly ok: false; readonly failure: string };
+
+/**
+ * A file's raw bytes, for the panes that show something other than text.
+ *
+ * `readWorkspaceFile` refuses anything with a NUL byte — correct for a text
+ * pane, and exactly why the image preview had nothing to show. This is the
+ * binary counterpart: no decoding, no truncation to a text window, and a
+ * declared MIME type so the renderer can wrap it in a blob URL the `<img>`
+ * will accept.
+ *
+ * Absolute paths only. Unlike the text reader there is no project root to
+ * check against — the caller already has the path from a listing of the
+ * project it opened.
+ */
+export async function readWorkspaceAsset(absolutePath: string): Promise<ReadAssetResult> {
+  const target = resolve(expandHome(absolutePath));
+  let info;
+  try {
+    info = await stat(target);
+  } catch {
+    return { ok: false, failure: "path_not_found" };
+  }
+  if (!info.isFile()) return { ok: false, failure: "path_not_file" };
+  if (info.size > MAX_ASSET_BYTES) return { ok: false, failure: "file_too_large" };
+
+  const extension = target.slice(target.lastIndexOf(".")).toLowerCase();
+  const buffer = await readFile(target);
+  return {
+    ok: true,
+    // A Buffer is a Uint8Array, but Electron's structured clone sends it as one
+    // only if it is not also carrying Buffer's prototype across the boundary.
+    data: new Uint8Array(buffer),
+    mimeType: ASSET_MIME_TYPES[extension] ?? "application/octet-stream",
+  };
+}
+
 /**
  * `~` is a shell convention, not a filesystem one — node would resolve
  * "~/documents" to "<cwd>/~/documents", a folder nobody has. The picker's own

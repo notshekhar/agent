@@ -31,8 +31,14 @@ import {
   type GitStackedAction,
   type GitStackedActionResult,
 } from "./gitActions.js";
+import { PreviewManager, type PreviewColorScheme } from "./preview.js";
 import { TerminalManager } from "./terminals.js";
-import { browseFilesystem, listWorkspaceEntries, readWorkspaceFile } from "./workspaceFiles.js";
+import {
+  browseFilesystem,
+  listWorkspaceEntries,
+  readWorkspaceAsset,
+  readWorkspaceFile,
+} from "./workspaceFiles.js";
 
 const RENDERER_SCHEME = "app";
 const RENDERER_ORIGIN = `${RENDERER_SCHEME}://loop`;
@@ -148,6 +154,7 @@ const loop = spawnBinary
   : new CoreHost({ cwd: anchorCwd });
 
 const terminals = new TerminalManager();
+const previews = new PreviewManager();
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -209,6 +216,23 @@ function forwardToRenderer(channel: string, payload: unknown): void {
 app.whenReady().then(() => {
   protocol.handle(RENDERER_SCHEME, serveRenderer);
 
+  /**
+   * A preview guest is a browser, so its own links must not leak out of it.
+   *
+   * The window's two navigation handlers send every off-origin navigation to
+   * the user's real browser — right for a link in the transcript, and exactly
+   * wrong for the browser panel, where following a link is the whole point.
+   * Guests get their own handler instead, and a `target=_blank` loads in the
+   * panel rather than as a chromeless Electron window with no way back.
+   */
+  app.on("web-contents-created", (_event, contents) => {
+    if (contents.getType() !== "webview") return;
+    contents.setWindowOpenHandler(({ url }) => {
+      if (/^https?:\/\//i.test(url)) void contents.loadURL(url);
+      return { action: "deny" };
+    });
+  });
+
   loop.on("notification", (message) => {
     if (message.method === "session.event") forwardToRenderer("loop:event", message.params);
   });
@@ -262,6 +286,10 @@ app.whenReady().then(() => {
   );
   ipcMain.handle("loop:fs.read", (_event, payload: { cwd: string; relativePath: string }) =>
     readWorkspaceFile(payload.cwd, payload.relativePath),
+  );
+  // Bytes, for the panes that are not text — the image preview above all.
+  ipcMain.handle("loop:fs.readAsset", (_event, payload: { absolutePath: string }) =>
+    readWorkspaceAsset(payload.absolutePath),
   );
   ipcMain.handle("loop:git.discover", () => discoverSourceControl());
 
@@ -419,6 +447,84 @@ app.whenReady().then(() => {
       browseFilesystem(payload.partialPath, payload.cwd),
   );
 
+  /**
+   * The browser panel.
+   *
+   * The renderer owns the `<webview>` element and this owns the guest behind
+   * it — see preview.ts. Everything here is keyed by the renderer's tab id,
+   * which is the only name the two halves share.
+   */
+  previews.on("state", (state) => forwardToRenderer("loop:preview.state", state));
+  previews.on("frame", (frame) => forwardToRenderer("loop:preview.frame", frame));
+  ipcMain.handle("loop:preview.config", () => previews.getPreviewConfig());
+  ipcMain.handle("loop:preview.createTab", (_event, p: { tabId: string }) => {
+    previews.createTab(p.tabId);
+  });
+  ipcMain.handle("loop:preview.closeTab", (_event, p: { tabId: string }) => {
+    previews.closeTab(p.tabId);
+  });
+  ipcMain.handle(
+    "loop:preview.registerWebview",
+    (_event, p: { tabId: string; webContentsId: number }) => {
+      previews.registerWebview(p.tabId, p.webContentsId);
+    },
+  );
+  ipcMain.handle("loop:preview.states", () => previews.states());
+  ipcMain.handle("loop:preview.navigate", (_event, p: { tabId: string; url: string }) =>
+    previews.navigate(p.tabId, p.url),
+  );
+  ipcMain.handle("loop:preview.goBack", (_event, p: { tabId: string }) => {
+    previews.goBack(p.tabId);
+  });
+  ipcMain.handle("loop:preview.goForward", (_event, p: { tabId: string }) => {
+    previews.goForward(p.tabId);
+  });
+  ipcMain.handle("loop:preview.refresh", (_event, p: { tabId: string }) => {
+    previews.refresh(p.tabId);
+  });
+  ipcMain.handle("loop:preview.hardReload", (_event, p: { tabId: string }) => {
+    previews.hardReload(p.tabId);
+  });
+  ipcMain.handle("loop:preview.zoomIn", (_event, p: { tabId: string }) => {
+    previews.zoomIn(p.tabId);
+  });
+  ipcMain.handle("loop:preview.zoomOut", (_event, p: { tabId: string }) => {
+    previews.zoomOut(p.tabId);
+  });
+  ipcMain.handle("loop:preview.resetZoom", (_event, p: { tabId: string }) => {
+    previews.resetZoom(p.tabId);
+  });
+  ipcMain.handle(
+    "loop:preview.setColorScheme",
+    (_event, p: { tabId: string; colorScheme: PreviewColorScheme }) =>
+      previews.setColorScheme(p.tabId, p.colorScheme),
+  );
+  ipcMain.handle("loop:preview.openDevTools", (_event, p: { tabId: string }) => {
+    previews.openDevTools(p.tabId);
+  });
+  ipcMain.handle("loop:preview.clearCookies", () => previews.clearCookies());
+  ipcMain.handle("loop:preview.clearCache", () => previews.clearCache());
+  ipcMain.handle("loop:preview.screenshot", (_event, p: { tabId: string }) =>
+    previews.captureScreenshot(p.tabId),
+  );
+  ipcMain.handle("loop:preview.revealArtifact", (_event, p: { path: string }) => {
+    previews.revealArtifact(p.path);
+  });
+  ipcMain.handle("loop:preview.copyArtifact", (_event, p: { path: string }) =>
+    previews.copyArtifactToClipboard(p.path),
+  );
+  ipcMain.handle("loop:preview.startScreencast", (_event, p: { tabId: string }) =>
+    previews.startScreencast(p.tabId),
+  );
+  ipcMain.handle("loop:preview.stopScreencast", (_event, p: { tabId: string }) =>
+    previews.stopScreencast(p.tabId),
+  );
+  ipcMain.handle(
+    "loop:preview.saveRecording",
+    (_event, p: { tabId: string; mimeType: string; data: Uint8Array }) =>
+      previews.saveRecording(p.tabId, p.mimeType, p.data),
+  );
+
   // Asked once on mount, because a reload mid-fullscreen would otherwise wait
   // for a transition that already happened.
   ipcMain.handle("loop:window.isFullscreen", () => mainWindow?.isFullScreen() ?? false);
@@ -436,5 +542,6 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", () => {
   terminals.closeAll();
+  previews.disposeAll();
   loop.stop();
 });

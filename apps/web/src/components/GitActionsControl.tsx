@@ -1097,7 +1097,14 @@ export default function GitActionsControl({
   const changeRequestTerminology = sourceControlPresentation.terminology;
   const SourceControlIcon = sourceControlPresentation.Icon;
   // Default to true while loading so we don't flash init controls.
-  const isRepo = gitStatus?.isRepo ?? true;
+  //
+  // A workspace root counts as NOT a repo here. loop reports one as a repo so
+  // the diff surface can span its child repositories, but this control acts on
+  // a single repository: the folder has no branch, no remote and nothing to
+  // commit into, so every action in the group is inapplicable and `refName:
+  // null` was being read as a detached HEAD. What it can actually do is become
+  // a repository, which is what the init button offers.
+  const isRepo = (gitStatus?.isRepo ?? true) && gitStatus?.isWorkspaceRoot !== true;
   const hasPrimaryRemote = gitStatus?.hasPrimaryRemote ?? false;
   const gitStatusForActions = gitStatus;
 

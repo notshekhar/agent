@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.16.7] - 2026-08-09
+
+### Added
+
+- **The browser panel actually opens a browser now.** The renderer paints a `<webview>` per preview tab, but a guest webview is driven from the main process — the embedder only gets a DOM element and a `getWebContentsId()`. That main-process half did not exist, and the renderer refuses to mount a webview until `preview.getPreviewConfig()` resolves, so the panel enabled its Browser tab, accepted a URL, recorded the tab, and created nothing: typing an address did nothing at all, silently. It is implemented, along with the navigation, zoom, reload and screenshot IPC behind it. The bridge is read from `window.loop.preview` rather than `window.desktopBridge`, since exposing the latter would flip `isElectron` and route auth, connection setup and the updater down upstream paths this shell has never had.
+- **Comments can be left on rendered markdown, not just on source.** A comment is a line range, and rendered prose has no line numbers — which is why commenting only worked in the source view. The mdast positions survive into hast, so every top-level block now carries the source lines it came from and a selection resolves back to a range.
+- **A folder of repositories shows its repositories instead of one enormous diff.** Concatenating every child's patch came to 34 repositories and 17k added lines on a real workspace: past the preview cap, slow to parse, unreadable. The rows come from `numstat` counts alone, with the dirty ones sorted up, and exactly one repository's diff is fetched when its row is opened.
+- **Images in the Files panel load.** `assets.createUrl` had nothing behind it — upstream mints a URL against its own HTTP server, which loop does not have — so every workspace image rendered as "Unable to load workspace image". The bytes now come across the preload bridge and are wrapped in a blob URL.
+- **`/reload` works in the desktop app, not only the terminal.** loop serves its settings from an in-memory cache and caches the model catalog for the life of the process, so editing `settings.json`, an agent, a skill or an MCP entry on disk stayed invisible until the app was restarted — there was simply no way to pick a config change up. There is now: a `config.reload` RPC re-reads every config surface, rebuilds the command registry from disk, re-fetches the catalog and reconnects MCP, reachable as `/reload` in the composer or "Reload configuration" in the command palette. It reports what it re-read, because a bare "Reloaded" is indistinguishable from a no-op. Note that it refreshes what the app knows without re-deciding what an already-open conversation is running: a thread mid-flight keeps its model, and new threads pick up the new default.
+- **Usage moved out of Settings and into the sidebar.** Spend and streak are something you check, not something you configure — a report that changes nothing has no business behind a settings page that takes over the window. `/usage` is its own destination now, opening in the main body with the sidebar still on screen, and `/cost` and `/steak` both find it since those are the terminal's names for its two halves. The old `/settings/usage` path redirects rather than dying, so bookmarks still land.
+
+### Changed
+
+- **Sidebar thread rows are shorter when there is nothing to say.** The third line carries branch, terminal, PR and diff — all of which the worktree/PR workflow fills in and a plain loop thread does not, so a short list of threads was spending 18px per row on an empty strip with two icons parked at its right edge. The line now renders only when it has content, and the provider and remote icons ride along with the title when it doesn't.
+
+### Fixed
+
+- **A folder full of repositories was told it had a detached HEAD.** loop reports such a folder as a repo so the diff surface can span its children, but it has no branch of its own — and `refName: null` reads to the git control as a detached HEAD, so a plain directory that happened to hold checkouts was advised to "create and checkout a refName" when what it actually needed was `git init`. The status now says *why* it is a repo, and the control offers to initialize one.
+- **Three source files were invisible to search below their first NUL byte.** `ChatComposer.tsx`, `handlers/preview.ts` and `telegram/render.ts` used raw NUL bytes as key separators inside template literals. grep, ripgrep and git all classify a file containing a NUL as binary and stop at the first one, which silently hid the last 1200 lines of the composer — including its entire slash-command list — from every search. The separators are now written as `\u0000`: identical string at runtime, and the files are text again.
+
 ## [0.16.6] - 2026-08-09
 
 ### Changed

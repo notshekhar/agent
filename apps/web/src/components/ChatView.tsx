@@ -175,6 +175,7 @@ import { resolveAppModelSelectionForInstance } from "../modelSelection";
 import { getTerminalFocusOwner } from "../lib/terminalFocus";
 import { preventRepeatedTerminalCloseShortcut } from "../lib/terminalCloseShortcut";
 import { resolveNewDraftStartFromOrigin } from "../lib/chatThreadActions";
+import { runConfigReload } from "../lib/configReload";
 import {
   deriveLogicalProjectKeyFromSettings,
   selectProjectGroupingSettings,
@@ -2619,8 +2620,11 @@ function ChatViewContent(props: ChatViewProps) {
     () => shortcutLabelForCommand(keybindings, "terminal.close", terminalShortcutLabelOptions),
     [keybindings, terminalShortcutLabelOptions],
   );
+  // A project is enough — see `addDiffSurface`. Turn diffs still need a
+  // server thread, but the working tree is reviewable before the first
+  // message.
   const onToggleDiff = useCallback(() => {
-    if (!isServerThread) {
+    if (!activeProject) {
       return;
     }
     if (!diffOpen) {
@@ -2629,7 +2633,7 @@ function ChatViewContent(props: ChatViewProps) {
     if (activeThreadRef) {
       useRightPanelStore.getState().toggle(activeThreadRef, "diff");
     }
-  }, [activeThreadRef, diffOpen, isServerThread, onDiffPanelOpen]);
+  }, [activeProject, activeThreadRef, diffOpen, onDiffPanelOpen]);
 
   const envLocked = Boolean(
     activeThread &&
@@ -3225,18 +3229,22 @@ function ChatViewContent(props: ChatViewProps) {
     if (!activeThreadRef) return;
     void addBrowserSurface({ threadRef: activeThreadRef, openPreview });
   }, [activeThreadRef, openPreview]);
+  // Matches `diffAvailable` below. A thread that has not been sent yet still
+  // belongs to a folder, and its working tree is reviewable — the panel falls
+  // back to the draft's project for the cwd (see DiffPanel). Keeping the old
+  // `isServerThread` test here left the tile enabled and inert.
   const addDiffSurface = useCallback(() => {
-    if (!activeThreadRef || !isServerThread || !isGitRepo) return;
+    if (!activeThreadRef || !activeProject || !isGitRepo) return;
     if (planSidebarOpen) {
       dismissPlanSidebarForCurrentTurn();
     }
     useRightPanelStore.getState().open(activeThreadRef, "diff");
     onDiffPanelOpen?.();
   }, [
+    activeProject,
     activeThreadRef,
     dismissPlanSidebarForCurrentTurn,
     isGitRepo,
-    isServerThread,
     onDiffPanelOpen,
     planSidebarOpen,
   ]);
@@ -4756,8 +4764,20 @@ function ChatViewContent(props: ChatViewProps) {
         handleNewThreadInActiveProject();
         return;
       }
+      if (standaloneSlashCommand === "reload") {
+        // The project's own folder, so loop re-reads the project-scoped half
+        // of its config (project MCP servers, that repo's commands) and not
+        // only whatever folder the agent process happens to have started in.
+        void runConfigReload(activeProject?.workspaceRoot);
+        return;
+      }
       void navigate({
-        to: standaloneSlashCommand === "mcp" ? "/settings/mcp" : "/settings/agents",
+        to:
+          standaloneSlashCommand === "mcp"
+            ? "/settings/mcp"
+            : standaloneSlashCommand === "usage"
+              ? "/usage"
+              : "/settings/agents",
       });
       return;
     }
@@ -6346,7 +6366,7 @@ function ChatViewContent(props: ChatViewProps) {
           onAddDiff={addDiffSurface}
           onAddFiles={addFilesSurface}
           browserAvailable={isPreviewSupportedInRuntime()}
-          diffAvailable={isServerThread && isGitRepo}
+          diffAvailable={activeProject !== null && isGitRepo}
           filesAvailable={activeProject !== null}
         >
           {rightPanelContent}
@@ -6373,7 +6393,7 @@ function ChatViewContent(props: ChatViewProps) {
             onAddDiff={addDiffSurface}
             onAddFiles={addFilesSurface}
             browserAvailable={isPreviewSupportedInRuntime()}
-            diffAvailable={isServerThread && isGitRepo}
+            diffAvailable={activeProject !== null && isGitRepo}
             filesAvailable={activeProject !== null}
           >
             {rightPanelContent}

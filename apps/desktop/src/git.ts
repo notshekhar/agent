@@ -11,7 +11,9 @@
  */
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
+import { readdir, stat } from "node:fs/promises";
 import { devNull } from "node:os";
+import { join } from "node:path";
 import { promisify } from "node:util";
 
 const run = promisify(execFile);
@@ -47,6 +49,75 @@ async function git(cwd: string, args: readonly string[]): Promise<string | null>
     // "no such ref" all arrive this way and each has a sensible empty result.
     return null;
   }
+}
+
+/**
+ * A folder holding repositories, which is not itself one.
+ *
+ * A very common way to work: `~/work` with a dozen micro-services under it,
+ * each its own repository and the parent deliberately not. Opened as a
+ * project, every git-shaped surface reported "not a repository" and the diff
+ * panel was simply unavailable — the changes were all one level down, and
+ * nothing looked there.
+ *
+ * Two levels deep, because services are often grouped (`~/work/payments/api`),
+ * and no deeper: past that the walk costs more than it finds. A directory that
+ * IS a repository is never descended into — its submodules belong to it.
+ */
+const WORKSPACE_REPO_MAX_DEPTH = 2;
+const WORKSPACE_REPO_LIMIT = 50;
+/** Never worth a stat: none of these hold a project's repositories. */
+const NON_REPO_DIRECTORIES = new Set([
+  "node_modules",
+  "dist",
+  "build",
+  "target",
+  "vendor",
+  "coverage",
+  "__pycache__",
+]);
+
+async function isRepositoryRoot(directory: string): Promise<boolean> {
+  try {
+    // A worktree's `.git` is a file, not a directory, so `stat` alone answers.
+    await stat(join(directory, ".git"));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Repositories nested under `root`, as paths relative to it.
+ *
+ * Sorted so the panel's ordering is stable between reads — an unsorted
+ * `readdir` reshuffles the diff on every poll.
+ */
+export async function workspaceRepositories(root: string): Promise<string[]> {
+  const found: string[] = [];
+  const walk = async (directory: string, prefix: string, depth: number): Promise<void> => {
+    if (depth > WORKSPACE_REPO_MAX_DEPTH || found.length >= WORKSPACE_REPO_LIMIT) return;
+    let children;
+    try {
+      children = await readdir(directory, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const child of children) {
+      if (found.length >= WORKSPACE_REPO_LIMIT) return;
+      if (!child.isDirectory() && !child.isSymbolicLink()) continue;
+      if (child.name.startsWith(".") || NON_REPO_DIRECTORIES.has(child.name)) continue;
+      const absolute = join(directory, child.name);
+      const relative = prefix === "" ? child.name : `${prefix}/${child.name}`;
+      if (await isRepositoryRoot(absolute)) {
+        found.push(relative);
+        continue;
+      }
+      await walk(absolute, relative, depth + 1);
+    }
+  };
+  await walk(root, "", 1);
+  return found.sort((a, b) => a.localeCompare(b));
 }
 
 export interface GitRef {
@@ -137,6 +208,9 @@ export async function listRefs(cwd: string): Promise<GitRefs> {
 
 export interface GitStatus {
   readonly isRepo: boolean;
+  /** Reported a repo only because it CONTAINS repositories — see
+   * `workspaceStatus`. Absent on a real single repository. */
+  readonly isWorkspaceRoot?: boolean;
   readonly hasPrimaryRemote: boolean;
   readonly isDefaultRef: boolean;
   readonly refName: string | null;
@@ -163,9 +237,61 @@ const EMPTY_STATUS: GitStatus = {
   behindCount: 0,
 };
 
+/**
+ * One status for a folder full of repositories.
+ *
+ * Reported as a repo so the panels that read this — the diff surface above all
+ * — become available, with every changed path qualified by the repository it
+ * came from. The single-repo fields stay off deliberately: there is no one
+ * branch, no one remote, and no upstream to be ahead of, and claiming
+ * otherwise would offer a push that has no repository to run in.
+ */
+async function workspaceStatus(cwd: string, repositories: readonly string[]): Promise<GitStatus> {
+  const perRepo = await Promise.all(
+    repositories.map(async (repository) => ({
+      repository,
+      status: await status(join(cwd, repository)),
+    })),
+  );
+
+  const files: Array<{ path: string; insertions: number; deletions: number }> = [];
+  let insertions = 0;
+  let deletions = 0;
+  const branches = new Set<string>();
+  for (const { repository, status: child } of perRepo) {
+    if (!child.isRepo) continue;
+    if (child.refName) branches.add(child.refName);
+    insertions += child.workingTree.insertions;
+    deletions += child.workingTree.deletions;
+    for (const file of child.workingTree.files) {
+      files.push({ ...file, path: `${repository}/${file.path}` });
+    }
+  }
+
+  return {
+    isRepo: true,
+    // Says WHY isRepo is true, which the caller cannot otherwise tell: this
+    // folder has no branch of its own, and without the flag a reader takes
+    // `refName: null` for a detached HEAD and offers to check a branch out.
+    isWorkspaceRoot: true,
+    hasPrimaryRemote: false,
+    isDefaultRef: false,
+    // Only when every repository agrees; otherwise there is no honest name.
+    refName: branches.size === 1 ? [...branches][0]! : null,
+    hasWorkingTreeChanges: files.length > 0,
+    workingTree: { files, insertions, deletions },
+    hasUpstream: false,
+    aheadCount: 0,
+    behindCount: 0,
+  };
+}
+
 export async function status(cwd: string): Promise<GitStatus> {
   const inside = await git(cwd, ["rev-parse", "--is-inside-work-tree"]);
-  if (inside?.trim() !== "true") return EMPTY_STATUS;
+  if (inside?.trim() !== "true") {
+    const repositories = await workspaceRepositories(cwd);
+    return repositories.length > 0 ? workspaceStatus(cwd, repositories) : EMPTY_STATUS;
+  }
 
   const [branch, remotes, numstat, untracked, upstream] = await Promise.all([
     git(cwd, ["branch", "--show-current"]),
@@ -335,9 +461,23 @@ export interface GitDiffPreviewSource {
   readonly truncated: boolean;
 }
 
+/** One row of the repository list a folder-of-repositories shows. */
+export interface GitWorkspaceRepository {
+  readonly path: string;
+  readonly branch: string | null;
+  readonly filesChanged: number;
+  readonly insertions: number;
+  readonly deletions: number;
+}
+
 export interface GitDiffPreview {
   readonly isRepo: boolean;
   readonly sources: readonly GitDiffPreviewSource[];
+  /**
+   * Set only when `cwd` holds repositories rather than being one. `sources` is
+   * empty in that case — the panel lists these and asks again per repository.
+   */
+  readonly workspaceRepositories?: readonly GitWorkspaceRepository[];
 }
 
 /**
@@ -352,19 +492,30 @@ export interface GitDiffPreview {
  * Both are always returned, even empty: the pane keeps its two tabs and shows
  * "no changes" rather than losing one of them.
  */
-export async function diffPreview(
-  cwd: string,
-  options: { readonly baseRef?: string; readonly ignoreWhitespace?: boolean } = {},
-): Promise<GitDiffPreview> {
-  const inside = await git(cwd, ["rev-parse", "--is-inside-work-tree"]);
-  if (inside?.trim() !== "true") return { isRepo: false, sources: [] };
+interface RepoPatches {
+  readonly branch: string | null;
+  readonly baseRef: string | null;
+  readonly workingTree: string;
+  readonly workingTreeTruncated: boolean;
+  readonly range: string;
+  readonly rangeTruncated: boolean;
+}
 
+/** Both patches for one repository: the working tree, and the branch range. */
+async function repoPatches(
+  cwd: string,
+  options: { readonly baseRef?: string; readonly ignoreWhitespace?: boolean },
+): Promise<RepoPatches> {
   const whitespace = options.ignoreWhitespace ? ["--ignore-all-space"] : [];
   const branch = (await git(cwd, ["branch", "--show-current"]))?.trim() || null;
   const baseRef = options.baseRef?.trim() || (await baseBranchFor(cwd, branch));
 
   const [tracked, untracked, range] = await Promise.all([
-    patch(cwd, ["diff", ...PATCH_FLAGS, ...whitespace, "HEAD", "--"], MAX_TRACKED_DIFF_BYTES),
+    patch(
+      cwd,
+      ["diff", ...PATCH_FLAGS, ...whitespace, "HEAD", "--"],
+      MAX_TRACKED_DIFF_BYTES,
+    ),
     untrackedPatch(cwd),
     baseRef
       ? patch(
@@ -375,10 +526,27 @@ export async function diffPreview(
       : Promise.resolve({ diff: "", truncated: false }),
   ]);
 
-  const workingTree = [tracked.diff.trimEnd(), untracked.diff.trimEnd()]
-    .filter((diff) => diff !== "")
-    .join("\n");
+  return {
+    branch,
+    baseRef,
+    workingTree: [tracked.diff.trimEnd(), untracked.diff.trimEnd()]
+      .filter((diff) => diff !== "")
+      .join("\n"),
+    workingTreeTruncated: tracked.truncated || untracked.truncated,
+    range: range.diff,
+    rangeTruncated: range.truncated,
+  };
+}
 
+function diffSources(input: {
+  readonly workingTree: string;
+  readonly workingTreeTruncated: boolean;
+  readonly range: string;
+  readonly rangeTruncated: boolean;
+  readonly baseRef: string | null;
+  readonly headRef: string | null;
+  readonly rangeTitle: string;
+}): GitDiffPreview {
   return {
     isRepo: true,
     sources: [
@@ -388,22 +556,83 @@ export async function diffPreview(
         title: "Working tree",
         baseRef: "HEAD",
         headRef: null,
-        diff: workingTree,
-        diffHash: sha256(workingTree),
-        truncated: tracked.truncated || untracked.truncated,
+        diff: input.workingTree,
+        diffHash: sha256(input.workingTree),
+        truncated: input.workingTreeTruncated,
       },
       {
         id: "branch-range",
         kind: "branch-range",
-        title: baseRef ? `Against ${baseRef}` : "Against base branch",
-        baseRef,
-        headRef: branch ?? "HEAD",
-        diff: range.diff,
-        diffHash: sha256(range.diff),
-        truncated: range.truncated,
+        title: input.rangeTitle,
+        baseRef: input.baseRef,
+        headRef: input.headRef,
+        diff: input.range,
+        diffHash: sha256(input.range),
+        truncated: input.rangeTruncated,
       },
     ],
   };
+}
+
+export async function diffPreview(
+  cwd: string,
+  options: { readonly baseRef?: string; readonly ignoreWhitespace?: boolean } = {},
+): Promise<GitDiffPreview> {
+  const inside = await git(cwd, ["rev-parse", "--is-inside-work-tree"]);
+  if (inside?.trim() !== "true") return workspaceDiffPreview(cwd);
+
+  const repo = await repoPatches(cwd, options);
+  return diffSources({
+    ...repo,
+    headRef: repo.branch ?? "HEAD",
+    rangeTitle: repo.baseRef ? `Against ${repo.baseRef}` : "Against base branch",
+  });
+}
+
+/**
+ * What a folder of repositories offers instead of a diff: the repositories.
+ *
+ * Concatenating every child's patch was the obvious first move and the wrong
+ * one. Thirty-four repositories came to 17k added lines, blew past the preview
+ * cap, and arrived as one undifferentiated wall the panel had to parse on the
+ * main thread — slow to open and impossible to read.
+ *
+ * So this reads only what a list needs: each repository's branch and change
+ * counts, which is a `numstat` and an `ls-files`, no patch text at all. The
+ * panel renders that list, and asks for a real diff — through the ordinary
+ * single-repository path — only for the one the user opens.
+ *
+ * Repositories with changes sort first, largest first, because those are the
+ * ones being looked for; the quiet ones stay listed underneath in name order.
+ */
+async function workspaceDiffPreview(cwd: string): Promise<GitDiffPreview> {
+  const repositories = await workspaceRepositories(cwd);
+  if (repositories.length === 0) return { isRepo: false, sources: [] };
+
+  const rows = await Promise.all(
+    repositories.map(async (repository): Promise<GitWorkspaceRepository> => {
+      const child = await status(join(cwd, repository)).catch(() => null);
+      return {
+        path: repository,
+        branch: child?.refName ?? null,
+        filesChanged: child?.workingTree.files.length ?? 0,
+        insertions: child?.workingTree.insertions ?? 0,
+        deletions: child?.workingTree.deletions ?? 0,
+      };
+    }),
+  );
+
+  const ordered = rows.toSorted((left, right) => {
+    if ((left.filesChanged > 0) !== (right.filesChanged > 0)) {
+      return left.filesChanged > 0 ? -1 : 1;
+    }
+    if (left.filesChanged !== right.filesChanged) return right.filesChanged - left.filesChanged;
+    return left.path.localeCompare(right.path);
+  });
+
+  // No sources: there is nothing to diff at this level. The panel lists
+  // `workspaceRepositories` and re-asks with a child's path when one is opened.
+  return { isRepo: true, sources: [], workspaceRepositories: ordered };
 }
 
 /**

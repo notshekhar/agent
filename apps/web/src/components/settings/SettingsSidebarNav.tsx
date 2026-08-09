@@ -79,7 +79,9 @@ const SETTINGS_SECTION_ICONS: Readonly<
 const LOOP_SETTINGS_PATHS: ReadonlySet<SettingsPath> = new Set([
   "/settings/general",
   "/settings/agents",
-  "/settings/usage",
+  // Usage is not here: it moved to the main sidebar as its own `/usage` page.
+  // `/settings/usage` still exists as a redirect, so the search index can keep
+  // pointing at it, but the nav must not offer a section that navigates away.
   "/settings/mcp",
   "/settings/datasources",
   "/settings/archived",

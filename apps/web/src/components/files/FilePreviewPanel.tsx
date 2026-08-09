@@ -53,6 +53,7 @@ import {
 import { installFileEditorDismissal } from "./fileEditorDismissal";
 import { resolveCenteredFileLineScrollTop } from "./fileLineReveal";
 import { LocalCommentAnnotation } from "./LocalCommentAnnotation";
+import { MarkdownCommentLayer } from "./MarkdownCommentLayer";
 import { projectFileCacheKey, projectFileEditorCacheKey } from "./fileContentRevision";
 import { fileBreadcrumbs } from "./filePath";
 import { isMarkdownPreviewFile, setMarkdownTaskChecked } from "./filePreviewMode";
@@ -696,17 +697,14 @@ function RenderedMarkdownSurface({
   contents,
   threadRef,
   onPendingChange,
+  composerDraftTarget,
 }: Omit<
   EditableFileSurfaceProps,
-  | "resolvedTheme"
-  | "composerDraftTarget"
-  | "revealLine"
-  | "revealRequestId"
-  | "wordWrap"
-  | "onPostRender"
+  "resolvedTheme" | "revealLine" | "revealRequestId" | "wordWrap" | "onPostRender"
 > & {
   threadRef: ScopedThreadRef;
 }) {
+  const addReviewComment = useComposerDraftStore((store) => store.addReviewComment);
   const saveCoordinator = useFileSaveCoordinator({
     environmentId,
     cwd,
@@ -715,11 +713,28 @@ function RenderedMarkdownSurface({
   });
 
   return (
-    <ScrollArea className="min-h-0 flex-1">
+    // The comment layer owns the scroller: the floating button is positioned
+    // against the scrolled content, so it has to move with it.
+    <MarkdownCommentLayer
+      onComment={({ startLine, endLine, text }) =>
+        addReviewComment(
+          composerDraftTarget,
+          buildFileReviewComment({
+            id: nextFileCommentId(),
+            filePath: relativePath,
+            startLine,
+            endLine,
+            text,
+            contents,
+          }),
+        )
+      }
+    >
       <ChatMarkdown
         text={contents}
         cwd={cwd}
         threadRef={threadRef}
+        sourceLines
         className="mx-auto max-w-4xl px-6 py-5"
         onTaskListChange={({ markerOffset, checked }) => {
           const currentContents =
@@ -731,7 +746,7 @@ function RenderedMarkdownSurface({
           saveCoordinator.change(nextContents);
         }}
       />
-    </ScrollArea>
+    </MarkdownCommentLayer>
   );
 }
 
@@ -993,6 +1008,7 @@ export default function FilePreviewPanel({
                 cwd={cwd}
                 relativePath={relativePath}
                 threadRef={threadRef}
+                composerDraftTarget={composerDraftTarget}
                 contents={file.data.contents}
                 onPendingChange={onPendingChange}
               />

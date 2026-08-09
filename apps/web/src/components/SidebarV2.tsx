@@ -902,10 +902,43 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
 
   const diff = latestTurnDiff(thread);
 
+  // The third line carries branch, terminal, PR and diff — all of which
+  // upstream's worktree/PR workflow fills in and a plain loop thread does not.
+  // With none of them the row was spending 18px on an empty strip with two
+  // icons parked at its right edge, which is what made a short list of threads
+  // look padded out. When there is nothing to say, the line goes and the icons
+  // ride along with the title instead.
+  const hasThreadMetaLine = Boolean(thread.branch || terminalStatusIcon || prBadge || diff);
+  const trailingRowIcons = (
+    <span aria-hidden className="pointer-events-none inline-flex shrink-0 items-center gap-1">
+      {isRemote ? (
+        <span className="inline-flex shrink-0 items-center text-sidebar-muted-foreground/70">
+          <ServerIcon aria-hidden className="size-3.5" />
+        </span>
+      ) : null}
+      {driverKind ? (
+        <span className="inline-flex shrink-0 items-center opacity-60">
+          <ProviderInstanceIcon
+            driverKind={driverKind}
+            displayName={thread.session?.providerName ?? modelInstanceId}
+            className="size-4"
+            iconClassName="size-3.5"
+            badgeClassName="h-2.5 min-w-2.5 px-0 text-[6px] -bottom-0.5 -right-0.5"
+          />
+        </span>
+      ) : null}
+    </span>
+  );
+
   return (
     <li
       data-thread-item
-      className="list-none py-0.5 [content-visibility:auto] [contain-intrinsic-size:auto_96px]"
+      className={cn(
+        "list-none py-0.5 [content-visibility:auto]",
+        hasThreadMetaLine
+          ? "[contain-intrinsic-size:auto_96px]"
+          : "[contain-intrinsic-size:auto_68px]",
+      )}
     >
       <Tooltip>
         <TooltipTrigger
@@ -923,7 +956,12 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
             />
           }
         >
-          <div className="relative z-10 h-[4.875rem] px-[var(--sidebar-row-content-inset)] py-[var(--sidebar-content-inset)]">
+          <div
+            className={cn(
+              "relative z-10 px-[var(--sidebar-row-content-inset)] py-[var(--sidebar-content-inset)]",
+              hasThreadMetaLine ? "h-[4.875rem]" : "h-[3.75rem]",
+            )}
+          >
             <div className="flex h-5 min-w-0 items-center gap-1.5">
               <ProjectFavicon
                 environmentId={thread.environmentId}
@@ -1018,50 +1056,37 @@ const SidebarV2Row = memo(function SidebarV2Row(props: {
                 ) : null}
               </span>
             </div>
-            <div className="mt-1 flex min-w-0">
+            <div className="mt-1 flex min-w-0 items-center gap-1.5">
               {title}
               {isRegeneratingTitle ? (
                 <span role="status" className="sr-only">
                   Regenerating title
                 </span>
               ) : null}
+              {hasThreadMetaLine ? null : trailingRowIcons}
             </div>
-            <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground/75">
-              {thread.branch ? (
-                <span className="min-w-0 flex-1 truncate whitespace-nowrap">{thread.branch}</span>
-              ) : (
-                <span className="flex-1" />
-              )}
-              {terminalStatusIcon}
-              {prBadge}
-              {diff ? (
-                <span className="shrink-0 font-mono">
-                  <span className="text-emerald-600 dark:text-emerald-400">+{diff.insertions}</span>{" "}
-                  <span className="text-red-600 dark:text-red-400">−{diff.deletions}</span>
+            {hasThreadMetaLine ? (
+              <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground/75">
+                {thread.branch ? (
+                  <span className="min-w-0 flex-1 truncate whitespace-nowrap">{thread.branch}</span>
+                ) : (
+                  <span className="flex-1" />
+                )}
+                {terminalStatusIcon}
+                {prBadge}
+                {diff ? (
+                  <span className="shrink-0 font-mono">
+                    <span className="text-emerald-600 dark:text-emerald-400">
+                      +{diff.insertions}
+                    </span>{" "}
+                    <span className="text-red-600 dark:text-red-400">−{diff.deletions}</span>
+                  </span>
+                ) : null}
+                <span className="ml-auto inline-flex shrink-0 items-center">
+                  {trailingRowIcons}
                 </span>
-              ) : null}
-              <span
-                aria-hidden
-                className="pointer-events-none ml-auto inline-flex shrink-0 items-center gap-1"
-              >
-                {isRemote ? (
-                  <span className="inline-flex shrink-0 items-center text-sidebar-muted-foreground/70">
-                    <ServerIcon aria-hidden className="size-3.5" />
-                  </span>
-                ) : null}
-                {driverKind ? (
-                  <span className="inline-flex shrink-0 items-center opacity-60">
-                    <ProviderInstanceIcon
-                      driverKind={driverKind}
-                      displayName={thread.session?.providerName ?? modelInstanceId}
-                      className="size-4"
-                      iconClassName="size-3.5"
-                      badgeClassName="h-2.5 min-w-2.5 px-0 text-[6px] -bottom-0.5 -right-0.5"
-                    />
-                  </span>
-                ) : null}
-              </span>
-            </div>
+              </div>
+            ) : null}
           </div>
           {props.jumpLabel ? <JumpHintBadge label={props.jumpLabel} /> : null}
         </TooltipTrigger>
