@@ -51,9 +51,15 @@ export type ReadWorkspaceAssetResult =
   | { readonly ok: true; readonly data: Uint8Array; readonly mimeType: string }
   | { readonly ok: false; readonly failure: string };
 
+export type WriteWorkspaceFileResult =
+  | { readonly ok: true; readonly relativePath: string }
+  | { readonly ok: false; readonly failure: string };
+
 export interface LoopFilesystemBridge {
   list(cwd: string): Promise<{ entries: readonly WorkspaceEntry[]; truncated: boolean }>;
   read(cwd: string, relativePath: string): Promise<ReadWorkspaceFileResult>;
+  /** Absent on a shell predating editable files; callers check. */
+  write?(cwd: string, relativePath: string, contents: string): Promise<WriteWorkspaceFileResult>;
   /**
    * Raw bytes for a non-text file. Optional: older shells only have `read`,
    * which refuses binary, and the caller falls back to reporting the asset as
@@ -78,6 +84,14 @@ export interface TerminalSnapshot {
   readonly exitSignal: number | null;
   readonly label: string;
   readonly updatedAt: string;
+  /**
+   * Output chunks this shell had produced when the snapshot was taken — the
+   * boundary between `history` and live output. See `attachTerminal`.
+   *
+   * Optional because only a desktop shell new enough to report it does; an
+   * attach that does not get one falls back to trusting `history` alone.
+   */
+  readonly sequence?: number;
 }
 
 export interface TerminalOutput {
@@ -89,6 +103,8 @@ export interface TerminalOutput {
   readonly data?: string;
   readonly exitCode?: number | null;
   readonly exitSignal?: number | null;
+  /** On `output`: this chunk's position in the stream. See TerminalSnapshot. */
+  readonly sequence?: number;
 }
 
 /** PTYs, which like the filesystem only the desktop shell can provide. */

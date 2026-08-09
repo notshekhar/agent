@@ -68,6 +68,28 @@ if (!main.success) {
   throw new Error(`main bundle failed:\n${main.logs.map(String).join("\n")}`);
 }
 
+/**
+ * The workspace host — git, terminals and the filesystem — as its own entry.
+ *
+ * A separate bundle because it is a separate process: `utilityProcess.fork`
+ * takes a script path, and this is it. CommonJS for the same reason main is,
+ * and node-pty stays external because a native addon cannot be bundled — it is
+ * `require`d from the app's `node_modules`, which `package-app.ts` stages
+ * alongside `dist/` so the resolution walks up to it from here exactly as it
+ * does from `dist/main`.
+ */
+const host = await Bun.build({
+  entrypoints: [join(here, "src", "host.ts")],
+  outdir: join(dist, "host"),
+  target: "node",
+  format: "cjs",
+  naming: "[dir]/index.cjs",
+  external: ["electron", "node-pty"],
+});
+if (!host.success) {
+  throw new Error(`host bundle failed:\n${host.logs.map(String).join("\n")}`);
+}
+
 const preload = await Bun.build({
   entrypoints: [join(here, "src", "preload.ts")],
   outdir: join(dist, "preload"),
@@ -115,6 +137,7 @@ if (await exists(iconSource)) {
 
 console.log("desktop bundle ready:");
 console.log(`  main     ${join(dist, "main", "index.cjs")}`);
+console.log(`  host     ${join(dist, "host", "index.cjs")}`);
 console.log(`  preload  ${join(dist, "preload", "index.cjs")}`);
 console.log(`  renderer ${join(dist, "renderer")}`);
 console.log(

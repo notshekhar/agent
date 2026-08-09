@@ -44,6 +44,21 @@ export interface TerminalSnapshot {
   readonly exitSignal: number | null;
   readonly label: string;
   readonly updatedAt: string;
+  /**
+   * How many output chunks this shell has produced, as of this snapshot.
+   *
+   * The boundary marker between `history` and live output. A client subscribes
+   * before it asks for a snapshot — it has to, or the prompt written during the
+   * round trip is lost — which means the chunks it buffers in the meantime
+   * straddle the snapshot: the ones taken before `history` was captured are
+   * already inside it, and painting them again would double the prompt. The
+   * count says which is which, exactly, with no reliance on two IPC channels
+   * arriving in order.
+   *
+   * Counts chunks rather than bytes because a chunk is what an event carries;
+   * the two halves only ever compare it against itself.
+   */
+  readonly sequence: number;
 }
 
 export interface TerminalOutput {
@@ -53,6 +68,8 @@ export interface TerminalOutput {
   readonly data?: string;
   readonly exitCode?: number | null;
   readonly exitSignal?: number | null;
+  /** On `output`: this chunk's position in the stream. See TerminalSnapshot. */
+  readonly sequence?: number;
   /**
    * Present on `started`: the shell that has just been spawned.
    *
@@ -80,6 +97,8 @@ interface Session {
   updatedAt: string;
   /** Anything written before the shell existed, replayed once it does. */
   pendingInput: string;
+  /** Output chunks emitted so far — the attach boundary. See TerminalSnapshot. */
+  sequence: number;
   /** Fires the spawn if no size ever arrives. */
   spawnTimer: ReturnType<typeof setTimeout> | null;
   /**
@@ -181,6 +200,7 @@ export class TerminalManager extends EventEmitter {
       exitSignal: null,
       updatedAt: new Date().toISOString(),
       pendingInput: "",
+      sequence: 0,
       spawnTimer: null,
       closing: false,
     };
@@ -224,12 +244,16 @@ export class TerminalManager extends EventEmitter {
 
     child.onData((data) => {
       session.history = (session.history + data).slice(-MAX_HISTORY_CHARS);
+      // Incremented with the append, so a snapshot taken at any point carries
+      // the count of exactly the chunks its `history` already contains.
+      session.sequence += 1;
       session.updatedAt = new Date().toISOString();
       this.emit("output", {
         threadId: session.threadId,
         terminalId: session.terminalId,
         type: "output",
         data,
+        sequence: session.sequence,
       });
     });
 
@@ -369,5 +393,6 @@ function snapshotOf(session: Session): TerminalSnapshot {
     exitSignal: session.exitSignal,
     label: session.cwd.slice(session.cwd.lastIndexOf("/") + 1) || "terminal",
     updatedAt: session.updatedAt,
+    sequence: session.sequence,
   };
 }

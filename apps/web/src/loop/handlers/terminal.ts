@@ -141,54 +141,110 @@ export function attachTerminal(input: {
   const pty = loopPty();
   if (!pty) return Stream.fail(unavailable());
 
-  const first = Effect.gen(function* () {
-    const existing = yield* Effect.promise(() =>
-      pty.snapshot(input.threadId, input.terminalId),
-    );
-    const snapshot =
-      existing ??
-      (yield* Effect.promise(() =>
-        pty.open({
-          threadId: input.threadId,
-          terminalId: input.terminalId,
-          cwd: input.cwd ?? "",
-          ...(input.cols === undefined ? {} : { cols: input.cols }),
-          ...(input.rows === undefined ? {} : { rows: input.rows }),
-        }),
-      ));
-    const decoded = yield* toContract(snapshot);
-    return { type: "snapshot" as const, snapshot: decoded };
-  });
+  return Stream.callback<TerminalAttachStreamEvent, EnvironmentAuthorizationError>((queue) =>
+    Effect.gen(function* () {
+      /**
+       * Chunks that arrived before the snapshot did.
+       *
+       * The subscription is taken FIRST and the snapshot asked for second,
+       * which is the whole fix: reading the snapshot and only then subscribing
+       * left a window the width of an IPC round trip, and what a freshly
+       * spawned shell writes in exactly that window is its first prompt. It
+       * was dropped on the floor, so the pane came up blank — but only when
+       * the shell beat the round trip, which is why it worked some of the time
+       * and not others.
+       *
+       * Subscribing first means these chunks straddle the snapshot instead:
+       * the ones taken before its `history` was captured are already inside
+       * it. `sequence` says which, so they are dropped rather than painted
+       * twice. See TerminalSnapshot in the desktop shell.
+       */
+      const buffered: TerminalOutput[] = [];
+      let live = false;
 
-  const live = Stream.callback<TerminalAttachStreamEvent>((queue) =>
-    Effect.acquireRelease(
-      Effect.sync(() =>
-        pty.onOutput((event) => {
-          if (event.threadId !== input.threadId || event.terminalId !== input.terminalId) return;
+      const deliver = (event: TerminalOutput) => {
+        if (event.type === "started") {
           // A shell starting under an id this stream is already attached to
           // means the previous session is gone. Re-emitting a snapshot makes
           // the client REPLACE its buffer; without it the reopened pane painted
           // the dead session's scrollback and then appended the new prompt
           // below it — two prompts, and a stray `%` where zsh's partial-line
           // marker was written mid-line and so could not erase itself.
-          if (event.type === "started") {
-            if (event.snapshot) {
-              Queue.offerUnsafe(queue, {
-                type: "snapshot",
-                snapshot: event.snapshot,
-              } as TerminalAttachStreamEvent);
-            }
-            return;
+          if (event.snapshot) {
+            Queue.offerUnsafe(queue, {
+              type: "snapshot",
+              snapshot: event.snapshot,
+            } as TerminalAttachStreamEvent);
           }
-          const mapped = toEvent(event);
-          if (mapped) Queue.offerUnsafe(queue, mapped);
-        }),
-      ),
-      (unsubscribe) => Effect.sync(unsubscribe),
-    ).pipe(Effect.asVoid),
-  );
+          return;
+        }
+        const mapped = toEvent(event);
+        if (mapped) Queue.offerUnsafe(queue, mapped);
+      };
 
-  return Stream.fromEffect(first).pipe(Stream.concat(live));
+      yield* Effect.acquireRelease(
+        Effect.sync(() =>
+          pty.onOutput((event) => {
+            if (event.threadId !== input.threadId || event.terminalId !== input.terminalId) return;
+            if (live) deliver(event);
+            else buffered.push(event);
+          }),
+        ),
+        (unsubscribe) => Effect.sync(unsubscribe),
+      );
+
+      const existing = yield* Effect.promise(() => pty.snapshot(input.threadId, input.terminalId));
+      const snapshot =
+        existing ??
+        (yield* Effect.promise(() =>
+          pty.open({
+            threadId: input.threadId,
+            terminalId: input.terminalId,
+            cwd: input.cwd ?? "",
+            ...(input.cols === undefined ? {} : { cols: input.cols }),
+            ...(input.rows === undefined ? {} : { rows: input.rows }),
+          }),
+        ));
+      const decoded = yield* toContract(snapshot);
+      Queue.offerUnsafe(queue, { type: "snapshot", snapshot: decoded });
+
+      /**
+       * How much of the buffer the snapshot already accounts for.
+       *
+       * A shell that restarted mid-gap resets its own count, so a buffered
+       * `started` moves the boundary with it — otherwise the new shell's
+       * chunks would be measured against the dead one's total and discarded,
+       * which is the blank pane again by a longer route.
+       */
+      let covered = snapshot.sequence;
+      for (const event of buffered) {
+        if (event.type === "started") {
+          covered = event.snapshot?.sequence;
+          deliver(event);
+          continue;
+        }
+        if (event.type === "output" && !isAfter(event.sequence, covered)) continue;
+        deliver(event);
+      }
+      buffered.length = 0;
+      live = true;
+    }),
+  );
+}
+
+/**
+ * Whether a buffered chunk falls after the snapshot's boundary.
+ *
+ * Unknown counts as "not after", so a shell that reports no `sequence` keeps
+ * the pre-fix behaviour: the straddling chunks are dropped and `history` is
+ * trusted alone. The alternative — keeping them — would paint the part already
+ * inside `history` a second time, and a doubled prompt is a visible corruption
+ * where the old behaviour was merely a blank line. Unreachable in a shipped
+ * build, where the shell and this renderer are packaged together.
+ */
+function isAfter(sequence: number | undefined, covered: number | undefined): boolean {
+  if (sequence === undefined || covered === undefined) return false;
+  return sequence > covered;
 }
 
 function toEvent(event: TerminalOutput): (TerminalEvent & TerminalAttachStreamEvent) | null {

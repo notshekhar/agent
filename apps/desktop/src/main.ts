@@ -6,39 +6,24 @@
  * written rather than forked. It does three things: open a window, keep one
  * `loop rpc` child alive, and pipe JSON-RPC between the two.
  */
-import { app, BrowserWindow, ipcMain, protocol, shell } from "electron";
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  MessageChannelMain,
+  protocol,
+  shell,
+  utilityProcess,
+} from "electron";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { extname, join, normalize, resolve } from "node:path";
 
 import { CoreHost } from "./coreHost.js";
 import { LoopProcess, resolveLoopBinary } from "./loopProcess.js";
-import {
-  diffPreview as gitDiffPreview,
-  init as gitInit,
-  listRefs,
-  status as gitStatus,
-} from "./git.js";
-import { discoverSourceControl } from "./discovery.js";
-import { launch, revealCommand, whichCommands } from "./launcher.js";
-import {
-  cloneRepository,
-  lookupRepository,
-  publishRepository,
-} from "./sourceControl.js";
-import {
-  runStackedAction as gitRunStackedAction,
-  type GitStackedAction,
-  type GitStackedActionResult,
-} from "./gitActions.js";
+import { HostClient, type HostProcess } from "./hostClient.js";
+import { HOST_CALLBACKS, TERMINAL_PORT_CHANNEL } from "./hostProtocol.js";
 import { PreviewManager, type PreviewColorScheme } from "./preview.js";
-import { TerminalManager } from "./terminals.js";
-import {
-  browseFilesystem,
-  listWorkspaceEntries,
-  readWorkspaceAsset,
-  readWorkspaceFile,
-} from "./workspaceFiles.js";
 
 const RENDERER_SCHEME = "app";
 const RENDERER_ORIGIN = `${RENDERER_SCHEME}://loop`;
@@ -75,6 +60,8 @@ const distDirectory = join(app.getAppPath(), "dist");
 /** Laid down by build.ts. */
 const rendererDirectory = resolve(distDirectory, "renderer");
 const preloadPath = resolve(distDirectory, "preload", "index.cjs");
+/** The workspace host's entry, forked as a utility process. Same trap as above. */
+const hostPath = resolve(distDirectory, "host", "index.cjs");
 /** The window icon, copied into dist alongside the renderer by `build.ts`. */
 const appIconPath = resolve(distDirectory, "icon.png");
 
@@ -153,10 +140,54 @@ const loop = spawnBinary
   ? new LoopProcess({ binary: loopBinary, cwd: anchorCwd })
   : new CoreHost({ cwd: anchorCwd });
 
-const terminals = new TerminalManager();
+/**
+ * git, terminals and the filesystem, in a process of their own.
+ *
+ * They used to run here. `uv_spawn` blocks the thread that calls it, and all
+ * three spawn constantly — a workspace diff forks per repository, a shell pumps
+ * a build log — so they stalled the thread running loop's core and the agent
+ * turn on it. None of those modules imports `electron`, which is what let them
+ * move without being rewritten.
+ *
+ * The commit-message callback is the one thing that still has to come back
+ * here: loop owns the models and core runs in this process.
+ */
+const host = new HostClient(
+  () =>
+    utilityProcess.fork(hostPath, [], {
+      // Named so it is identifiable in Activity Monitor rather than being a
+      // second anonymous "Electron Helper" nobody can account for.
+      serviceName: "loop workspace host",
+      stdio: "pipe",
+    }) as unknown as HostProcess,
+  {
+    [HOST_CALLBACKS.commitMessage]: (params) => loop.call("git.commitMessage", params),
+  },
+);
 const previews = new PreviewManager();
 
 let mainWindow: BrowserWindow | null = null;
+
+/**
+ * Give the host a pipe straight to the renderer, for terminal output.
+ *
+ * Every PTY byte used to arrive here purely to be handed on — main read it,
+ * re-serialised it and forwarded it, adding nothing. A transferred
+ * MessagePort removes that hop: the host writes and the renderer reads, with
+ * this process not involved.
+ *
+ * Called whenever either end is replaced, because a port is only valid for the
+ * pair that holds it. A renderer reload kills the far end; a host restart kills
+ * the near one. Both re-run this, and the host closes the port it was holding
+ * before taking the new one, so reloading in a loop cannot leak ports.
+ */
+function connectTerminalPort(): void {
+  const target = mainWindow;
+  if (!target || target.isDestroyed() || !host.running) return;
+  const { port1, port2 } = new MessageChannelMain();
+  host.transferPort(port1);
+  target.webContents.postMessage(TERMINAL_PORT_CHANNEL, null, [port2]);
+}
 
 function createWindow(): void {
   mainWindow = new BrowserWindow({
@@ -198,6 +229,11 @@ function createWindow(): void {
   mainWindow.on("closed", () => {
     mainWindow = null;
   });
+
+  // Fires on the first load and on every reload, which is exactly when the
+  // renderer's end of the terminal pipe needs replacing — the previous one
+  // died with the document that held it.
+  mainWindow.webContents.on("did-finish-load", connectTerminalPort);
 
   // The renderer insets its header to clear the traffic lights, and macOS
   // hides them in fullscreen — so without this the inset becomes a gap.
@@ -279,173 +315,60 @@ app.whenReady().then(() => {
     }
   });
 
-  // Filesystem reads live here rather than in loop: loop speaks an agent
-  // protocol and has no file operations, and the renderer has no filesystem.
-  ipcMain.handle("loop:fs.list", (_event, payload: { cwd: string }) =>
-    listWorkspaceEntries(payload.cwd),
-  );
-  ipcMain.handle("loop:fs.read", (_event, payload: { cwd: string; relativePath: string }) =>
-    readWorkspaceFile(payload.cwd, payload.relativePath),
-  );
-  // Bytes, for the panes that are not text — the image preview above all.
-  ipcMain.handle("loop:fs.readAsset", (_event, payload: { absolutePath: string }) =>
-    readWorkspaceAsset(payload.absolutePath),
-  );
-  ipcMain.handle("loop:git.discover", () => discoverSourceControl());
-
   /**
-   * Repository-level GitHub work. Each returns `ok:false` with gh's own message
-   * rather than rejecting, so the toast shows "name already exists" instead of
-   * Electron's remote-method wrapper.
-   */
-  const ipcResult = async <T>(work: () => Promise<T>) => {
-    try {
-      return { ok: true as const, value: await work() };
-    } catch (error) {
-      return { ok: false as const, error: error instanceof Error ? error.message : String(error) };
-    }
-  };
-  ipcMain.handle("loop:sc.lookup", (_event, p: { repository: string }) =>
-    ipcResult(() => lookupRepository(p.repository)),
-  );
-  ipcMain.handle(
-    "loop:sc.clone",
-    (
-      _event,
-      p: {
-        repository?: string;
-        remoteUrl?: string;
-        destinationPath: string;
-        protocol?: "auto" | "ssh" | "https";
-      },
-    ) => ipcResult(() => cloneRepository(p)),
-  );
-  ipcMain.handle(
-    "loop:sc.publish",
-    (
-      _event,
-      p: {
-        cwd: string;
-        repository: string;
-        visibility: "private" | "public";
-        remoteName?: string;
-      },
-    ) => ipcResult(() => publishRepository(p)),
-  );
-  ipcMain.handle("loop:shell.which", (_event, p: { commands: string[] }) =>
-    whichCommands(p.commands),
-  );
-  ipcMain.handle(
-    "loop:shell.launch",
-    async (_event, p: { command: string | null; args: string[]; target: string }) => {
-      // A null command means the OS file manager — the one "editor" that is not
-      // a binary the user installed.
-      const reveal = revealCommand();
-      const command = p.command ?? reveal.command;
-      const args = p.command ? p.args : [...reveal.args, p.target];
-      try {
-        await launch(command, args);
-        return { ok: true as const };
-      } catch (error) {
-        return { ok: false as const, error: error instanceof Error ? error.message : String(error) };
-      }
-    },
-  );
-  ipcMain.handle("loop:git.refs", (_event, p: { cwd: string }) => listRefs(p.cwd));
-  ipcMain.handle("loop:git.status", (_event, p: { cwd: string }) => gitStatus(p.cwd));
-  ipcMain.handle("loop:git.init", (_event, p: { cwd: string }) => gitInit(p.cwd));
-  ipcMain.handle(
-    "loop:git.diffPreview",
-    (_event, p: { cwd: string; baseRef?: string; ignoreWhitespace?: boolean }) =>
-      gitDiffPreview(p.cwd, {
-        ...(p.baseRef === undefined ? {} : { baseRef: p.baseRef }),
-        ...(p.ignoreWhitespace === undefined ? {} : { ignoreWhitespace: p.ignoreWhitespace }),
-      }),
-  );
-
-  /**
-   * Commit / push / open a PR.
+   * Everything the workspace host owns: the filesystem, git, GitHub, editors
+   * and PTYs.
    *
-   * Progress goes out on its own channel rather than as the reply, because the
-   * point of it is to arrive *during* the action — a pre-commit hook running a
-   * test suite has two minutes of output the toast should be showing. The reply
-   * carries the outcome, and a failure comes back as `ok: false` rather than a
-   * rejected invoke so the renderer gets git's own message instead of
-   * Electron's "Error invoking remote method" wrapper.
+   * Each of these was a handler that did the work here. They are forwards now,
+   * and deliberately nothing more — the host returns exactly what these used to
+   * return, envelopes included, so the renderer cannot tell the difference.
+   * Keeping main a pipe is the point: the work that blocks a thread should not
+   * be on the thread running loop's core.
+   *
+   * The channel name and the host method are the same string minus `loop:`, so
+   * adding a capability means adding it to `hostHandlers.ts` and listing it
+   * here.
    */
-  ipcMain.handle(
-    "loop:git.runStackedAction",
-    async (
-      _event,
-      p: {
-        actionId: string;
-        cwd: string;
-        action: GitStackedAction;
-        commitMessage?: string;
-        featureBranch?: boolean;
-        filePaths?: string[];
-      },
-    ): Promise<
-      { ok: true; value: GitStackedActionResult } | { ok: false; error: string }
-    > => {
-      const stamp = { actionId: p.actionId, cwd: p.cwd, action: p.action };
-      try {
-        const value = await gitRunStackedAction(
-          p.cwd,
-          {
-            action: p.action,
-            commitMessage: p.commitMessage,
-            featureBranch: p.featureBranch,
-            filePaths: p.filePaths,
-          },
-          {
-            emit: (progress) => forwardToRenderer("loop:gitAction", { ...stamp, ...progress }),
-            // loop owns the models; this module owns git. A message it cannot
-            // get back is handled by the runner's own fallback subject.
-            generateMessage: async ({ diff, branch }) => {
-              const reply = (await loop.call("git.commitMessage", {
-                diff,
-                cwd: p.cwd,
-                ...(branch ? { branch } : {}),
-              })) as { message?: unknown } | null;
-              return typeof reply?.message === "string" ? reply.message : "";
-            },
-          },
-        );
-        return { ok: true as const, value };
-      } catch (error) {
-        return { ok: false as const, error: error instanceof Error ? error.message : String(error) };
-      }
-    },
-  );
+  const HOST_METHODS = [
+    "fs.list",
+    "fs.read",
+    "fs.write",
+    "fs.readAsset",
+    "fs.browse",
+    "git.discover",
+    "git.refs",
+    "git.status",
+    "git.init",
+    "git.diffPreview",
+    "git.runStackedAction",
+    "sc.lookup",
+    "sc.clone",
+    "sc.publish",
+    "shell.which",
+    "shell.launch",
+    "pty.open",
+    "pty.snapshot",
+    "pty.list",
+    "pty.write",
+    "pty.resize",
+    "pty.clear",
+    "pty.close",
+  ] as const;
+  for (const method of HOST_METHODS) {
+    ipcMain.handle(`loop:${method}`, (_event, params: unknown) => host.call(method, params));
+  }
 
-  terminals.on("output", (event) => forwardToRenderer("loop:terminal", event));
-  ipcMain.handle("loop:pty.open", (_event, input) => terminals.open(input));
-  ipcMain.handle("loop:pty.snapshot", (_event, p: { threadId: string; terminalId: string }) =>
-    terminals.snapshot(p.threadId, p.terminalId),
-  );
-  ipcMain.handle("loop:pty.list", () => terminals.list());
-  ipcMain.handle("loop:pty.write", (_event, p: { threadId: string; terminalId: string; data: string }) => {
-    terminals.write(p.threadId, p.terminalId, p.data);
-  });
-  ipcMain.handle(
-    "loop:pty.resize",
-    (_event, p: { threadId: string; terminalId: string; cols: number; rows: number }) => {
-      terminals.resize(p.threadId, p.terminalId, p.cols, p.rows);
-    },
-  );
-  ipcMain.handle("loop:pty.clear", (_event, p: { threadId: string; terminalId: string }) => {
-    terminals.clear(p.threadId, p.terminalId);
-  });
-  ipcMain.handle("loop:pty.close", (_event, p: { threadId: string; terminalId?: string }) => {
-    terminals.close(p.threadId, p.terminalId);
-  });
-
-  ipcMain.handle(
-    "loop:fs.browse",
-    (_event, payload: { partialPath: string; cwd: string | undefined }) =>
-      browseFilesystem(payload.partialPath, payload.cwd),
-  );
+  // Terminal output and git-action progress arrive on the host's own schedule;
+  // main forwards them by the channel the host names.
+  host.on("notify", ({ channel, payload }) => forwardToRenderer(channel, payload));
+  host.on("stderr", (line) => console.error(`[host] ${line}`));
+  // The shells died with the host. Telling the renderer lets a pane show that
+  // rather than sitting on a dead session waiting for bytes.
+  host.on("lost", () => forwardToRenderer("loop:terminal.hostLost", {}));
+  // A restarted host has no pipe — the old one went with the process that
+  // held it — so it gets a fresh one as soon as it is up.
+  host.on("ready", connectTerminalPort);
+  host.start();
 
   /**
    * The browser panel.
@@ -541,7 +464,11 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
-  terminals.closeAll();
+  // Killing the host takes its shells with it — they are its children — but
+  // asking first gives each one a chance to die cleanly rather than being
+  // orphaned mid-write.
+  void host.call("pty.closeAll").catch(() => {});
+  host.stop();
   previews.disposeAll();
   loop.stop();
 });

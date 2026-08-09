@@ -8,6 +8,8 @@
  */
 import { contextBridge, ipcRenderer } from "electron";
 
+import { TERMINAL_PORT_CHANNEL } from "./hostProtocol.js";
+
 interface LoopEvent {
   readonly sessionId: string;
   readonly seq: number;
@@ -41,8 +43,32 @@ ipcRenderer.on("loop:event", (_event, payload: LoopEvent) => {
 });
 
 const terminalListeners = new Set<(event: unknown) => void>();
-ipcRenderer.on("loop:terminal", (_event, payload: unknown) => {
+const emitTerminal = (payload: unknown) => {
   for (const listener of terminalListeners) listener(payload);
+};
+
+/**
+ * Terminal output arrives by whichever road the host has.
+ *
+ * The direct one is a MessagePort transferred from the workspace host, so PTY
+ * bytes reach here without the main process reading and re-forwarding every
+ * one of them. The ipc road stays as the fallback for the window before that
+ * port is handed over, and for a host that has just restarted without one.
+ *
+ * The host writes to exactly one of them per event, never both, so feeding a
+ * single listener set from both cannot double up. Main re-sends the port on
+ * every load, so a reload replaces this rather than accumulating.
+ */
+ipcRenderer.on("loop:terminal", (_event, payload: unknown) => emitTerminal(payload));
+
+let terminalPort: MessagePort | null = null;
+ipcRenderer.on(TERMINAL_PORT_CHANNEL, (event) => {
+  terminalPort?.close();
+  const port = event.ports[0] ?? null;
+  terminalPort = port;
+  if (!port) return;
+  port.onmessage = (message) => emitTerminal(message.data);
+  port.start();
 });
 
 const gitActionListeners = new Set<(event: unknown) => void>();
@@ -94,6 +120,9 @@ contextBridge.exposeInMainWorld("loop", {
     },
     read(cwd: string, relativePath: string) {
       return ipcRenderer.invoke("loop:fs.read", { cwd, relativePath });
+    },
+    write(cwd: string, relativePath: string, contents: string) {
+      return ipcRenderer.invoke("loop:fs.write", { cwd, relativePath, contents });
     },
     readAsset(absolutePath: string) {
       return ipcRenderer.invoke("loop:fs.readAsset", { absolutePath });

@@ -51,6 +51,8 @@ import {
   remapFileCommentAnnotations,
 } from "./fileCommentAnnotations";
 import { installFileEditorDismissal } from "./fileEditorDismissal";
+import { installFileSaveShortcut } from "./fileSaveShortcut";
+import { isFileEditorFocused } from "../../lib/fileEditorFocus";
 import { resolveCenteredFileLineScrollTop } from "./fileLineReveal";
 import { LocalCommentAnnotation } from "./LocalCommentAnnotation";
 import { MarkdownCommentLayer } from "./MarkdownCommentLayer";
@@ -82,7 +84,6 @@ interface FilePreviewPanelProps {
 
 const FILE_EXPLORER_STORAGE_KEY = "t3code.fileExplorerOpen";
 const RENDER_MARKDOWN_STORAGE_KEY = "t3code.renderMarkdown";
-const FILE_SAVE_DEBOUNCE_MS = 500;
 const FILE_LINK_REVEAL_ATTRIBUTE = "data-file-link-reveal";
 const FILE_LINK_REVEAL_UNSAFE_CSS = `
   [${FILE_LINK_REVEAL_ATTRIBUTE}][data-line] {
@@ -403,7 +404,6 @@ function useFileSaveCoordinator({
   const coordinator = useMemo(
     () =>
       new FileSaveCoordinator({
-        debounceMs: FILE_SAVE_DEBOUNCE_MS,
         onPendingChange: (pending) => onPendingChange(relativePath, pending),
         persist: (nextContents) =>
           writeFile({
@@ -600,6 +600,20 @@ function EditableFileSurface({
       onDismiss: () => setSelectedRange(null),
     });
   }, [editor, hasOpenCommentForm, setSelectedRange]);
+  /**
+   * The save. Scoped to this pane's root so it only fires for the file the
+   * keystroke was aimed at, and so `mod+s` still stashes the composer draft
+   * everywhere else.
+   */
+  useEffect(() => {
+    const root = surfaceRef.current;
+    if (!root) return;
+    return installFileSaveShortcut({
+      root,
+      isEnabled: isFileEditorFocused,
+      onSave: () => void saveCoordinator.save(),
+    });
+  }, [saveCoordinator]);
   const handleLineSelectionEnd = useCallback(
     (range: SelectedLineRange | null) => {
       setSelectedRange(range);

@@ -75,6 +75,7 @@ import { ComposerStashMenu } from "./ComposerStashMenu";
 import { compressImageForStash, compressImageToByteLimit } from "../../lib/imageCompression";
 import { isCommandPaletteOpen } from "../../commandPaletteBus";
 import { getTerminalFocusOwner } from "../../lib/terminalFocus";
+import { isFileEditorFocused } from "../../lib/fileEditorFocus";
 import { resolveShortcutCommand } from "../../keybindings";
 import {
   type TerminalContextDraft,
@@ -2269,6 +2270,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
         },
       });
       if (command !== "composer.stash") return;
+      // An editable file pane owns `mod+s` while it has the caret — there it
+      // means "save this file". This handler runs on `window` in the capture
+      // phase, ahead of everything the pane could listen on, so yielding here
+      // is the only way the editor ever sees the keystroke.
+      if (isFileEditorFocused()) return;
       // Always claim the shortcut so the browser save dialog never opens,
       // even when the composer is in a state that can't stash.
       event.preventDefault();

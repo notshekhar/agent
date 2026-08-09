@@ -11,9 +11,9 @@
  * agent's output reaches, and a `../../..` in a filename should be a rejection
  * rather than a read.
  */
-import { readdir, readFile, stat } from "node:fs/promises";
+import { readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { isAbsolute, join, relative, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 /** Directories never worth walking; they dwarf the real tree. */
 const SKIPPED_DIRECTORIES = new Set([
@@ -180,6 +180,75 @@ export async function readWorkspaceFile(
     byteLength: buffer.byteLength,
     truncated: buffer.byteLength > slice.byteLength,
   };
+}
+
+export type WriteWorkspaceFileResult =
+  | { readonly ok: true; readonly relativePath: string }
+  | { readonly ok: false; readonly failure: string };
+
+/**
+ * Save an edited file back.
+ *
+ * The counterpart to `readWorkspaceFile`, and it resolves the path the SAME
+ * way — literal first, then the overlap readings — for a reason that is not
+ * cosmetic. `read` may have opened `stories/x.md` by resolving it as
+ * `<root>/x.md`; a `write` that only understood the literal reading would
+ * create a second, empty-looking file next to the one on screen and report
+ * success. Saving has to land on the file that was opened.
+ *
+ * Only an EXISTING file is resolved that way. When nothing matches, the
+ * literal path is used and a new file is created — but only inside a directory
+ * that already exists, because an editor save is not the place to be inventing
+ * directory trees.
+ *
+ * Written in place rather than through a temp file and a rename: renaming
+ * replaces the inode, which breaks hard links and the file watchers the editor
+ * and the agent both rely on. The cost is that a crash mid-write truncates,
+ * which is the trade every editor that saves in place already makes.
+ */
+export async function writeWorkspaceFile(
+  cwd: string,
+  relativePath: string,
+  contents: string,
+): Promise<WriteWorkspaceFileResult> {
+  const root = resolve(cwd);
+  const literal = resolve(root, relativePath);
+  if (!isInside(root, literal)) return { ok: false, failure: "resolved_path_outside_root" };
+
+  let target: string | undefined;
+  for (const candidate of [literal, ...overlapCandidates(root, relativePath)]) {
+    if (!isInside(root, candidate)) continue;
+    try {
+      const info = await stat(candidate);
+      // A directory under this name is not a file this can replace, and
+      // neither is a socket or a device.
+      if (!info.isFile()) return { ok: false, failure: "path_not_file" };
+      target = candidate;
+      break;
+    } catch {
+      // Missing, so try the next reading of the path.
+    }
+  }
+
+  if (!target) {
+    try {
+      if (!(await stat(dirname(literal))).isDirectory()) {
+        return { ok: false, failure: "operation_failed" };
+      }
+    } catch {
+      return { ok: false, failure: "operation_failed" };
+    }
+    target = literal;
+  }
+
+  try {
+    await writeFile(target, contents, "utf8");
+  } catch {
+    return { ok: false, failure: "operation_failed" };
+  }
+  // The path the file actually lives at, so the caller's cache key and the one
+  // a later read produces are the same string.
+  return { ok: true, relativePath: relative(root, target) };
 }
 
 /** Image previews. Big enough for a screenshot, small enough to not stall IPC. */

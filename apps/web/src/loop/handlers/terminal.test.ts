@@ -19,6 +19,7 @@ const snapshot: TerminalSnapshot = {
   exitSignal: null,
   label: "project",
   updatedAt: "2026-08-06T00:00:00.000Z",
+  sequence: 2,
 };
 
 function withPty<T>(bridge: LoopPtyBridge | undefined, run: () => Promise<T>): Promise<T> {
@@ -119,6 +120,168 @@ describe("terminals", () => {
     const items = seen;
     expect(items.map((item) => item.type)).toEqual(["snapshot", "output"]);
     expect(items[1]?.data).toBe("mine");
+  });
+
+  /**
+   * The gap between the snapshot and the live subscription.
+   *
+   * `attachTerminal` used to read the snapshot and only THEN subscribe, so
+   * everything the shell wrote in between was dropped on the floor — and what
+   * a shell writes in exactly that window is its first prompt. Whether the
+   * terminal came up blank depended on whether zsh beat an IPC round trip,
+   * which is why it worked some of the time.
+   *
+   * The emit rides on the snapshot promise's own `.then`, so it lands after
+   * the snapshot is resolved and before anything downstream of it can run —
+   * the gap, deterministically, with no sleeps to tune.
+   */
+  it("keeps output written while the snapshot is still in flight", async () => {
+    const listeners = new Set<(event: TerminalOutput) => void>();
+    // A shell that has written nothing yet: empty history, sequence 0.
+    const fresh = { ...snapshot, history: "", sequence: 0 };
+    const seen: Array<{ type: string; data?: string }> = [];
+
+    await withPty(
+      bridge({
+        snapshot: () => {
+          const pending = Promise.resolve(fresh);
+          void pending.then(() => {
+            for (const listener of listeners) {
+              listener({
+                threadId: "t1",
+                terminalId: "a",
+                type: "output",
+                data: "prompt$ ",
+                // The first chunk, written after that snapshot was taken.
+                sequence: 1,
+              });
+            }
+          });
+          return pending;
+        },
+        onOutput: (listener) => {
+          listeners.add(listener);
+          return () => listeners.delete(listener);
+        },
+      }),
+      () =>
+        Effect.runPromise(
+          attachTerminal({ threadId: "t1", terminalId: "a" }).pipe(
+            Stream.runForEach((item) =>
+              Effect.sync(() => {
+                seen.push(item as { type: string; data?: string });
+              }),
+            ),
+            Effect.scoped,
+            // The stream stays open for live output, so collect a window of it.
+            Effect.timeout("300 millis"),
+            Effect.ignore,
+          ),
+        ),
+    );
+
+    expect(seen.map((item) => item.type)).toEqual(["snapshot", "output"]);
+    expect(seen[1]?.data).toBe("prompt$ ");
+  });
+
+  /**
+   * The other half of subscribing first: some of what gets buffered is already
+   * inside the snapshot's `history`, because the shell wrote it before the
+   * snapshot was taken. Replaying those would paint the prompt twice.
+   */
+  it("drops buffered chunks the snapshot's history already covers", async () => {
+    const listeners = new Set<(event: TerminalOutput) => void>();
+    const seen: Array<{ type: string; data?: string }> = [];
+    // `snapshot.history` is "$ echo hi\nhi\n" and its sequence is 2, so those
+    // two chunks are accounted for; only the third is new.
+    const replayed: TerminalOutput[] = [
+      { threadId: "t1", terminalId: "a", type: "output", data: "$ echo hi\n", sequence: 1 },
+      { threadId: "t1", terminalId: "a", type: "output", data: "hi\n", sequence: 2 },
+      { threadId: "t1", terminalId: "a", type: "output", data: "$ ", sequence: 3 },
+    ];
+
+    await withPty(
+      bridge({
+        snapshot: () => {
+          const pending = Promise.resolve(snapshot);
+          void pending.then(() => {
+            for (const listener of listeners) for (const event of replayed) listener(event);
+          });
+          return pending;
+        },
+        onOutput: (listener) => {
+          listeners.add(listener);
+          return () => listeners.delete(listener);
+        },
+      }),
+      () =>
+        Effect.runPromise(
+          attachTerminal({ threadId: "t1", terminalId: "a" }).pipe(
+            Stream.runForEach((item) =>
+              Effect.sync(() => {
+                seen.push(item as { type: string; data?: string });
+              }),
+            ),
+            Effect.scoped,
+            Effect.timeout("300 millis"),
+            Effect.ignore,
+          ),
+        ),
+    );
+
+    expect(seen.map((item) => item.type)).toEqual(["snapshot", "output"]);
+    expect(seen[1]?.data).toBe("$ ");
+  });
+
+  /**
+   * A shell that dies and respawns during the gap restarts its own count, so
+   * the boundary has to move with it. Measured against the dead session's
+   * total, the new shell's chunks all look old and get discarded — the blank
+   * pane again, by a longer route.
+   */
+  it("re-bases the boundary when a shell restarts mid-attach", async () => {
+    const listeners = new Set<(event: TerminalOutput) => void>();
+    const seen: Array<{ type: string; data?: string }> = [];
+    const restarted = { ...snapshot, history: "", sequence: 0 };
+    const duringGap: TerminalOutput[] = [
+      { threadId: "t1", terminalId: "a", type: "started", snapshot: restarted },
+      { threadId: "t1", terminalId: "a", type: "output", data: "fresh$ ", sequence: 1 },
+    ];
+
+    await withPty(
+      bridge({
+        // The old session's snapshot: sequence 2, already ahead of the new
+        // shell's chunk numbering.
+        snapshot: () => {
+          const pending = Promise.resolve(snapshot);
+          void pending.then(() => {
+            for (const listener of listeners) for (const event of duringGap) listener(event);
+          });
+          return pending;
+        },
+        onOutput: (listener) => {
+          listeners.add(listener);
+          return () => listeners.delete(listener);
+        },
+      }),
+      () =>
+        Effect.runPromise(
+          attachTerminal({ threadId: "t1", terminalId: "a" }).pipe(
+            Stream.runForEach((item) =>
+              Effect.sync(() => {
+                seen.push(item as { type: string; data?: string });
+              }),
+            ),
+            Effect.scoped,
+            Effect.timeout("300 millis"),
+            Effect.ignore,
+          ),
+        ),
+    );
+
+    // The restart replaces the buffer, and the new shell's prompt survives.
+    expect(seen.map((item) => item.type)).toEqual(["snapshot", "snapshot", "output"]);
+    expect(seen[2]?.data).toBe("fresh$ ");
   });
 
   it("idles rather than failing when the panel mounts in a browser", async () => {

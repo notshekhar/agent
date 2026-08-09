@@ -5,7 +5,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
-import { diffPreview, status, workspaceRepositories } from "./git";
+import {
+  MAX_CONCURRENT_GIT,
+  diffPreview,
+  status,
+  withGitSlot,
+  workspaceRepositories,
+} from "./git";
 
 const run = promisify(execFile);
 
@@ -197,6 +203,166 @@ describe("a folder of repositories", () => {
       expect((await status(empty)).isRepo).toBe(false);
     } finally {
       await rm(empty, { recursive: true, force: true });
+    }
+  });
+});
+
+/**
+ * The spawn gate.
+ *
+ * `uv_spawn` blocks the thread it is called on, and in the desktop app that
+ * thread also runs loop's core — so an unbounded `Promise.all` over git
+ * commands freezes the agent mid-turn. These pin the two properties that stop
+ * that: the pool never exceeds its ceiling, and a big fan-out never becomes
+ * one long block.
+ */
+describe("git spawn concurrency", () => {
+  test("a batch fan-out never exceeds the ceiling", async () => {
+    let active = 0;
+    let peak = 0;
+    const release: Array<() => void> = [];
+
+    // Twice the ceiling, so the second half can only run by waiting.
+    const running = Array.from({ length: MAX_CONCURRENT_GIT * 2 }, () =>
+      withGitSlot(async () => {
+        active += 1;
+        peak = Math.max(peak, active);
+        await new Promise<void>((resolve) => release.push(resolve));
+        active -= 1;
+      }),
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(peak).toBe(MAX_CONCURRENT_GIT);
+
+    while (release.length > 0) {
+      release.shift()?.();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    await Promise.all(running);
+
+    expect(peak).toBe(MAX_CONCURRENT_GIT);
+    expect(active).toBe(0);
+  });
+
+  /**
+   * A fan-out alone cannot catch the release race, because every acquire in it
+   * comes from the wait queue and those stay balanced. The overshoot needs a
+   * caller arriving from OUTSIDE the queue — in the desktop app, a `git.status`
+   * poll landing while `diffPreview` is fanning out — during the window where a
+   * decrement has already happened but the waiter it woke has not yet resumed.
+   *
+   * MEASURED: that window is exactly one microtask wide. Pinning the test to
+   * that single depth would make it stop catching anything the moment
+   * `withGitSlot` gains or loses an `await` — and it would stop by PASSING,
+   * which is the worst way for a guard to fail. So this sweeps the depths
+   * around it and asserts the ceiling holds at every one.
+   */
+  test("a fresh arrival cannot barge a slot promised to a waiter", async () => {
+    for (let microtaskDepth = 0; microtaskDepth <= 6; microtaskDepth++) {
+      let active = 0;
+      let peak = 0;
+      const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
+      const releases: Array<() => void> = [];
+      const pending: Array<Promise<unknown>> = [];
+
+      const occupy = () =>
+        withGitSlot(async () => {
+          active += 1;
+          peak = Math.max(peak, active);
+          await new Promise<void>((resolve) => releases.push(resolve));
+          active -= 1;
+        });
+
+      // Fill every slot, then queue one waiter behind them.
+      const held = Array.from({ length: MAX_CONCURRENT_GIT }, occupy);
+      await settle();
+      pending.push(occupy());
+      await settle();
+
+      // One holder finishes, handing its slot to that waiter...
+      releases[0]?.();
+      for (let i = 0; i < microtaskDepth; i++) await Promise.resolve();
+      // ...and an unrelated caller arrives mid-handover.
+      pending.push(occupy());
+      await settle();
+
+      expect(peak).toBeLessThanOrEqual(MAX_CONCURRENT_GIT);
+
+      for (const release of releases) release();
+      await settle();
+      for (const release of releases) release();
+      await Promise.all([...held, ...pending]);
+      expect(active).toBe(0);
+    }
+  });
+
+  test("a slot survives work that throws", async () => {
+    await Promise.all(
+      Array.from({ length: MAX_CONCURRENT_GIT * 3 }, () =>
+        withGitSlot(() => Promise.reject(new Error("boom"))).catch(() => {}),
+      ),
+    );
+    // A leaked slot would shrink the pool permanently; if none leaked, a fresh
+    // batch can still fill it.
+    let peak = 0;
+    let active = 0;
+    await Promise.all(
+      Array.from({ length: MAX_CONCURRENT_GIT }, () =>
+        withGitSlot(async () => {
+          active += 1;
+          peak = Math.max(peak, active);
+          await new Promise((resolve) => setTimeout(resolve, 1));
+          active -= 1;
+        }),
+      ),
+    );
+    expect(peak).toBe(MAX_CONCURRENT_GIT);
+  });
+
+  test("a wide untracked diff does not block the event loop", async () => {
+    const wide = await mkdtemp(join(tmpdir(), "loop-wide-"));
+    try {
+      await run("git", ["init", "--initial-branch=main"], { cwd: wide });
+      await writeFile(join(wide, "seed.txt"), "seed\n");
+      await run("git", ["add", "."], { cwd: wide });
+      await run("git", ["commit", "-m", "seed"], {
+        cwd: wide,
+        env: {
+          ...process.env,
+          GIT_AUTHOR_NAME: "loop",
+          GIT_AUTHOR_EMAIL: "loop@example.com",
+          GIT_COMMITTER_NAME: "loop",
+          GIT_COMMITTER_EMAIL: "loop@example.com",
+        },
+      });
+      // Each untracked file is its own `git diff --no-index` process.
+      await Promise.all(
+        Array.from({ length: 150 }, (_, index) =>
+          writeFile(join(wide, `new-${index}.txt`), `content ${index}\n`),
+        ),
+      );
+
+      // A timer that should fire every 5ms; the worst overshoot is how long
+      // the loop was held. Unbounded, this measured >200ms.
+      let worst = 0;
+      let last = performance.now();
+      const ticker = setInterval(() => {
+        const now = performance.now();
+        worst = Math.max(worst, now - last - 5);
+        last = now;
+      }, 5);
+
+      const preview = await diffPreview(wide);
+      clearInterval(ticker);
+
+      expect(preview.isRepo).toBe(true);
+      expect(preview.sources[0]?.diff).toContain("new-0.txt");
+      // Generous: the measured gap is ~3ms bounded vs ~217ms unbounded, so
+      // this fails only on a genuine regression, not on a loaded CI box.
+      expect(worst).toBeLessThan(75);
+    } finally {
+      await rm(wide, { recursive: true, force: true });
     }
   });
 });

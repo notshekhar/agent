@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { McpOAuthProvider, oauthClientOptions } from "../src/mcp/oauth";
+import { clearMcpAuth, McpOAuthProvider, oauthClientOptions } from "../src/mcp/oauth";
 import type { HttpServerConfig } from "../src/mcp/config";
 
 const REDIRECT = "http://127.0.0.1:8976/callback";
@@ -48,5 +48,76 @@ describe("MCP OAuth: pre-registered client support", () => {
         expect(opts.clientSecret).toBe("from-env");
         expect(opts.scopes).toEqual(["mcp:connect"]);
         delete process.env.FIGMA_TEST_SECRET;
+    });
+});
+
+/**
+ * The authorization server has to survive the gap between the two `auth()`
+ * passes of a login: the first resolves it and opens the browser, the second
+ * comes back with a code and must prove it is exchanging against the same
+ * server. The SDK's default place to keep it is on the stored client
+ * information — which is a trap for a pre-registered client, because that
+ * object is rebuilt from config on every read and never carries anything the
+ * SDK wrote to it.
+ */
+describe("MCP OAuth: authorization server metadata", () => {
+    const AS = { authorizationServerUrl: "https://slack.com/oauth", tokenEndpoint: "https://slack.com/api/oauth.v2.access" };
+
+    test("round-trips through the store", () => {
+        const server = "test-as-" + Date.now();
+        const p = new McpOAuthProvider(server, REDIRECT);
+        try {
+            expect(p.authorizationServerInformation()).toBeUndefined();
+            p.saveAuthorizationServerInformation(AS);
+            expect(p.authorizationServerInformation()).toEqual(AS);
+        } finally {
+            clearMcpAuth(server);
+        }
+    });
+
+    /**
+     * The actual bug. Slack, Figma and friends forbid dynamic registration, so
+     * they are configured with a `clientId` — and `clientInformation()` then
+     * returns a fresh literal every time. Anything the SDK stamped onto it
+     * before the redirect was gone by the exchange, which failed with "Stored
+     * OAuth authorization server metadata is required when exchanging an
+     * authorization code". Keeping the metadata separate is what fixes it.
+     */
+    test("survives a configured clientId, which rebuilds client information every read", () => {
+        const server = "test-as-configured-" + Date.now();
+        const p = new McpOAuthProvider(server, REDIRECT, undefined, { clientId: "slack-app", clientSecret: "shh" });
+        try {
+            p.saveAuthorizationServerInformation(AS);
+            // Unchanged: still the configured client, carrying no metadata...
+            expect(p.clientInformation()).toEqual({ client_id: "slack-app", client_secret: "shh" });
+            // ...and the metadata is readable anyway, which is the whole point.
+            expect(p.authorizationServerInformation()).toEqual(AS);
+        } finally {
+            clearMcpAuth(server);
+        }
+    });
+
+    test("saving it does not disturb the rest of the session", () => {
+        const server = "test-as-mixed-" + Date.now();
+        const p = new McpOAuthProvider(server, REDIRECT);
+        try {
+            p.saveCodeVerifier("verifier-1");
+            p.saveState("state-1");
+            p.saveAuthorizationServerInformation(AS);
+            expect(p.codeVerifier()).toBe("verifier-1");
+            expect(p.storedState()).toBe("state-1");
+            expect(p.authorizationServerInformation()).toEqual(AS);
+        } finally {
+            clearMcpAuth(server);
+        }
+    });
+
+    test("a re-auth starts clean rather than exchanging against a stale server", () => {
+        const server = "test-as-clear-" + Date.now();
+        const p = new McpOAuthProvider(server, REDIRECT);
+        p.saveAuthorizationServerInformation(AS);
+        // `authorizeServer` calls this before every interactive login.
+        clearMcpAuth(server);
+        expect(p.authorizationServerInformation()).toBeUndefined();
     });
 });

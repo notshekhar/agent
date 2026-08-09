@@ -23,6 +23,73 @@ const GIT_TIMEOUT_MS = 10_000;
 const MAX_BUFFER_BYTES = 8 * 1024 * 1024;
 
 /**
+ * How many `git` processes this module may have in flight at once.
+ *
+ * Not a politeness limit — a latency one. `uv_spawn` is a BLOCKING syscall on
+ * the calling thread, and the calling thread here is the one running loop's
+ * core: the agent turn, its tool calls, the session writes, every PTY byte and
+ * every IPC reply. A `Promise.all` over N spawns is therefore N fork/execs
+ * back to back with no yield in between, and the whole window is dead air for
+ * the running thread.
+ *
+ * That is exactly what the fan-outs below used to do — `untrackedPatch` up to
+ * `MAX_UNTRACKED_FILES`, `workspaceStatus` and `workspaceDiffPreview` up to
+ * `WORKSPACE_REPO_LIMIT` repositories times ~6 commands each. Opening the diff
+ * panel mid-turn stalled the agent, which is what "the session gets stuck"
+ * was.
+ *
+ * MEASURED (10-core M-series, 200 spawns of `git --version`):
+ *
+ *   unbounded  wall 229ms   worst event-loop stall 217ms
+ *   pool of 4  wall 287ms   worst event-loop stall   3ms
+ *   pool of 8  wall 200ms   worst event-loop stall   3ms
+ *   pool of 16 wall 184ms   worst event-loop stall   8ms
+ *   pool of 32 wall 203ms   worst event-loop stall  27ms
+ *
+ * Eight is where wall-clock bottoms out — the bounded run is FASTER than the
+ * unbounded one, because 200 simultaneous forks contend more than they
+ * parallelise. Past 12 the stall grows again and buys nothing. So this costs
+ * no throughput; it only stops the burst from being one unbroken block.
+ */
+export const MAX_CONCURRENT_GIT = 8;
+
+let activeGitProcesses = 0;
+const waitingForGitSlot: Array<() => void> = [];
+
+/**
+ * Run `work` with a spawn slot held.
+ *
+ * A release HANDS ITS SLOT to the next waiter rather than decrementing and
+ * signalling. Decrementing first opens a window — the waiter only resumes on a
+ * later microtask, and a caller arriving in between sees a count below the
+ * limit, takes the slot, and then the waiter increments on top of it. The pool
+ * ratchets past its own ceiling, one process per contended release, which is
+ * precisely the burst this exists to prevent.
+ *
+ * Transferring also keeps the queue honestly FIFO: while anyone is waiting the
+ * count is pinned at the limit, so a newcomer always queues behind them
+ * instead of barging a slot a waiter was already promised.
+ *
+ * The release sits in a `finally` so a throwing or timing-out command cannot
+ * leak a slot and shrink the pool for the rest of the session.
+ */
+export async function withGitSlot<T>(work: () => Promise<T>): Promise<T> {
+  if (activeGitProcesses >= MAX_CONCURRENT_GIT) {
+    await new Promise<void>((resolve) => waitingForGitSlot.push(resolve));
+    // The slot came with the wakeup; the count already counts us.
+  } else {
+    activeGitProcesses += 1;
+  }
+  try {
+    return await work();
+  } finally {
+    const next = waitingForGitSlot.shift();
+    if (next) next();
+    else activeGitProcesses -= 1;
+  }
+}
+
+/**
  * Read a git command's stdout, or null if it failed.
  *
  * Exported for `gitActions.ts`, which owns the writes: the two modules must
@@ -35,14 +102,16 @@ export async function readGit(cwd: string, args: readonly string[]): Promise<str
 
 async function git(cwd: string, args: readonly string[]): Promise<string | null> {
   try {
-    const { stdout } = await run("git", [...args], {
-      cwd,
-      timeout: GIT_TIMEOUT_MS,
-      maxBuffer: MAX_BUFFER_BYTES,
-      // A pager would never return; git turns it off when not a TTY, but an
-      // explicit -c is the only guarantee across user configs.
-      env: { ...process.env, GIT_PAGER: "cat", GIT_OPTIONAL_LOCKS: "0" },
-    });
+    const { stdout } = await withGitSlot(() =>
+      run("git", [...args], {
+        cwd,
+        timeout: GIT_TIMEOUT_MS,
+        maxBuffer: MAX_BUFFER_BYTES,
+        // A pager would never return; git turns it off when not a TTY, but an
+        // explicit -c is the only guarantee across user configs.
+        env: { ...process.env, GIT_PAGER: "cat", GIT_OPTIONAL_LOCKS: "0" },
+      }),
+    );
     return stdout;
   } catch {
     // A non-zero exit is an answer, not a crash: "not a repo", "no upstream",
@@ -356,12 +425,14 @@ async function patch(
 ): Promise<{ diff: string; truncated: boolean }> {
   let stdout: string;
   try {
-    ({ stdout } = await run("git", [...args], {
-      cwd,
-      timeout: GIT_TIMEOUT_MS,
-      maxBuffer: MAX_BUFFER_BYTES,
-      env: { ...process.env, GIT_PAGER: "cat", GIT_OPTIONAL_LOCKS: "0" },
-    }));
+    ({ stdout } = await withGitSlot(() =>
+      run("git", [...args], {
+        cwd,
+        timeout: GIT_TIMEOUT_MS,
+        maxBuffer: MAX_BUFFER_BYTES,
+        env: { ...process.env, GIT_PAGER: "cat", GIT_OPTIONAL_LOCKS: "0" },
+      }),
+    ));
   } catch (error) {
     // A diff that found differences, a diff that overflowed the buffer, and a
     // diff that failed outright all land here; the first two still carry the

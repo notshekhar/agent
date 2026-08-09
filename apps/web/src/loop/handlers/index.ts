@@ -31,7 +31,7 @@ import * as Stream from "effect/Stream";
 import { onConfigReloaded } from "../reload.ts";
 import { createAssetUrl } from "./assets.ts";
 import { dispatchCommand } from "./dispatch.ts";
-import { browse, listEntries, readFile, searchEntries } from "./files.ts";
+import { browse, listEntries, readFile, searchEntries, writeFile } from "./files.ts";
 import { openInEditor } from "./editors.ts";
 import { cloneRepository, lookupRepository, publishRepository } from "./sourceControl.ts";
 import {
@@ -214,7 +214,7 @@ export const makeHandlers = (options: HandlerOptions) =>
   "projects.searchContents": () => fail("projects.searchContents"),
     "projects.listEntries": (input) => listEntries(input.cwd),
     "projects.readFile": (input) => readFile(input),
-  "projects.writeFile": () => fail("projects.writeFile"),
+    "projects.writeFile": (input) => writeFile(input),
   "shell.openInEditor": (input) => openInEditor(input),
     "filesystem.browse": (input) => browse(input),
     "assets.createUrl": (input) => createAssetUrl(input),

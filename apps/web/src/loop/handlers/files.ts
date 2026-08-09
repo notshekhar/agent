@@ -14,6 +14,7 @@ import {
   ProjectListEntriesResult as ProjectListEntriesResultSchema,
   ProjectReadFileResult as ProjectReadFileResultSchema,
   ProjectSearchEntriesResult as ProjectSearchEntriesResultSchema,
+  ProjectWriteFileResult as ProjectWriteFileResultSchema,
 } from "@loop/contracts";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
@@ -24,6 +25,7 @@ const decodeEntries = Schema.decodeUnknownEffect(ProjectListEntriesResultSchema)
 const decodeSearch = Schema.decodeUnknownEffect(ProjectSearchEntriesResultSchema);
 const decodeRead = Schema.decodeUnknownEffect(ProjectReadFileResultSchema);
 const decodeBrowse = Schema.decodeUnknownEffect(FilesystemBrowseResultSchema);
+const decodeWrite = Schema.decodeUnknownEffect(ProjectWriteFileResultSchema);
 
 const unavailable = (what: string) =>
   new EnvironmentAuthorizationError({
@@ -101,6 +103,35 @@ export const readFile = Effect.fnUntraced(function* (input: {
   if (!result.ok) return yield* Effect.fail(failed("Reading a file", result.failure));
   return yield* decodeRead(result).pipe(
     Effect.mapError(() => failed("Reading a file", "unexpected result shape")),
+  );
+});
+
+/**
+ * Save an edited file.
+ *
+ * The editor's save loop treats anything but a success as "still unsaved", so
+ * this failing is not cosmetic: it leaves the tab's dot on forever. It was
+ * failing for the most basic reason — the shell had no write at all and the
+ * handler was a stub — which is why saving never worked.
+ *
+ * The shell answers with the path it actually wrote, which can differ from the
+ * one asked for when the request repeated the tail of the workspace root. The
+ * caller keys its cache by that path, so the resolved one is what comes back.
+ */
+export const writeFile = Effect.fnUntraced(function* (input: {
+  readonly cwd: string;
+  readonly relativePath: string;
+  readonly contents: string;
+}) {
+  const files = loopFilesystem();
+  if (!files) return yield* Effect.fail(unavailable("Saving a file"));
+  if (!files.write) return yield* Effect.fail(unavailable("Saving a file"));
+  const result = yield* Effect.promise(() =>
+    files.write!(input.cwd, input.relativePath, input.contents),
+  );
+  if (!result.ok) return yield* Effect.fail(failed("Saving a file", result.failure));
+  return yield* decodeWrite({ relativePath: result.relativePath }).pipe(
+    Effect.mapError(() => failed("Saving a file", "unexpected result shape")),
   );
 });
 

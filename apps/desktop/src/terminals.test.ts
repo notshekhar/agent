@@ -229,3 +229,74 @@ describe("TerminalManager", () => {
     expect(terminals.snapshot("t", "term-1")?.history).toBe("one\ntwo\n");
   });
 });
+
+/**
+ * The attach boundary.
+ *
+ * A client has to subscribe before it asks for a snapshot, or it loses
+ * whatever the shell writes during the round trip — but that means the chunks
+ * it buffers straddle the snapshot, and the ones already inside `history`
+ * would be painted twice. `sequence` is what separates them, so the invariant
+ * the renderer leans on is that a snapshot's count is exactly the number of
+ * chunks its own `history` contains.
+ */
+describe("output sequence", () => {
+  test("counts every chunk, and a snapshot agrees with its history", () => {
+    const { terminals, spawned } = harness();
+    terminals.open({ threadId: "t1", terminalId: "a", cwd: tmpdir(), cols: 80, rows: 24 });
+    const pty = spawned[0];
+
+    expect(terminals.snapshot("t1", "a")?.sequence).toBe(0);
+
+    pty?.emitData("one\n");
+    pty?.emitData("two\n");
+    const after = terminals.snapshot("t1", "a");
+    expect(after?.sequence).toBe(2);
+    expect(after?.history).toBe("one\ntwo\n");
+
+    pty?.emitData("three\n");
+    expect(terminals.snapshot("t1", "a")?.sequence).toBe(3);
+  });
+
+  test("every output event carries its own position", () => {
+    const { terminals, events, spawned } = harness();
+    terminals.open({ threadId: "t1", terminalId: "a", cwd: tmpdir(), cols: 80, rows: 24 });
+    spawned[0]?.emitData("a");
+    spawned[0]?.emitData("b");
+    expect(
+      events.filter((event) => event.type === "output").map((event) => event.sequence),
+    ).toEqual([1, 2]);
+  });
+
+  /**
+   * `clear` wipes the scrollback but must NOT rewind the count: a client that
+   * reattached afterwards would measure new chunks against a boundary they
+   * had already passed and drop them.
+   */
+  test("clearing the scrollback does not rewind the count", () => {
+    const { terminals, spawned } = harness();
+    terminals.open({ threadId: "t1", terminalId: "a", cwd: tmpdir(), cols: 80, rows: 24 });
+    spawned[0]?.emitData("one\n");
+    terminals.clear("t1", "a");
+
+    const cleared = terminals.snapshot("t1", "a");
+    expect(cleared?.history).toBe("");
+    expect(cleared?.sequence).toBe(1);
+
+    spawned[0]?.emitData("two\n");
+    expect(terminals.snapshot("t1", "a")?.sequence).toBe(2);
+  });
+
+  /** A respawn under a reused id starts its own count from zero. */
+  test("a restarted shell starts counting again", () => {
+    const { terminals, spawned } = harness();
+    terminals.open({ threadId: "t1", terminalId: "a", cwd: tmpdir(), cols: 80, rows: 24 });
+    spawned[0]?.emitData("one\n");
+    spawned[0]?.emitExit(0);
+
+    terminals.open({ threadId: "t1", terminalId: "a", cwd: tmpdir(), cols: 80, rows: 24 });
+    expect(terminals.snapshot("t1", "a")?.sequence).toBe(0);
+    spawned[1]?.emitData("fresh\n");
+    expect(terminals.snapshot("t1", "a")?.sequence).toBe(1);
+  });
+});

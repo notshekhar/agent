@@ -8,7 +8,13 @@
 import Configstore from "configstore";
 import { getConfigDir, PRODUCT_NAME } from "../brand";
 import { join } from "node:path";
-import type { OAuthClientInformation, OAuthClientMetadata, OAuthClientProvider, OAuthTokens } from "@ai-sdk/mcp";
+import type {
+    OAuthAuthorizationServerInformation,
+    OAuthClientInformation,
+    OAuthClientMetadata,
+    OAuthClientProvider,
+    OAuthTokens,
+} from "@ai-sdk/mcp";
 import { resolveSecrets, type HttpServerConfig } from "./config";
 
 /**
@@ -57,6 +63,18 @@ interface StoredAuth {
     tokens?: OAuthTokens;
     codeVerifier?: string;
     state?: string;
+    /**
+     * Which authorization server the login was started against.
+     *
+     * Stored in its own right rather than as fields on `clientInformation`,
+     * which is where the SDK puts it if you let it. That default only works
+     * when the client information is the stored object — and with a configured
+     * `clientId` it is synthesized fresh on every read, so the metadata written
+     * before the redirect was invisible by the time the code came back and the
+     * exchange failed with "Stored OAuth authorization server metadata is
+     * required". Keeping it separate makes the two independent.
+     */
+    authorizationServer?: OAuthAuthorizationServerInformation;
 }
 
 function read(server: string): StoredAuth {
@@ -120,6 +138,27 @@ export class McpOAuthProvider implements OAuthClientProvider {
 
     saveClientInformation(info: OAuthClientInformation): void {
         write(this.server, { clientInformation: info });
+    }
+
+    /**
+     * The authorization server the SDK resolved, kept across the two `auth()`
+     * passes of a login.
+     *
+     * Implementing this pair is what makes the code exchange work for a
+     * pre-registered client. Without them the SDK falls back to stamping the
+     * same metadata onto whatever `saveClientInformation` persists and reading
+     * it back off `clientInformation()` — which silently does nothing when a
+     * configured `clientId` makes that a fresh literal each time. Slack, Figma
+     * and every other server that forbids dynamic registration are exactly the
+     * ones that set `clientId`, so the flow failed for precisely the servers
+     * that needed it.
+     */
+    saveAuthorizationServerInformation(info: OAuthAuthorizationServerInformation): void {
+        write(this.server, { authorizationServer: info });
+    }
+
+    authorizationServerInformation(): OAuthAuthorizationServerInformation | undefined {
+        return read(this.server).authorizationServer;
     }
 
     tokens(): OAuthTokens | undefined {
