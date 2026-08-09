@@ -12,6 +12,7 @@ import {
   ipcMain,
   MessageChannelMain,
   protocol,
+  screen,
   shell,
   utilityProcess,
 } from "electron";
@@ -193,9 +194,18 @@ function connectTerminalPort(): void {
 }
 
 function createWindow(): void {
+  // Open filling the screen. Sized to the work area at construction rather than
+  // `maximize()`d after it, because the latter paints a 1440x900 window first
+  // and then snaps — and the work area already excludes the menu bar, the Dock
+  // and the taskbar, so this is "as big as a window is allowed to be" without
+  // going fullscreen (which on macOS would take over a whole space).
+  const { workArea } = screen.getPrimaryDisplay();
+
   mainWindow = new BrowserWindow({
-    width: 1440,
-    height: 900,
+    x: workArea.x,
+    y: workArea.y,
+    width: workArea.width,
+    height: workArea.height,
     minWidth: 720,
     minHeight: 480,
     backgroundColor: "#0b0b0c",
