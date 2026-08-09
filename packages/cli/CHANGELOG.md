@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.18.2] - 2026-08-10
+
+### Added
+
+- **The browser's address bar remembers where it has been.** Type "local" and it completes to `localhost:3000`, with only the guessed part selected so the next keystroke replaces it rather than appending to it, and a list of matching pages sits underneath — ranked by how the query matches (the URL from the start, then the host, then anywhere in it, then the page title) and then by how often and how recently each was visited. Focusing the bar with nothing typed offers recent pages. History is kept per environment, so one project's local servers stay out of another's suggestions, and only pages that actually loaded are remembered: a URL that never resolved is not somewhere you have been, and should not come back as a suggestion.
+- **The Annotate button in the browser panel works.** It never did — the desktop shell answered the request with a rejection, and the panel treats a rejection as a cancelled pick, so the button lit up and went out again with nothing to show for it. Hovering now highlights the element under the cursor with its tag and size, clicking sends it to the chat composer with a screenshot cropped to it, the arrow keys widen and narrow the selection when the deepest element is not the one you meant, and Escape or a second press of the button cancels. The page cannot react to the click that picks, so a link no longer navigates out from under the screenshot. Regions, freehand drawing and elements inside iframes are not covered.
+
+### Fixed
+
+- **Searching the Files panel and then collapsing one of the matching folders no longer throws the search away.** The filter vanished, the text disappeared from the box, and the tree sprang back to its unfiltered self — and the folder did not collapse either. The tree's own search assumed it owned the search box, closing itself on any click on any row, and it re-applied its expansion on every change including the collapse it had just been given. Both are patched. The search box also keeps what you typed: it used to echo back a lowercased version, so "README" became "readme" as you typed it.
+- **The window opens at the size of the screen** instead of a fixed 1440x900, which on a larger display left the app in a small box in the middle of it.
+
 ## [0.18.1] - 2026-08-09
 
 ### Changed
