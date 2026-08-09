@@ -152,9 +152,49 @@ export interface GitStatus {
     readonly insertions: number;
     readonly deletions: number;
   };
+  /**
+   * The same changes with the index and the working tree kept apart.
+   *
+   * Optional because a shell older than this field simply does not send it, and
+   * the surfaces reading `workingTree` above must keep working against one.
+   * Empty on a workspace root, which has no single index.
+   */
+  readonly changes?: ReadonlyArray<GitFileChange>;
+  readonly hasConflicts?: boolean;
+  readonly stagedCount?: number;
+  readonly unstagedCount?: number;
   readonly hasUpstream: boolean;
   readonly aheadCount: number;
   readonly behindCount: number;
+}
+
+/** git's XY status letters. */
+export type GitStatusCode = "M" | "A" | "D" | "R" | "C" | "T" | "U" | "?" | "!";
+
+export type GitConflictKind =
+  | "both-modified"
+  | "both-added"
+  | "both-deleted"
+  | "added-by-us"
+  | "added-by-them"
+  | "deleted-by-us"
+  | "deleted-by-them";
+
+/** One changed file. A file may be staged AND unstaged; see `staged`/`unstaged`. */
+export interface GitFileChange {
+  readonly path: string;
+  readonly originalPath?: string;
+  readonly indexStatus: GitStatusCode | null;
+  readonly worktreeStatus: GitStatusCode | null;
+  readonly staged: boolean;
+  readonly unstaged: boolean;
+  readonly untracked: boolean;
+  /** Present iff unmerged, in which case it is in neither group. */
+  readonly conflict?: GitConflictKind;
+  readonly stagedInsertions: number;
+  readonly stagedDeletions: number;
+  readonly unstagedInsertions: number;
+  readonly unstagedDeletions: number;
 }
 
 /**
@@ -268,6 +308,26 @@ export interface LoopGitBridge {
   }): Promise<{ ok: true; value: GitStackedActionOutcome } | { ok: false; error: string }>;
   /** Progress for every in-flight action; filter by `actionId`. */
   onActionProgress?(listener: (event: GitActionProgressMessage) => void): () => void;
+  /**
+   * Index writes. All optional: a shell that predates them has no SCM panel,
+   * and a missing method must read as "not available here" rather than a
+   * TypeError inside a click handler.
+   *
+   * Each resolves with the repository's fresh status, so the caller repaints
+   * from what git did rather than predicting it.
+   */
+  stage?(cwd: string, paths: readonly string[]): Promise<GitStatus>;
+  unstage?(cwd: string, paths: readonly string[]): Promise<GitStatus>;
+  discard?(
+    cwd: string,
+    input: { tracked?: readonly string[]; untracked?: readonly string[] },
+  ): Promise<GitStatus>;
+  /** Partial staging: exact index content, working tree untouched. */
+  stageContent?(cwd: string, path: string, content: string): Promise<GitStatus>;
+  conflictStages?(
+    cwd: string,
+    path: string,
+  ): Promise<{ base: string | null; ours: string | null; theirs: string | null }>;
   /** What source-control tooling the machine has, for the settings panel. */
   discover?(): Promise<GitDiscovery>;
 }
