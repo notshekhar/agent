@@ -213,7 +213,10 @@ describe("conflicts", () => {
     await git("checkout", "main");
     await writeFile(join(repo, "shared.txt"), "ours\n");
     await git("commit", "-am", "ours");
-    await exec("git", ["merge", "other"], { cwd: repo }).catch(() => undefined);
+    // Through the helper, so the merge has the same identity the commits used:
+    // a machine with no global git config cannot merge without one. A
+    // conflicting merge exits non-zero, which is the point of the catch.
+    await git("merge", "other").catch(() => undefined);
   }
 
   test("reads the three sides out of the index stages", async () => {
@@ -252,7 +255,7 @@ describe("conflicts", () => {
     await writeFile(join(repo, "new.txt"), "ours\n");
     await git("add", ".");
     await git("commit", "-m", "ours");
-    await exec("git", ["merge", "other"], { cwd: repo }).catch(() => undefined);
+    await git("merge", "other").catch(() => undefined);
 
     const stages = await conflictStages(repo, "new.txt");
     expect(stages.base).toBeNull();
