@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.16.9] - 2026-08-09
+
+### Fixed
+
+- **Terminals in the desktop app stopped opening after a few hundred of them, and said `posix_spawnp failed`.** Nothing was wrong with the spawn. node-pty leaks two `/dev/ptmx` file descriptors on every terminal it starts on macOS — its cleanup loop is written so that in the ordinary case it closes nothing, and the parent's end of the pty is never closed at all — and macOS caps the number of ptys for the whole machine, not per process. So the app quietly consumed ptys until there were none left, and from that point every terminal failed, permanently, until it was restarted. Measured here: 242 terminals to exhaustion against a limit of 511 shared with every other terminal program running. The error message was misleading because node-pty reports that same string for five different failures, including the one that was actually happening — running out of ptys. Upgrading node-pty fixes the leak; 700 terminals now come and go leaving nothing behind.
+- **A shell that cannot start says so in the pane instead of failing an IPC call.** The shell is spawned when the terminal panel first reports its size, so a failure surfaced as a rejected `loop:pty.resize` — an error naming an internal method, over a pane that then stayed blank forever while every subsequent resize tried the spawn again. The reason is written into the terminal itself now, the pane settles instead of waiting for a shell that is never coming, and reopening it is what retries.
+
+### Changed
+
+- **The Linux desktop build no longer has to be packaged on Linux.** node-pty publishes prebuilt bindings for Linux as of the version this release moves to, so every platform is now cross-packageable from any machine.
+- **The model catalog was refreshed from models.dev** — pricing corrections across several Gemini and Vercel entries, and one model upstream has withdrawn.
+
 ## [0.16.7] - 2026-08-09
 
 ### Added

@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "electron": "40.10.6",
-    "node-pty": "^1.1.0-beta42",
+    "node-pty": "1.2.0-beta.15",
     "@notshekhar/loop-core": "workspace:*"
   },
   "devDependencies": {

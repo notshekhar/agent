@@ -91,7 +91,7 @@ interface Session {
   /** Null until the shell is spawned — see SPAWN_SIZE_GRACE_MS. */
   process: PtyProcess | null;
   history: string;
-  status: "starting" | "running" | "exited";
+  status: "starting" | "running" | "exited" | "error";
   exitCode: number | null;
   exitSignal: number | null;
   updatedAt: string;
@@ -181,8 +181,12 @@ export class TerminalManager extends EventEmitter {
     rows?: number;
     env?: Record<string, string>;
   }): TerminalSnapshot {
+    // `error` joins `exited` as a dead session: reopening the pane is how a
+    // user retries a spawn that failed for a transient reason, so it has to
+    // build a fresh session rather than hand back the corpse of the last one.
     const existing = this.#sessions.get(key(input.threadId, input.terminalId));
-    if (existing && existing.status !== "exited") return snapshotOf(existing);
+    if (existing && existing.status !== "exited" && existing.status !== "error")
+      return snapshotOf(existing);
 
     // An unreachable cwd would make the spawn throw with a message that says
     // nothing useful; fall back so a terminal still opens.
@@ -231,13 +235,19 @@ export class TerminalManager extends EventEmitter {
    * and a stray `%` was left on the first line of every terminal.
    */
   #start(session: Session, cols: number, rows: number): void {
-    const child = this.#spawn({
-      shell: defaultShell(),
-      cwd: session.cwd,
-      cols,
-      rows,
-      env: session.env,
-    });
+    let child: PtyProcess;
+    try {
+      child = this.#spawn({
+        shell: defaultShell(),
+        cwd: session.cwd,
+        cols,
+        rows,
+        env: session.env,
+      });
+    } catch (error) {
+      this.#fail(session, error);
+      return;
+    }
     session.process = child;
     session.status = "running";
     session.updatedAt = new Date().toISOString();
@@ -289,6 +299,47 @@ export class TerminalManager extends EventEmitter {
     }
   }
 
+  /**
+   * A shell that could not be spawned, reported into the pane rather than out
+   * of the IPC call.
+   *
+   * The spawn happens on the first `resize` — that is where the pane's real
+   * size finally arrives, see #start — so letting the throw propagate rejected
+   * a resize with a message no user could act on ("posix_spawnp failed"), left
+   * the session at `starting` with a null process forever, and made every
+   * later resize try to spawn again. The pane just stayed blank.
+   *
+   * Writing the reason into `history` is what puts it on screen: the pane
+   * paints history verbatim, so this is the only channel that reaches a user
+   * who is looking at an empty terminal and not at a devtools console.
+   */
+  #fail(session: Session, error: unknown): void {
+    const reason = error instanceof Error ? error.message : String(error);
+    session.status = "error";
+    session.process = null;
+    session.updatedAt = new Date().toISOString();
+
+    const notice = `\r\nloop: could not start a shell in ${session.cwd}\r\n      ${reason}\r\n`;
+    session.history = (session.history + notice).slice(-MAX_HISTORY_CHARS);
+    session.sequence += 1;
+    this.emit("output", {
+      threadId: session.threadId,
+      terminalId: session.terminalId,
+      type: "output",
+      data: notice,
+      sequence: session.sequence,
+    });
+    // Settles the pane's own status. Without it the surface sits on "starting"
+    // waiting for a shell that is never coming.
+    this.emit("output", {
+      threadId: session.threadId,
+      terminalId: session.terminalId,
+      type: "exited",
+      exitCode: null,
+      exitSignal: null,
+    });
+  }
+
   snapshot(threadId: string, terminalId: string): TerminalSnapshot | null {
     const session = this.#sessions.get(key(threadId, terminalId));
     return session ? snapshotOf(session) : null;
@@ -313,7 +364,10 @@ export class TerminalManager extends EventEmitter {
    */
   resize(threadId: string, terminalId: string, cols: number, rows: number): void {
     const session = this.#sessions.get(key(threadId, terminalId));
-    if (!session || session.status === "exited") return;
+    // `error` too, or a pane that keeps reporting its size would retry a
+    // failing spawn on every one — which is how a single failure turned into a
+    // stream of them. Retrying is `open`'s job, not a resize's.
+    if (!session || session.status === "exited" || session.status === "error") return;
     // node-pty throws on a zero dimension, which a hidden panel can report.
     if (cols < 1 || rows < 1) return;
     if (session.process === null) {

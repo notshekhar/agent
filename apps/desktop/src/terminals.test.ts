@@ -300,3 +300,85 @@ describe("output sequence", () => {
     expect(terminals.snapshot("t1", "a")?.sequence).toBe(1);
   });
 });
+
+/**
+ * What a spawn failure does.
+ *
+ * The real one that shipped: node-pty leaks a /dev/ptmx fd per spawn on macOS,
+ * so after a couple of hundred terminals `posix_openpt` starts failing and
+ * every shell after that refuses to start. node-pty reported it as the
+ * catch-all "posix_spawnp failed." (both errors take the same exit), and
+ * because the spawn happens on the first resize the throw came back as a
+ * rejected `loop:pty.resize` — a dialog about an IPC method, over a pane that
+ * stayed blank forever. The leak itself is fixed by node-pty 1.2.0-beta; this
+ * covers the shell's half, which has to hold for any failing spawn.
+ */
+describe("a spawn that fails", () => {
+  function failing(message = "posix_spawnp failed.") {
+    const terminals = new TerminalManager(() => {
+      throw new Error(message);
+    });
+    const events: TerminalOutput[] = [];
+    terminals.on("output", (event) => events.push(event));
+    return { terminals, events };
+  }
+
+  test("reports the reason into the pane instead of throwing at the caller", () => {
+    const { terminals, events } = failing();
+    terminals.open({ threadId: "t", terminalId: "a", cwd: tmpdir() });
+    // The resize is where the spawn happens, and it must not reject.
+    expect(() => terminals.resize("t", "a", 72, 40)).not.toThrow();
+
+    const snapshot = terminals.snapshot("t", "a")!;
+    expect(snapshot.status).toBe("error");
+    expect(snapshot.pid).toBeNull();
+    expect(snapshot.history).toContain("posix_spawnp failed.");
+    // `output` puts it on screen; `exited` settles a pane that would otherwise
+    // sit on "starting" waiting for a shell that is never coming.
+    expect(events.map((event) => event.type)).toEqual(["output", "exited"]);
+  });
+
+  test("a failure inside open is reported the same way", () => {
+    const { terminals, events } = failing();
+    // The size is already known here, so open spawns directly.
+    const snapshot = terminals.open({ threadId: "t", terminalId: "a", cwd: tmpdir(), cols: 80, rows: 24 });
+    expect(snapshot.status).toBe("error");
+    expect(events.map((event) => event.type)).toEqual(["output", "exited"]);
+  });
+
+  test("later resizes do not retry the spawn", () => {
+    let attempts = 0;
+    const terminals = new TerminalManager(() => {
+      attempts += 1;
+      throw new Error("posix_spawnp failed.");
+    });
+    terminals.open({ threadId: "t", terminalId: "a", cwd: tmpdir() });
+    terminals.resize("t", "a", 72, 40);
+    terminals.resize("t", "a", 100, 50);
+    terminals.resize("t", "a", 120, 60);
+
+    expect(attempts).toBe(1);
+  });
+
+  /** Reopening the pane is the retry, so a transient failure is recoverable. */
+  test("reopening starts a fresh session", () => {
+    let attempts = 0;
+    const spawned: FakePty[] = [];
+    const terminals = new TerminalManager(() => {
+      attempts += 1;
+      if (attempts === 1) throw new Error("posix_spawnp failed.");
+      const fake = new FakePty();
+      spawned.push(fake);
+      return fake;
+    });
+    terminals.open({ threadId: "t", terminalId: "a", cwd: tmpdir(), cols: 80, rows: 24 });
+    expect(terminals.snapshot("t", "a")?.status).toBe("error");
+
+    terminals.open({ threadId: "t", terminalId: "a", cwd: tmpdir(), cols: 80, rows: 24 });
+    const snapshot = terminals.snapshot("t", "a")!;
+    expect(snapshot.status).toBe("running");
+    expect(snapshot.pid).toBe(spawned[0]!.pid);
+    // The dead session's notice does not follow the new shell into the pane.
+    expect(snapshot.history).toBe("");
+  });
+});

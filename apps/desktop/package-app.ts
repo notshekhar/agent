@@ -69,10 +69,12 @@ if (!existsSync(cliBinary)) {
 /**
  * node-pty is a native addon, so it cannot be bundled and has to ship as a real
  * package. Its loader picks a binding at runtime from `prebuilds/<platform>-
- * <arch>/`, and upstream publishes those for darwin and win32 only — a linux
- * package is COMPILED at install time into `build/Release`. Both layouts are
- * copied, and the absence of either for the target is fatal here rather than a
- * terminal that mysteriously never opens.
+ * <arch>/`, falling back to a `build/Release` compiled at install time. Since
+ * 1.2.0-beta upstream publishes prebuilds for linux as well as darwin and
+ * win32, so every target we ship is cross-packageable from any host; the
+ * `build/Release` branch stays as the fallback for a target that ever loses
+ * its prebuild. The absence of both is fatal here rather than a terminal that
+ * mysteriously never opens.
  */
 const ptySource = join(here, "node_modules", "node-pty");
 if (!existsSync(ptySource)) throw new Error(`node-pty not installed at ${ptySource}`);
@@ -81,8 +83,8 @@ const hasCompiled = existsSync(join(ptySource, "build", "Release"));
 if (!hasPrebuild && !hasCompiled) {
     throw new Error(
         `node-pty has no binding for ${target}.\n` +
-            `Upstream ships prebuilds for darwin/win32 only, so linux must be packaged on a ` +
-            `linux runner where \`bun install\` compiles it.`,
+            `Expected ${ptySource}/prebuilds/${platform}-${arch}/. If upstream dropped that ` +
+            `prebuild, package this target on a ${platform} runner where \`bun install\` compiles it.`,
     );
 }
 

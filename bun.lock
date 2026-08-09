@@ -16,7 +16,7 @@
       "dependencies": {
         "@notshekhar/loop-core": "workspace:*",
         "electron": "40.10.6",
-        "node-pty": "^1.1.0-beta42",
+        "node-pty": "1.2.0-beta.15",
       },
       "devDependencies": {
         "@electron/packager": "^20.2.0",
@@ -87,7 +87,7 @@
     },
     "packages/cli": {
       "name": "@notshekhar/loop",
-      "version": "0.16.5",
+      "version": "0.16.8",
       "bin": {
         "loop": "./dist/cli.js",
         "lp": "./dist/cli.js",
@@ -103,7 +103,7 @@
     },
     "packages/core": {
       "name": "@notshekhar/loop-core",
-      "version": "0.16.5",
+      "version": "0.16.8",
       "dependencies": {
         "@ai-sdk/amazon-bedrock": "^5.0.50",
         "@ai-sdk/anthropic": "^4.0.36",
@@ -146,7 +146,7 @@
     },
     "packages/tui": {
       "name": "@notshekhar/loop-tui",
-      "version": "0.16.5",
+      "version": "0.16.8",
       "dependencies": {
         "get-east-asian-width": "^1.6.0",
         "marked": "^18.0.5",
@@ -158,7 +158,7 @@
     },
     "packages/web": {
       "name": "@notshekhar/loop-web",
-      "version": "0.16.5",
+      "version": "0.16.8",
     },
   },
   "trustedDependencies": [
@@ -1632,7 +1632,7 @@
 
     "node-int64": ["node-int64@0.4.0", "", {}, "sha512-O5lz91xSOeoXP6DulyHfllpq+Eg00MWitZIbtPfoSEvqIHdl5gfcY6hYzDWnj0qD5tz52PI08u9qUvSVeUBeHw=="],
 
-    "node-pty": ["node-pty@1.1.0", "", { "dependencies": { "node-addon-api": "^7.1.0" } }, "sha512-20JqtutY6JPXTUnL0ij1uad7Qe1baT46lyolh2sSENDd4sTzKZ4nmAFkeAARDKwmlLjPx6XKRlwRUxwjOy+lUg=="],
+    "node-pty": ["node-pty@1.2.0-beta.15", "", { "dependencies": { "node-addon-api": "^7.1.0" } }, "sha512-vORSzHXi4Ofl7HemVWpuudLqCPdaQb4LfpRCUpE5HPxhp4JYscl8zZwxh11p26v2wvW24WMwnMfLjhRLixrfxA=="],
 
     "node-releases": ["node-releases@2.0.52", "", {}, "sha512-MRlTqhAfoMx/4mhEbPo3Hi02g9LJZaJkka69V6h67Cb1gjrAG0jsTE4CZX1eptNx+VCAwJmfpnDIF4P0Nh1A7A=="],
 
