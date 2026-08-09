@@ -267,12 +267,13 @@ contextBridge.exposeInMainWorld("loop", {
     revealArtifact: (path: string) => ipcRenderer.invoke("loop:preview.revealArtifact", { path }),
     copyArtifactToClipboard: (path: string) =>
       ipcRenderer.invoke("loop:preview.copyArtifact", { path }),
-    // No annotation overlay ships in the guest, so there is no theme to push
-    // into it — but the host syncs one on every theme change and must not see
-    // a rejection for it.
+    // The picker paints its own fixed highlight (apps/desktop/src/previewPicker.ts)
+    // rather than a themed overlay, so there is nothing to push a theme into —
+    // but the host syncs one on every theme change and must not see a rejection.
     setAnnotationTheme: () => Promise.resolve(),
-    pickElement: unsupported("Picking an element"),
-    cancelPickElement: () => Promise.resolve(),
+    pickElement: (tabId: string) => ipcRenderer.invoke("loop:preview.pickElement", { tabId }),
+    cancelPickElement: (tabId: string) =>
+      ipcRenderer.invoke("loop:preview.cancelPickElement", { tabId }),
     pictureInPicture: {
       open: unsupported("Popping the preview out"),
       close: unsupported("Popping the preview out"),

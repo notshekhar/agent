@@ -524,6 +524,12 @@ app.whenReady().then(() => {
   ipcMain.handle("loop:preview.openDevTools", (_event, p: { tabId: string }) => {
     previews.openDevTools(p.tabId);
   });
+  ipcMain.handle("loop:preview.pickElement", (_event, p: { tabId: string }) =>
+    previews.pickElement(p.tabId),
+  );
+  ipcMain.handle("loop:preview.cancelPickElement", (_event, p: { tabId: string }) => {
+    previews.cancelPickElement(p.tabId);
+  });
   ipcMain.handle("loop:preview.clearCookies", () => previews.clearCookies());
   ipcMain.handle("loop:preview.clearCache", () => previews.clearCache());
   ipcMain.handle("loop:preview.screenshot", (_event, p: { tabId: string }) =>

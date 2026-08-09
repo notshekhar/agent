@@ -32,6 +32,15 @@ import { EventEmitter } from "node:events";
 import { mkdir, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
+import {
+  buildAnnotationPayload,
+  CANCEL_PICKER_SCRIPT,
+  PICKER_SCRIPT,
+  screenshotCropRect,
+  type PickedGuestElement,
+  type PreviewAnnotationPayload,
+} from "./previewPicker";
+
 /**
  * One session for every preview tab, separate from the app's own.
  *
@@ -46,7 +55,8 @@ export const PREVIEW_PARTITION = "persist:loop-preview";
  *
  * loop ships no picker preload, so unlike upstream there is no reason to
  * weaken context isolation: the guest is an ordinary sandboxed web page with
- * no bridge into either the app or Node.
+ * no bridge into either the app or Node. Element picking is injected on demand
+ * instead (apps/desktop/src/previewPicker.ts), which needs none of that.
  */
 const WEBVIEW_PREFERENCES = "contextIsolation=yes,sandbox=yes,nodeIntegration=no";
 
@@ -348,6 +358,76 @@ export class PreviewManager extends EventEmitter {
       contents.once("devtools-closed", () => {
         void this.#applyColorScheme(tab);
       });
+    }
+  }
+
+  /**
+   * Arms the in-page element picker and resolves with the annotation the user
+   * picked, or null if they pressed Escape, navigated away, or armed it again.
+   *
+   * The script's promise is the whole protocol — `executeJavaScript` resolves
+   * with whatever it resolves with — so a navigation mid-pick would otherwise
+   * leave this hanging forever with the button stuck lit.
+   */
+  async pickElement(tabId: string): Promise<PreviewAnnotationPayload | null> {
+    const contents = this.#require(tabId);
+    const tab = this.#tabs.get(tabId);
+    const abandoned = new Promise<null>((resolve) => {
+      const done = () => {
+        contents.off("did-start-navigation", done);
+        contents.off("destroyed", done);
+        resolve(null);
+      };
+      contents.once("did-start-navigation", done);
+      contents.once("destroyed", done);
+    });
+
+    // Escape is handled by a listener inside the guest, so the guest has to own
+    // the keyboard for it to arrive. `PreviewView` puts focus back where the
+    // user left it once the pick settles.
+    contents.focus();
+
+    let picked: PickedGuestElement | null = null;
+    try {
+      picked = (await Promise.race([
+        contents.executeJavaScript(PICKER_SCRIPT, true) as Promise<PickedGuestElement | null>,
+        abandoned,
+      ])) as PickedGuestElement | null;
+    } catch {
+      // Frame torn down under the pick; treat as a cancel.
+      picked = null;
+    }
+    if (!picked || !alive(contents)) return null;
+
+    const screenshot = await this.#captureAnnotationCrop(contents, picked, tab?.zoomFactor ?? 1);
+    return buildAnnotationPayload({ picked, screenshot, now: new Date() });
+  }
+
+  cancelPickElement(tabId: string): void {
+    const tab = this.#tabs.get(tabId);
+    if (!alive(tab?.contents ?? null)) return;
+    void tab!.contents!.executeJavaScript(CANCEL_PICKER_SCRIPT, true).catch(() => undefined);
+  }
+
+  async #captureAnnotationCrop(
+    contents: WebContents,
+    picked: PickedGuestElement,
+    zoomFactor: number,
+  ): Promise<PreviewAnnotationPayload["screenshot"]> {
+    try {
+      const crop = screenshotCropRect(picked.rect, zoomFactor, picked.viewport);
+      // A rect that clamps to nothing (element scrolled out of view) still
+      // deserves a screenshot — the whole viewport says more than none at all.
+      const image = crop ? await contents.capturePage(crop) : await contents.capturePage();
+      const imageSize = image.getSize();
+      return {
+        dataUrl: image.toDataURL(),
+        width: imageSize.width,
+        height: imageSize.height,
+        cropRect: crop ?? { x: 0, y: 0, width: imageSize.width, height: imageSize.height },
+      };
+    } catch {
+      return null;
     }
   }
 
