@@ -11,7 +11,7 @@
  */
 import { EventEmitter } from "node:events";
 import { existsSync } from "node:fs";
-import { homedir, platform } from "node:os";
+import { homedir, platform, userInfo } from "node:os";
 import * as pty from "node-pty";
 
 /** Enough scrollback to restore a useful screen on reattach, bounded. */
@@ -117,10 +117,88 @@ interface Session {
 
 const key = (threadId: string, terminalId: string) => `${threadId}:${terminalId}`;
 
-/** The user's login shell, so aliases and prompt match their terminal app. */
+/**
+ * The user's login shell, resolved the way VS Code resolves it.
+ *
+ * `process.env.SHELL` is only set when the app was started FROM a terminal. A
+ * GUI launch — Finder, Dock, Spotlight — inherits launchd's environment, and
+ * that environment has no SHELL at all (`launchctl getenv SHELL` comes back
+ * empty). So the packaged app always fell through to the hardcoded default and
+ * opened zsh for everyone, whatever their actual login shell was.
+ *
+ * `os.userInfo().shell` reads the passwd database — the same source as
+ * `dscl . -read /Users/<me> UserShell` — which is what the login shell really
+ * is, no matter how the app was started. The env still wins when it is set, so
+ * a shell deliberately overridden for a dev run is still honoured.
+ */
 function defaultShell(): string {
   if (platform() === "win32") return process.env["COMSPEC"] ?? "powershell.exe";
-  return process.env["SHELL"] ?? "/bin/zsh";
+  const fromEnv = process.env["SHELL"];
+  if (fromEnv !== undefined && fromEnv !== "") return fromEnv;
+  try {
+    const { shell } = userInfo();
+    if (shell) return shell;
+  } catch {
+    // No passwd entry for this uid — possible in a container. Fall through.
+  }
+  return "/bin/zsh";
+}
+
+/**
+ * Shells that are known to take `-l` to mean "login shell".
+ *
+ * An allowlist rather than passing `-l` blindly: an unrecognised shell that
+ * does not understand the flag would fail to start at all, and a terminal that
+ * opens with the wrong PATH beats one that does not open.
+ */
+const LOGIN_FLAG_SHELLS = new Set([
+  "zsh",
+  "bash",
+  "sh",
+  "fish",
+  "dash",
+  "ksh",
+  "mksh",
+  "tcsh",
+  "csh",
+  "nu",
+]);
+
+/**
+ * Start the shell as a LOGIN shell on macOS, as VS Code and Terminal.app do.
+ *
+ * The same empty GUI environment that hides SHELL also hides PATH — `launchctl
+ * getenv PATH` is empty too — so a shell spawned by a Finder-launched app
+ * starts with a bare `/usr/bin:/bin:/usr/sbin:/sbin`. zsh reads `.zprofile`,
+ * where homebrew's `shellenv` and most PATH setup lives, ONLY for login shells;
+ * an interactive non-login shell reads `.zshrc` and stops. That is why the pane
+ * looked almost right and wasn't: the prompt was there, and `brew`, `bun`,
+ * `~/.local/bin` and everything else the user installed were not.
+ *
+ * Linux gets no flag, matching VS Code: a Linux desktop session already hands
+ * the app the user's environment, so the login files have run.
+ */
+/**
+ * Electron's own variables, which a shell must not inherit.
+ *
+ * `ELECTRON_RUN_AS_NODE=1` makes any Electron binary behave as plain node, so
+ * leaking it into the pane silently breaks every Electron-based tool the user
+ * runs there — including loop's own desktop app. VS Code strips the same set
+ * for the same reason.
+ */
+const STRIPPED_ENV = ["ELECTRON_RUN_AS_NODE", "ELECTRON_NO_ATTACH_CONSOLE", "ELECTRON_NO_ASAR"];
+
+/** The environment a pane's shell is born into. */
+function shellEnv(overrides: Record<string, string> | undefined): Record<string, string> {
+  const env = { ...process.env, ...overrides, TERM: "xterm-256color" } as Record<string, string>;
+  for (const name of STRIPPED_ENV) delete env[name];
+  return env;
+}
+
+function shellArgs(shell: string): string[] {
+  if (platform() !== "darwin") return [];
+  const name = shell.slice(shell.lastIndexOf("/") + 1);
+  return LOGIN_FLAG_SHELLS.has(name) ? ["-l"] : [];
 }
 
 export declare interface TerminalManager {
@@ -147,6 +225,8 @@ export interface PtyProcess {
 
 export type PtySpawner = (input: {
   readonly shell: string;
+  /** `-l` on macOS, so the login files that build PATH actually run. */
+  readonly args: readonly string[];
   readonly cwd: string;
   readonly cols: number;
   readonly rows: number;
@@ -154,7 +234,7 @@ export type PtySpawner = (input: {
 }) => PtyProcess;
 
 const spawnRealPty: PtySpawner = (input) =>
-  pty.spawn(input.shell, [], {
+  pty.spawn(input.shell, [...input.args], {
     name: "xterm-256color",
     cols: input.cols,
     rows: input.rows,
@@ -196,7 +276,7 @@ export class TerminalManager extends EventEmitter {
       terminalId: input.terminalId,
       cwd,
       worktreePath: input.worktreePath ?? null,
-      env: { ...process.env, ...input.env, TERM: "xterm-256color" } as Record<string, string>,
+      env: shellEnv(input.env),
       process: null,
       history: "",
       status: "starting",
@@ -235,10 +315,12 @@ export class TerminalManager extends EventEmitter {
    * and a stray `%` was left on the first line of every terminal.
    */
   #start(session: Session, cols: number, rows: number): void {
+    const shell = defaultShell();
     let child: PtyProcess;
     try {
       child = this.#spawn({
-        shell: defaultShell(),
+        shell,
+        args: shellArgs(shell),
         cwd: session.cwd,
         cols,
         rows,

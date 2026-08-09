@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { tmpdir } from "node:os";
+import { tmpdir, userInfo } from "node:os";
 
 import { TerminalManager, type PtyProcess, type TerminalOutput } from "./terminals";
 
@@ -380,5 +380,105 @@ describe("a spawn that fails", () => {
     expect(snapshot.pid).toBe(spawned[0]!.pid);
     // The dead session's notice does not follow the new shell into the pane.
     expect(snapshot.history).toBe("");
+  });
+});
+
+/**
+ * Which shell a pane opens, and how.
+ *
+ * The bug: the packaged app opened zsh for everyone regardless of their login
+ * shell, and the shell it opened had none of their PATH. Both come from the
+ * same fact — a GUI launch (Finder/Dock/Spotlight) inherits launchd's
+ * environment, which has neither SHELL nor PATH set. `process.env.SHELL` is
+ * only populated when the app is started from a terminal, which is exactly the
+ * case a developer tests in and a user never hits.
+ */
+describe("which shell a pane opens", () => {
+  function spy() {
+    const calls: Array<{ shell: string; args: readonly string[] }> = [];
+    const terminals = new TerminalManager((input) => {
+      calls.push({ shell: input.shell, args: input.args });
+      return new FakePty();
+    });
+    return { terminals, calls };
+  }
+
+  const start = (terminals: TerminalManager) =>
+    terminals.open({ threadId: "t", terminalId: "a", cwd: tmpdir(), cols: 80, rows: 24 });
+
+  test("falls back to the login shell when SHELL is unset", () => {
+    const saved = process.env["SHELL"];
+    delete process.env["SHELL"];
+    try {
+      const { terminals, calls } = spy();
+      start(terminals);
+      // The passwd entry, not the hardcoded default — those coincide on this
+      // machine, so assert against the source rather than a literal.
+      expect(calls[0]!.shell).toBe(userInfo().shell || "/bin/zsh");
+    } finally {
+      if (saved === undefined) delete process.env["SHELL"];
+      else process.env["SHELL"] = saved;
+    }
+  });
+
+  test("an explicit SHELL still wins", () => {
+    const saved = process.env["SHELL"];
+    process.env["SHELL"] = "/bin/bash";
+    try {
+      const { terminals, calls } = spy();
+      start(terminals);
+      expect(calls[0]!.shell).toBe("/bin/bash");
+    } finally {
+      if (saved === undefined) delete process.env["SHELL"];
+      else process.env["SHELL"] = saved;
+    }
+  });
+
+  test.skipIf(process.platform !== "darwin")(
+    "starts a login shell on macOS, so PATH is actually built",
+    () => {
+      // Without -l, zsh reads .zshrc and never .zprofile — where homebrew's
+      // shellenv and most PATH setup lives. The pane looked right and had none
+      // of the user's tools on PATH.
+      const { terminals, calls } = spy();
+      start(terminals);
+      expect(calls[0]!.args).toEqual(["-l"]);
+    },
+  );
+
+  test.skipIf(process.platform !== "darwin")("an exotic shell gets no unknown flag", () => {
+    const saved = process.env["SHELL"];
+    process.env["SHELL"] = "/opt/weird/myshell";
+    try {
+      const { terminals, calls } = spy();
+      start(terminals);
+      // Passing -l blindly would fail to start a shell that does not take it,
+      // and a terminal with the wrong PATH beats no terminal at all.
+      expect(calls[0]!.args).toEqual([]);
+    } finally {
+      if (saved === undefined) delete process.env["SHELL"];
+      else process.env["SHELL"] = saved;
+    }
+  });
+
+  test("Electron's own variables do not reach the shell", () => {
+    // ELECTRON_RUN_AS_NODE makes any Electron binary run as plain node, so
+    // leaking it breaks every Electron tool the user runs in the pane.
+    process.env["ELECTRON_RUN_AS_NODE"] = "1";
+    try {
+      const terminals = new TerminalManager(() => new FakePty());
+      terminals.open({ threadId: "t", terminalId: "a", cwd: tmpdir(), cols: 80, rows: 24 });
+      // The session's env is what the spawn receives; assert through a spy.
+      const captured: Array<Record<string, string>> = [];
+      const spied = new TerminalManager((input) => {
+        captured.push(input.env);
+        return new FakePty();
+      });
+      spied.open({ threadId: "t", terminalId: "b", cwd: tmpdir(), cols: 80, rows: 24 });
+      expect(captured[0]!["ELECTRON_RUN_AS_NODE"]).toBeUndefined();
+      expect(captured[0]!["TERM"]).toBe("xterm-256color");
+    } finally {
+      delete process.env["ELECTRON_RUN_AS_NODE"];
+    }
   });
 });

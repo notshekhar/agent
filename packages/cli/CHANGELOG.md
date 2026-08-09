@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.16.10] - 2026-08-09
+
+### Fixed
+
+- **The desktop app's terminal opens your login shell, not always zsh.** It read `$SHELL` to decide, and `$SHELL` is only set when a program is started from a terminal — an app launched from the Dock, Finder or Spotlight inherits launchd's environment, which does not have it. So the packaged app fell through to a hardcoded zsh for everyone, and anyone whose login shell is fish, bash or anything else got the wrong one. It now reads the passwd database, the same source `dscl` reports, which is right however the app was started. An explicitly set `$SHELL` still wins.
+- **That shell now starts as a login shell on macOS, so your PATH is really your PATH.** The same empty GUI environment that hides `$SHELL` hides `PATH` too, leaving a pane that started from a bare `/usr/bin:/bin`. zsh only reads `.zprofile` — where Homebrew's `shellenv` and most PATH setup lives — for login shells, so the terminal came up looking correct while missing much of what you had installed. Measured here, it went from 10 PATH entries to 18. This is what VS Code and Terminal.app do, and it is applied only to shells known to accept the flag, so an unusual shell still starts rather than failing on an argument it does not understand.
+- **Electron's own variables no longer leak into the terminal.** `ELECTRON_RUN_AS_NODE` makes any Electron binary run as plain node, so inheriting it quietly broke Electron-based tools run from the pane — including loop's own desktop app.
+
 ## [0.16.9] - 2026-08-09
 
 ### Fixed
