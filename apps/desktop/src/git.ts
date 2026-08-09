@@ -659,7 +659,12 @@ async function untrackedPatch(cwd: string): Promise<{ diff: string; truncated: b
 
 export interface GitDiffPreviewSource {
   readonly id: string;
-  readonly kind: "working-tree" | "branch-range";
+  /**
+   * `staged` and `unstaged` are the two halves the SCM panel's groups render;
+   * `working-tree` is both of them fused, which is what "what has changed since
+   * the last commit" means and what the review pane has always shown.
+   */
+  readonly kind: "working-tree" | "branch-range" | "staged" | "unstaged";
   readonly title: string;
   readonly baseRef: string | null;
   readonly headRef: string | null;
@@ -706,6 +711,12 @@ interface RepoPatches {
   readonly workingTreeTruncated: boolean;
   readonly range: string;
   readonly rangeTruncated: boolean;
+  /** The index against HEAD — what a commit right now would contain. */
+  readonly staged: string;
+  readonly stagedTruncated: boolean;
+  /** The working tree against the index, plus untracked files. */
+  readonly unstaged: string;
+  readonly unstagedTruncated: boolean;
 }
 
 /** Both patches for one repository: the working tree, and the branch range. */
@@ -717,7 +728,7 @@ async function repoPatches(
   const branch = (await git(cwd, ["branch", "--show-current"]))?.trim() || null;
   const baseRef = options.baseRef?.trim() || (await baseBranchFor(cwd, branch));
 
-  const [tracked, untracked, range] = await Promise.all([
+  const [tracked, untracked, range, staged, unstaged] = await Promise.all([
     patch(
       cwd,
       ["diff", ...PATCH_FLAGS, ...whitespace, "HEAD", "--"],
@@ -731,11 +742,24 @@ async function repoPatches(
           MAX_TRACKED_DIFF_BYTES,
         )
       : Promise.resolve({ diff: "", truncated: false }),
+    // `--cached` is the index against HEAD; a bare `diff` is the working tree
+    // against the index. `diff HEAD` above is neither, and for a file staged
+    // and then edited again it equals neither side.
+    patch(cwd, ["diff", ...PATCH_FLAGS, ...whitespace, "--cached", "--"], MAX_TRACKED_DIFF_BYTES),
+    patch(cwd, ["diff", ...PATCH_FLAGS, ...whitespace, "--"], MAX_TRACKED_DIFF_BYTES),
   ]);
 
   return {
     branch,
     baseRef,
+    staged: staged.diff,
+    stagedTruncated: staged.truncated,
+    // Untracked files belong here rather than with the staged side: they have
+    // no index entry at all, so nothing about them is staged.
+    unstaged: [unstaged.diff.trimEnd(), untracked.diff.trimEnd()]
+      .filter((diff) => diff !== "")
+      .join("\n"),
+    unstagedTruncated: unstaged.truncated || untracked.truncated,
     workingTree: [tracked.diff.trimEnd(), untracked.diff.trimEnd()]
       .filter((diff) => diff !== "")
       .join("\n"),
@@ -753,6 +777,11 @@ function diffSources(input: {
   readonly baseRef: string | null;
   readonly headRef: string | null;
   readonly rangeTitle: string;
+  /** Absent for a folder of repositories, which has no single index. */
+  readonly staged?: string;
+  readonly stagedTruncated?: boolean;
+  readonly unstaged?: string;
+  readonly unstagedTruncated?: boolean;
 }): GitDiffPreview {
   return {
     isRepo: true,
@@ -777,6 +806,41 @@ function diffSources(input: {
         diffHash: sha256(input.range),
         truncated: input.rangeTruncated,
       },
+      /**
+       * The two halves, for the SCM panel's groups.
+       *
+       * Appended rather than inserted, and omitted entirely where there is no
+       * index: the review pane picks its source by `id`, so anything reading
+       * the first two entries keeps getting exactly what it got before.
+       */
+      ...(input.staged === undefined
+        ? []
+        : [
+            {
+              id: "staged",
+              kind: "staged" as const,
+              title: "Staged changes",
+              baseRef: "HEAD",
+              headRef: null,
+              diff: input.staged,
+              diffHash: sha256(input.staged),
+              truncated: input.stagedTruncated ?? false,
+            },
+          ]),
+      ...(input.unstaged === undefined
+        ? []
+        : [
+            {
+              id: "unstaged",
+              kind: "unstaged" as const,
+              title: "Changes",
+              baseRef: null,
+              headRef: null,
+              diff: input.unstaged,
+              diffHash: sha256(input.unstaged),
+              truncated: input.unstagedTruncated ?? false,
+            },
+          ]),
     ],
   };
 }

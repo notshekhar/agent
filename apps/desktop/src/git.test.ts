@@ -60,12 +60,16 @@ describe("diffPreview", () => {
     }
   });
 
-  test("returns both sources with stable hashes", async () => {
+  test("returns every source with stable hashes", async () => {
     const preview = await diffPreview(repo);
     expect(preview.isRepo).toBe(true);
+    // The review pane's two, then the SCM panel's two halves. Order matters
+    // only in that the original pair stays first; everything picks by id.
     expect(preview.sources.map((source) => source.kind)).toEqual([
       "working-tree",
       "branch-range",
+      "staged",
+      "unstaged",
     ]);
     for (const source of preview.sources) {
       expect(source.diffHash).toMatch(/^[0-9a-f]{64}$/);
@@ -491,5 +495,80 @@ describe("index-aware status", () => {
     } finally {
       await rm(conflicted, { recursive: true, force: true });
     }
+  });
+});
+
+/**
+ * The per-side patches the two groups render.
+ *
+ * `working-tree` fuses the index and the working tree, so for a file that was
+ * staged and then edited again it shows one combined patch belonging to
+ * neither group. These are the two halves, and the test that matters is that
+ * they disagree — if both showed the same hunk the split would be decorative.
+ */
+describe("staged and unstaged diff sources", () => {
+  let sandbox: string;
+
+  async function run3(cwd: string, ...args: string[]): Promise<void> {
+    await run("git", args, {
+      cwd,
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: "loop",
+        GIT_AUTHOR_EMAIL: "loop@example.com",
+        GIT_COMMITTER_NAME: "loop",
+        GIT_COMMITTER_EMAIL: "loop@example.com",
+      },
+    });
+  }
+
+  beforeAll(async () => {
+    sandbox = await mkdtemp(join(tmpdir(), "loop-sides-"));
+    await run3(sandbox, "init", "--initial-branch=main");
+    await writeFile(join(sandbox, "file.txt"), "one\n");
+    await run3(sandbox, "add", ".");
+    await run3(sandbox, "commit", "-m", "first");
+
+    await writeFile(join(sandbox, "file.txt"), "one\nSTAGED\n");
+    await run3(sandbox, "add", "file.txt");
+    await writeFile(join(sandbox, "file.txt"), "one\nSTAGED\nUNSTAGED\n");
+    await writeFile(join(sandbox, "extra.txt"), "untracked\n");
+  });
+
+  afterAll(async () => {
+    await rm(sandbox, { recursive: true, force: true });
+  });
+
+  test("each side carries only its own change", async () => {
+    const preview = await diffPreview(sandbox);
+    const staged = preview.sources.find((source) => source.id === "staged");
+    const unstaged = preview.sources.find((source) => source.id === "unstaged");
+
+    expect(staged?.diff).toContain("+STAGED");
+    expect(staged?.diff).not.toContain("+UNSTAGED");
+
+    expect(unstaged?.diff).toContain("+UNSTAGED");
+    expect(unstaged?.diff).not.toContain("+STAGED");
+  });
+
+  test("untracked files are unstaged, never staged", async () => {
+    // They have no index entry at all, so nothing about them is staged.
+    const preview = await diffPreview(sandbox);
+    expect(preview.sources.find((source) => source.id === "unstaged")?.diff).toContain("extra.txt");
+    expect(preview.sources.find((source) => source.id === "staged")?.diff).not.toContain(
+      "extra.txt",
+    );
+  });
+
+  test("the original two sources are untouched and still first", async () => {
+    // The review pane picks by id and must keep getting what it always got.
+    const preview = await diffPreview(sandbox);
+    expect(preview.sources.slice(0, 2).map((source) => source.id)).toEqual([
+      "working-tree",
+      "branch-range",
+    ]);
+    const workingTree = preview.sources[0];
+    expect(workingTree?.diff).toContain("+STAGED");
+    expect(workingTree?.diff).toContain("+UNSTAGED");
   });
 });
