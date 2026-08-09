@@ -26,6 +26,13 @@ import {
   status as gitStatus,
 } from "./git.js";
 import {
+  conflictStages,
+  discardChanges,
+  stageContent,
+  stageFiles,
+  unstageFiles,
+} from "./staging.js";
+import {
   runStackedAction as gitRunStackedAction,
   type GitStackedAction,
   type GitStackedActionResult,
@@ -85,6 +92,34 @@ export function createHostHandlers(services: HostServices): HostTable {
     "git.refs": (p) => listRefs(p["cwd"] as string),
     "git.status": (p) => gitStatus(p["cwd"] as string),
     "git.init": (p) => gitInit(p["cwd"] as string),
+    /**
+     * The index writes. Each returns the fresh status rather than nothing, so
+     * the panel repaints from what git actually did instead of predicting it —
+     * staging one file can change another's state (a rename is two paths), and
+     * a guess that disagrees with the repository is worse than a round trip.
+     */
+    "git.stage": async (p) => {
+      await stageFiles(p["cwd"] as string, p["paths"] as string[]);
+      return gitStatus(p["cwd"] as string);
+    },
+    "git.unstage": async (p) => {
+      await unstageFiles(p["cwd"] as string, p["paths"] as string[]);
+      return gitStatus(p["cwd"] as string);
+    },
+    "git.discard": async (p) => {
+      await discardChanges(p["cwd"] as string, {
+        tracked: (p["tracked"] as string[] | undefined) ?? [],
+        untracked: (p["untracked"] as string[] | undefined) ?? [],
+      });
+      return gitStatus(p["cwd"] as string);
+    },
+    /** Partial staging: the caller computed the content; see staging.ts. */
+    "git.stageContent": async (p) => {
+      await stageContent(p["cwd"] as string, p["path"] as string, p["content"] as string);
+      return gitStatus(p["cwd"] as string);
+    },
+    "git.conflictStages": (p) =>
+      conflictStages(p["cwd"] as string, p["path"] as string),
     "git.diffPreview": (p) =>
       gitDiffPreview(p["cwd"] as string, {
         ...(p["baseRef"] === undefined ? {} : { baseRef: p["baseRef"] as string }),

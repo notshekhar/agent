@@ -195,6 +195,20 @@ contextBridge.exposeInMainWorld("loop", {
       ipcRenderer.invoke("loop:git.diffPreview", { cwd, ...options }),
     runStackedAction: (input: unknown) => ipcRenderer.invoke("loop:git.runStackedAction", input),
     discover: () => ipcRenderer.invoke("loop:git.discover"),
+    /**
+     * Index writes. Each answers with the repository's fresh status, so the
+     * panel repaints from what git did rather than predicting it.
+     */
+    stage: (cwd: string, paths: readonly string[]) =>
+      ipcRenderer.invoke("loop:git.stage", { cwd, paths }),
+    unstage: (cwd: string, paths: readonly string[]) =>
+      ipcRenderer.invoke("loop:git.unstage", { cwd, paths }),
+    discard: (cwd: string, input: { tracked?: readonly string[]; untracked?: readonly string[] }) =>
+      ipcRenderer.invoke("loop:git.discard", { cwd, ...input }),
+    stageContent: (cwd: string, path: string, content: string) =>
+      ipcRenderer.invoke("loop:git.stageContent", { cwd, path, content }),
+    conflictStages: (cwd: string, path: string) =>
+      ipcRenderer.invoke("loop:git.conflictStages", { cwd, path }),
     onActionProgress(listener: (event: unknown) => void): () => void {
       gitActionListeners.add(listener);
       return () => gitActionListeners.delete(listener);
