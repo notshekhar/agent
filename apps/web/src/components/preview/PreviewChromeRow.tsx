@@ -8,10 +8,13 @@ import {
   RotateCw,
 } from "lucide-react";
 import {
+  type ChangeEvent,
   type FormEvent,
   type KeyboardEvent,
   type ReactNode,
   useEffect,
+  useId,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -20,6 +23,14 @@ import { Button } from "~/components/ui/button";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "~/components/ui/input-group";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { cn } from "~/lib/utils";
+
+import { NO_OMNIBOX_HIGHLIGHT, nextOmniboxHighlight, resolveOmniboxInput } from "./previewOmnibox";
+import {
+  matchPreviewUrlSuggestions,
+  type PreviewUrlHistoryEntry,
+  type PreviewUrlSuggestion,
+} from "./previewUrlHistory";
+import { PreviewUrlSuggestions } from "./PreviewUrlSuggestions";
 
 interface Props {
   url: string;
@@ -32,6 +43,8 @@ interface Props {
   inputDisabled?: boolean | undefined;
   /** Bumping this value re-focuses and selects the URL input. */
   focusUrlNonce?: number | undefined;
+  /** Visited pages for this environment; drives suggestions and type-ahead. */
+  history?: ReadonlyArray<PreviewUrlHistoryEntry> | undefined;
   onBack: () => void;
   onForward: () => void;
   onRefresh: () => void;
@@ -73,6 +86,7 @@ export function PreviewChromeRow({
   refreshDisabled,
   inputDisabled,
   focusUrlNonce,
+  history,
   onBack,
   onForward,
   onRefresh,
@@ -91,8 +105,24 @@ export function PreviewChromeRow({
   trailingActions,
 }: Props) {
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const addressRef = useRef<HTMLDivElement | null>(null);
   const [draft, setDraft] = useState(url);
   const [inputFocused, setInputFocused] = useState(false);
+  // `null` means the bar is showing the current page untouched, so suggestions
+  // fall back to recent history the way a browser does on a fresh click.
+  const [typed, setTyped] = useState<string | null>(null);
+  const [suggestionsOpen, setSuggestionsOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(NO_OMNIBOX_HIGHLIGHT);
+  const pendingSelectionRef = useRef<{ start: number; end: number } | null>(null);
+  const listId = useId();
+  const optionId = (index: number) => `${listId}-option-${index}`;
+
+  const suggestions = useMemo(
+    () => matchPreviewUrlSuggestions(history ?? [], typed ?? "", { exclude: url }),
+    [history, typed, url],
+  );
+  const listOpen = inputFocused && suggestionsOpen && suggestions.length > 0;
+  const activeSuggestion = activeIndex >= 0 ? suggestions[activeIndex] : undefined;
 
   useEffect(() => {
     if (focusUrlNonce == null) return;
@@ -101,12 +131,57 @@ export function PreviewChromeRow({
     node.focus();
   }, [focusUrlNonce]);
 
+  // Type-ahead only counts if the guessed remainder is selected, and the input
+  // has to be rendered with the completed value before that range exists.
+  useEffect(() => {
+    const selection = pendingSelectionRef.current;
+    if (!selection) return;
+    pendingSelectionRef.current = null;
+    inputRef.current?.setSelectionRange(selection.start, selection.end);
+  });
+
+  const closeSuggestions = () => {
+    setSuggestionsOpen(false);
+    setActiveIndex(NO_OMNIBOX_HIGHLIGHT);
+  };
+
+  const submitUrl = (next: string) => {
+    const trimmed = next.trim();
+    if (trimmed.length === 0) return;
+    closeSuggestions();
+    onSubmit(trimmed);
+    inputRef.current?.blur();
+  };
+
   const submit = (event?: FormEvent | KeyboardEvent) => {
     event?.preventDefault();
-    const next = draft.trim();
-    if (next.length === 0) return;
-    onSubmit(next);
-    inputRef.current?.blur();
+    submitUrl(activeSuggestion?.url ?? draft);
+  };
+
+  const handleChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const value = event.target.value;
+    const target = event.target;
+    // Suggestions are recomputed here rather than read from the memo above:
+    // that one still reflects the previous keystroke at this point.
+    const state = resolveOmniboxInput({
+      value,
+      inputType: (event.nativeEvent as InputEvent).inputType,
+      caretAtEnd: target.selectionStart === value.length,
+      suggestions: matchPreviewUrlSuggestions(history ?? [], value, { exclude: url }),
+    });
+    setTyped(state.typed);
+    setDraft(state.value);
+    setActiveIndex(NO_OMNIBOX_HIGHLIGHT);
+    setSuggestionsOpen(true);
+    pendingSelectionRef.current = state.selection;
+  };
+
+  const moveHighlight = (direction: 1 | -1) => {
+    const index = nextOmniboxHighlight(activeIndex, direction, suggestions.length);
+    setActiveIndex(index);
+    // Stepping through the list previews each row in the bar, and stepping off
+    // the end restores whatever the user had typed.
+    setDraft(index === NO_OMNIBOX_HIGHLIGHT ? (typed ?? url) : (suggestions[index]?.typed ?? url));
   };
 
   return (
@@ -166,7 +241,11 @@ export function PreviewChromeRow({
           </Tooltip>
         </div>
 
-        <InputGroup variant="ghost" className="group/address h-7 flex-1 rounded-md">
+        <InputGroup
+          ref={addressRef}
+          variant="ghost"
+          className="group/address h-7 flex-1 rounded-md"
+        >
           <Tooltip>
             <TooltipTrigger
               render={
@@ -178,20 +257,39 @@ export function PreviewChromeRow({
                       !inputFocused &&
                       "group-hover/address:pe-7 transition-[padding]",
                   )}
-                  onChange={(event) => setDraft(event.target.value)}
+                  onChange={handleChange}
                   onFocus={() => {
                     setDraft(url);
+                    setTyped(null);
+                    setActiveIndex(NO_OMNIBOX_HIGHLIGHT);
+                    setSuggestionsOpen(true);
                     setInputFocused(true);
                     queueMicrotask(() => inputRef.current?.select());
                   }}
                   onBlur={() => {
                     setInputFocused(false);
+                    closeSuggestions();
                   }}
                   onKeyDown={(event) => {
+                    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+                      if (suggestions.length === 0) return;
+                      event.preventDefault();
+                      setSuggestionsOpen(true);
+                      moveHighlight(event.key === "ArrowDown" ? 1 : -1);
+                      return;
+                    }
                     if (event.key === "Enter") submit(event);
                     if (event.key === "Escape") {
                       event.preventDefault();
+                      // First Escape dismisses the list and puts back what was
+                      // typed; a second one abandons the edit entirely.
+                      if (listOpen) {
+                        setDraft(typed ?? url);
+                        closeSuggestions();
+                        return;
+                      }
                       setDraft(url);
+                      setTyped(null);
                       inputRef.current?.blur();
                     }
                   }}
@@ -200,6 +298,13 @@ export function PreviewChromeRow({
                   disabled={inputDisabled}
                   data-preview-url-input
                   size="sm"
+                  role="combobox"
+                  aria-autocomplete="both"
+                  aria-expanded={listOpen}
+                  aria-controls={listOpen ? listId : undefined}
+                  aria-activedescendant={
+                    listOpen && activeIndex >= 0 ? optionId(activeIndex) : undefined
+                  }
                 />
               }
             />
@@ -227,6 +332,17 @@ export function PreviewChromeRow({
                 <TooltipPopup>Open in system browser</TooltipPopup>
               </Tooltip>
             </InputGroupAddon>
+          ) : null}
+          {listOpen ? (
+            <PreviewUrlSuggestions
+              suggestions={suggestions}
+              activeIndex={activeIndex}
+              anchorRef={addressRef}
+              listId={listId}
+              optionId={optionId}
+              onHighlight={setActiveIndex}
+              onSelect={(suggestion: PreviewUrlSuggestion) => submitUrl(suggestion.url)}
+            />
           ) : null}
         </InputGroup>
 

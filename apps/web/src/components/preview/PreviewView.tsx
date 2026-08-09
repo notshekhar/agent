@@ -23,6 +23,7 @@ import { useEnvironment, useEnvironmentHttpBaseUrl } from "~/state/environments"
 import { previewEnvironment } from "~/state/preview";
 import { useAtomCommand } from "~/state/use-atom-command";
 import { selectThreadPreviewMiniPlayer, usePreviewMiniPlayerStore } from "~/previewMiniPlayerStore";
+import { selectPreviewUrlHistory, usePreviewUrlHistoryStore } from "~/previewUrlHistoryStore";
 import { useRightPanelStore } from "~/rightPanelStore";
 
 import { previewBridge } from "./previewBridge";
@@ -128,6 +129,19 @@ export function PreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
   const panelRect = useBrowserSurfaceStore((state) =>
     runtimeTabId ? (state.byTabId[runtimeTabId]?.rect ?? null) : null,
   );
+
+  // Address-bar history. Only pages that actually loaded are remembered, so a
+  // typo can't come back as a suggestion, and the title comes along for free.
+  const urlHistory = usePreviewUrlHistoryStore((state) =>
+    selectPreviewUrlHistory(state.byEnvironmentId, threadRef.environmentId),
+  );
+  const recordUrlVisit = usePreviewUrlHistoryStore((state) => state.recordVisit);
+  const visitedUrl = navStatus._tag === "Success" ? navStatus.url : null;
+  const visitedTitle = navStatus._tag === "Success" ? navStatus.title : "";
+  useEffect(() => {
+    if (!visitedUrl) return;
+    recordUrlVisit(threadRef.environmentId, { url: visitedUrl, title: visitedTitle });
+  }, [recordUrlVisit, threadRef.environmentId, visitedTitle, visitedUrl]);
 
   const navigateToResolvedUrl = useCallback(
     async (resolvedUrl: string) => {
@@ -618,6 +632,7 @@ export function PreviewView({ threadRef, tabId: requestedTabId, configuredUrls, 
         canGoForward={canGoForward}
         refreshDisabled={refreshDisabled}
         focusUrlNonce={focusUrlNonce}
+        history={urlHistory}
         onBack={handleBack}
         onForward={handleForward}
         onRefresh={handleRefresh}
