@@ -27,6 +27,7 @@ import {
 } from "./git.js";
 import {
   conflictStages,
+  fileAtRevision,
   discardChanges,
   stageContent,
   stageFiles,
@@ -118,6 +119,12 @@ export function createHostHandlers(services: HostServices): HostTable {
       await stageContent(p["cwd"] as string, p["path"] as string, p["content"] as string);
       return gitStatus(p["cwd"] as string);
     },
+    "git.fileAtRevision": (p) =>
+      fileAtRevision(
+        p["cwd"] as string,
+        p["revision"] as "HEAD" | "index",
+        p["path"] as string,
+      ),
     "git.conflictStages": (p) =>
       conflictStages(p["cwd"] as string, p["path"] as string),
     "git.diffPreview": (p) =>
@@ -126,6 +133,9 @@ export function createHostHandlers(services: HostServices): HostTable {
         ...(p["ignoreWhitespace"] === undefined
           ? {}
           : { ignoreWhitespace: p["ignoreWhitespace"] as boolean }),
+        ...(p["contextLines"] === undefined
+          ? {}
+          : { contextLines: p["contextLines"] as number }),
       }),
 
     /**

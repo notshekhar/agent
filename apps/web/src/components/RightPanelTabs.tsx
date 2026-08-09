@@ -193,7 +193,9 @@ function surfaceTitle(
 ): string {
   switch (surface.kind) {
     case "diff":
-      return "Diff";
+      // A repository tab is named for the repository; the workspace-level one
+      // keeps the plain label.
+      return "repositoryPath" in surface ? surface.repositoryPath : "Diff";
     case "files":
       return "Files";
     case "file":

@@ -199,6 +199,35 @@ const VcsStatusChangeRequest = Schema.Struct({
   state: VcsStatusChangeRequestState,
 });
 
+/** git's XY status letters, as the shell reports them. */
+const GitStatusCodeSchema = Schema.Literals(["M", "A", "D", "R", "C", "T", "U", "?", "!"]);
+
+const GitConflictKindSchema = Schema.Literals([
+  "both-modified",
+  "both-added",
+  "both-deleted",
+  "added-by-us",
+  "added-by-them",
+  "deleted-by-us",
+  "deleted-by-them",
+]);
+
+/** One changed file. A file may be staged AND unstaged at once. */
+const GitFileChangeSchema = Schema.Struct({
+  path: TrimmedNonEmptyStringSchema,
+  originalPath: Schema.optional(TrimmedNonEmptyStringSchema),
+  indexStatus: Schema.NullOr(GitStatusCodeSchema),
+  worktreeStatus: Schema.NullOr(GitStatusCodeSchema),
+  staged: Schema.Boolean,
+  unstaged: Schema.Boolean,
+  untracked: Schema.Boolean,
+  conflict: Schema.optional(GitConflictKindSchema),
+  stagedInsertions: NonNegativeInt,
+  stagedDeletions: NonNegativeInt,
+  unstagedInsertions: NonNegativeInt,
+  unstagedDeletions: NonNegativeInt,
+});
+
 const VcsStatusLocalShape = {
   isRepo: Schema.Boolean,
   /**
@@ -230,6 +259,19 @@ const VcsStatusLocalShape = {
     insertions: NonNegativeInt,
     deletions: NonNegativeInt,
   }),
+  /**
+   * The same changes with the index and the working tree kept apart, for the
+   * source-control panel's groups.
+   *
+   * Optional throughout: an environment older than this simply omits it, every
+   * existing fixture decodes unchanged, and a folder of repositories has no
+   * single index to report. A decoder that required it would reject the whole
+   * status and take the flat view down with it.
+   */
+  changes: Schema.optional(Schema.Array(GitFileChangeSchema)),
+  hasConflicts: Schema.optional(Schema.Boolean),
+  stagedCount: Schema.optional(NonNegativeInt),
+  unstagedCount: Schema.optional(NonNegativeInt),
 };
 
 const VcsStatusRemoteShape = {

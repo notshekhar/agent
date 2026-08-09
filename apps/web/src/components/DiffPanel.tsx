@@ -11,6 +11,7 @@ import {
   CheckIcon,
   ChevronDownIcon,
   ChevronLeftIcon,
+  GitBranchIcon,
   ChevronRightIcon,
   ChevronsDownUpIcon,
   ChevronsUpDownIcon,
@@ -44,10 +45,12 @@ import { resolveThreadRouteRef } from "../threadRoutes";
 import { useClientSettings } from "../hooks/useSettings";
 import { formatShortTimestamp } from "../timestampFormat";
 import { DiffPanelLoadingState, DiffPanelShell, type DiffPanelMode } from "./DiffPanelShell";
+import { CommitBox } from "./scm/CommitBox";
 import { SourceControlPanel } from "./scm/SourceControlPanel";
 import { hasIndexView } from "./scm/scmGroups";
 import { DiffStatLabel } from "./chat/DiffStatLabel";
 import { AnnotatableCodeView, type AnnotatableCodeViewHandle } from "./diffs/AnnotatableCodeView";
+import { useRightPanelStore } from "../rightPanelStore";
 import { WorkspaceRepositoryList } from "./diffs/WorkspaceRepositoryList";
 import { Button } from "./ui/button";
 import { ToggleGroup, Toggle } from "./ui/toggle-group";
@@ -217,6 +220,11 @@ interface DiffPanelProps {
   mode?: DiffPanelMode;
   composerDraftTarget: ScopedThreadRef | DraftId;
   initialGitScope: "branch" | "unstaged";
+  /**
+   * The repository this panel is pinned to, when it was opened as its own tab
+   * from a folder of repositories.
+   */
+  repositoryPath?: string;
 }
 
 export { DiffWorkerPoolProvider } from "./DiffWorkerPoolProvider";
@@ -225,6 +233,7 @@ export default function DiffPanel({
   mode = "inline",
   composerDraftTarget,
   initialGitScope: initialGitScopeProp,
+  repositoryPath: pinnedRepository,
 }: DiffPanelProps) {
   const { resolvedTheme } = useTheme();
   const settings = useClientSettings();
@@ -244,7 +253,8 @@ export default function DiffPanel({
    * repository's own path, so from there down this is an ordinary single-repo
    * diff — same base-ref picker, same scopes, same everything.
    */
-  const [openRepository, setOpenRepository] = useState<string | null>(null);
+  // A pinned tab IS that repository: there is nothing to navigate back to.
+  const [openRepository, setOpenRepository] = useState<string | null>(pinnedRepository ?? null);
   const codeViewRef = useRef<AnnotatableCodeViewHandle>(null);
 
   const routeThreadRef = useParams({
@@ -315,25 +325,42 @@ export default function DiffPanel({
       initialGitScope === "unstaged",
     ),
   );
-  const isGitRepo = gitStatusQuery.data?.isRepo ?? true;
+  const openRepositoryDiffTab = useRightPanelStore((state) => state.openRepositoryDiff);
   /**
-   * The status the source-control panel draws, seeded from the poll.
+   * Opening a repository opens a tab, not an in-place drill.
    *
-   * Held locally because every index write answers with the repository's fresh
-   * status: adopting that directly repaints the moment git is done, rather than
-   * leaving the panel stale until the next poll comes round. The poll still
-   * wins whenever it produces something newer, which is what picks up changes
-   * made outside the app.
+   * Drilling meant this surface could show one repository at a time and going
+   * back lost the place; a tab behaves like everything else the panel opens.
    */
+  const openRepositoryInTab = useCallback(
+    (repository: string) => {
+      if (diffSelectionRef === null) {
+        setOpenRepository(repository);
+        return;
+      }
+      openRepositoryDiffTab(diffSelectionRef, repository);
+    },
+    [diffSelectionRef, openRepositoryDiffTab],
+  );
+
+  /**
+   * Source control, toggled on inside this panel rather than living in a tab
+   * of its own: it describes the very patch on screen, and the comment
+   * affordances, scope and scroll all belong to this panel.
+   */
+  const [scmOpen, setScmOpen] = useState(false);
+  const [scmWidth, setScmWidth] = useState(260);
+  const [scmSelectedPath, setScmSelectedPath] = useState<string | null>(null);
   const [scmOverride, setScmOverride] = useState<GitStatus | null>(null);
   const polledStatus = gitStatusQuery.data ?? null;
   useEffect(() => {
-    // A fresh poll supersedes an override; they describe the same repository
-    // and the poll is the one that sees the outside world.
+    // A fresh poll supersedes a write's answer; it is the one that sees the
+    // outside world.
     setScmOverride(null);
   }, [polledStatus]);
   const scmStatus = scmOverride ?? (polledStatus as GitStatus | null);
-  const setScmStatus = useCallback((next: GitStatus) => setScmOverride(next), []);
+
+  const isGitRepo = gitStatusQuery.data?.isRepo ?? true;
   const { turnDiffSummaries, inferredCheckpointTurnCountByTurnId } =
     useTurnDiffSummaries(activeThread);
   const orderedTurnDiffSummaries = useMemo(
@@ -424,6 +451,9 @@ export default function DiffPanel({
             cwd: activeCwd,
             ...(selectedBaseRef ? { baseRef: selectedBaseRef } : {}),
             ignoreWhitespace: diffIgnoreWhitespace,
+            // Source control reads the whole file with its changes marked
+            // inside it, rather than hunks with three lines around them.
+            ...(scmOpen ? { contextLines: 100_000 } : {}),
           },
         })
       : null,
@@ -441,6 +471,7 @@ export default function DiffPanel({
             cwd: serverConfig.cwd,
             ...(selectedBaseRef ? { baseRef: selectedBaseRef } : {}),
             ignoreWhitespace: diffIgnoreWhitespace,
+            ...(scmOpen ? { contextLines: 100_000 } : {}),
           },
         })
       : null,
@@ -587,13 +618,33 @@ export default function DiffPanel({
       }),
     );
   }, [renderablePatch]);
+  /**
+   * Narrowed to the file selected in the source-control list.
+   *
+   * Filtered rather than scrolled to, and filtered HERE so the patch still goes
+   * through the panel's own renderer: commenting, annotations and collapsing
+   * are that renderer's, and a bespoke diff view would have none of them.
+   */
+  const scmVisibleFiles = useMemo(
+    () =>
+      !scmOpen || scmSelectedPath === null
+        ? renderableFiles
+        : renderableFiles.filter(
+            // `name` is the path in this metadata — NOT `newPath`, which does
+            // not exist on it. Comparing a missing field matched nothing, so
+            // selecting a file emptied the pane instead of narrowing it.
+            (fileDiff) => fileDiff.name === scmSelectedPath || fileDiff.prevName === scmSelectedPath,
+          ),
+    [renderableFiles, scmSelectedPath, scmOpen],
+  );
+
   const codeViewFiles = useMemo(() => {
     // Keys are paths now, which CodeView indexes by, so a patch that somehow
     // names the same path twice would have the second file overwrite the
     // first. Disambiguating keeps both rows; it costs the repeat its stable
     // identity, which is the right trade for something that should not happen.
     const seen = new Map<string, number>();
-    return renderableFiles.map((fileDiff) => {
+    return scmVisibleFiles.map((fileDiff) => {
       const baseKey = buildFileDiffRenderKey(fileDiff);
       const repeats = seen.get(baseKey) ?? 0;
       seen.set(baseKey, repeats + 1);
@@ -605,7 +656,7 @@ export default function DiffPanel({
         collapsed: collapsedDiffFileKeys.has(fileKey),
       };
     });
-  }, [collapsedDiffFileKeys, renderableFiles]);
+  }, [collapsedDiffFileKeys, scmVisibleFiles]);
   const diffFileKeys = useMemo(() => codeViewFiles.map((file) => file.fileKey), [codeViewFiles]);
   const allDiffFilesCollapsed = areAllDiffFilesCollapsed(diffFileKeys, collapsedDiffFileKeys);
   const diffLineStat = useMemo(() => getDiffLineStat(renderableFiles), [renderableFiles]);
@@ -698,6 +749,21 @@ export default function DiffPanel({
             className={cn(
               "inline-flex h-6 max-w-full items-center gap-1 rounded-md bg-muted/70 px-2 text-xs font-medium text-foreground outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring",
               showingRepositoryList && "hidden",
+              // A pinned repository tab has one scope worth offering: its own
+              // working tree. Turn scopes belong to the thread, which ran
+              // somewhere else, and the tab is already named for the repo.
+              pinnedRepository !== undefined && "hidden",
+              /**
+               * Hidden until it is known that a scope even applies.
+               *
+               * `showingRepositoryList` only becomes true once the preview has
+               * come back, so a folder of repositories painted "Working tree"
+               * for a frame and then swapped it for "Repositories" — a visible
+               * flicker on every open. Waiting for the status to say what this
+               * folder is shows one label, once.
+               */
+              scmStatus === null && "hidden",
+              scmStatus?.isWorkspaceRoot === true && "hidden",
             )}
             aria-label={`Diff scope: ${selectedScopeLabel}`}
           >
@@ -725,6 +791,14 @@ export default function DiffPanel({
             >
               <span>Branch changes</span>
             </DropdownMenuItem>
+            {/*
+              Turn-scoped diffs belong to the thread, not to a repository. A
+              repository opened as its own tab from a folder of repositories has
+              no turns of its own — the thread ran somewhere else — so these
+              would be empty or show another repository's work.
+            */}
+            {pinnedRepository === undefined ? (
+              <>
             <DropdownMenuItem
               className={
                 selectedTurnId !== null && selectedTurn?.turnId === latestTurn?.turnId
@@ -762,9 +836,39 @@ export default function DiffPanel({
                 })}
               </DropdownMenuSubContent>
             </DropdownMenuSub>
+              </>
+            ) : null}
           </DropdownMenuContent>
         </DropdownMenu>
-        {openRepository !== null ? (
+        {activeCwd != null && selectedTurnId === null && hasIndexView(scmStatus) ? (
+          <button
+            type="button"
+            onClick={() =>
+              setScmOpen((open) => {
+                // Closing drops the file filter with it, or reopening would
+                // silently still be narrowed to a long-forgotten choice.
+                if (open) setScmSelectedPath(null);
+                return !open;
+              })
+            }
+            aria-label={scmOpen ? "Hide source control" : "Show source control"}
+            className={cn(
+              "inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-2 text-xs font-medium transition-colors focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring",
+              scmOpen
+                ? "bg-primary/15 text-foreground ring-1 ring-primary/40"
+                : "bg-muted/70 text-muted-foreground hover:bg-muted",
+            )}
+          >
+            <GitBranchIcon className="size-3.5 shrink-0" />
+            <span>Source Control</span>
+            {(scmStatus?.stagedCount ?? 0) + (scmStatus?.unstagedCount ?? 0) > 0 && (
+              <span className="rounded-full bg-foreground/10 px-1.5 text-[10px] tabular-nums">
+                {(scmStatus?.stagedCount ?? 0) + (scmStatus?.unstagedCount ?? 0)}
+              </span>
+            )}
+          </button>
+        ) : null}
+        {openRepository !== null && pinnedRepository === undefined ? (
           <button
             type="button"
             onClick={() => setOpenRepository(null)}
@@ -996,7 +1100,7 @@ export default function DiffPanel({
       ) : showingRepositoryList ? (
         <WorkspaceRepositoryList
           repositories={workspaceRepositories ?? []}
-          onOpen={setOpenRepository}
+          onOpen={openRepositoryInTab}
         />
       ) : !isGitRepo ? (
         <div className="flex flex-1 items-center justify-center px-5 text-center text-xs text-muted-foreground/70">
@@ -1008,23 +1112,7 @@ export default function DiffPanel({
         </div>
       ) : (
         <>
-          {/*
-            Source control, above the patch it describes.
-            
-            This is where the flat "files changed" list used to be the whole
-            story. It only appears for a real repository with an index — a
-            folder of repositories renders the list above instead, and a shell
-            too old to report `changes` falls through to the diff alone.
-          */}
-          {selectedTurnId === null && activeCwd != null && hasIndexView(scmStatus) && (
-            <div className="max-h-[45%] shrink-0 overflow-y-auto border-b border-border/70">
-              <SourceControlPanel
-                cwd={activeCwd}
-                status={scmStatus}
-                onStatusChange={setScmStatus}
-              />
-            </div>
-          )}
+          <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
           <div className="diff-panel-viewport flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
             {isSelectedPatchTruncated && (
               <p className="shrink-0 border-b border-border/70 bg-muted/40 px-3 py-1.5 text-[11px] text-muted-foreground">
@@ -1140,6 +1228,59 @@ export default function DiffPanel({
                   </pre>
                 </div>
               </div>
+            )}
+          </div>
+            {scmOpen && activeCwd != null && hasIndexView(scmStatus) && (
+              <aside
+                className="relative flex shrink-0 flex-col overflow-hidden border-l border-border/70"
+                style={{ width: `${scmWidth}px` }}
+              >
+                <div className="min-h-0 flex-1 overflow-y-auto">
+                  <SourceControlPanel
+                    cwd={activeCwd}
+                    status={scmStatus}
+                    onStatusChange={setScmOverride}
+                    selectedPath={scmSelectedPath}
+                    onOpenFile={(path) =>
+                      // Clicking the open file again clears the filter, which is
+                      // the way back to the whole patch.
+                      setScmSelectedPath((current) => (current === path ? null : path))
+                    }
+                  />
+                </div>
+                <CommitBox
+                  cwd={activeCwd}
+                  status={scmStatus}
+                  onCommitted={(next) => {
+                    setScmOverride(next);
+                    // The patch on screen is now history: committing empties
+                    // the working tree, and nothing else here would notice —
+                    // the status poll drives the refresh, and this write
+                    // bypassed it by answering directly.
+                    refreshSelectedPatch.current();
+                  }}
+                />
+                {/* Long paths are the norm here, so the width has to be movable. */}
+                <div
+                  role="separator"
+                  aria-orientation="vertical"
+                  aria-label="Resize source control"
+                  className="absolute inset-y-0 -left-1 w-2 cursor-col-resize hover:bg-primary/30"
+                  onPointerDown={(event) => {
+                    event.preventDefault();
+                    const startX = event.clientX;
+                    const startWidth = scmWidth;
+                    const onMove = (move: PointerEvent) =>
+                      setScmWidth(Math.min(560, Math.max(160, startWidth - (move.clientX - startX))));
+                    const onUp = () => {
+                      window.removeEventListener("pointermove", onMove);
+                      window.removeEventListener("pointerup", onUp);
+                    };
+                    window.addEventListener("pointermove", onMove);
+                    window.addEventListener("pointerup", onUp);
+                  }}
+                />
+              </aside>
             )}
           </div>
         </>

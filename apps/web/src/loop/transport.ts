@@ -281,7 +281,7 @@ export interface LoopGitBridge {
   /** Same: added after `init`, so an older shell has no diff pane. */
   diffPreview?(
     cwd: string,
-    options: { baseRef?: string; ignoreWhitespace?: boolean },
+    options: { baseRef?: string; ignoreWhitespace?: boolean; contextLines?: number },
   ): Promise<{
     isRepo: boolean;
     sources: readonly GitDiffPreviewSource[];
@@ -324,6 +324,8 @@ export interface LoopGitBridge {
   ): Promise<GitStatus>;
   /** Partial staging: exact index content, working tree untouched. */
   stageContent?(cwd: string, path: string, content: string): Promise<GitStatus>;
+  /** File content at HEAD or in the index, for computing a partial stage. */
+  fileAtRevision?(cwd: string, revision: "HEAD" | "index", path: string): Promise<string | null>;
   conflictStages?(
     cwd: string,
     path: string,

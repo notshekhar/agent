@@ -68,3 +68,40 @@ VM, publish a newer tag, and take the update. Watch that the app comes back on
 its own and that no `.old` directory is left behind. Until someone does that,
 treat Windows in-app updating as unproven; `install-desktop.ps1` still works and
 is the fallback to tell a Windows user about.
+
+---
+
+## 3. The source-control UI is mid-redesign
+
+**Where:** `apps/web/src/components/scm/`, plus the `scm` surface registered in
+`rightPanelStore.ts`, `RightPanelTabs.tsx` and `ChatView.tsx`.
+
+**What prompted it.** The first version rendered the file list as a strip above
+the diff. That was wrong twice over: it competed for height with the patch it
+describes, and it read nothing like the source-control view anyone who has used
+VS Code expects.
+
+**What has changed so far.** Source Control is now its own right-panel surface
+alongside Files and Diff, with its own header, branch name and refresh, and it
+polls so the agent's own commits show up. It owns its status rather than
+borrowing the diff panel's. Rows are dense, and each row's status letter swaps
+for its stage/discard buttons on hover, so the controls never widen the row or
+push the filename around.
+
+**What is still not right**, and is the reason this entry exists:
+
+- **No tree view.** VS Code offers list *and* tree, with the tree collapsing
+  common directory prefixes. With thirty changed files under `apps/web/src/...`
+  the flat list is mostly repeated path.
+- **No hunk affordances in the diff itself.** The engine is done and tested
+  (`applyLineChanges.ts`, `parseHunks.ts`, `stageHunk.ts` — including line-level
+  selection), but nothing in the diff view offers a gutter control to stage a
+  hunk or a selection. That is the last piece of the staging feature.
+- **No inline commit box.** VS Code's message field and Commit button live at
+  the top of this view; loop's commit flow is still the header's stacked action.
+- **The merge editor does not exist.** `conflictStages` reads base/ours/theirs
+  out of the index and is tested; the three-pane view on top of it is not built.
+- **The surface has not been confirmed on screen.** It typechecks and builds,
+  and the panel underneath it has been driven end to end, but the last few
+  attempts to open the new tab under automation clicked the wrong element. Open
+  it by hand before trusting it.

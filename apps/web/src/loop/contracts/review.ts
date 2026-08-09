@@ -7,6 +7,12 @@ export const ReviewDiffPreviewInput = Schema.Struct({
   cwd: TrimmedNonEmptyString,
   baseRef: Schema.optional(TrimmedNonEmptyString),
   ignoreWhitespace: Schema.optionalKey(Schema.Boolean),
+  /**
+   * Lines of context around each change. Absent means git's default of three,
+   * which shows hunks; a large number shows the whole file with its changes
+   * marked inside it, which is what the source-control view asks for.
+   */
+  contextLines: Schema.optionalKey(Schema.Number),
 });
 export type ReviewDiffPreviewInput = typeof ReviewDiffPreviewInput.Type;
 

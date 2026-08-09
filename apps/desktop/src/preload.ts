@@ -191,7 +191,7 @@ contextBridge.exposeInMainWorld("loop", {
     refs: (cwd: string) => ipcRenderer.invoke("loop:git.refs", { cwd }),
     status: (cwd: string) => ipcRenderer.invoke("loop:git.status", { cwd }),
     init: (cwd: string) => ipcRenderer.invoke("loop:git.init", { cwd }),
-    diffPreview: (cwd: string, options: { baseRef?: string; ignoreWhitespace?: boolean }) =>
+    diffPreview: (cwd: string, options: { baseRef?: string; ignoreWhitespace?: boolean; contextLines?: number }) =>
       ipcRenderer.invoke("loop:git.diffPreview", { cwd, ...options }),
     runStackedAction: (input: unknown) => ipcRenderer.invoke("loop:git.runStackedAction", input),
     discover: () => ipcRenderer.invoke("loop:git.discover"),
@@ -207,6 +207,8 @@ contextBridge.exposeInMainWorld("loop", {
       ipcRenderer.invoke("loop:git.discard", { cwd, ...input }),
     stageContent: (cwd: string, path: string, content: string) =>
       ipcRenderer.invoke("loop:git.stageContent", { cwd, path, content }),
+    fileAtRevision: (cwd: string, revision: "HEAD" | "index", path: string) =>
+      ipcRenderer.invoke("loop:git.fileAtRevision", { cwd, revision, path }),
     conflictStages: (cwd: string, path: string) =>
       ipcRenderer.invoke("loop:git.conflictStages", { cwd, path }),
     onActionProgress(listener: (event: unknown) => void): () => void {

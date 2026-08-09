@@ -368,6 +368,7 @@ app.whenReady().then(() => {
     "git.discard",
     "git.stageContent",
     "git.conflictStages",
+    "git.fileAtRevision",
     "git.refs",
     "git.status",
     "git.init",

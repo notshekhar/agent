@@ -5897,10 +5897,13 @@ function ChatViewContent(props: ChatViewProps) {
     ) : activeRightPanelSurface?.kind === "diff" ? (
       <Suspense fallback={null}>
         <DiffPanel
-          key={`${activeThreadKey}:${diffPanelGitStatusResolutionKey}`}
+          key={`${activeThreadKey}:${activeRightPanelSurface.id}:${diffPanelGitStatusResolutionKey}`}
           mode="embedded"
           composerDraftTarget={composerDraftTarget}
           initialGitScope={initialDiffPanelGitScope}
+          {...("repositoryPath" in activeRightPanelSurface
+            ? { repositoryPath: activeRightPanelSurface.repositoryPath }
+            : {})}
         />
       </Suspense>
     ) : activeRightPanelSurface?.kind === "plan" ? (

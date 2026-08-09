@@ -722,31 +722,41 @@ interface RepoPatches {
 /** Both patches for one repository: the working tree, and the branch range. */
 async function repoPatches(
   cwd: string,
-  options: { readonly baseRef?: string; readonly ignoreWhitespace?: boolean },
+  options: {
+    readonly baseRef?: string;
+    readonly ignoreWhitespace?: boolean;
+    readonly contextLines?: number;
+  },
 ): Promise<RepoPatches> {
   const whitespace = options.ignoreWhitespace ? ["--ignore-all-space"] : [];
+  // Bounded: a full-context diff of a huge file is still capped by the byte
+  // limit below, but there is no reason to ask git for more than a file has.
+  const context =
+    options.contextLines === undefined
+      ? []
+      : [`--unified=${Math.max(0, Math.min(100_000, Math.floor(options.contextLines)))}`];
   const branch = (await git(cwd, ["branch", "--show-current"]))?.trim() || null;
   const baseRef = options.baseRef?.trim() || (await baseBranchFor(cwd, branch));
 
   const [tracked, untracked, range, staged, unstaged] = await Promise.all([
     patch(
       cwd,
-      ["diff", ...PATCH_FLAGS, ...whitespace, "HEAD", "--"],
+      ["diff", ...PATCH_FLAGS, ...whitespace, ...context, "HEAD", "--"],
       MAX_TRACKED_DIFF_BYTES,
     ),
     untrackedPatch(cwd),
     baseRef
       ? patch(
           cwd,
-          ["diff", ...PATCH_FLAGS, ...whitespace, `${baseRef}...HEAD`],
+          ["diff", ...PATCH_FLAGS, ...whitespace, ...context, `${baseRef}...HEAD`],
           MAX_TRACKED_DIFF_BYTES,
         )
       : Promise.resolve({ diff: "", truncated: false }),
     // `--cached` is the index against HEAD; a bare `diff` is the working tree
     // against the index. `diff HEAD` above is neither, and for a file staged
     // and then edited again it equals neither side.
-    patch(cwd, ["diff", ...PATCH_FLAGS, ...whitespace, "--cached", "--"], MAX_TRACKED_DIFF_BYTES),
-    patch(cwd, ["diff", ...PATCH_FLAGS, ...whitespace, "--"], MAX_TRACKED_DIFF_BYTES),
+    patch(cwd, ["diff", ...PATCH_FLAGS, ...whitespace, ...context, "--cached", "--"], MAX_TRACKED_DIFF_BYTES),
+    patch(cwd, ["diff", ...PATCH_FLAGS, ...whitespace, ...context, "--"], MAX_TRACKED_DIFF_BYTES),
   ]);
 
   return {
@@ -847,7 +857,18 @@ function diffSources(input: {
 
 export async function diffPreview(
   cwd: string,
-  options: { readonly baseRef?: string; readonly ignoreWhitespace?: boolean } = {},
+  options: {
+    readonly baseRef?: string;
+    readonly ignoreWhitespace?: boolean;
+    /**
+     * Lines of context around each change.
+     *
+     * git's default of three shows hunks; a large number shows the whole file
+     * with its changes marked inside it, which is what a source-control view
+     * wants — you are reading the file, not auditing a patch.
+     */
+    readonly contextLines?: number;
+  } = {},
 ): Promise<GitDiffPreview> {
   const inside = await git(cwd, ["rev-parse", "--is-inside-work-tree"]);
   if (inside?.trim() !== "true") return workspaceDiffPreview(cwd);

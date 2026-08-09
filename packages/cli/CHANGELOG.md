@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.18.0] - 2026-08-09
+
+### Added
+
+- **Source control in the diff panel.** A repository's diff tab now has a Source Control toggle at the top. Turned on, it opens a sidebar down the right-hand side listing what has changed, split into Staged Changes and Changes the way an editor's source-control view does — and a file that has been staged and then edited again appears in both, each row showing only that side's line counts. That last part was impossible before: the panel read the working tree and the index fused into one answer, so it could only ever show a flat list of files with no notion of what was about to be committed.
+- **Stage, unstage and discard**, per file or per group, from buttons that appear on a row as you reach it. Discarding asks first, because git keeps no copy of a working-tree edit it has thrown away.
+- **Commit and Commit & Push**, from a message box at the foot of the sidebar. It commits what is staged and nothing else — it will not quietly sweep in a file that was deliberately left out — and reports git's own words when a hook or a missing upstream stops it.
+- **Clicking a file shows that file**, and shows it whole: the source-control view asks git for the entire file with its changes marked inside it, rather than the usual three lines of context around each hunk. Comments, annotations and every other affordance still work, because the patch goes through the same renderer the review pane has always used.
+- **Merge conflicts are recognised** as their own group, rather than being mixed in with ordinary changes where the staging buttons would not mean anything.
+- **Opening a repository from a folder of repositories opens it as its own tab**, instead of navigating in place — so two repositories can be compared without losing the first. Such a tab drops the scope picker and the back link, neither of which has anything to say about a single repository.
+
+### Fixed
+
+- A folder of repositories no longer flashes "Working tree" for a frame before replacing it with "Repositories".
+- A panel tab whose kind no longer exists is discarded on load, rather than coming back as an empty tab over a blank panel with no way to close it.
+
 ## [0.17.1] - 2026-08-09
 
 ### Fixed

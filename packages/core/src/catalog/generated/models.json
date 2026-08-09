@@ -12383,6 +12383,26 @@
     ],
     "available": true
   },
+  "vercel/anthropic/claude-opus-5-fast": {
+    "id": "vercel/anthropic/claude-opus-5-fast",
+    "provider": "vercel",
+    "name": "Claude Opus 5 (Fast)",
+    "contextWindow": 1000000,
+    "maxOutput": 128000,
+    "cost": {
+      "input": 10,
+      "output": 50,
+      "cacheRead": 1,
+      "cacheWrite": 12.5
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "available": true
+  },
   "vercel/anthropic/claude-sonnet-4": {
     "id": "vercel/anthropic/claude-sonnet-4",
     "provider": "vercel",

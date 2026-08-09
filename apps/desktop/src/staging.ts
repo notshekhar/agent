@@ -183,6 +183,27 @@ async function modeOf(cwd: string, path: string): Promise<{ mode: string; isNew:
 }
 
 /**
+ * A file's content at a revision, for computing a partial stage.
+ *
+ * Staging a hunk needs two versions to diff: what the index holds (`:path`) and
+ * what is on disk. Unstaging one needs HEAD and the index. Rather than a
+ * general "run git show", the revision is restricted to the three that mean
+ * something here — an arbitrary revspec from the renderer would be a way to
+ * read anything in the repository's history through a path parameter.
+ *
+ * Null when the file does not exist at that revision, which is ordinary: a new
+ * file has no HEAD version.
+ */
+export async function fileAtRevision(
+  cwd: string,
+  revision: "HEAD" | "index",
+  path: string,
+): Promise<string | null> {
+  const spec = revision === "index" ? `:${path}` : `HEAD:${path}`;
+  return readGit(cwd, ["show", spec]);
+}
+
+/**
  * The three sides of a conflict, read out of the index stages.
  *
  * A merge leaves the conflicting file recorded three times: stage 1 is the

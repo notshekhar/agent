@@ -29,6 +29,16 @@ export type RightPanelSurface =
       splitDirection?: "horizontal" | "vertical";
     }
   | { id: "diff"; kind: "diff" }
+  /**
+   * One repository inside a folder of repositories, opened as its own tab.
+   *
+   * A workspace root has no index of its own, so the diff surface there lists
+   * the repositories under it. Opening one used to drill in place, which meant
+   * the surface could only ever show a single repository at a time and going
+   * back lost where you were. As a tab it behaves like every other thing this
+   * panel opens: several at once, each remembering its own scroll and scope.
+   */
+  | { id: `diff:${string}`; kind: "diff"; repositoryPath: string }
   | { id: "files"; kind: "files" }
   | {
       id: `file:${string}`;
@@ -40,7 +50,14 @@ export type RightPanelSurface =
   | { id: "plan"; kind: "plan" };
 
 const RIGHT_PANEL_STORAGE_KEY = "t3code:right-panel-state:v2";
-const RIGHT_PANEL_STORAGE_VERSION = 7;
+/**
+ * Bumped to 8 so the stale-kind filter below actually runs.
+ *
+ * zustand only calls `migrate` when the stored version differs, so a surface
+ * whose kind was removed after it was persisted would otherwise survive
+ * forever — as an empty tab chip over a blank panel, with no way to close it.
+ */
+const RIGHT_PANEL_STORAGE_VERSION = 8;
 
 export interface ThreadRightPanelState {
   isOpen: boolean;
@@ -54,6 +71,8 @@ interface RightPanelStoreState {
   openBrowser: (ref: ScopedThreadRef, tabId: string | null) => void;
   openFile: (ref: ScopedThreadRef, relativePath: string, line?: number) => void;
   openTerminal: (ref: ScopedThreadRef, terminalId: string) => void;
+  /** One repository from a folder of repositories, as its own tab. */
+  openRepositoryDiff: (ref: ScopedThreadRef, repositoryPath: string) => void;
   splitTerminal: (
     ref: ScopedThreadRef,
     surfaceId: string,
@@ -170,6 +189,15 @@ export function migratePersistedRightPanelState(persistedState: unknown): {
                 threadState && typeof threadState === "object" ? threadState : null;
               const surfaces = Array.isArray(validThreadState?.surfaces)
                 ? validThreadState.surfaces.flatMap<RightPanelSurface>((surface) => {
+                    /**
+                     * A surface whose kind no longer exists is dropped.
+                     *
+                     * Panel state outlives the build that wrote it, so a kind
+                     * that has since been removed comes back on the next load
+                     * as a tab nothing knows how to render — the strip shows an
+                     * empty chip and the panel goes blank with no way out.
+                     */
+                    if (!RIGHT_PANEL_KINDS.includes(surface.kind as RightPanelKind)) return [];
                     if (surface.kind === "file") {
                       const revealLine =
                         typeof surface.revealLine === "number" &&
@@ -285,6 +313,18 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
                 : [...withoutStandaloneExplorer, surface],
             };
           }),
+        })),
+      openRepositoryDiff: (ref, repositoryPath) =>
+        set((state) => ({
+          byThreadKey: updateThread(state.byThreadKey, scopedThreadKey(ref), (current) =>
+            // Upsert: reopening a repository already in the strip focuses that
+            // tab rather than adding a second one for the same path.
+            upsertSurface(current, {
+              id: `diff:${repositoryPath}` as const,
+              kind: "diff" as const,
+              repositoryPath,
+            }),
+          ),
         })),
       openTerminal: (ref, terminalId) =>
         set((state) => ({

@@ -184,6 +184,7 @@ export const diffPreview = Effect.fnUntraced(function* (input: {
   readonly cwd: string;
   readonly baseRef?: string | undefined;
   readonly ignoreWhitespace?: boolean | undefined;
+  readonly contextLines?: number | undefined;
 }) {
   const git = loopGit();
   if (!git?.diffPreview) {
@@ -200,6 +201,7 @@ export const diffPreview = Effect.fnUntraced(function* (input: {
     git.diffPreview!(input.cwd, {
       ...(input.baseRef === undefined ? {} : { baseRef: input.baseRef }),
       ...(input.ignoreWhitespace === undefined ? {} : { ignoreWhitespace: input.ignoreWhitespace }),
+      ...(input.contextLines === undefined ? {} : { contextLines: input.contextLines }),
     }),
   );
 
