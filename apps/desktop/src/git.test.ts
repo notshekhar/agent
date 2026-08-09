@@ -366,3 +366,130 @@ describe("git spawn concurrency", () => {
     }
   });
 });
+
+/**
+ * The index, which the flat list could not represent.
+ *
+ * `status` used to answer with `git diff --numstat HEAD`, which fuses the index
+ * and the working tree — so a file staged and then edited again was one row
+ * with one line count belonging to neither side, and a conflict was
+ * indistinguishable from an ordinary modification. These build the states in a
+ * real repository, because the value of the new fields is entirely in whether
+ * they match what git itself reports.
+ */
+describe("index-aware status", () => {
+  let sandbox: string;
+
+  async function run2(cwd: string, ...args: string[]): Promise<void> {
+    await run("git", args, {
+      cwd,
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: "loop",
+        GIT_AUTHOR_EMAIL: "loop@example.com",
+        GIT_COMMITTER_NAME: "loop",
+        GIT_COMMITTER_EMAIL: "loop@example.com",
+      },
+    });
+  }
+
+  beforeAll(async () => {
+    sandbox = await mkdtemp(join(tmpdir(), "loop-index-"));
+    await run2(sandbox, "init", "--initial-branch=main");
+    await writeFile(join(sandbox, "both.txt"), "one\n");
+    await writeFile(join(sandbox, "staged.txt"), "a\n");
+    await writeFile(join(sandbox, "dirty.txt"), "b\n");
+    await run2(sandbox, "add", ".");
+    await run2(sandbox, "commit", "-m", "first");
+
+    // Staged, then edited again — the case with two different diffs.
+    await writeFile(join(sandbox, "both.txt"), "one\ntwo\n");
+    await run2(sandbox, "add", "both.txt");
+    await writeFile(join(sandbox, "both.txt"), "one\ntwo\nthree\n");
+    // Staged only.
+    await writeFile(join(sandbox, "staged.txt"), "a\nstaged\n");
+    await run2(sandbox, "add", "staged.txt");
+    // Unstaged only, plus an untracked file.
+    await writeFile(join(sandbox, "dirty.txt"), "b\ndirty\n");
+    await writeFile(join(sandbox, "new.txt"), "fresh\n");
+  });
+
+  afterAll(async () => {
+    await rm(sandbox, { recursive: true, force: true });
+  });
+
+  test("a file staged and edited again appears on both sides, with each side's own counts", async () => {
+    const result = await status(sandbox);
+    const both = result.changes.find((change) => change.path === "both.txt");
+    expect(both?.staged).toBe(true);
+    expect(both?.unstaged).toBe(true);
+    expect(both?.indexStatus).toBe("M");
+    expect(both?.worktreeStatus).toBe("M");
+    // One line staged, a different line not — the numbers the two groups show.
+    expect(both?.stagedInsertions).toBe(1);
+    expect(both?.unstagedInsertions).toBe(1);
+  });
+
+  test("separates staged-only from unstaged-only", async () => {
+    const result = await status(sandbox);
+    const staged = result.changes.find((change) => change.path === "staged.txt");
+    expect([staged?.staged, staged?.unstaged]).toEqual([true, false]);
+    const dirty = result.changes.find((change) => change.path === "dirty.txt");
+    expect([dirty?.staged, dirty?.unstaged]).toEqual([false, true]);
+  });
+
+  test("untracked files are unstaged and carry no line counts", async () => {
+    const result = await status(sandbox);
+    const fresh = result.changes.find((change) => change.path === "new.txt");
+    expect(fresh?.untracked).toBe(true);
+    expect(fresh?.unstaged).toBe(true);
+    expect(fresh?.stagedInsertions).toBe(0);
+  });
+
+  test("counts each side", async () => {
+    const result = await status(sandbox);
+    // both + staged staged; both + dirty + new unstaged.
+    expect(result.stagedCount).toBe(2);
+    expect(result.unstagedCount).toBe(3);
+    expect(result.hasConflicts).toBe(false);
+  });
+
+  test("the old flat list still answers exactly as it did", async () => {
+    // The whole point of adding beside rather than replacing: the current panel
+    // keeps working while the new model is built out.
+    const result = await status(sandbox);
+    const paths = result.workingTree.files.map((file) => file.path).toSorted();
+    expect(paths).toEqual(["both.txt", "dirty.txt", "new.txt", "staged.txt"]);
+    expect(result.hasWorkingTreeChanges).toBe(true);
+  });
+
+  test("a real merge conflict is its own state, in neither group", async () => {
+    const conflicted = await mkdtemp(join(tmpdir(), "loop-conflict-"));
+    try {
+      await run2(conflicted, "init", "--initial-branch=main");
+      await writeFile(join(conflicted, "base.txt"), "base\n");
+      await run2(conflicted, "add", ".");
+      await run2(conflicted, "commit", "-m", "base");
+      await run2(conflicted, "checkout", "-b", "other");
+      await writeFile(join(conflicted, "war.txt"), "theirs\n");
+      await run2(conflicted, "add", ".");
+      await run2(conflicted, "commit", "-m", "theirs");
+      await run2(conflicted, "checkout", "main");
+      await writeFile(join(conflicted, "war.txt"), "ours\n");
+      await run2(conflicted, "add", ".");
+      await run2(conflicted, "commit", "-m", "ours");
+      await run("git", ["merge", "other"], { cwd: conflicted }).catch(() => undefined);
+
+      const result = await status(conflicted);
+      expect(result.hasConflicts).toBe(true);
+      const war = result.changes.find((change) => change.path === "war.txt");
+      expect(war?.conflict).toBe("both-added");
+      // Offering stage or unstage on a conflict would be a lie; it needs
+      // resolving first.
+      expect(war?.staged).toBe(false);
+      expect(war?.unstaged).toBe(false);
+    } finally {
+      await rm(conflicted, { recursive: true, force: true });
+    }
+  });
+});

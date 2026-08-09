@@ -16,6 +16,14 @@ import { devNull } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
+import {
+  type ConflictKind,
+  type StatusCode,
+  isStaged,
+  isUnstaged,
+  parsePorcelainV2,
+} from "./porcelain.js";
+
 const run = promisify(execFile);
 
 /** Bounded so a pathological repo cannot wedge the main process. */
@@ -275,6 +283,34 @@ export async function listRefs(cwd: string): Promise<GitRefs> {
   };
 }
 
+/**
+ * One changed file, with the index and the working tree kept apart.
+ *
+ * `workingTree.files` below answers "what has changed since the last commit"
+ * and fuses the two, which is all the old flat list ever needed. Staging needs
+ * them separate — a file can be modified in the index AND modified again on
+ * disk, and that file belongs in both groups of the panel showing different
+ * diffs. Line counts are per side for the same reason.
+ */
+export interface GitFileChange {
+  readonly path: string;
+  /** Where a rename or copy came from. */
+  readonly originalPath?: string;
+  /** X — the index against HEAD. Null when the index matches HEAD. */
+  readonly indexStatus: StatusCode | null;
+  /** Y — the working tree against the index. Null when they match. */
+  readonly worktreeStatus: StatusCode | null;
+  readonly staged: boolean;
+  readonly unstaged: boolean;
+  readonly untracked: boolean;
+  /** Present iff the file is unmerged; such a file is in neither group. */
+  readonly conflict?: ConflictKind;
+  readonly stagedInsertions: number;
+  readonly stagedDeletions: number;
+  readonly unstagedInsertions: number;
+  readonly unstagedDeletions: number;
+}
+
 export interface GitStatus {
   readonly isRepo: boolean;
   /** Reported a repo only because it CONTAINS repositories — see
@@ -289,6 +325,19 @@ export interface GitStatus {
     readonly insertions: number;
     readonly deletions: number;
   };
+  /**
+   * The same changes, split by index vs working tree.
+   *
+   * Alongside `workingTree` rather than replacing it: the existing panel reads
+   * that shape, and a rewrite of the data and the UI in one step would have
+   * nothing left working to compare against. Empty on a workspace root, where
+   * staging spans no single repository and has no meaning.
+   */
+  readonly changes: ReadonlyArray<GitFileChange>;
+  /** A merge, rebase or cherry-pick is in progress and has conflicts. */
+  readonly hasConflicts: boolean;
+  readonly stagedCount: number;
+  readonly unstagedCount: number;
   readonly hasUpstream: boolean;
   readonly aheadCount: number;
   readonly behindCount: number;
@@ -301,6 +350,10 @@ const EMPTY_STATUS: GitStatus = {
   refName: null,
   hasWorkingTreeChanges: false,
   workingTree: { files: [], insertions: 0, deletions: 0 },
+  changes: [],
+  hasConflicts: false,
+  stagedCount: 0,
+  unstagedCount: 0,
   hasUpstream: false,
   aheadCount: 0,
   behindCount: 0,
@@ -343,6 +396,20 @@ async function workspaceStatus(cwd: string, repositories: readonly string[]): Pr
     // folder has no branch of its own, and without the flag a reader takes
     // `refName: null` for a detached HEAD and offers to check a branch out.
     isWorkspaceRoot: true,
+    /**
+     * No staging across a folder of repositories.
+     *
+     * `changes` is deliberately empty here rather than a merge of the children:
+     * staging is an operation on one index, and there is no such thing as
+     * staging a file in repository A and one in repository B together. The
+     * panel drills into a single repository for that, which is where a real
+     * index exists. `workingTree` above still carries the qualified paths, so
+     * the read-only overview is unchanged.
+     */
+    changes: [],
+    hasConflicts: false,
+    stagedCount: 0,
+    unstagedCount: 0,
     hasPrimaryRemote: false,
     isDefaultRef: false,
     // Only when every repository agrees; otherwise there is no honest name.
@@ -362,15 +429,21 @@ export async function status(cwd: string): Promise<GitStatus> {
     return repositories.length > 0 ? workspaceStatus(cwd, repositories) : EMPTY_STATUS;
   }
 
-  const [branch, remotes, numstat, untracked, upstream] = await Promise.all([
-    git(cwd, ["branch", "--show-current"]),
-    git(cwd, ["remote"]),
-    // HEAD covers staged and unstaged together, which is what "what has
-    // changed since the last commit" means to someone reading the panel.
-    git(cwd, ["diff", "--numstat", "HEAD"]),
-    git(cwd, ["ls-files", "--others", "--exclude-standard"]),
-    git(cwd, ["rev-list", "--left-right", "--count", "@{upstream}...HEAD"]),
-  ]);
+  const [branch, remotes, numstat, untracked, upstream, porcelain, stagedStat, unstagedStat] =
+    await Promise.all([
+      git(cwd, ["branch", "--show-current"]),
+      git(cwd, ["remote"]),
+      // HEAD covers staged and unstaged together, which is what "what has
+      // changed since the last commit" means to someone reading the panel.
+      git(cwd, ["diff", "--numstat", "HEAD"]),
+      git(cwd, ["ls-files", "--others", "--exclude-standard"]),
+      git(cwd, ["rev-list", "--left-right", "--count", "@{upstream}...HEAD"]),
+      // The index-aware view. Porcelain v2 because v1's rename field is
+      // ambiguous and the human-readable output is not a stable interface.
+      git(cwd, ["status", "--porcelain=v2", "-z", "--untracked-files=all"]),
+      git(cwd, ["diff", "--numstat", "--cached"]),
+      git(cwd, ["diff", "--numstat"]),
+    ]);
 
   const files: Array<{ path: string; insertions: number; deletions: number }> = [];
   let insertions = 0;
@@ -394,6 +467,8 @@ export async function status(cwd: string): Promise<GitStatus> {
   const refName = branch?.trim() || null;
   const localNames = refName ? new Set([refName]) : new Set<string>();
 
+  const changes = buildChanges(porcelain ?? "", stagedStat ?? "", unstagedStat ?? "");
+
   return {
     isRepo: true,
     hasPrimaryRemote: (remotes ?? "").trim() !== "",
@@ -401,11 +476,72 @@ export async function status(cwd: string): Promise<GitStatus> {
     refName,
     hasWorkingTreeChanges: files.length > 0,
     workingTree: { files, insertions, deletions },
+    changes,
+    hasConflicts: changes.some((change) => change.conflict !== undefined),
+    stagedCount: changes.filter((change) => change.staged).length,
+    unstagedCount: changes.filter((change) => change.unstaged).length,
     // `upstream` is null when @{upstream} does not resolve — no tracking branch.
     hasUpstream: upstream !== null,
     aheadCount: Number.parseInt(aheadRaw, 10) || 0,
     behindCount: Number.parseInt(behindRaw, 10) || 0,
   };
+}
+
+/**
+ * Join the porcelain statuses to the per-side line counts.
+ *
+ * Two numstats rather than one: `--cached` measures the index against HEAD and
+ * a bare `diff` measures the working tree against the index, and those are the
+ * two numbers the panel's two groups need. `diff HEAD` — what the flat list
+ * used — is neither of them, and for a file that is staged and then edited
+ * again it equals neither side.
+ *
+ * Untracked files appear in no diff at all, so they carry no counts here; the
+ * panel shows them as new rather than as a line total.
+ */
+function buildChanges(porcelain: string, stagedStat: string, unstagedStat: string): GitFileChange[] {
+  const staged = parseNumstat(stagedStat);
+  const unstaged = parseNumstat(unstagedStat);
+
+  return parsePorcelainV2(porcelain)
+    // Ignored files are reported so callers can reason about them, never listed
+    // as changes — a panel full of node_modules would be useless.
+    .filter((entry) => !entry.ignored)
+    .map((entry) => {
+      // Renames are counted under the new path by `--numstat` too, so the
+      // lookup key is the same one porcelain reports.
+      const stagedCounts = staged.get(entry.path) ?? { insertions: 0, deletions: 0 };
+      const unstagedCounts = unstaged.get(entry.path) ?? { insertions: 0, deletions: 0 };
+      return {
+        path: entry.path,
+        ...(entry.originalPath === undefined ? {} : { originalPath: entry.originalPath }),
+        indexStatus: entry.indexStatus,
+        worktreeStatus: entry.worktreeStatus,
+        staged: isStaged(entry),
+        unstaged: isUnstaged(entry),
+        untracked: entry.untracked,
+        ...(entry.conflict === undefined ? {} : { conflict: entry.conflict }),
+        stagedInsertions: stagedCounts.insertions,
+        stagedDeletions: stagedCounts.deletions,
+        unstagedInsertions: unstagedCounts.insertions,
+        unstagedDeletions: unstagedCounts.deletions,
+      };
+    });
+}
+
+/** `--numstat` rows, keyed by path. "-" is git's marker for a binary file. */
+function parseNumstat(output: string): Map<string, { insertions: number; deletions: number }> {
+  const counts = new Map<string, { insertions: number; deletions: number }>();
+  for (const line of output.split("\n")) {
+    if (line.trim() === "") continue;
+    const [added = "", removed = "", path = ""] = line.split("\t");
+    if (path === "") continue;
+    counts.set(path, {
+      insertions: added === "-" ? 0 : Number.parseInt(added, 10) || 0,
+      deletions: removed === "-" ? 0 : Number.parseInt(removed, 10) || 0,
+    });
+  }
+  return counts;
 }
 
 /**
