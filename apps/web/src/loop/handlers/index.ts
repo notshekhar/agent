@@ -23,6 +23,7 @@ import {
   OrchestrationDispatchCommandError,
   WsRpcGroup,
 } from "@loop/contracts";
+import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
 import * as Queue from "effect/Queue";
@@ -31,6 +32,7 @@ import * as Stream from "effect/Stream";
 import { onConfigReloaded } from "../reload.ts";
 import { createAssetUrl } from "./assets.ts";
 import { dispatchCommand } from "./dispatch.ts";
+import { formatError } from "./formatError.ts";
 import { browse, listEntries, readFile, searchEntries, writeFile } from "./files.ts";
 import { openInEditor } from "./editors.ts";
 import { cloneRepository, lookupRepository, publishRepository } from "./sourceControl.ts";
@@ -254,12 +256,16 @@ export const makeHandlers = (options: HandlerOptions) =>
   "previewAutomation.focusHost": () => fail("previewAutomation.focusHost"),
     "subscribePreviewEvents": () => previewEventStream(),
   "subscribeDiscoveredLocalServers": idle,
+    // The reason travels in the message, not only in `cause`: the toast that
+    // reports this shows the message alone, so a failed "add project" read
+    // "loop could not run project.create" and the actual sentence — which
+    // folder, and what was wrong with it — was thrown away.
     "orchestration.dispatchCommand": (command) =>
       dispatchCommand(command).pipe(
         Effect.catchCause((cause) =>
           Effect.fail(
             new OrchestrationDispatchCommandError({
-              message: `loop could not run ${command.type}`,
+              message: `loop could not run ${command.type}: ${formatError(Cause.squash(cause))}`,
               cause,
             }),
           ),

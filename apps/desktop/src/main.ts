@@ -372,6 +372,7 @@ app.whenReady().then(() => {
     "fs.write",
     "fs.readAsset",
     "fs.browse",
+    "fs.createDirectory",
     "git.discover",
     "git.stage",
     "git.unstage",

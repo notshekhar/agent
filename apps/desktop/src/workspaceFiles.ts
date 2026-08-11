@@ -11,7 +11,7 @@
  * agent's output reaches, and a `../../..` in a filename should be a rejection
  * rather than a read.
  */
-import { readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
@@ -316,6 +316,36 @@ export function expandHome(input: string): string {
     return join(homedir(), input.slice(2));
   }
   return input;
+}
+
+/**
+ * Make a folder for a project that does not exist yet.
+ *
+ * The picker offers "Create & Add" for a path with nothing at it, and nothing
+ * ever created it: adding such a project failed with "loop could not run
+ * project.create", because the only filesystem operation in the flow was a
+ * browse that answered "no such folder".
+ *
+ * Recursive, so `~/code/new/thing` works in one step, and an existing folder is
+ * success rather than EEXIST — the picker cannot promise the path is still
+ * missing by the time this runs.
+ */
+export async function createDirectory(
+  path: string,
+): Promise<{ ok: true; path: string } | { ok: false; failure: string }> {
+  const target = expandHome(path.trim());
+  if (target === "") return { ok: false, failure: "A project needs a folder." };
+  if (!isAbsolute(target)) {
+    // A relative path here would land wherever the shell process happens to be
+    // — which is not a folder the user picked.
+    return { ok: false, failure: `${path} is not an absolute path.` };
+  }
+  try {
+    await mkdir(target, { recursive: true });
+    return { ok: true, path: target };
+  } catch (error) {
+    return { ok: false, failure: error instanceof Error ? error.message : String(error) };
+  }
 }
 
 /**

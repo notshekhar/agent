@@ -1,9 +1,9 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { readWorkspaceFile, writeWorkspaceFile } from "./workspaceFiles";
+import { createDirectory, readWorkspaceFile, writeWorkspaceFile } from "./workspaceFiles";
 
 const roots: string[] = [];
 
@@ -138,5 +138,42 @@ describe("writeWorkspaceFile", () => {
     await writeWorkspaceFile(root, "round.md", contents);
     const read = await readWorkspaceFile(root, "round.md");
     expect(read.ok && read.contents).toBe(contents);
+  });
+});
+
+describe("createDirectory", () => {
+  test("creates the whole path, so a project can be added to a folder that is not there", async () => {
+    const root = await workspace();
+    const target = join(root, "code", "brand-new");
+
+    const result = await createDirectory(target);
+
+    expect(result).toEqual({ ok: true, path: target });
+    await writeFile(join(target, "note.md"), "hello");
+  });
+
+  test("expands ~, which is a shell convention node would take literally", async () => {
+    const result = await createDirectory("~");
+    expect(result).toEqual({ ok: true, path: homedir() });
+  });
+
+  test("accepts a folder that already exists", async () => {
+    // The picker cannot promise the path is still missing by the time this
+    // runs, and "it is already there" is what was wanted anyway.
+    const root = await workspace();
+    expect(await createDirectory(root)).toEqual({ ok: true, path: root });
+  });
+
+  test("refuses a relative path rather than creating one somewhere arbitrary", async () => {
+    const result = await createDirectory("code/brand-new");
+    expect(result).toMatchObject({ ok: false });
+  });
+
+  test("reports why it could not create the folder", async () => {
+    const root = await workspace();
+    await writeFile(join(root, "file"), "not a folder");
+
+    const result = await createDirectory(join(root, "file", "child"));
+    expect(result).toMatchObject({ ok: false, failure: expect.stringContaining("ENOTDIR") });
   });
 });

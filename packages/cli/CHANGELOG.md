@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.18.3] - 2026-08-12
+
+### Fixed
+
+- **Adding a project in a folder that does not exist yet works.** The picker offers "Create & Add" as soon as the typed path has nothing at it, and nothing ever created the folder — the only filesystem step in the flow was the check that validates one, which answered "no such folder", so the add failed with "loop could not run project.create" every time. The folder is now created, then resolved the same way an existing one is, so the project records the real path rather than what was typed.
+- **A command that fails says what went wrong.** The toast reported only which command failed — "loop could not run project.create" — and threw away the sentence underneath it, so a permissions error and a typo in a path looked identical. The reason now travels with it.
+- **Editors installed as applications are detected, not just ones on PATH.** An editor dragged into /Applications has no `code`-style shim until its own "install the shell command" action is run, so "Open in…" listed VS Code as missing while it sat right there. The menu now also looks inside installed .app bundles, and opens the one it found. Where a fork ships the same command — Cursor carries `code` as well as `cursor` — the app named after the command wins, so picking VS Code no longer opens Cursor.
+
 ## [0.18.2] - 2026-08-10
 
 ### Added

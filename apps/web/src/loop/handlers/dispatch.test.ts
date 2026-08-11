@@ -26,7 +26,11 @@ interface Recorded {
  */
 async function dispatchWith(
   commands: readonly ClientOrchestrationCommand[],
-  options: { browse?: (path: string) => { parentPath: string } | null } = {},
+  options: {
+    browse?: (path: string) => { parentPath: string } | null;
+    /** Omitted entirely to stand in for a shell that cannot make folders. */
+    createDirectory?: (path: string) => { ok: true; path: string } | { ok: false; failure: string };
+  } = {},
 ) {
   const calls: Recorded[] = [];
   const hadWindow = globals.window !== undefined;
@@ -50,6 +54,14 @@ async function dispatchWith(
             ? options.browse(partialPath)
             : { parentPath: partialPath.replace(/\/$/, "") }) as never,
         ),
+      ...(options.createDirectory
+        ? {
+            createDirectory: (path: string) => {
+              calls.push({ method: "fs.createDirectory", params: { path } });
+              return Promise.resolve(options.createDirectory!(path));
+            },
+          }
+        : {}),
     },
   };
   try {
@@ -62,13 +74,18 @@ async function dispatchWith(
   }
 }
 
-const projectCreate = (projectId: string, workspaceRoot: string) =>
+const projectCreate = (
+  projectId: string,
+  workspaceRoot: string,
+  createWorkspaceRootIfMissing = false,
+) =>
   ({
     type: "project.create",
     commandId: `cmd-${projectId}`,
     projectId,
     title: "documents",
     workspaceRoot,
+    createWorkspaceRootIfMissing,
     createdAt: "2026-08-06T00:00:00.000Z",
   }) as unknown as ClientOrchestrationCommand;
 
@@ -160,6 +177,68 @@ describe("adding a project", () => {
         browse: () => null,
       }),
     ).rejects.toThrow(/not a folder/);
+  });
+
+  it("creates the folder when the picker offered Create & Add", async () => {
+    // The button exists because the path has nothing at it, so the browse that
+    // validates a folder cannot be what decides: without the mkdir this failed
+    // as "not a folder on this machine" and the project was never added.
+    const id = freshIds();
+    let exists = false;
+    const calls = await dispatchWith(
+      [
+        projectCreate(id.project, "~/code/brand-new", true),
+        threadCreate(id.thread, id.project),
+        turnStart(id.thread),
+      ],
+      {
+        browse: () => (exists ? { parentPath: "/Users/someone/code/brand-new" } : null),
+        createDirectory: (path) => {
+          exists = true;
+          return { ok: true, path };
+        },
+      },
+    );
+
+    expect(calls.find((call) => call.method === "fs.createDirectory")?.params).toEqual({
+      path: "~/code/brand-new",
+    });
+    // The folder the shell resolved, not the "~" path that was typed.
+    const created = calls.find((call) => call.method === "session.create");
+    expect((created?.params as { cwd: string }).cwd).toBe("/Users/someone/code/brand-new");
+  });
+
+  it("does not create a folder the user did not ask to create", async () => {
+    const id = freshIds();
+    let attempted = false;
+    await expect(
+      dispatchWith([projectCreate(id.project, "/nope/does/not/exist")], {
+        browse: () => null,
+        createDirectory: (path) => {
+          attempted = true;
+          return { ok: true, path };
+        },
+      }),
+    ).rejects.toThrow(/not a folder/);
+    expect(attempted).toBe(false);
+  });
+
+  it("says why the folder could not be created", async () => {
+    // The toast shows this sentence, so "permission denied" has to survive it.
+    const id = freshIds();
+    await expect(
+      dispatchWith([projectCreate(id.project, "/etc/nope", true)], {
+        browse: () => null,
+        createDirectory: () => ({ ok: false, failure: "EACCES: permission denied" }),
+      }),
+    ).rejects.toThrow(/Could not create \/etc\/nope: EACCES/);
+  });
+
+  it("says so when the shell is too old to create folders", async () => {
+    const id = freshIds();
+    await expect(
+      dispatchWith([projectCreate(id.project, "/w/new", true)], { browse: () => null }),
+    ).rejects.toThrow(/cannot create folders/);
   });
 
   it("switches provider by sending the model id that carries it", async () => {

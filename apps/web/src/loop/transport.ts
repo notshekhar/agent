@@ -70,6 +70,14 @@ export interface LoopFilesystemBridge {
     partialPath: string,
     cwd: string | undefined,
   ): Promise<{ parentPath: string; entries: readonly { name: string; fullPath: string }[] } | null>;
+  /**
+   * Make a folder, for "Create & Add" in the project picker. Optional: a shell
+   * predating it cannot create the folder, and the caller says so rather than
+   * failing with the browse's "that is not a folder".
+   */
+  createDirectory?(
+    path: string,
+  ): Promise<{ ok: true; path: string } | { ok: false; failure: string }>;
 }
 
 export interface TerminalSnapshot {

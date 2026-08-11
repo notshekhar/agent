@@ -44,6 +44,7 @@ import { cloneRepository, lookupRepository, publishRepository } from "./sourceCo
 import { TerminalManager } from "./terminals.js";
 import {
   browseFilesystem,
+  createDirectory,
   listWorkspaceEntries,
   readWorkspaceAsset,
   readWorkspaceFile,
@@ -87,6 +88,7 @@ export function createHostHandlers(services: HostServices): HostTable {
     "fs.readAsset": (p) => readWorkspaceAsset(p["absolutePath"] as string),
     "fs.browse": (p) =>
       browseFilesystem(p["partialPath"] as string, p["cwd"] as string | undefined),
+    "fs.createDirectory": (p) => createDirectory(p["path"] as string),
 
     // ─── git, read-only ───────────────────────────────────────────────────
     "git.discover": () => discoverSourceControl(),

@@ -176,6 +176,9 @@ contextBridge.exposeInMainWorld("loop", {
     browse(partialPath: string, cwd: string | undefined) {
       return ipcRenderer.invoke("loop:fs.browse", { partialPath, cwd });
     },
+    createDirectory(path: string) {
+      return ipcRenderer.invoke("loop:fs.createDirectory", { path });
+    },
   },
   sourceControl: {
     lookup: (repository: string) => ipcRenderer.invoke("loop:sc.lookup", { repository }),

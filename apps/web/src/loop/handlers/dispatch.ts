@@ -508,8 +508,13 @@ function projectFolderFor(projectId: string): string {
  * node nor loop expands, and loop's RPC does not validate cwd at all
  * (`session.create` happily accepts `/nope/does/not/exist`). An unchecked path
  * therefore becomes a project that looks real and works for nothing.
+ *
+ * `create` is the picker's "Create & Add", offered whenever the typed path has
+ * nothing at it. Nothing here used to act on it, so that button could only ever
+ * fail: the folder was never made, and the browse below then rejected the path
+ * for not existing.
  */
-async function resolveWorkspaceRoot(workspaceRoot: string): Promise<string> {
+async function resolveWorkspaceRoot(workspaceRoot: string, create: boolean): Promise<string> {
   const trimmed = workspaceRoot.trim();
   if (trimmed === "") throw new Error("A project needs a folder.");
 
@@ -520,9 +525,20 @@ async function resolveWorkspaceRoot(workspaceRoot: string): Promise<string> {
 
   // The trailing separator is what makes browse list the folder ITSELF rather
   // than its parent, so parentPath comes back as the resolved folder.
-  const browsed = await filesystem.browse(trimmed.endsWith("/") ? trimmed : `${trimmed}/`, undefined);
-  if (!browsed) throw new Error(`${trimmed} is not a folder on this machine.`);
-  return browsed.parentPath;
+  const withSeparator = trimmed.endsWith("/") ? trimmed : `${trimmed}/`;
+  const browsed = await filesystem.browse(withSeparator, undefined);
+  if (browsed) return browsed.parentPath;
+
+  if (!create) throw new Error(`${trimmed} is not a folder on this machine.`);
+  if (!filesystem.createDirectory) {
+    throw new Error(`${trimmed} does not exist, and this shell cannot create folders.`);
+  }
+  const created = await filesystem.createDirectory(trimmed);
+  if (!created.ok) throw new Error(`Could not create ${trimmed}: ${created.failure}`);
+  // Resolved by browsing rather than trusting what was typed, so the project
+  // records the same real path an existing folder would have.
+  const reBrowsed = await filesystem.browse(withSeparator, undefined);
+  return reBrowsed?.parentPath ?? created.path;
 }
 
 export const dispatchCommand = Effect.fnUntraced(function* (command: ClientOrchestrationCommand) {
@@ -537,7 +553,10 @@ async function run(command: ClientOrchestrationCommand): Promise<{ sequence: num
       // the id the palette just minted refers to, so the draft it opens next
       // lands in the right place, and holds the folder so the sidebar can show
       // it before the first turn makes it real.
-      const folder = await resolveWorkspaceRoot(command.workspaceRoot);
+      const folder = await resolveWorkspaceRoot(
+        command.workspaceRoot,
+        command.createWorkspaceRootIfMissing === true,
+      );
       projectFolders.set(command.projectId, folder);
       rememberAddedProject(command.projectId, folder);
       return { sequence: 0 };
