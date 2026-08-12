@@ -40,6 +40,11 @@ export interface UiStyleSpec {
         collapsedLines: number;
         /** Grey out the whole box (not just the title) while collapsed. */
         mutedCollapsed: boolean;
+        /** Fold a run of consecutive finished, collapsed tool rows into one
+         * aggregated header ("Read 3 files"), grok-style. The run's members
+         * are hidden until the header is opened — a second fold level above
+         * each call's own expand. */
+        group: boolean;
     };
     userMessage: {
         /** Prefix glyph before the message text ("" = none). */
@@ -67,6 +72,10 @@ export interface UiStyleSpec {
          * inside assistant turns are skipped. One deterministic spacing rule
          * for live streaming AND replay (they build the tree differently). */
         blockGaps: boolean;
+        /** Hold the prompt at the bottom of the screen with the transcript in
+         * a scrolling viewport above it, instead of letting the transcript
+         * push the prompt down the terminal's own scrollback. */
+        pinnedInput: boolean;
     };
 }
 
@@ -74,11 +83,11 @@ export interface UiStyleSpec {
 export const LOOP_STYLE: UiStyleSpec = {
     canvas: { wash: false },
     thinking: { display: "inline", liveTailLines: 3, collapseOnFinish: false, gutter: false },
-    tool: { bullet: "", collapsedLines: 6, mutedCollapsed: false },
+    tool: { bullet: "", collapsedLines: 6, mutedCollapsed: false, group: false },
     userMessage: { prefix: "", timestamp: false },
     turn: { summaryLine: false },
     hints: { expandHint: "ctrl+e then e", selectedExpandHint: "→" },
-    layout: { blockGaps: false },
+    layout: { blockGaps: false, pinnedInput: false },
 };
 
 // ---------------------------------------------------------------------------
@@ -130,6 +139,9 @@ export interface ToolBlockState {
     streamingContent: string;
     taskStats?: TaskStatsLike;
     cwd: string;
+    /** When the call stopped running (`Date.now()`), for the finish flash.
+     * Unset on replayed transcripts — those calls were never seen running. */
+    finishedAt?: number;
 }
 
 /** Each renderer fully replaces that block's default rendering; return null

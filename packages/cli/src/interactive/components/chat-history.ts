@@ -9,11 +9,12 @@ import {
     CompactionSummaryMessageComponent,
     type FoldableHandle,
     parseSkillBlock,
+    markSelectedLines,
     SkillInvocationMessageComponent,
     UserMessageComponent,
 } from "../ui/messages";
 import { ToolExecutionComponent } from "../ui/tool-execution";
-import { matchSessionHookContext } from "@notshekhar/loop-core";
+import { matchSessionHookContext, settingsStore } from "@notshekhar/loop-core";
 import { accentTitle, dim, err } from "../ui/text";
 
 interface PiAssistantMessage {
@@ -82,6 +83,13 @@ export class ChatHistory extends Container {
         contentIndex?: number;
     }> = [];
     private selectedFoldable: number | null = null;
+    /**
+     * Members of verb groups the user has opened. Every member of an open run
+     * is marked, not just its head — see isGroupOpen for why. Everything else
+     * about grouping is derived per render, so this set is the only grouping
+     * state that has to persist.
+     */
+    private expandedGroups = new Set<unknown>();
     /** Line ranges per foldable within the last full render (click targets
      * and the scroll anchor). Rebuilt on every render. */
     private lastRanges: Array<{ fIdx: number; start: number; end: number }> = [];
@@ -144,9 +152,26 @@ export class ChatHistory extends Container {
 
     setViewport(on: boolean): void {
         this.markDirty();
-        this.viewportOn = on;
+        // The `pinnedInput` setting is the standing version of what live mode
+        // does for as long as you're in it: the window never goes away, so
+        // leaving live mode must not un-pin the prompt.
+        this.viewportOn = on || this.pinnedBySetting();
         this.pendingAnchor = true;
-        if (on) this.viewportOffset = Number.MAX_SAFE_INTEGER; // clamp to bottom
+        if (this.viewportOn) this.viewportOffset = Number.MAX_SAFE_INTEGER; // clamp to bottom
+    }
+
+    /** Standing "keep the prompt at the bottom" preference (/settings). */
+    private pinnedBySetting(): boolean {
+        return (settingsStore.get("pinnedInput") as boolean | undefined) ?? false;
+    }
+
+    /**
+     * Turn the window on at startup when the setting asks for it, so the very
+     * first paint is already pinned rather than snapping into place after the
+     * first ctrl+e.
+     */
+    applyPinnedInputSetting(): void {
+        if (this.pinnedBySetting() !== this.viewportOn) this.setViewport(this.pinnedBySetting());
     }
 
     /** Rows the transcript window may use (editor + status keep the rest). */
@@ -171,6 +196,140 @@ export class ChatHistory extends Container {
         this.pendingAnchor = false;
     }
 
+    // ------------------------------------------------------------------
+    // Verb groups: the second fold level (live mode only)
+    //
+    // A run of consecutive finished, folded tool rows collapses into ONE
+    // aggregated header — "Read 3 files". That makes the transcript a
+    // two-level fold, which is the whole navigation model: open the group to
+    // see which calls it was, open a call to see what it returned.
+    //
+    // The runs are DERIVED on every use rather than maintained incrementally.
+    // A tool row finishing, opening, or folding changes run membership, and an
+    // incrementally-maintained model would have to hook all of those; deriving
+    // is O(entries) over a list that is already walked once per render.
+    // ------------------------------------------------------------------
+
+    /** Runs of ≥2 adjacent groupable tool entries, as foldable-index ranges. */
+    private groupRuns(): Array<{ start: number; end: number }> {
+        if (!uiStyle().tool.group) return [];
+        const runs: Array<{ start: number; end: number }> = [];
+        let start = -1;
+        const groupable = (i: number): boolean => {
+            const f = this.foldables[i];
+            return f?.kind === "tool" && f.comp instanceof ToolExecutionComponent && f.comp.isGroupable();
+        };
+        for (let i = 0; i <= this.foldables.length; i++) {
+            if (i < this.foldables.length && groupable(i)) {
+                if (start < 0) start = i;
+                continue;
+            }
+            // A lone row is not a group — folding one call into a header that
+            // says "1 file" costs a keystroke and hides nothing.
+            if (start >= 0 && i - start >= 2) runs.push({ start, end: i - 1 });
+            start = -1;
+        }
+        return runs;
+    }
+
+    /**
+     * True when this run is currently open.
+     *
+     * Openness is remembered against EVERY member, not just the head, because
+     * a run's head is not stable: expanding the first call drops it out of the
+     * run (an open call is not groupable), which promotes the second call to
+     * head. Keyed on the head alone, that lookup would miss and the remaining
+     * calls would snap shut into a fresh "Read 2 files" — the group appearing
+     * to re-collapse itself the moment you opened something inside it. grok
+     * solves the same problem by migrating the key
+     * (`selection.rs:rekey_verb_group_expansion`); holding every member is the
+     * same fix without a migration step to keep in sync.
+     */
+    private isGroupOpen(run: { start: number; end: number }): boolean {
+        for (let i = run.start; i <= run.end; i++) {
+            if (this.expandedGroups.has(this.foldables[i]?.comp)) return true;
+        }
+        return false;
+    }
+
+    /** Open/close a whole run, marking every member so the state survives its
+     * head changing (see isGroupOpen). */
+    private setGroupOpen(run: { start: number; end: number }, open: boolean): void {
+        for (let i = run.start; i <= run.end; i++) {
+            const comp = this.foldables[i]?.comp;
+            if (open) this.expandedGroups.add(comp);
+            else this.expandedGroups.delete(comp);
+        }
+    }
+
+    /**
+     * The collapsed group a foldable is hidden inside, if any. The run's FIRST
+     * entry is never hidden — it renders as the header row and stays the
+     * selectable stand-in for the whole group.
+     */
+    private collapsedGroupOf(i: number): { start: number; end: number } | null {
+        for (const run of this.groupRuns()) {
+            if (i > run.start && i <= run.end && !this.isGroupOpen(run)) return run;
+        }
+        return null;
+    }
+
+    /** Aggregated header text for a collapsed run, grok-style. */
+    private groupLabel(run: { start: number; end: number }): string {
+        const names: string[] = [];
+        for (let i = run.start; i <= run.end; i++) {
+            const c = this.foldables[i].comp;
+            if (c instanceof ToolExecutionComponent) names.push(c.getToolName());
+        }
+        const n = names.length;
+        const unique = [...new Set(names)];
+        const plural = (word: string) => (n === 1 ? word : `${word}s`);
+        if (unique.length === 1) {
+            switch (unique[0]) {
+                case "read":
+                    return `Read ${n} ${plural("file")}`;
+                case "write":
+                    return `Wrote ${n} ${plural("file")}`;
+                case "edit":
+                    return `Edited ${n} ${plural("file")}`;
+                case "bash":
+                    return `Ran ${n} ${plural("command")}`;
+                case "ls":
+                case "tree":
+                    return `Listed ${n} ${plural("directory").replace("directorys", "directories")}`;
+                case "grep":
+                case "glob":
+                case "find":
+                    return `Searched ${n} ${plural("time")}`;
+                case "task":
+                    return `${n} ${plural("subagent")}`;
+                default:
+                    return `${unique[0]} ×${n}`;
+            }
+        }
+        return `${n} tool calls`;
+    }
+
+    /**
+     * The one-line stand-in for a collapsed run: `◇ Read 3 files`.
+     *
+     * A hollow diamond, deliberately: a filled `◆` is what an individual call
+     * wears, and a group header is a different KIND of row — a fold, not a
+     * call — so it should not read as one more tool that ran.
+     */
+    private renderGroupHeader(header: { text: string; count: number }, width: number, selected: boolean): string[] {
+        const hint = selected ? theme.fg("dim", ` (${uiStyle().hints.selectedExpandHint} to open)`) : "";
+        const row =
+            "   " +
+            theme.fg("muted", "◇") +
+            " " +
+            theme.fg(selected ? "text" : "muted", header.text) +
+            theme.fg("dim", ` · ${header.count}`) +
+            hint;
+        const lines = ["", row];
+        return selected ? markSelectedLines(lines) : lines;
+    }
+
     /** Full transcript render with per-entry line ranges (lastRanges). This
      * replaces Container.render so every foldable knows exactly which lines
      * it produced — the basis for click-to-select and the scroll anchor. */
@@ -191,8 +350,31 @@ export class ChatHistory extends Container {
                 m.set(f.contentIndex, i);
             }
         });
+        // Collapsed groups: the first member's component renders the aggregated
+        // header instead of its own row, and the rest render nothing at all.
+        const groupHeader = new Map<unknown, { text: string; fIdx: number; count: number }>();
+        const groupHidden = new Set<unknown>();
+        for (const run of this.groupRuns()) {
+            if (this.isGroupOpen(run)) continue;
+            groupHeader.set(this.foldables[run.start].comp, {
+                text: this.groupLabel(run),
+                fIdx: run.start,
+                count: run.end - run.start + 1,
+            });
+            for (let i = run.start + 1; i <= run.end; i++) groupHidden.add(this.foldables[i].comp);
+        }
+
         const walk = (children: ReadonlyArray<{ render(w: number): string[] }>): void => {
             for (const child of children) {
+                if (groupHidden.has(child)) continue;
+                const header = groupHeader.get(child);
+                if (header) {
+                    const start = lines.length;
+                    const selected = this.selectedFoldable === header.fIdx;
+                    for (const l of this.renderGroupHeader(header, width, selected)) lines.push(l);
+                    this.lastRanges.push({ fIdx: header.fIdx, start, end: Math.max(start, lines.length - 1) });
+                    continue;
+                }
                 if (child instanceof AssistantMessageComponent) {
                     const start = lines.length;
                     const sub = child.renderTracked(width);
@@ -287,10 +469,31 @@ export class ChatHistory extends Container {
     moveSelection(delta: -1 | 1): boolean {
         if (this.foldables.length === 0) return false;
         const prev = this.selectedFoldable;
-        const next =
+        let next =
             prev === null ? this.foldables.length - 1 : Math.max(0, Math.min(this.foldables.length - 1, prev + delta));
+        // Entries hidden inside a collapsed group are not on screen, so the
+        // selection must not stop on them — it lands on the group's header
+        // (its first member) and the group opens from there.
+        next = this.visibleSelectable(next, delta);
         this.selectIndex(next);
         return true;
+    }
+
+    /**
+     * Walk from `i` in `delta` until the entry is actually visible, i.e. not
+     * swallowed by a collapsed group. Falls back to the group's header rather
+     * than running off the end, so there is always somewhere to land.
+     */
+    private visibleSelectable(i: number, delta: -1 | 1): number {
+        let at = i;
+        for (let guard = 0; guard < this.foldables.length; guard++) {
+            const run = this.collapsedGroupOf(at);
+            if (!run) return at;
+            const step = at + delta;
+            if (step < 0 || step >= this.foldables.length) return run.start;
+            at = step;
+        }
+        return at;
     }
 
     /** Jump the selection to the previous/next user turn (alt+up/down). */
@@ -298,6 +501,7 @@ export class ChatHistory extends Container {
         if (this.foldables.length === 0) return false;
         const from = this.selectedFoldable ?? this.foldables.length;
         for (let i = from + delta; i >= 0 && i < this.foldables.length; i += delta) {
+            // User prompts never group, so a hit here is always on screen.
             if (this.foldables[i].kind === "user") {
                 this.selectIndex(i);
                 return true;
@@ -313,7 +517,17 @@ export class ChatHistory extends Container {
     toggleSelected(): boolean {
         this.markDirty();
         if (this.selectedFoldable === null) return false;
-        const f = this.foldables[this.selectedFoldable];
+        const i = this.selectedFoldable;
+        const f = this.foldables[i];
+        // On a closed group header, Enter opens the group — same first step as
+        // → , so the two keys never disagree about what the row in front of
+        // you does.
+        const run = this.groupRuns().find((r) => r.start === i);
+        if (run && !this.isGroupOpen(run)) {
+            this.setGroupOpen(run, true);
+            this.pendingAnchor = true;
+            return true;
+        }
         if (f.kind === "response") return true;
         f.handle.setExpanded(!f.handle.isExpanded());
         this.pendingAnchor = true; // folding reflows — keep the entry in view
@@ -332,7 +546,9 @@ export class ChatHistory extends Container {
     /** Select the most recent entry (scrollback-focus entry point). */
     selectLast(): boolean {
         if (this.foldables.length === 0) return false;
-        this.selectIndex(this.foldables.length - 1);
+        // The newest entry may be buried inside a collapsed group; land on
+        // that group's header instead of on a row that isn't drawn.
+        this.selectIndex(this.visibleSelectable(this.foldables.length - 1, -1));
         return true;
     }
 
@@ -340,11 +556,38 @@ export class ChatHistory extends Container {
         return this.selectedFoldable !== null;
     }
 
-    /** Explicit open/close of the selected entry (Left/Right keys). */
+    /**
+     * Explicit open/close of the selected entry (Left/Right keys).
+     *
+     * Two-level, grok-style: when the selection sits on a COLLAPSED group's
+     * header, the arrow acts on the group — → reveals its calls — and only
+     * once the group is open does → on a call reveal that call's output. The
+     * reverse on the way back: ← folds the call, and ← again on an already
+     * folded first member closes the whole group. So one key walks the
+     * hierarchy in both directions instead of needing a separate group chord.
+     */
     setSelectedExpanded(expanded: boolean): boolean {
         this.markDirty();
         if (this.selectedFoldable === null) return false;
-        const f = this.foldables[this.selectedFoldable];
+        const i = this.selectedFoldable;
+        const f = this.foldables[i];
+
+        const run = this.groupRuns().find((r) => r.start === i);
+        if (run) {
+            const open = this.isGroupOpen(run);
+            if (expanded && !open) {
+                this.setGroupOpen(run, true);
+                this.pendingAnchor = true;
+                return true;
+            }
+            // Closing: fold the entry first if it is open, else close the group.
+            if (!expanded && open && !f.handle.isExpanded()) {
+                this.setGroupOpen(run, false);
+                this.pendingAnchor = true;
+                return true;
+            }
+        }
+
         if (f.kind === "response") return true; // responses never fold
         f.handle.setExpanded(expanded);
         this.pendingAnchor = true;
@@ -386,6 +629,10 @@ export class ChatHistory extends Container {
         this.assistantTurn = null;
         this.foldables = [];
         this.selectedFoldable = null;
+        // Holds component references from the transcript being discarded (/new,
+        // /clear) — they can never match a new one, so keeping them is pure
+        // retention of the old tree.
+        this.expandedGroups.clear();
         this.lastRanges = [];
         this.lastViewport = null;
     }

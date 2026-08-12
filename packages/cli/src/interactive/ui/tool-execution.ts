@@ -53,6 +53,10 @@ export class ToolExecutionComponent extends Container {
     private groupLead = true;
     /** The turn was aborted while this call was still running. */
     private interrupted = false;
+    /** When this call stopped running (`Date.now()`), for the finish flash —
+     * the brief full-colour rail a block wears as it settles. Stays unset on
+     * replayed transcripts, whose calls were never seen running. */
+    private finishedAt?: number;
     /** State changed since the box was last built. The box is rebuilt lazily
      * at render time: a mode's toolExecution renderer replaces the box
      * entirely, and building it anyway (highlighting, diff coloring) on every
@@ -70,6 +74,7 @@ export class ToolExecutionComponent extends Container {
         this.isPartial = false;
         this.interrupted = true;
         this.statusText = "";
+        this.finishedAt = Date.now();
         this.boxDirty = true;
     }
 
@@ -94,17 +99,38 @@ export class ToolExecutionComponent extends Container {
         return this.expanded;
     }
 
+    /** The tool this row calls — the key a verb group aggregates on. */
+    getToolName(): string {
+        return this.toolName;
+    }
+
+    /**
+     * Whether this row may be swallowed into a verb group.
+     *
+     * A running call never groups: the whole reason to look at the transcript
+     * mid-turn is to watch the live one, and folding it into "Read 3 files"
+     * would hide exactly that. Neither does an open one (the user asked to see
+     * it) nor `plan`, which is an approval surface that must stay readable.
+     */
+    isGroupable(): boolean {
+        return !this.isPartial && !this.expanded && this.toolName !== "plan";
+    }
+
     /** Selection highlight for the ctrl+up/down block navigation. */
     setSelected(selected: boolean): void {
         this.selected = selected;
     }
 
     updateResult(result: ToolResultLike, isPartial = false): void {
+        const wasRunning = this.isPartial;
         this.result = result;
         this.isPartial = isPartial;
         if (!isPartial) {
             this.statusText = "";
             this.streamingContent = "";
+            // Only the running→done edge starts a flash. A late result update
+            // on an already-finished call must not re-flash it.
+            if (wasRunning) this.finishedAt = Date.now();
         }
         this.boxDirty = true;
         this.tui.requestRender();
@@ -178,6 +204,7 @@ export class ToolExecutionComponent extends Container {
                     streamingContent: this.streamingContent,
                     taskStats: this.taskStats,
                     cwd: this.cwd,
+                    finishedAt: this.finishedAt,
                 },
                 { width, theme },
             );

@@ -8,6 +8,8 @@
  */
 import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@notshekhar/loop-tui";
 import { DARK_INK, LIGHT_INK, type Palette, type ThemeJson, themeFromPalette } from "./palette";
+import { bulletColor, RAIL_WIDTH, railForState, withRail, type RailSpec } from "./rail";
+import { fgHex, type ThemeBg, type ThemeColor } from "./theme";
 import { readGutterPrefixes, readLineRangeText } from "./tool-summary";
 import {
     registerUiMode,
@@ -123,6 +125,37 @@ function fitRow(line: string, width: number): string {
     return visibleWidth(line) > width ? truncateToWidth(line, Math.max(0, width - 1)) + "…" : line;
 }
 
+/**
+ * A theme slot's hex, for the uses that need a real colour to blend rather
+ * than an SGR escape (the rail's wave, the bullet's pulse).
+ *
+ * Themes may carry 256-indexes or the terminal default (`""`) instead of hex —
+ * neither can be blended — so those fall back to the caller's colour and the
+ * surface renders static. Motion is a nicety; a wrong colour is not.
+ */
+function hexOf(ctx: RenderCtx, slot: ThemeColor | ThemeBg, fallback: string): string {
+    const raw = ctx.theme.raw(slot);
+    return typeof raw === "string" && raw.startsWith("#") ? raw : fallback;
+}
+
+/**
+ * The rail palette for this theme — resolved once per block render.
+ *
+ * NOT `accentTool`/`accentThinking`: those slots resolve to the palette's
+ * `dim`/`muted` greys (they were the old expanded-body gutter colours, meant to
+ * recede). A LIVE rail has the opposite job — it is the one thing on screen
+ * that should catch the eye — so running rides `warning`, the same yellow the
+ * running diamond already wears.
+ */
+function railColors(ctx: RenderCtx): { running: string; success: string; error: string; quiet: string } {
+    return {
+        running: hexOf(ctx, "warning", "#dcb77f"),
+        success: hexOf(ctx, "success", "#a0cba5"),
+        error: hexOf(ctx, "toolError", "#f5a5a7"),
+        quiet: hexOf(ctx, "borderMuted", "#33333a"),
+    };
+}
+
 /** `0.5s` under 10s, `41s` under a minute, `1m23s` beyond. Branch on the
  * ROUNDED value — branching on the raw one printed "60s" and "1m00s" for
  * 119.7s (minutes floored raw, seconds rounded up past the boundary). */
@@ -140,32 +173,38 @@ function fmtSeconds(ms: number): string {
  * once done, a dim header + accent gutter + short tail while streaming,
  * the full gutter body when expanded (nav per-entry → or expand-all).
  */
-function renderThinking(state: ThinkingBlockState, ctx: RenderCtx): string[] {
+export function renderThinking(state: ThinkingBlockState, ctx: RenderCtx): string[] {
     const th = ctx.theme;
+    const bg = hexOf(ctx, "bgBase", "#141414");
+    const bodyWidth = Math.max(20, ctx.width - RAIL_WIDTH - 1);
     const label =
         state.durationMs !== undefined
             ? `Thought for ${fmtSeconds(state.durationMs)}`
             : state.streaming
               ? "Thinking…"
               : "Thought";
-    const header = fitRow("  " + th.fg("accentThinking", th.italic(`◆ ${label}`)), ctx.width);
+    // Thinking rides its own hue rather than the tool accent — it is the one
+    // block whose rail should read as "the model, not the machine". A settled
+    // thought keeps that hue too: it has no success/failure outcome to report,
+    // so mapping it onto the green/red pair would be a lie.
+    const think = hexOf(ctx, "thinkingXhigh", "#beb6e8");
+    const spec = railForState(
+        { isPartial: state.streaming, expanded: state.expanded, selected: state.selected },
+        { ...railColors(ctx), running: think, success: think, error: think },
+        bg,
+    );
+    const diamond = fgHex(bulletColor(spec, bg, think), "◆");
+    const header = fitRow(diamond + " " + th.fg("accentThinking", th.italic(label)), ctx.width - RAIL_WIDTH);
+
     // Every block owns exactly ONE leading blank (layout.blockGaps) — same
     // deterministic gap whether the transcript streamed live or replayed.
     if (!state.streaming && !state.expanded) {
-        return [
-            "",
-            fitRow(
-                header + (state.selected ? th.fg("dim", ` (${uiStyle().hints.selectedExpandHint} to expand)`) : ""),
-                ctx.width,
-            ),
-        ];
+        const hint = state.selected ? th.fg("dim", ` (${uiStyle().hints.selectedExpandHint} to expand)`) : "";
+        return ["", ...withRail([fitRow(header + hint, ctx.width - RAIL_WIDTH)], spec, bg)];
     }
-    const gutter = " " + th.fg("accentThinking", "┃") + " ";
-    const wrapped = state.text
-        .split("\n")
-        .flatMap((line) => (line ? wrapTextWithAnsi(line, Math.max(20, ctx.width - 4)) : [""]));
+    const wrapped = state.text.split("\n").flatMap((line) => (line ? wrapTextWithAnsi(line, bodyWidth) : [""]));
     const body = state.streaming && !state.expanded ? wrapped.slice(-uiStyle().thinking.liveTailLines) : wrapped;
-    return ["", header, ...body.map((l) => gutter + th.fg("thinkingText", th.italic(l)))];
+    return ["", ...withRail([header, ...body.map((l) => th.fg("thinkingText", th.italic(l)))], spec, bg)];
 }
 
 /**
@@ -180,22 +219,29 @@ function renderThinking(state: ThinkingBlockState, ctx: RenderCtx): string[] {
  * The subagent's own turns/parts render as lines of that log — per-part
  * folding inside a subagent needs nested entries (the pager phase).
  */
-function renderTool(state: ToolBlockState, ctx: RenderCtx): string[] | null {
+export function renderTool(state: ToolBlockState, ctx: RenderCtx): string[] | null {
     if (state.toolName === "plan") return null;
     const isTask = state.toolName === "task";
     const th = ctx.theme;
-    const bodyWidth = Math.max(20, ctx.width - 4);
-    const gutter = " " + th.fg("accentTool", "┃") + " ";
+    const width = ctx.width - RAIL_WIDTH;
+    const bodyWidth = Math.max(20, width - 1);
+    const bg = hexOf(ctx, "bgBase", "#141414");
 
     // The diamond carries the state (grok's accent_running/success/error):
     // yellow while running, green on success, red on failure. The title text
     // stays muted once done (bright while running or selected).
     const failed = state.isError && !state.isPartial;
-    const diamond = th.fg(
-        failed ? "toolError" : state.interrupted ? "muted" : state.isPartial ? "warning" : "success",
-        "◆",
-    );
+    const spec = railForState(state, railColors(ctx), bg);
+    // While running, the diamond rides the head of its own rail's wave, so
+    // bullet and line pulse as one mark (grok syncs them off the same curve).
+    const diamond = state.isPartial
+        ? fgHex(bulletColor(spec, bg, hexOf(ctx, "warning", "#dcb77f")), "◆")
+        : th.fg(failed ? "toolError" : state.interrupted ? "muted" : "success", "◆");
     const titleColor = failed ? "toolError" : state.isPartial || state.selected ? "text" : "muted";
+
+    /** Single exit: every return applies the rail and the block's lead gap. */
+    const finish = (content: string[], spc: RailSpec | null = spec): string[] =>
+        state.groupLead ? ["", ...withRail(content, spc, bg)] : withRail(content, spc, bg);
 
     let name = state.toolName;
     let detail = state.summary ? " " + th.fg("muted", state.summary) : "";
@@ -236,56 +282,52 @@ function renderTool(state: ToolBlockState, ctx: RenderCtx): string[] | null {
               ? th.fg("dim", " · interrupted")
               : ""
         : "";
-    const header = fitRow("  " + diamond + " " + th.fg(titleColor, th.bold(name)) + detail + status, ctx.width);
+    const header = fitRow(diamond + " " + th.fg(titleColor, th.bold(name)) + detail + status, width);
 
-    const lines = state.groupLead ? ["", header] : [header];
+    const lines = [header];
+    const expandHint = (): void => {
+        lines[0] = fitRow(lines[0] + th.fg("dim", ` (${uiStyle().hints.selectedExpandHint} to expand)`), width);
+    };
 
     // Subagent body: the live activity tail while running; the full run log
     // when expanded. Each subagent turn/part is one log line.
     if (isTask) {
-        if (!state.output) return lines;
+        if (!state.output) return finish(lines);
         const raw = state.output.split("\n");
         if (state.isPartial) {
             const tail = raw.slice(-uiStyle().thinking.liveTailLines);
             for (const l of tail.flatMap((x) => (x ? wrapTextWithAnsi(x, bodyWidth) : [""]))) {
-                lines.push(gutter + th.fg("toolOutput", l));
+                lines.push(th.fg("toolOutput", l));
             }
-            return lines;
+            return finish(lines);
         }
         if (!state.expanded) {
-            if (state.selected) {
-                lines[0] = fitRow(
-                    lines[0] + th.fg("dim", ` (${uiStyle().hints.selectedExpandHint} to expand)`),
-                    ctx.width,
-                );
-            }
-            return lines;
+            if (state.selected) expandHint();
+            return finish(lines);
         }
         for (const rawLine of raw) {
             for (const l of rawLine ? wrapTextWithAnsi(rawLine, bodyWidth) : [""]) {
-                lines.push(gutter + th.fg(state.isError ? "toolError" : "toolOutput", l));
+                lines.push(th.fg(state.isError ? "toolError" : "toolOutput", l));
             }
         }
-        return lines;
+        return finish(lines);
     }
 
     // Streaming input (write/edit content) — live tail while the args arrive.
     if (state.isPartial && state.streamingContent && !state.output) {
         const tail = state.streamingContent.split("\n").slice(-uiStyle().thinking.liveTailLines);
         for (const l of tail.flatMap((x) => wrapTextWithAnsi(x, bodyWidth))) {
-            lines.push(gutter + th.fg("toolOutput", l));
+            lines.push(th.fg("toolOutput", l));
         }
-        return lines;
+        return finish(lines);
     }
 
     // Output: hidden while folded (grok's whole point), shown expanded.
     // Failures fold too — the red diamond + title carry the signal; expand
     // (nav →) to read the error.
     if (!state.output || !state.expanded) {
-        if (state.output && state.selected) {
-            lines[0] = fitRow(lines[0] + th.fg("dim", ` (${uiStyle().hints.selectedExpandHint} to expand)`), ctx.width);
-        }
-        return lines;
+        if (state.output && state.selected) expandHint();
+        return finish(lines);
     }
     const color = state.isError ? "toolError" : "toolOutput";
     const rawLines = state.output.split("\n");
@@ -310,10 +352,10 @@ function renderTool(state: ToolBlockState, ctx: RenderCtx): string[] | null {
                           ? th.fg("toolDiffRemoved", l)
                           : th.fg("toolDiffContext", l)
                     : th.fg(color, l);
-            lines.push(gutter + prefix + diff);
+            lines.push(prefix + diff);
         }
     }
-    return lines;
+    return finish(lines);
 }
 
 const NOIR_MODE: UiModePlugin = {

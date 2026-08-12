@@ -62,6 +62,18 @@ export interface AppSettings {
     todos?: boolean;
     /** Live date + hh:mm:ss clock in the footer. Default off. */
     clock?: boolean;
+    /**
+     * Hold the prompt at the bottom of the screen at all times, with the
+     * transcript scrolling in a window above it.
+     *
+     * Live mode (ctrl+e) already does this for as long as you are in it; this
+     * setting is the standing version — the prompt never walks up the screen,
+     * in whatever mode you are in. Off by default because pinning means loop
+     * owns the scrolling: the transcript stops accumulating in the terminal's
+     * OWN scrollback, so your terminal's scroll/search/copy no longer reach
+     * back through the conversation.
+     */
+    pinnedInput?: boolean;
     /** Fire /reminder alerts. Default on; set false to mute reminders entirely. */
     reminders?: boolean;
     autoCompactThreshold?: number;

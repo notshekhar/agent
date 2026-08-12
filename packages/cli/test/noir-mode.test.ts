@@ -10,6 +10,7 @@ import { applyCanvasWash, resetCanvasWash } from "../src/interactive/ui/canvas-w
 import { AssistantMessageComponent, UserMessageComponent } from "../src/interactive/ui/messages";
 import { ToolExecutionComponent } from "../src/interactive/ui/tool-execution";
 import { ChatHistory } from "../src/interactive/components/chat-history";
+import { setAnimTickForTest } from "../src/interactive/ui/anim";
 
 beforeAll(() => {
     registerNoirMode();
@@ -87,7 +88,9 @@ describe("noir mode rendering", () => {
             stopReason: "stop",
         });
         const lines = c.render(W).map(strip);
-        const body = lines.filter((l) => l.includes("┃"));
+        // The rail now runs the full block, header included — the tail is the
+        // railed lines that aren't the header.
+        const body = lines.filter((l) => l.includes("┃") && !l.includes("Thinking…"));
         expect(body).toHaveLength(3);
         expect(body[0]).toContain("l3");
         expect(body[2]).toContain("l5");
@@ -152,8 +155,8 @@ describe("noir mode rendering", () => {
         expect(folded[1]).toContain("◆ bash seq 3");
         c.setExpanded(true);
         const open = c.render(W).map(strip).join("\n");
-        expect(open).toContain("┃ 1");
-        expect(open).toContain("┃ 3");
+        expect(open).toContain("┃  1");
+        expect(open).toContain("┃  3");
     });
 
     test("tool groups: lead gap after text, tight rows inside the group", () => {
@@ -182,15 +185,31 @@ describe("noir mode rendering", () => {
         expect(c.render(W).map(strip).join("\n")).toContain("boom");
     });
 
-    test("tool diamond carries the state color: running yellow, done green, failed red", () => {
+    test("tool diamond carries the state color: done green, failed red", () => {
         noirOn();
         const c = new ToolExecutionComponent("bash", { command: "x" }, tui, "/repo");
-        expect(c.render(W).join("\n")).toContain(`${sgr("warning")}◆`);
         c.updateResult({ content: [{ type: "text", text: "ok" }], isError: false }, false);
         expect(c.render(W).join("\n")).toContain(`${sgr("success")}◆`);
         const f = new ToolExecutionComponent("bash", { command: "x" }, tui, "/repo");
         f.updateResult({ content: [{ type: "text", text: "no" }], isError: true }, false);
         expect(f.render(W).join("\n")).toContain(`${sgr("toolError")}◆`);
+    });
+
+    test("a running tool's diamond and rail ride the animation wave", () => {
+        noirOn();
+        const c = new ToolExecutionComponent("bash", { command: "x" }, tui, "/repo");
+        // Running rows are painted from a computed blend, not a fixed slot, so
+        // the bullet can pulse in step with its rail.
+        const at = (t: number): string => {
+            setAnimTickForTest(t);
+            return c.render(W).join("\n");
+        };
+        // A quarter-cycle of the wave is the brightest→dimmest swing; the two
+        // frames must not paint identically or nothing is actually animating.
+        expect(at(0)).not.toBe(at(Math.round(Math.PI / 2 / (0.15 * 1.5))));
+        expect(at(0)).toContain("◆");
+        expect(at(0)).toContain("┃");
+        setAnimTickForTest(0);
     });
 
     test("user turns and responses are selectable; alt jumps between turns", () => {
@@ -363,7 +382,9 @@ describe("noir mode rendering", () => {
         expect(h.hasSelection()).toBe(true);
         // right = expand, left = fold
         expect(h.setSelectedExpanded(true)).toBe(true);
-        expect(h.render(W).map(strip).join("\n")).toContain("┃ 1");
+        // The selection spine and the rail share column 0 — a selected entry
+        // wears "▌" where its rail would be, so nothing shifts sideways.
+        expect(h.render(W).map(strip).join("\n")).toContain("▌  1");
         expect(h.setSelectedExpanded(false)).toBe(true);
         expect(h.render(W).map(strip).join("\n")).not.toContain("┃ 1");
         // y copies the call + output
@@ -663,7 +684,7 @@ describe("noir mode rendering", () => {
         expect(live[1]).toContain("read src/auth.ts · step 3 · 12s");
         expect(live[1]).toContain("find the auth code");
         // last-3 tail under the gutter while running
-        expect(live.filter((l) => l.includes("┃"))).toHaveLength(3);
+        expect(live.filter((l) => l.includes("┃") && !l.includes("◆"))).toHaveLength(3);
         // done: stats in the title, log hidden until expanded
         c.setTaskStats({ steps: 3, durationMs: 41000, usd: 0.043 });
         c.updateResult(
@@ -675,8 +696,8 @@ describe("noir mode rendering", () => {
         expect(folded[1]).toContain("done · 3 steps · 41s · $0.0430");
         c.setExpanded(true);
         const open = c.render(W).map(strip).join("\n");
-        expect(open).toContain("┃ > ls .");
-        expect(open).toContain("┃ report line");
+        expect(open).toContain("┃  > ls .");
+        expect(open).toContain("┃  report line");
     });
 
     test("tool title gets the diamond and greys out when folded-done", () => {
@@ -762,8 +783,8 @@ describe("noir read rows", () => {
         c.updateResult({ content: [{ type: "text", text: "const x = 1;\nexport default x;" }], isError: false }, false);
         c.setExpanded(true);
         const open = c.render(W).map(strip).join("\n");
-        expect(open).toContain("┃  9  const x = 1;");
-        expect(open).toContain("┃ 10  export default x;");
+        expect(open).toContain("┃   9  const x = 1;");
+        expect(open).toContain("┃  10  export default x;");
     });
 
     test("other tools' output is never numbered", () => {
@@ -772,7 +793,7 @@ describe("noir read rows", () => {
         c.updateResult({ content: [{ type: "text", text: "1\n2" }], isError: false }, false);
         c.setExpanded(true);
         const open = c.render(W).map(strip).join("\n");
-        expect(open).toContain("┃ 1");
-        expect(open).not.toContain("┃ 1  1");
+        expect(open).toContain("┃  1");
+        expect(open).not.toContain("┃  1  1");
     });
 });

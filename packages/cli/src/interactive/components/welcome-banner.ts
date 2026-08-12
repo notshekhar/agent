@@ -1,7 +1,7 @@
 import { PRODUCT_NAME } from "@notshekhar/loop-core";
 import { type Component, truncateToWidth, type TUI, visibleWidth } from "@notshekhar/loop-tui";
 import { mix } from "../ui/palette";
-import { fgHex, isLightTheme, theme } from "../ui/theme";
+import { isLightTheme, theme, verticalRule } from "../ui/theme";
 
 /**
  * Startup welcome banner, styled to match the desktop app: a vertical gradient
@@ -134,7 +134,10 @@ export class WelcomeBanner implements Component {
         const lines: string[] = [""];
         for (let i = 0; i < beside.length; i++) {
             const hex = bar[i];
-            const rule = hex ? fgHex(hex, BAR) : theme.fg("accent", BAR);
+            // verticalRule, not fgHex: on Terminal.app a column of █ glyphs
+            // renders with gaps between the rows, so the rule is painted as a
+            // background there instead (see theme.verticalRule).
+            const rule = hex ? verticalRule(hex, BAR) : theme.fg("accent", BAR);
             lines.push(` ${rule}${BAR_GAP}${beside[i]}`);
         }
         lines.push("");

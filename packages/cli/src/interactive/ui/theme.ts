@@ -270,6 +270,29 @@ export function fgHex(hex: string, text: string): string {
     return `${fgAnsi(hex, detectColorMode())}${text}\x1b[39m`;
 }
 
+/** As {@link fgHex}, but painting the cell's background. */
+export function bgHex(hex: string, text: string): string {
+    return `${bgAnsi(hex, detectColorMode())}${text}\x1b[49m`;
+}
+
+/**
+ * One cell of a continuous vertical rule in `hex`.
+ *
+ * Terminals paint a cell's BACKGROUND across the whole cell rectangle, but a
+ * glyph only covers its own ink extent — so on any terminal whose line height
+ * exceeds the font's glyph box (macOS Terminal.app, notably, and anything with
+ * line spacing turned up) a column of `█` or `┃` renders as a dashed line with
+ * gaps between the rows. Painting a space's background instead is gapless
+ * everywhere, because there is no glyph to fall short.
+ *
+ * Only Terminal.app takes the background path: elsewhere the glyph is sharper
+ * (it can be a THIN rule rather than a full cell), and a full-width background
+ * bar is a heavier mark than the design wants.
+ */
+export function verticalRule(hex: string, glyph = "█"): string {
+    return process.env.TERM_PROGRAM === "Apple_Terminal" ? bgHex(hex, " ") : fgHex(hex, glyph);
+}
+
 /**
  * True when the active theme paints dark text — i.e. it is meant for a light
  * terminal. Derived from the `text` slot rather than the theme's name so

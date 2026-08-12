@@ -1,5 +1,6 @@
-import { describe, expect, test } from "bun:test";
-import { countWheelScroll, isPrintableChar } from "../src/interactive/keys";
+import { afterEach, describe, expect, test } from "bun:test";
+import { setKittyProtocolActive } from "@notshekhar/loop-tui";
+import { countWheelScroll, isCtrlE, isPrintableChar } from "../src/interactive/keys";
 
 describe("countWheelScroll", () => {
     test("wheel up/down count with sign", () => {
@@ -46,5 +47,33 @@ describe("isPrintableChar", () => {
         expect(isPrintableChar("\x1b[A")).toBe(false); // arrow
         expect(isPrintableChar("\x1b\x1b[A")).toBe(false); // alt+arrow
         expect(isPrintableChar("\x1b[<65;10;5M")).toBe(false); // mouse
+    });
+});
+
+describe("isCtrlE (nav-mode toggle)", () => {
+    afterEach(() => setKittyProtocolActive(false));
+
+    test("under kitty, the CSI-u form is ctrl+e", () => {
+        setKittyProtocolActive(true);
+        expect(isCtrlE("\x1b[101;5u")).toBe(true);
+    });
+
+    test("under kitty, a raw \\x05 is a terminal macro (cmd+→), NOT ctrl+e", () => {
+        // Ghostty's default `cmd+right=text:\x05`. This is the whole bug:
+        // it used to be indistinguishable from legacy ctrl+e and kept
+        // dropping people into nav mode.
+        setKittyProtocolActive(true);
+        expect(isCtrlE("\x05")).toBe(false);
+    });
+
+    test("without kitty, the raw byte is the only form ctrl+e has", () => {
+        setKittyProtocolActive(false);
+        expect(isCtrlE("\x05")).toBe(true);
+    });
+
+    test("unrelated keys never match", () => {
+        expect(isCtrlE("e")).toBe(false);
+        expect(isCtrlE("\x01")).toBe(false); // cmd+← / ctrl+a
+        expect(isCtrlE("\x1b[C")).toBe(false); // plain right arrow
     });
 });

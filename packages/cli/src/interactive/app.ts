@@ -54,6 +54,7 @@ import {
 import { getSelectListTheme, initUiModeAndTheme, theme } from "./ui/theme";
 import { applyExtensionUiModes } from "./ui/ui-mode";
 import { registerNoirMode } from "./ui/noir-mode";
+import { registerLiveMode } from "./ui/live-mode";
 import { applyCanvasWash, resetCanvasWash } from "./ui/canvas-wash";
 import { ChatHistory } from "./components/chat-history";
 import { renderSessionBranch } from "./replay";
@@ -147,6 +148,7 @@ async function showNoModelGuidance(history: ChatHistory, tui: TUI): Promise<void
 
 export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     registerNoirMode();
+    registerLiveMode();
     initUiModeAndTheme();
     registerAppKeybindings();
 
@@ -555,6 +557,9 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     };
     syncTicker();
 
+    // Pin the prompt before the first paint when the setting asks for it, so
+    // the layout never visibly snaps into place a frame later.
+    history.applyPinnedInputSetting();
     showWelcomeBanner(history, state, deps);
     // A session opened via --session replays its transcript like /resume does
     // — reopening a conversation without its history looked like data loss.

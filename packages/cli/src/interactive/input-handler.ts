@@ -33,6 +33,10 @@ import {
     isUp,
 } from "./keys";
 import { isKeyRelease } from "@notshekhar/loop-tui";
+import { activeUiMode, setActiveUiMode } from "./ui/ui-mode";
+import { LIVE_MODE_ID } from "./ui/live-mode";
+import { applyCanvasWash } from "./ui/canvas-wash";
+import { initTheme, theme } from "./ui/theme";
 import { copyToClipboard, readClipboardText } from "./clipboard";
 import { traceEvent } from "./debug-log";
 import { pickImageFile, readClipboardImageToFile } from "./clipboard-image";
@@ -96,7 +100,7 @@ function droppedAttachments(
 }
 
 const SCROLLBACK_HINT =
-    "nav · ↑/↓ select · shift+←/→ turn · →/← expand/fold · Enter toggle · e all · wheel/PgUp scroll · y copy · ctrl+e/Esc exit";
+    "live · ↑/↓ select · shift+←/→ turn · →/← open/fold · Enter toggle · e all · wheel/PgUp scroll · y copy · ctrl+e/Esc exit";
 
 export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandContext): InputListener {
     const { tui, history, queuedMessages, renderPending, hideWorking, cleanExit, editor, statusLine } = deps;
@@ -114,13 +118,38 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
         return probe.allowed.length > 0;
     };
 
+    /**
+     * The mode ctrl+e was pressed FROM, restored on the way out. Null while
+     * live mode is not active.
+     */
+    let modeBeforeLive: string | null = null;
+
+    /**
+     * Swap the active UI mode and re-resolve everything derived from it.
+     *
+     * The theme is re-initialised by NAME, not reset: `initTheme` keeps the
+     * current theme when the incoming mode owns one by that name and falls back
+     * to the mode's default otherwise. Live carries noir's themes, so for the
+     * default (noir) user the canvas is byte-identical either side of the
+     * toggle — only the frame and the folds change, which is the whole point of
+     * a mode you flip in and out of mid-turn.
+     */
+    const swapMode = (id: string): void => {
+        if (!setActiveUiMode(id)) return;
+        initTheme(theme.name);
+        applyCanvasWash();
+        history.invalidate();
+    };
+
     const enterScrollbackFocus = (): boolean => {
         if (!history.selectLast()) return false;
         state.scrollbackFocus = true;
+        modeBeforeLive = activeUiMode().id;
+        if (modeBeforeLive !== LIVE_MODE_ID) swapMode(LIVE_MODE_ID);
         history.setViewport(true);
         statusLine.setHint(SCROLLBACK_HINT);
-        // SGR mouse reporting, nav-scoped: the wheel scrolls the window here;
-        // outside nav the terminal keeps native selection/copy behavior.
+        // SGR mouse reporting, live-scoped: the wheel scrolls the window here;
+        // outside it the terminal keeps native selection/copy behavior.
         tui.terminal.write("\x1b[?1006h\x1b[?1000h");
         tui.requestRender();
         return true;
@@ -128,6 +157,8 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
 
     const exitScrollbackFocus = (): void => {
         state.scrollbackFocus = false;
+        if (modeBeforeLive !== null && modeBeforeLive !== LIVE_MODE_ID) swapMode(modeBeforeLive);
+        modeBeforeLive = null;
         history.setViewport(false);
         history.clearSelection();
         statusLine.setHint(null);
@@ -402,9 +433,10 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
             if (next !== state.modelId) void ctx.setModel(next);
             return { consume: true };
         }
-        // ctrl+e is the ONLY way in to navigation mode (expand-all moved to
-        // `e` inside nav) — Esc/ctrl+arrows used to enter too, but stray Esc
-        // presses on an idle prompt kept flinging people into nav.
+        // ctrl+e is the ONLY way in to live mode (expand-all moved to `e`
+        // inside it) — Esc/ctrl+arrows used to enter too, but stray Esc
+        // presses on an idle prompt kept flinging people into it. See
+        // keys.ts:isCtrlE for why Ghostty's cmd+→ no longer counts.
         if (isCtrlE(data) && editorFocused && deps.getSelectorDepth() === 0) {
             enterScrollbackFocus();
             return { consume: true };

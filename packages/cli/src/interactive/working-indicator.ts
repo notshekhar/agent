@@ -1,5 +1,6 @@
 import { Loader, type Component, type Container, type TUI } from "@notshekhar/loop-tui";
 import { accent, dim } from "./ui/text";
+import { FINISH_FLASH_MS, initAnimationClock, setAnimationActive } from "./ui/anim";
 
 export interface WorkingIndicator {
     /** Show/update the spinner in the status slot (Esc-to-interrupt hint added). */
@@ -33,9 +34,20 @@ export function createWorkingIndicator(
 ): WorkingIndicator {
     let workingLoader: Loader | null = null;
     const oscProgress = supportsOscProgress();
+    // Keeps the frame clock alive past the last running block so the finish
+    // flash actually gets frames to render in — stopping it the instant the
+    // turn ends would freeze the flash on whatever phase it happened to be at.
+    let flashTimer: ReturnType<typeof setTimeout> | null = null;
+
+    initAnimationClock(tui);
 
     function showWorking(message = "Generating…"): void {
         const fullMsg = `${message} ${dim("(Esc to interrupt)")}`;
+        if (flashTimer) {
+            clearTimeout(flashTimer);
+            flashTimer = null;
+        }
+        setAnimationActive(true);
         if (workingLoader) {
             workingLoader.setMessage(fullMsg);
             return;
@@ -60,6 +72,13 @@ export function createWorkingIndicator(
         statusContainer.clear();
         statusContainer.addChild(statusIdleSpacer);
         workingLoader = null;
+        if (flashTimer) clearTimeout(flashTimer);
+        flashTimer = setTimeout(() => {
+            flashTimer = null;
+            setAnimationActive(false);
+            tui.requestRender();
+        }, FINISH_FLASH_MS + 100);
+        flashTimer.unref?.();
         tui.requestRender();
     }
 

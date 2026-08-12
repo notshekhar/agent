@@ -1,4 +1,4 @@
-import { matchesKey } from "@notshekhar/loop-tui";
+import { isKittyProtocolActive, matchesKey } from "@notshekhar/loop-tui";
 
 export const CTRL_C = "\x03";
 export const CTRL_D = "\x04";
@@ -7,7 +7,24 @@ export const ESC = "\x1b";
 export const isCtrlC = (d: string) => d === CTRL_C || matchesKey(d, "ctrl+c");
 export const isCtrlD = (d: string) => d === CTRL_D || matchesKey(d, "ctrl+d");
 export const isCtrlL = (d: string) => d === "\x0c" || matchesKey(d, "ctrl+l");
-export const isCtrlE = (d: string) => d === "\x05" || matchesKey(d, "ctrl+e");
+/**
+ * Ctrl+E — the nav-mode toggle, and the ONE chord that must not be confused
+ * with a terminal macro.
+ *
+ * macOS terminals ship the readline line-navigation bindings by default:
+ * Ghostty binds `cmd+left`/`cmd+right` to `text:\x01`/`text:\x05`, i.e. the
+ * literal control BYTE. Legacy ctrl+e is that same byte, so under a plain
+ * matcher `cmd+→` and `ctrl+e` are indistinguishable — which is exactly how
+ * `cmd+→` ended up flinging people into nav mode.
+ *
+ * They ARE separable once the kitty keyboard protocol is negotiated: a real
+ * ctrl+e then arrives as a CSI-u sequence (`\x1b[101;5u`), and ONLY a
+ * terminal `text:` macro still sends the raw byte. So when kitty is active,
+ * require the CSI-u form; when it isn't (dumb terminals, no negotiation),
+ * fall back to the raw byte or ctrl+e breaks entirely.
+ */
+export const isCtrlE = (d: string) =>
+    isKittyProtocolActive() ? matchesKey(d, "ctrl+e") && d !== "\x05" : d === "\x05" || matchesKey(d, "ctrl+e");
 export const isCtrlV = (d: string) => d === "\x16" || matchesKey(d, "ctrl+v");
 export const isCtrlG = (d: string) => d === "\x07" || matchesKey(d, "ctrl+g");
 export const isCtrlP = (d: string) => d === "\x10" || matchesKey(d, "ctrl+p");
