@@ -55,6 +55,7 @@ import { getSelectListTheme, initUiModeAndTheme, theme } from "./ui/theme";
 import { applyExtensionUiModes } from "./ui/ui-mode";
 import { registerNoirMode } from "./ui/noir-mode";
 import { registerLiveMode } from "./ui/live-mode";
+import { printResumeHint } from "./resume-hint";
 import { applyCanvasWash, resetCanvasWash } from "./ui/canvas-wash";
 import { ChatHistory } from "./components/chat-history";
 import { renderSessionBranch } from "./replay";
@@ -494,6 +495,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         tui.stop();
         // Give the terminal its own background back (OSC 111; no-op unwashed).
         resetCanvasWash();
+        printResumeHint(state.session?.id);
         // Tear down MCP transports (stdio subprocesses, sockets) on the way out.
         void getMcpManager().close();
         // Gateway daemons are separate processes, but not immortal ones: stop

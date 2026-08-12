@@ -141,6 +141,26 @@
     ],
     "available": true
   },
+  "xai/grok-4.6": {
+    "id": "xai/grok-4.6",
+    "provider": "xai",
+    "name": "Grok 4.6",
+    "contextWindow": 500000,
+    "maxOutput": 500000,
+    "cost": {
+      "input": 2,
+      "output": 6,
+      "cacheRead": 0.5,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "available": true
+  },
   "xai/grok-build-0.1": {
     "id": "xai/grok-build-0.1",
     "provider": "xai",
@@ -1851,28 +1871,6 @@
     ],
     "available": true
   },
-  "google/gemini-2.0-flash": {
-    "id": "google/gemini-2.0-flash",
-    "provider": "google",
-    "name": "Gemini 2.0 Flash",
-    "contextWindow": 1048576,
-    "maxOutput": 8192,
-    "cost": {
-      "input": 0.1,
-      "output": 0.4,
-      "cacheRead": 0.025,
-      "cacheWrite": 0
-    },
-    "reasoning": false,
-    "modalities": [
-      "text",
-      "image",
-      "audio",
-      "video",
-      "pdf"
-    ],
-    "available": true
-  },
   "google/gemini-3.6-flash": {
     "id": "google/gemini-3.6-flash",
     "provider": "google",
@@ -2099,28 +2097,6 @@
     ],
     "available": true
   },
-  "google/gemini-3-pro-preview": {
-    "id": "google/gemini-3-pro-preview",
-    "provider": "google",
-    "name": "Gemini 3 Pro Preview",
-    "contextWindow": 1048576,
-    "maxOutput": 65536,
-    "cost": {
-      "input": 2,
-      "output": 12,
-      "cacheRead": 0.2,
-      "cacheWrite": 0
-    },
-    "reasoning": true,
-    "modalities": [
-      "text",
-      "image",
-      "video",
-      "audio",
-      "pdf"
-    ],
-    "available": true
-  },
   "google/gemini-2.5-flash-lite": {
     "id": "google/gemini-2.5-flash-lite",
     "provider": "google",
@@ -2158,28 +2134,6 @@
     "reasoning": false,
     "modalities": [
       "text"
-    ],
-    "available": true
-  },
-  "google/gemini-2.0-flash-lite": {
-    "id": "google/gemini-2.0-flash-lite",
-    "provider": "google",
-    "name": "Gemini 2.0 Flash-Lite",
-    "contextWindow": 1048576,
-    "maxOutput": 8192,
-    "cost": {
-      "input": 0.075,
-      "output": 0.3,
-      "cacheRead": 0,
-      "cacheWrite": 0
-    },
-    "reasoning": false,
-    "modalities": [
-      "text",
-      "image",
-      "audio",
-      "video",
-      "pdf"
     ],
     "available": true
   },
@@ -2393,11 +2347,11 @@
     "provider": "openrouter",
     "name": "Nemotron 3 Nano 30B A3B",
     "contextWindow": 262144,
-    "maxOutput": 262144,
+    "maxOutput": 228000,
     "cost": {
       "input": 0.05,
       "output": 0.2,
-      "cacheRead": 0.03,
+      "cacheRead": 0.025,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -2431,8 +2385,8 @@
     "contextWindow": 1000000,
     "maxOutput": 16384,
     "cost": {
-      "input": 0.3,
-      "output": 0.9,
+      "input": 0.085,
+      "output": 0.4,
       "cacheRead": 0,
       "cacheWrite": 0
     },
@@ -2481,6 +2435,24 @@
     ],
     "available": true
   },
+  "openrouter/nvidia/nemotron-3.5-lightning": {
+    "id": "openrouter/nvidia/nemotron-3.5-lightning",
+    "provider": "openrouter",
+    "name": "Nemotron 3.5 Lightning 30B A3B",
+    "contextWindow": 262144,
+    "maxOutput": 262144,
+    "cost": {
+      "input": 0.1,
+      "output": 0.25,
+      "cacheRead": 0.05,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
   "openrouter/nvidia/nemotron-3.5-content-safety:free": {
     "id": "openrouter/nvidia/nemotron-3.5-content-safety:free",
     "provider": "openrouter",
@@ -2510,6 +2482,24 @@
       "input": 0.6,
       "output": 3.6,
       "cacheRead": 0.2,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "openrouter/nvidia/nemotron-3.5-lightning:free": {
+    "id": "openrouter/nvidia/nemotron-3.5-lightning:free",
+    "provider": "openrouter",
+    "name": "Nemotron 3.5 Lightning (free)",
+    "contextWindow": 1000000,
+    "maxOutput": 65536,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -2846,11 +2836,11 @@
     "provider": "openrouter",
     "name": "Gemma 4 26B A4B IT",
     "contextWindow": 262144,
-    "maxOutput": 16384,
+    "maxOutput": 262144,
     "cost": {
-      "input": 0.07,
-      "output": 0.34,
-      "cacheRead": 0,
+      "input": 0.12,
+      "output": 0.4,
+      "cacheRead": 0.05,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -3037,8 +3027,8 @@
     },
     "reasoning": true,
     "modalities": [
-      "text",
-      "image"
+      "image",
+      "text"
     ],
     "available": true
   },
@@ -3265,7 +3255,7 @@
     "provider": "openrouter",
     "name": "DeepSeek V4 Flash Latest",
     "contextWindow": 1048576,
-    "maxOutput": 131072,
+    "maxOutput": 262144,
     "cost": {
       "input": 0.079996,
       "output": 0.252,
@@ -3314,6 +3304,26 @@
     "modalities": [
       "text",
       "image"
+    ],
+    "available": true
+  },
+  "openrouter/sakana/sakana-namazu": {
+    "id": "openrouter/sakana/sakana-namazu",
+    "provider": "openrouter",
+    "name": "Sakana Namazu",
+    "contextWindow": 262144,
+    "maxOutput": 65536,
+    "cost": {
+      "input": 0.95,
+      "output": 4,
+      "cacheRead": 0.15,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image",
+      "pdf"
     ],
     "available": true
   },
@@ -3518,10 +3528,10 @@
     "provider": "openrouter",
     "name": "Qwen3-Coder 30B-A3B Instruct",
     "contextWindow": 262144,
-    "maxOutput": 32768,
+    "maxOutput": 262144,
     "cost": {
       "input": 0.07,
-      "output": 0.27,
+      "output": 0.28,
       "cacheRead": 0,
       "cacheWrite": 0
     },
@@ -3568,6 +3578,24 @@
       "text",
       "image",
       "video"
+    ],
+    "available": true
+  },
+  "openrouter/qwen/qwen3.8-2.4t-a95b": {
+    "id": "openrouter/qwen/qwen3.8-2.4t-a95b",
+    "provider": "openrouter",
+    "name": "Qwen3.8 2.4T A95B",
+    "contextWindow": 262144,
+    "maxOutput": 52429,
+    "cost": {
+      "input": 2,
+      "output": 6,
+      "cacheRead": 0.2,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text"
     ],
     "available": true
   },
@@ -3690,10 +3718,10 @@
     "provider": "openrouter",
     "name": "Qwen3 14B",
     "contextWindow": 131072,
-    "maxOutput": 8192,
+    "maxOutput": 16384,
     "cost": {
-      "input": 0.2275,
-      "output": 0.91,
+      "input": 0.12,
+      "output": 0.24,
       "cacheRead": 0,
       "cacheWrite": 0
     },
@@ -3839,9 +3867,9 @@
     "contextWindow": 262144,
     "maxOutput": 32768,
     "cost": {
-      "input": 0.21,
-      "output": 1.9,
-      "cacheRead": 0.1,
+      "input": 0.26,
+      "output": 1.04,
+      "cacheRead": 0,
       "cacheWrite": 0
     },
     "reasoning": false,
@@ -4408,6 +4436,24 @@
     ],
     "available": true
   },
+  "openrouter/upstage/solar-pro4": {
+    "id": "openrouter/upstage/solar-pro4",
+    "provider": "openrouter",
+    "name": "Solar Pro 4",
+    "contextWindow": 524288,
+    "maxOutput": 131072,
+    "cost": {
+      "input": 0.03,
+      "output": 0.12,
+      "cacheRead": 0.006,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
   "openrouter/~x-ai/grok-latest": {
     "id": "openrouter/~x-ai/grok-latest",
     "provider": "openrouter",
@@ -4417,7 +4463,7 @@
     "cost": {
       "input": 2,
       "output": 6,
-      "cacheRead": 0.3,
+      "cacheRead": 0.5,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -4917,6 +4963,25 @@
     "reasoning": false,
     "modalities": [
       "text"
+    ],
+    "available": true
+  },
+  "openrouter/meta/muse-glimmer-30b": {
+    "id": "openrouter/meta/muse-glimmer-30b",
+    "provider": "openrouter",
+    "name": "Muse Glimmer 30B",
+    "contextWindow": 131072,
+    "maxOutput": 131072,
+    "cost": {
+      "input": 0.35,
+      "output": 1.5,
+      "cacheRead": 0.04,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image"
     ],
     "available": true
   },
@@ -5566,11 +5631,11 @@
     "provider": "openrouter",
     "name": "DeepSeek V4 Pro",
     "contextWindow": 1048576,
-    "maxOutput": 384000,
+    "maxOutput": 393216,
     "cost": {
-      "input": 0.435,
-      "output": 0.87,
-      "cacheRead": 0.003625,
+      "input": 1.168,
+      "output": 2.336,
+      "cacheRead": 0.09855,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -5604,9 +5669,9 @@
     "contextWindow": 1048576,
     "maxOutput": 384000,
     "cost": {
-      "input": 0.09,
+      "input": 0.08,
       "output": 0.18,
-      "cacheRead": 0.018,
+      "cacheRead": 0.016,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -5677,8 +5742,26 @@
     "maxOutput": 32768,
     "cost": {
       "input": 0.27,
-      "output": 1,
-      "cacheRead": 0.135,
+      "output": 0.95,
+      "cacheRead": 0.13,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "openrouter/deepseek/deepseek-v4-pro-0813": {
+    "id": "openrouter/deepseek/deepseek-v4-pro-0813",
+    "provider": "openrouter",
+    "name": "DeepSeek V4 Pro 0813",
+    "contextWindow": 1048576,
+    "maxOutput": 384000,
+    "cost": {
+      "input": 0.435,
+      "output": 0.87,
+      "cacheRead": 0.003625,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -5816,7 +5899,8 @@
     "reasoning": true,
     "modalities": [
       "text",
-      "image"
+      "image",
+      "video"
     ],
     "available": true
   },
@@ -5906,6 +5990,26 @@
       "input": 2,
       "output": 6,
       "cacheRead": 0.3,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "available": true
+  },
+  "openrouter/x-ai/grok-4.6": {
+    "id": "openrouter/x-ai/grok-4.6",
+    "provider": "openrouter",
+    "name": "Grok 4.6",
+    "contextWindow": 500000,
+    "maxOutput": 500000,
+    "cost": {
+      "input": 2,
+      "output": 6,
+      "cacheRead": 0.5,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -6627,6 +6731,24 @@
     ],
     "available": true
   },
+  "openrouter/liquid/lfm-2.5-2.6b:free": {
+    "id": "openrouter/liquid/lfm-2.5-2.6b:free",
+    "provider": "openrouter",
+    "name": "LFM2.5-2.6B (free)",
+    "contextWindow": 128000,
+    "maxOutput": 32768,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
   "openrouter/~anthropic/claude-sonnet-latest": {
     "id": "openrouter/~anthropic/claude-sonnet-latest",
     "provider": "openrouter",
@@ -6770,9 +6892,9 @@
     "contextWindow": 204800,
     "maxOutput": 131072,
     "cost": {
-      "input": 0.952,
-      "output": 2.992,
-      "cacheRead": 0.1768,
+      "input": 1.4,
+      "output": 4.4,
+      "cacheRead": 0.26,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -6804,11 +6926,11 @@
     "provider": "openrouter",
     "name": "GLM-5.2",
     "contextWindow": 1048576,
-    "maxOutput": 128000,
+    "maxOutput": 131072,
     "cost": {
-      "input": 0.07,
-      "output": 0.22,
-      "cacheRead": 0.013,
+      "input": 0.49,
+      "output": 1.54,
+      "cacheRead": 0.091,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -6824,9 +6946,9 @@
     "contextWindow": 204800,
     "maxOutput": 131072,
     "cost": {
-      "input": 0.5,
-      "output": 2,
-      "cacheRead": 0.1,
+      "input": 0.55,
+      "output": 2.2,
+      "cacheRead": 0.11,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -7067,8 +7189,8 @@
     "contextWindow": 262144,
     "maxOutput": 262144,
     "cost": {
-      "input": 0.7,
-      "output": 3.5,
+      "input": 0.67,
+      "output": 3.4,
       "cacheRead": 0.15,
       "cacheWrite": 0
     },
@@ -7130,7 +7252,8 @@
     "reasoning": true,
     "modalities": [
       "text",
-      "image"
+      "image",
+      "video"
     ],
     "available": true
   },
@@ -7704,7 +7827,7 @@
     "provider": "openrouter",
     "name": "GPT-5.2 Chat",
     "contextWindow": 128000,
-    "maxOutput": 16384,
+    "maxOutput": 32000,
     "cost": {
       "input": 1.75,
       "output": 14,
@@ -7805,9 +7928,9 @@
     "contextWindow": 131072,
     "maxOutput": 131072,
     "cost": {
-      "input": 0.037,
+      "input": 0.03,
       "output": 0.17,
-      "cacheRead": 0,
+      "cacheRead": 0.03,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -7927,26 +8050,6 @@
       "cacheWrite": 0
     },
     "reasoning": true,
-    "modalities": [
-      "text",
-      "image",
-      "pdf"
-    ],
-    "available": true
-  },
-  "openrouter/openai/gpt-5.3-chat": {
-    "id": "openrouter/openai/gpt-5.3-chat",
-    "provider": "openrouter",
-    "name": "GPT-5.3 Chat",
-    "contextWindow": 128000,
-    "maxOutput": 16384,
-    "cost": {
-      "input": 1.75,
-      "output": 14,
-      "cacheRead": 0.175,
-      "cacheWrite": 0
-    },
-    "reasoning": false,
     "modalities": [
       "text",
       "image",
@@ -8423,7 +8526,7 @@
     "maxOutput": 16384,
     "cost": {
       "input": 0.2,
-      "output": 0.8,
+      "output": 0.696,
       "cacheRead": 0,
       "cacheWrite": 0
     },
@@ -8585,6 +8688,26 @@
     ],
     "available": true
   },
+  "openrouter/bytedance-seed/seed-2-1-turbo": {
+    "id": "openrouter/bytedance-seed/seed-2-1-turbo",
+    "provider": "openrouter",
+    "name": "Seed 2.1 Turbo",
+    "contextWindow": 262144,
+    "maxOutput": 262144,
+    "cost": {
+      "input": 0.5,
+      "output": 2.5,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image",
+      "video"
+    ],
+    "available": true
+  },
   "openrouter/bytedance-seed/seed-2.0-lite": {
     "id": "openrouter/bytedance-seed/seed-2.0-lite",
     "provider": "openrouter",
@@ -8594,6 +8717,26 @@
     "cost": {
       "input": 0.25,
       "output": 2,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image",
+      "video"
+    ],
+    "available": true
+  },
+  "openrouter/bytedance-seed/seed-2.0-code": {
+    "id": "openrouter/bytedance-seed/seed-2.0-code",
+    "provider": "openrouter",
+    "name": "Seed 2.0 Code",
+    "contextWindow": 262144,
+    "maxOutput": 131072,
+    "cost": {
+      "input": 0.5,
+      "output": 3,
       "cacheRead": 0,
       "cacheWrite": 0
     },
@@ -10173,6 +10316,26 @@
     ],
     "available": true
   },
+  "vercel/sakana/namazu": {
+    "id": "vercel/sakana/namazu",
+    "provider": "vercel",
+    "name": "Sakana Namazu",
+    "contextWindow": 256000,
+    "maxOutput": 256000,
+    "cost": {
+      "input": 0.95,
+      "output": 4,
+      "cacheRead": 0.15,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "available": true
+  },
   "vercel/inception/mercury-coder-small": {
     "id": "vercel/inception/mercury-coder-small",
     "provider": "vercel",
@@ -10456,6 +10619,25 @@
       "input": 0.25,
       "output": 2,
       "cacheRead": 0.05,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image"
+    ],
+    "available": true
+  },
+  "vercel/meta/muse-glimmer-30b": {
+    "id": "vercel/meta/muse-glimmer-30b",
+    "provider": "vercel",
+    "name": "Muse Glimmer 30B",
+    "contextWindow": 131072,
+    "maxOutput": 131072,
+    "cost": {
+      "input": 0.35,
+      "output": 1.5,
+      "cacheRead": 0.04,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -10828,6 +11010,24 @@
       "text",
       "image",
       "pdf"
+    ],
+    "available": true
+  },
+  "vercel/xai/grok-4.6": {
+    "id": "vercel/xai/grok-4.6",
+    "provider": "vercel",
+    "name": "Grok 4.6",
+    "contextWindow": 500000,
+    "maxOutput": 500000,
+    "cost": {
+      "input": 2,
+      "output": 6,
+      "cacheRead": 0.5,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text"
     ],
     "available": true
   },
@@ -11561,6 +11761,24 @@
       "input": 0.27,
       "output": 1,
       "cacheRead": 0.135,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "vercel/deepseek/deepseek-v4-pro-0813": {
+    "id": "vercel/deepseek/deepseek-v4-pro-0813",
+    "provider": "vercel",
+    "name": "DeepSeek V4 Pro 0813",
+    "contextWindow": 1000000,
+    "maxOutput": 384000,
+    "cost": {
+      "input": 0.435,
+      "output": 0.87,
+      "cacheRead": 0.0036,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -13199,26 +13417,6 @@
       "cacheWrite": 0
     },
     "reasoning": true,
-    "modalities": [
-      "text",
-      "image",
-      "pdf"
-    ],
-    "available": true
-  },
-  "vercel/openai/gpt-5.3-chat": {
-    "id": "vercel/openai/gpt-5.3-chat",
-    "provider": "vercel",
-    "name": "GPT-5.3 Chat",
-    "contextWindow": 128000,
-    "maxOutput": 16384,
-    "cost": {
-      "input": 1.75,
-      "output": 14,
-      "cacheRead": 0.175,
-      "cacheWrite": 0
-    },
-    "reasoning": false,
     "modalities": [
       "text",
       "image",

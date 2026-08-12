@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.18.4] - 2026-08-13
+
+### Added
+
+- **The transcript has a left rail that shows what is happening.** Every block now hangs off a vertical line, and that line carries the block's state as motion rather than as more text: while a call runs a wave travels down it, and if the call has stopped to ask you something the wave freezes into a slower pulse, so "working" and "waiting on you" are never the same thing on screen. The bullet pulses in step with the top of its own rail, so the two read as one mark. When a call lands the rail settles static in its outcome colour and stays there — green for a call that worked, red for one that did not — held down toward the background so a long transcript reads as a calm ladder and only the live rail sits at full strength. The frame clock runs only while something is actually running, so an idle prompt costs exactly what it did before.
+- **A live mode, on ctrl+e.** The transcript holds the keyboard, the prompt keeps its place, and runs of finished tool calls fold into one aggregated line — "Read 1 skill, Listed 2 dirs, Searched 1 pattern" — naming every kind with its own count instead of an anonymous total. A hidden failure is still reported on the header, because folding must never be a way to lose bad news. That makes the transcript a two-level fold: → opens the group to show which calls it was, → again opens a call to show what it returned, and ← walks back out the same way. Opening a call no longer makes its siblings snap shut. It carries the same palette as noir, so flipping in and out mid-turn changes the frame and the folds and nothing else.
+- **Leaving prints the command to come back.** A session's id is the only handle on it, and it was never shown anywhere you could copy it from once loop had exited — you had to go and find it in `loop sessions`. Closing now leaves `loop --session <id>` in your scrollback, which is exactly where you want it the moment you realise you have just closed the thing you needed. Nothing is printed for a conversation that was never saved, since it has no id to resume by.
+- **Calls whose detail is the point keep their own rows.** Reads, listings and searches fold, because which four files were read is rarely what you want to know. A command or an edit does not, because which command ran is the entire information. Tools from extensions and MCP servers degrade sensibly rather than disappearing: one that names itself plainly (`search_issues`, `list_repos`) is classified and grouped, one that does not keeps its own visible row, and a tool can declare its own grammar to be grouped precisely. An unrecognised tool staying visible is the safe failure — a slightly longer transcript beats silently hidden information.
+
+### Fixed
+
+- **cmd+→ no longer drops you into the transcript.** Ghostty binds cmd+→ to the same byte legacy ctrl+e sends, and nothing told the two apart, so reaching for the end of a line kept flinging you into navigation. Under the modern keyboard protocol a real ctrl+e arrives as its own sequence and only a terminal shortcut still sends the bare byte, so the bare byte no longer counts as ctrl+e there. Terminals without that protocol are unaffected.
+- **The vertical bars render as continuous lines in macOS Terminal.** The selection bar and the welcome banner's rule are block-element glyphs, which Terminal's default font draws short of the cell — so both came out as columns of separated ticks rather than one bar. They are painted as a background there, which fills the cell and cannot gap. The transcript's rails use box-drawing glyphs instead, which every font tiles, since a full-cell background is far too heavy a mark for a hairline.
+
 ## [0.18.3] - 2026-08-12
 
 ### Fixed
@@ -110,7 +124,7 @@ Electron's own updater is not what does this. On macOS it requires a Developer-I
 
 ### Fixed
 
-- **A folder full of repositories was told it had a detached HEAD.** loop reports such a folder as a repo so the diff surface can span its children, but it has no branch of its own — and `refName: null` reads to the git control as a detached HEAD, so a plain directory that happened to hold checkouts was advised to "create and checkout a refName" when what it actually needed was `git init`. The status now says *why* it is a repo, and the control offers to initialize one.
+- **A folder full of repositories was told it had a detached HEAD.** loop reports such a folder as a repo so the diff surface can span its children, but it has no branch of its own — and `refName: null` reads to the git control as a detached HEAD, so a plain directory that happened to hold checkouts was advised to "create and checkout a refName" when what it actually needed was `git init`. The status now says _why_ it is a repo, and the control offers to initialize one.
 - **Three source files were invisible to search below their first NUL byte.** `ChatComposer.tsx`, `handlers/preview.ts` and `telegram/render.ts` used raw NUL bytes as key separators inside template literals. grep, ripgrep and git all classify a file containing a NUL as binary and stop at the first one, which silently hid the last 1200 lines of the composer — including its entire slash-command list — from every search. The separators are now written as `\u0000`: identical string at runtime, and the files are text again.
 
 ## [0.16.6] - 2026-08-09
