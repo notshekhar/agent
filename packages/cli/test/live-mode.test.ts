@@ -8,7 +8,6 @@ import { LIVE_MODE_ID, registerLiveMode } from "../src/interactive/ui/live-mode"
 import { setActiveUiMode, uiStyle } from "../src/interactive/ui/ui-mode";
 import { initTheme } from "../src/interactive/ui/theme";
 import { ChatHistory } from "../src/interactive/components/chat-history";
-import { settingsStore } from "@notshekhar/loop-core";
 
 beforeAll(() => {
     registerNoirMode();
@@ -42,11 +41,9 @@ function withReads(n: number, tool = "read"): ChatHistory {
 const text = (h: ChatHistory) => h.render(W).map(strip).join("\n");
 
 describe("live mode style", () => {
-    test("declares the two behaviours that make it its own mode", () => {
+    test("grouping is what makes it its own mode", () => {
         liveOn();
-        const s = uiStyle();
-        expect(s.tool.group).toBe(true);
-        expect(s.layout.pinnedInput).toBe(true);
+        expect(uiStyle().tool.group).toBe(true);
     });
 
     test("noir does NOT group — grouping is live mode's alone", () => {
@@ -54,102 +51,6 @@ describe("live mode style", () => {
         initTheme("night");
         expect(uiStyle().tool.group).toBe(false);
         expect(text(withReads(3))).not.toContain("Read 3 files");
-    });
-});
-
-describe("pinnedInput setting", () => {
-    /** A transcript taller than the 20-row terminal below. */
-    const tall = (h: ChatHistory) => {
-        for (let i = 0; i < 30; i++) h.addUser(`message number ${i}`);
-        return h;
-    };
-    const smallTui = { requestRender() {}, terminal: { rows: 20, columns: 80 } } as unknown as TUI;
-
-    afterEach(() => settingsStore.set("pinnedInput", undefined));
-
-    test("a fresh session opens pinned — no setting required", () => {
-        settingsStore.set("pinnedInput", undefined);
-        const h = new ChatHistory(smallTui, "/repo");
-        h.applyPinnedInputSetting();
-        // Empty transcript, already filling its window: the prompt is at the
-        // bottom from the very first paint.
-        expect(h.render(60).length).toBeGreaterThan(0);
-        expect(h.render(60).length).toBeLessThanOrEqual(20);
-    });
-
-    test("an EMPTY transcript still fills its window, so the prompt starts pinned", () => {
-        settingsStore.set("pinnedInput", true);
-        const chrome = { render: () => new Array<string>(4).fill("chrome") };
-        const h = new ChatHistory(smallTui, "/repo");
-        h.setChromeProvider(() => [chrome]);
-        h.applyPinnedInputSetting();
-        // 20 rows of terminal - 4 of chrome = 16, padded not truncated.
-        expect(h.render(60)).toHaveLength(16);
-    });
-
-    test("the prompt holds its row as the transcript grows", () => {
-        settingsStore.set("pinnedInput", true);
-        const chrome = { render: () => new Array<string>(4).fill("chrome") };
-        const heights = [0, 1, 5, 40].map((n) => {
-            const h = new ChatHistory(smallTui, "/repo");
-            h.setChromeProvider(() => [chrome]);
-            h.applyPinnedInputSetting();
-            for (let i = 0; i < n; i++) h.addUser(`m${i}`);
-            return h.render(60).length;
-        });
-        // Constant height is what pinning IS — the prompt cannot move if the
-        // component above it never changes size.
-        expect(new Set(heights).size).toBe(1);
-        expect(heights[0]).toBe(16);
-    });
-
-    test("chrome height is measured, not assumed", () => {
-        settingsStore.set("pinnedInput", true);
-        const mk = (chromeRows: number) => {
-            const chrome = { render: () => new Array<string>(chromeRows).fill("c") };
-            const h = new ChatHistory(smallTui, "/repo");
-            h.setChromeProvider(() => [chrome]);
-            h.applyPinnedInputSetting();
-            return h.render(60).length;
-        };
-        // Taller chrome (a multi-line editor, the todo panel) must take rows
-        // FROM the transcript, or the prompt is pushed off the bottom.
-        expect(mk(4)).toBe(16);
-        expect(mk(9)).toBe(11);
-    });
-
-    test("off: the transcript renders in full and scrolls the terminal", () => {
-        settingsStore.set("pinnedInput", false);
-        const h = tall(new ChatHistory(smallTui, "/repo"));
-        h.applyPinnedInputSetting();
-        expect(h.render(60).length).toBeGreaterThan(20);
-    });
-
-    test("on: the transcript is clipped to a window, so the prompt stays put", () => {
-        settingsStore.set("pinnedInput", true);
-        const h = tall(new ChatHistory(smallTui, "/repo"));
-        h.applyPinnedInputSetting();
-        const out = h.render(60);
-        expect(out.length).toBeLessThanOrEqual(20);
-        // Clipped from the top: the window sits at the newest end.
-        expect(out.map(strip).join("\n")).toContain("message number 29");
-    });
-
-    test("on: leaving live mode does NOT un-pin the prompt", () => {
-        settingsStore.set("pinnedInput", true);
-        const h = tall(new ChatHistory(smallTui, "/repo"));
-        h.applyPinnedInputSetting();
-        h.setViewport(true); // ctrl+e in
-        h.setViewport(false); // ctrl+e out
-        expect(h.render(60).length).toBeLessThanOrEqual(20);
-    });
-
-    test("off: leaving live mode releases the window as before", () => {
-        settingsStore.set("pinnedInput", false);
-        const h = tall(new ChatHistory(smallTui, "/repo"));
-        h.setViewport(true);
-        h.setViewport(false);
-        expect(h.render(60).length).toBeGreaterThan(20);
     });
 });
 

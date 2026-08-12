@@ -55,7 +55,6 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
         serve: false,
         todos: false,
         clock: false,
-        pinnedInput: true,
         reminders: true,
         mcp: true,
         bashApprove: false,
@@ -181,12 +180,6 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                         description: "live date + hh:mm:ss in the status line",
                     },
                     {
-                        value: "pinnedInput",
-                        label: `pinned input: ${boolSetting("pinnedInput") ? "on" : "off"}`,
-                        description:
-                            "keep the prompt at the bottom with the transcript scrolling above it; loop owns the scrolling, so your terminal's own scrollback no longer holds the conversation",
-                    },
-                    {
                         value: "reminders",
                         label: `reminders: ${boolSetting("reminders") ? "on" : "off"}`,
                         description: "fire /reminder alerts; off mutes them without deleting any",
@@ -295,16 +288,6 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                     if (pick.value === "mcp") {
                         if (next) startMcpServers(state, deps);
                         else void getMcpManager().close();
-                    }
-                    // Pinning takes effect immediately — the whole point is the
-                    // prompt's position, so making it wait for a /reload would
-                    // read as the toggle not working.
-                    if (pick.value === "pinnedInput") {
-                        history.applyPinnedInputSetting();
-                        // Mouse reporting follows the pin: pinned, the wheel is
-                        // the only route back through the transcript; unpinned,
-                        // it belongs to the terminal (native selection/copy).
-                        tui.terminal.write(history.isPinned() ? "\x1b[?1006h\x1b[?1000h" : "\x1b[?1000l\x1b[?1006l");
                     }
                     tui.requestRender();
                     continue;

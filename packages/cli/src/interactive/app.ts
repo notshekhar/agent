@@ -295,10 +295,6 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     // Constant breathing room below the status line — without it the status block
     // sits flush with the terminal's bottom row once the screen fills up.
     root.addChild(new Spacer(1));
-    // Everything after the transcript is the chrome it must leave room for.
-    // Derived from the root's own children rather than restated, so a
-    // component added above cannot silently desync the pinned layout.
-    history.setChromeProvider(() => root.children.filter((c) => c !== history));
     tui.addChild(root);
 
     showWhatsNew(history, opts.version, Boolean(opts.sessionId));
@@ -561,12 +557,6 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     };
     syncTicker();
 
-    // Pin the prompt before the first paint when the setting asks for it, so
-    // the layout never visibly snaps into place a frame later. Pinning takes
-    // the transcript out of the terminal's scrollback, so it also has to bring
-    // the wheel with it (SGR mouse reporting) or the history is unreachable.
-    history.applyPinnedInputSetting();
-    if (history.isPinned()) tui.terminal.write("\x1b[?1006h\x1b[?1000h");
     showWelcomeBanner(history, state, deps);
     // A session opened via --session replays its transcript like /resume does
     // — reopening a conversation without its history looked like data loss.

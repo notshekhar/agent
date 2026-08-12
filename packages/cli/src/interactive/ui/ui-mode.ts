@@ -72,10 +72,6 @@ export interface UiStyleSpec {
          * inside assistant turns are skipped. One deterministic spacing rule
          * for live streaming AND replay (they build the tree differently). */
         blockGaps: boolean;
-        /** Hold the prompt at the bottom of the screen with the transcript in
-         * a scrolling viewport above it, instead of letting the transcript
-         * push the prompt down the terminal's own scrollback. */
-        pinnedInput: boolean;
     };
 }
 
@@ -87,7 +83,7 @@ export const LOOP_STYLE: UiStyleSpec = {
     userMessage: { prefix: "", timestamp: false },
     turn: { summaryLine: false },
     hints: { expandHint: "ctrl+e then e", selectedExpandHint: "→" },
-    layout: { blockGaps: false, pinnedInput: false },
+    layout: { blockGaps: false },
 };
 
 // ---------------------------------------------------------------------------

@@ -10,8 +10,9 @@
  * Two behaviours are its own, on top of noir's look (which it reuses wholesale
  * — same rails, same diamonds, same wave):
  *
- * 1. **Pinned input** (`layout.pinnedInput`) — the app holds the transcript in
- *    a window instead of letting it push the prompt down.
+ * 1. **Pinned input** — while live mode is active the transcript renders into
+ *    a window (the nav viewport), so the prompt holds its place instead of
+ *    being pushed down the screen.
  * 2. **Tool grouping** (`tool.group`) — a run of finished, folded tool rows
  *    collapses into one aggregated header (`Read 3 files`), grok-style. That
  *    makes the transcript a two-level fold: open the group to see its calls,
@@ -37,7 +38,7 @@ const LIVE_MODE: UiModePlugin = {
         tool: { bullet: "◆", mutedCollapsed: true, group: true },
         userMessage: { prefix: "❯", timestamp: true },
         turn: { summaryLine: true },
-        layout: { blockGaps: true, pinnedInput: true },
+        layout: { blockGaps: true },
         // Inside live mode the transcript already has the keyboard, so the
         // route to hidden content is just the arrow — no "ctrl+e first".
         hints: { expandHint: "→", selectedExpandHint: "→" },

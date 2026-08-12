@@ -62,22 +62,6 @@ export interface AppSettings {
     todos?: boolean;
     /** Live date + hh:mm:ss clock in the footer. Default off. */
     clock?: boolean;
-    /**
-     * Hold the prompt at the bottom of the screen at all times, with the
-     * transcript scrolling in a window above it. Default ON — a fresh session
-     * opens pinned.
-     *
-     * Live mode (ctrl+e) does this for as long as you are in it; this setting
-     * is the standing version, so the prompt never walks up the screen in any
-     * mode.
-     *
-     * The trade it makes: pinning means loop owns the scrolling, so the
-     * transcript stops accumulating in the terminal's OWN scrollback and your
-     * terminal's scroll/search/copy no longer reach back through the
-     * conversation (loop's own nav does — ctrl+e). Set false to hand the
-     * scrollback back to the terminal.
-     */
-    pinnedInput?: boolean;
     /** Fire /reminder alerts. Default on; set false to mute reminders entirely. */
     reminders?: boolean;
     autoCompactThreshold?: number;
