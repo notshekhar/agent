@@ -162,7 +162,11 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
         history.setViewport(false);
         history.clearSelection();
         statusLine.setHint(null);
-        tui.terminal.write("\x1b[?1000l\x1b[?1006l");
+        // Only hand mouse reporting back if the transcript is no longer
+        // windowed. While `pinnedInput` holds it, the wheel still has to reach
+        // us — turning reporting off here would leave a pinned transcript with
+        // no way to scroll at all.
+        if (!history.isPinned()) tui.terminal.write("\x1b[?1000l\x1b[?1006l");
         if (wheelTimer) {
             clearTimeout(wheelTimer);
             wheelTimer = null;
@@ -186,7 +190,9 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
             const page = history.viewportPage();
             const net = Math.max(-page, Math.min(page, wheelAccum * 2));
             wheelAccum = 0;
-            if (net !== 0 && state.scrollbackFocus) {
+            // Anywhere the transcript is windowed — live mode, or merely
+            // pinned — the wheel is the only way back through it.
+            if (net !== 0 && (state.scrollbackFocus || history.isPinned())) {
                 history.scrollViewportLines(net);
                 tui.requestRender();
             }
@@ -350,6 +356,25 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
         if (state.scrollbackFocus && editorFocused && deps.getSelectorDepth() === 0) {
             const handled = handleScrollbackFocus(data);
             if (handled) return handled;
+        } else if (!state.scrollbackFocus && history.isPinned() && editorFocused && deps.getSelectorDepth() === 0) {
+            // Pinned but NOT in live mode: the transcript lives in loop's
+            // window, so the terminal's own scrollback no longer holds the
+            // conversation and the wheel would otherwise do nothing at all.
+            // Scrolling has to work from the plain prompt — without entering a
+            // mode first — or pinning just makes the history unreachable.
+            const wheel = countWheelScroll(data);
+            if (wheel !== 0) {
+                queueWheel(wheel);
+                return { consume: true };
+            }
+            if (isPageUp(data) || isPageDown(data)) {
+                history.scrollViewportLines(isPageUp(data) ? -history.viewportPage() : history.viewportPage());
+                tui.requestRender();
+                return { consume: true };
+            }
+            // Swallow the rest of the mouse reports we asked for (press,
+            // release, drag) so they never land in the editor as text.
+            if (MOUSE_SGR_ANY.test(data)) return { consume: true };
         } else if (state.scrollbackFocus) {
             // A selector/overlay took over — drop focus mode quietly.
             exitScrollbackFocus();

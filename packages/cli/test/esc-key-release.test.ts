@@ -21,7 +21,7 @@ function makeHarness() {
     const editor: any = { focused: true, isShowingAutocomplete: () => false };
     const deps: any = {
         tui: { requestRender: () => {} },
-        history: { addSystem: () => {} },
+        history: { addSystem: () => {}, isPinned: () => false },
         queuedMessages: [],
         renderPending: () => {},
         hideWorking: () => {},

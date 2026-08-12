@@ -173,7 +173,7 @@ export class ChatHistory extends Container {
 
     /** Standing "keep the prompt at the bottom" preference (/settings). */
     private pinnedBySetting(): boolean {
-        return (settingsStore.get("pinnedInput") as boolean | undefined) ?? false;
+        return (settingsStore.get("pinnedInput") as boolean | undefined) ?? true;
     }
 
     /**
@@ -185,9 +185,40 @@ export class ChatHistory extends Container {
         if (this.pinnedBySetting() !== this.viewportOn) this.setViewport(this.pinnedBySetting());
     }
 
-    /** Rows the transcript window may use (editor + status keep the rest). */
-    private viewportRows(): number {
-        return Math.max(6, this.tui.terminal.rows - 8);
+    /**
+     * The chrome that renders BELOW the transcript — working indicator, todo
+     * panel, pending queue, editor, status line. Supplied by the app because
+     * only it knows the root's composition.
+     *
+     * Measured rather than assumed: every one of those is variable (the
+     * indicator appears mid-turn, the todo panel comes and goes, the editor
+     * grows with a multi-line prompt). A fixed reserve is wrong the moment any
+     * of them changes height, and "wrong" here means the prompt drifting off
+     * the bottom of the screen — the exact thing pinning exists to prevent.
+     */
+    private chrome: (() => ReadonlyArray<{ render(w: number): string[] }>) | null = null;
+
+    setChromeProvider(provider: () => ReadonlyArray<{ render(w: number): string[] }>): void {
+        this.chrome = provider;
+    }
+
+    /** Height of everything below the transcript, at this width. */
+    private chromeRows(width: number): number {
+        if (!this.chrome) return 8; // pre-wiring fallback (tests construct bare)
+        let n = 0;
+        for (const c of this.chrome()) n += c.render(width).length;
+        return n;
+    }
+
+    /**
+     * Rows the transcript window may use: the screen minus the chrome below
+     * it. The transcript is then padded to exactly this height (see render),
+     * which is what actually pins the prompt — clipping alone only stops the
+     * transcript growing DOWN past the screen; without the padding a short
+     * conversation still leaves the prompt floating directly under it.
+     */
+    private viewportRows(width = this.tui.terminal.columns): number {
+        return Math.max(3, this.tui.terminal.rows - this.chromeRows(width));
     }
 
     /** Page height for PgUp/PgDn (full page minus one line of continuity). */
@@ -195,16 +226,38 @@ export class ChatHistory extends Container {
         return Math.max(1, this.viewportRows() - 1);
     }
 
-    /** Manual scroll: moves the window; the selection stays where it is. */
+    /**
+     * Whether the window should ride the newest content.
+     *
+     * Pinning removes the terminal's own scrollback from the picture, so the
+     * transcript has to behave like a chat log instead: it follows the bottom
+     * by default, scrolling up hands control to the reader, and scrolling back
+     * to the bottom re-arms following. Without this, scrolling up once would
+     * strand you there while the turn kept streaming out of sight.
+     */
+    private stickToBottom = true;
+
+    /** True while the prompt is held at the bottom (live mode or the setting). */
+    isPinned(): boolean {
+        return this.viewportOn;
+    }
+
+    /** Manual scroll: moves the window; the selection stays where it is.
+     * Deliberately does NOT markDirty — scrolling changes the window, not the
+     * content, and the whole point of fullCache is that a scroll re-renders
+     * nothing and just re-slices. */
     scrollViewportLines(delta: number): void {
         this.viewportOffset = Math.max(0, this.viewportOffset + delta);
         this.pendingAnchor = false;
+        // Re-armed on the next render if this landed back at the bottom.
+        this.stickToBottom = false;
     }
 
     /** Jump the window to the very top/bottom (Home/End). */
     scrollViewportEdge(edge: "top" | "bottom"): void {
         this.viewportOffset = edge === "top" ? 0 : Number.MAX_SAFE_INTEGER;
         this.pendingAnchor = false;
+        this.stickToBottom = edge === "bottom";
     }
 
     // ------------------------------------------------------------------
@@ -412,8 +465,19 @@ export class ChatHistory extends Container {
         }
         this.lastViewport = null;
         if (!this.viewportOn) return full;
-        const rows = this.viewportRows();
-        if (full.length <= rows) return full;
+        const rows = this.viewportRows(width);
+        if (full.length <= rows) {
+            // THIS is what pins the prompt. Clipping alone only stops a long
+            // transcript growing down past the screen; a short one would still
+            // end wherever it ended, leaving the prompt floating right under
+            // it and walking down the screen as the conversation grew. Padding
+            // to the full window height gives the component a constant height,
+            // so the prompt sits at the same row from the first message on.
+            //
+            // The blanks go ABOVE: new content should rise from the prompt,
+            // the way every chat reads, not hang from the top of the screen.
+            return [...new Array<string>(rows - full.length).fill(""), ...full];
+        }
 
         // The selected entry's line range is the scroll anchor — applied once
         // per user action, then cleared (see pendingAnchor).
@@ -427,11 +491,20 @@ export class ChatHistory extends Container {
                 if (tall || r.start < this.viewportOffset + 1) this.viewportOffset = Math.max(0, r.start - 1);
                 else if (r.end > this.viewportOffset + inner - 1) this.viewportOffset = r.end - inner + 1;
                 this.pendingAnchor = false;
+                // The selection is an explicit "show me THIS" — it outranks
+                // following the bottom, or walking the selection upward would
+                // be yanked straight back down. Re-armed below if the anchor
+                // happened to land at the bottom anyway.
+                this.stickToBottom = false;
             }
         }
 
         const maxOffset = full.length - (rows - 2);
+        // Following the bottom is the default; a manual scroll takes over, and
+        // landing back at the bottom hands control back.
+        if (this.stickToBottom) this.viewportOffset = maxOffset;
         this.viewportOffset = Math.max(0, Math.min(this.viewportOffset, maxOffset));
+        if (this.viewportOffset >= maxOffset) this.stickToBottom = true;
         const hasTop = this.viewportOffset > 0;
         const inner = rows - 2;
         const hasBottom = this.viewportOffset + inner < full.length;

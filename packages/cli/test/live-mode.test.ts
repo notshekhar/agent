@@ -67,6 +67,57 @@ describe("pinnedInput setting", () => {
 
     afterEach(() => settingsStore.set("pinnedInput", undefined));
 
+    test("a fresh session opens pinned — no setting required", () => {
+        settingsStore.set("pinnedInput", undefined);
+        const h = new ChatHistory(smallTui, "/repo");
+        h.applyPinnedInputSetting();
+        // Empty transcript, already filling its window: the prompt is at the
+        // bottom from the very first paint.
+        expect(h.render(60).length).toBeGreaterThan(0);
+        expect(h.render(60).length).toBeLessThanOrEqual(20);
+    });
+
+    test("an EMPTY transcript still fills its window, so the prompt starts pinned", () => {
+        settingsStore.set("pinnedInput", true);
+        const chrome = { render: () => new Array<string>(4).fill("chrome") };
+        const h = new ChatHistory(smallTui, "/repo");
+        h.setChromeProvider(() => [chrome]);
+        h.applyPinnedInputSetting();
+        // 20 rows of terminal - 4 of chrome = 16, padded not truncated.
+        expect(h.render(60)).toHaveLength(16);
+    });
+
+    test("the prompt holds its row as the transcript grows", () => {
+        settingsStore.set("pinnedInput", true);
+        const chrome = { render: () => new Array<string>(4).fill("chrome") };
+        const heights = [0, 1, 5, 40].map((n) => {
+            const h = new ChatHistory(smallTui, "/repo");
+            h.setChromeProvider(() => [chrome]);
+            h.applyPinnedInputSetting();
+            for (let i = 0; i < n; i++) h.addUser(`m${i}`);
+            return h.render(60).length;
+        });
+        // Constant height is what pinning IS — the prompt cannot move if the
+        // component above it never changes size.
+        expect(new Set(heights).size).toBe(1);
+        expect(heights[0]).toBe(16);
+    });
+
+    test("chrome height is measured, not assumed", () => {
+        settingsStore.set("pinnedInput", true);
+        const mk = (chromeRows: number) => {
+            const chrome = { render: () => new Array<string>(chromeRows).fill("c") };
+            const h = new ChatHistory(smallTui, "/repo");
+            h.setChromeProvider(() => [chrome]);
+            h.applyPinnedInputSetting();
+            return h.render(60).length;
+        };
+        // Taller chrome (a multi-line editor, the todo panel) must take rows
+        // FROM the transcript, or the prompt is pushed off the bottom.
+        expect(mk(4)).toBe(16);
+        expect(mk(9)).toBe(11);
+    });
+
     test("off: the transcript renders in full and scrolls the terminal", () => {
         settingsStore.set("pinnedInput", false);
         const h = tall(new ChatHistory(smallTui, "/repo"));

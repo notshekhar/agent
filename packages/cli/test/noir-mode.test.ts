@@ -11,6 +11,7 @@ import { AssistantMessageComponent, UserMessageComponent } from "../src/interact
 import { ToolExecutionComponent } from "../src/interactive/ui/tool-execution";
 import { ChatHistory } from "../src/interactive/components/chat-history";
 import { setAnimTickForTest } from "../src/interactive/ui/anim";
+import { settingsStore } from "@notshekhar/loop-core";
 
 beforeAll(() => {
     registerNoirMode();
@@ -19,6 +20,7 @@ beforeAll(() => {
 afterEach(() => {
     setActiveUiMode("loop");
     initTheme("dark");
+    settingsStore.set("pinnedInput", undefined);
 });
 
 const noirOn = () => {
@@ -422,6 +424,11 @@ describe("noir mode rendering", () => {
     test("nav viewport: window follows the selection and clips with indicators", () => {
         noirOn();
         const smallTui = { requestRender() {}, terminal: { rows: 20 } } as unknown as TUI;
+        // This test is about the nav WINDOW, so the standing pinnedInput
+        // setting (on by default) has to be off — otherwise setViewport(false)
+        // correctly refuses to release the window and the test measures the
+        // pin rather than nav.
+        settingsStore.set("pinnedInput", false);
         const h = new ChatHistory(smallTui, "/repo");
         // 30 tool rows -> far taller than the 12-row window (20 - 8)
         for (let i = 0; i < 30; i++) {
