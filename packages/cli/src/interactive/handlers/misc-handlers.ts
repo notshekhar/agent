@@ -16,6 +16,7 @@ import {
     loadMemoryContext,
     runRecap,
     type CommandContext,
+    formatTokens,
 } from "@notshekhar/loop-core";
 import type { AppDeps } from "../deps";
 import type { AppState } from "../state";
@@ -51,8 +52,7 @@ export function createMiscHandlers(state: AppState, deps: AppDeps): MiscHandlers
         deps;
     const loginDeps = { tui, history, selectOnce, searchOnce, promptOnce };
 
-    const fmtTok = (n: number) =>
-        n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1_000 ? `${(n / 1_000).toFixed(1)}k` : String(n);
+    const fmtTok = (n: number) => formatTokens(n);
 
     /** Render the GitHub-style token heatmap; shared by /steak and /cost. */
     const printSteak = (args: string) => {

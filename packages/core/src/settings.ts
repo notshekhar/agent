@@ -19,6 +19,13 @@ export interface AppSettings {
     uiMode?: string;
     /** Theme per UI mode, keyed by mode id (e.g. { grok: "night" }). Loop's theme stays on the legacy `theme` key. */
     uiThemes?: Record<string, string>;
+    /**
+     * Start in the active mode's LIVE variant — the transcript holds the
+     * keyboard and runs of tool calls fold into one line. Only meaningful for
+     * modes that define one (noir does; loop does not). ctrl+e flips between
+     * the two at any time; this only chooses which you start in.
+     */
+    uiLive?: boolean;
     thinkingLevel?: ThinkingLevel;
     maxSteps?: number;
     subagentMaxSteps?: number;

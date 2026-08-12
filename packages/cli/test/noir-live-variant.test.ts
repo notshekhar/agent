@@ -4,24 +4,25 @@ import type { TUI } from "@notshekhar/loop-tui";
 process.env.COLORTERM = "truecolor";
 
 import { registerNoirMode } from "../src/interactive/ui/noir-mode";
-import { LIVE_MODE_ID, registerLiveMode } from "../src/interactive/ui/live-mode";
-import { setActiveUiMode, uiStyle } from "../src/interactive/ui/ui-mode";
+import { setActiveUiMode, setLiveVariant, uiStyle } from "../src/interactive/ui/ui-mode";
 import { initTheme } from "../src/interactive/ui/theme";
 import { ChatHistory } from "../src/interactive/components/chat-history";
 
 beforeAll(() => {
     registerNoirMode();
-    registerLiveMode();
 });
 
 afterEach(() => {
+    setLiveVariant(false);
     setActiveUiMode("loop");
     initTheme("dark");
 });
 
+/** Noir, in its live variant — what ctrl+e puts you in. */
 const liveOn = () => {
-    setActiveUiMode(LIVE_MODE_ID);
+    setActiveUiMode("noir");
     initTheme("night");
+    setLiveVariant(true);
 };
 
 const tui = { requestRender() {}, terminal: { rows: 40, columns: 80 } } as unknown as TUI;
@@ -40,21 +41,36 @@ function withReads(n: number, tool = "read"): ChatHistory {
 
 const text = (h: ChatHistory) => h.render(W).map(strip).join("\n");
 
-describe("live mode style", () => {
-    test("grouping is what makes it its own mode", () => {
+describe("noir's live variant", () => {
+    test("live layers over the mode you are already in", () => {
         liveOn();
-        expect(uiStyle().tool.group).toBe(true);
+        const s = uiStyle();
+        // The variant adds grouping...
+        expect(s.tool.group).toBe(true);
+        // ...without disturbing noir's own look underneath it.
+        expect(s.canvas.wash).toBe(true);
+        expect(s.userMessage.prefix).toBe("\u276f");
     });
 
-    test("noir does NOT group — grouping is live mode's alone", () => {
+    test("noir on its own does not group — that is the live variant's doing", () => {
         setActiveUiMode("noir");
         initTheme("night");
         expect(uiStyle().tool.group).toBe(false);
         expect(text(withReads(3))).not.toContain("Read 3 files");
     });
+
+    test("loop has no live variant, so ctrl+e leaves its look alone", () => {
+        setActiveUiMode("loop");
+        initTheme("dark");
+        const before = uiStyle();
+        setLiveVariant(true);
+        const after = uiStyle();
+        expect(after.tool.group).toBe(false);
+        expect(after.canvas.wash).toBe(before.canvas.wash);
+    });
 });
 
-describe("live mode verb groups", () => {
+describe("live verb groups", () => {
     test("a run of finished tool rows folds into one aggregated header", () => {
         liveOn();
         const out = text(withReads(3));
@@ -132,7 +148,7 @@ describe("live mode verb groups", () => {
     });
 });
 
-describe("live mode hierarchical navigation", () => {
+describe("live hierarchical navigation", () => {
     test("selection lands on the group header, not on a row that isn't drawn", () => {
         liveOn();
         const h = withReads(3);

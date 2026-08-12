@@ -24,15 +24,9 @@ export interface Layout {
     render: ((ctx: StatusLineContext, sys: Vitals) => string[] | null) | null;
 }
 
-// ── formatting ──────────────────────────────────────────────────────────────
+import { formatTokens as fmtTokens } from "../../../format";
 
-function fmtTokens(n: number): string {
-    if (n < 1000) return String(n);
-    if (n < 10_000) return `${(n / 1000).toFixed(1)}k`;
-    if (n < 1_000_000) return `${Math.round(n / 1000)}k`;
-    if (n < 10_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-    return `${Math.round(n / 1_000_000)}M`;
-}
+// ── formatting ──────────────────────────────────────────────────────────────
 
 function fmtBytes(n: number): string {
     const g = n / 1024 ** 3;

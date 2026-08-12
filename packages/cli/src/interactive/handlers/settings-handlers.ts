@@ -24,7 +24,7 @@ import type { AppDeps } from "../deps";
 import type { AppState } from "../state";
 import { startMcpServers } from "../startup";
 import { initTheme, initUiModeAndTheme, theme } from "../ui/theme";
-import { activeUiMode, getUiMode, listUiModes } from "../ui/ui-mode";
+import { activeUiMode, getUiMode, isLiveVariant, listUiModes, setLiveVariant } from "../ui/ui-mode";
 import { applyCanvasWash } from "../ui/canvas-wash";
 import { renderSessionBranch } from "../replay";
 import { showWelcomeBanner } from "../welcome";
@@ -42,8 +42,18 @@ import { rejectWhileBusy } from "./shared";
 type SettingsHandlers = Pick<CommandContext, "openSettings" | "reload" | "switchUiMode">;
 
 export function createSettingsHandlers(state: AppState, deps: AppDeps): SettingsHandlers {
-    const { tui, history, statusLine, commands, showWorking, hideWorking, searchOnce, promptOnce, refreshCommands } =
-        deps;
+    const {
+        tui,
+        history,
+        statusLine,
+        commands,
+        showWorking,
+        hideWorking,
+        selectOnce,
+        searchOnce,
+        promptOnce,
+        refreshCommands,
+    } = deps;
 
     // Boolean settings toggle in place; unset falls back to the default here.
     const BOOLEAN_DEFAULTS: Record<string, boolean> = {
@@ -110,7 +120,7 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
             let lastIndex = 0;
             while (true) {
                 const items: SelectItem[] = [
-                    { value: "uiMode", label: `uiMode: ${activeUiMode().id}` },
+                    { value: "uiMode", label: `uiMode: ${activeUiMode().id}${isLiveVariant() ? " · live" : ""}` },
                     // The ACTIVE theme's name — per-mode themes made the raw
                     // `theme` settings key wrong outside loop mode (it showed
                     // loop's theme while grok's was active).
@@ -299,6 +309,7 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                 // same as /ui <mode>.
                 if (pick.value === "uiMode") {
                     const cur = activeUiMode().id;
+                    const curLive = isLiveVariant();
                     const modeItems: SelectItem[] = listUiModes().map((m) => ({
                         value: m.id,
                         label: m.name ?? m.id,
@@ -306,6 +317,37 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                     }));
                     const mPick = await searchOnce(modeItems, "UI mode (type to filter)");
                     if (!mPick) continue;
+
+                    // A mode that defines a live variant asks which one you
+                    // want as its DEFAULT — a second level rather than more
+                    // top-level rows, because live is a state of that mode and
+                    // not a sibling of it. ctrl+e still flips between the two
+                    // at any time; this only chooses where you start.
+                    const chosen = getUiMode(mPick.value);
+                    if (chosen?.live) {
+                        const isCur = mPick.value === cur;
+                        const vPick = await selectOnce(
+                            [
+                                {
+                                    value: "normal",
+                                    label: "normal",
+                                    description: isCur && !curLive ? "(current)" : "the transcript scrolls past",
+                                },
+                                {
+                                    value: "live",
+                                    label: "live",
+                                    description:
+                                        isCur && curLive
+                                            ? "(current)"
+                                            : "transcript holds the keyboard; runs of tool calls fold into one line",
+                                },
+                            ],
+                            `${chosen.name ?? chosen.id} — which variant?`,
+                        );
+                        if (!vPick) continue;
+                        settingsStore.set("uiLive", vPick.value === "live");
+                        setLiveVariant(vPick.value === "live");
+                    }
                     applyUiMode(mPick.value);
                     continue;
                 }

@@ -46,12 +46,16 @@ export function createGrepTool(ctx: GrepToolContext) {
             const signal = options?.abortSignal ?? ctx.abortSignal;
             if (signal?.aborted) throw new Error("Operation aborted");
 
-            const rgPath = await ensureTool("rg", true);
-            if (!rgPath) throw new Error("ripgrep (rg) is not available and could not be downloaded");
-
             const searchPath = resolveToCwd(searchDir || ".", ctx.cwd);
             // Permission rules: Grep(...) patterns gate searches; Read(...)
             // deny/ask patterns govern grep too (unreadable ⇒ unsearchable).
+            //
+            // Checked BEFORE ripgrep is fetched. The other order still refused
+            // the search, but only after downloading a binary (and prompting
+            // the user) for a path it was never going to be allowed to read —
+            // and on a machine with no rg and no network it reported the
+            // missing tool instead of the rule that actually stopped it, which
+            // is a confusing answer to "why did my deny not fire?".
             await enforcePathPermission({
                 classes: ["grep", "read"],
                 paths: [searchDir || ".", searchPath],
@@ -60,6 +64,9 @@ export function createGrepTool(ctx: GrepToolContext) {
                 dir: true,
                 signal,
             });
+
+            const rgPath = await ensureTool("rg", true);
+            if (!rgPath) throw new Error("ripgrep (rg) is not available and could not be downloaded");
             let isDirectory: boolean;
             try {
                 isDirectory = statSync(searchPath).isDirectory();

@@ -12,7 +12,7 @@ import type { MarkdownTheme, SelectListTheme } from "@notshekhar/loop-tui";
 import chalk from "chalk";
 import { luminance, mix } from "./palette";
 import { DARK_THEME, type ThemeColors, type ThemeJson } from "./themes";
-import { activeUiMode, setActiveUiMode } from "./ui-mode";
+import { activeUiMode, setActiveUiMode, setLiveVariant } from "./ui-mode";
 
 export type ThemeColor = keyof ThemeColors & string;
 export type ThemeBg =
@@ -366,6 +366,10 @@ export function initUiModeAndTheme(): void {
     const legacy = mode.id === "loop" ? (settingsStore.get("theme") as string | undefined) : undefined;
     const perModeTheme = perMode?.[mode.id] ?? (mode.id === "noir" ? perMode?.grok : undefined);
     initTheme(perModeTheme ?? legacy ?? mode.themes[0]?.name ?? "dark");
+    // Which VARIANT of that mode to start in. Only ever on for a mode that
+    // defines one, so a saved preference can't strand a mode in a state it
+    // has no look for.
+    setLiveVariant(Boolean(settingsStore.get("uiLive")) && Boolean(activeUiMode().live));
 }
 
 // ---------------------------------------------------------------------------

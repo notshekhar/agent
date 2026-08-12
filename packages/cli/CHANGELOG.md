@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.18.5] - 2026-08-13
+
+### Changed
+
+- **Live is a variant of a mode, not a mode of its own.** 0.18.4 registered "live" beside "loop" and "noir", which put a second entry in the picker for something you reach with a key, and let a mode's live look drift from its normal one. A mode now declares its own live variant and ctrl+e switches between them, so live can only ever add to the mode you are already in — noir has two variants, loop has one. `/settings → uiMode` asks which variant after you pick a mode with more than one, and remembers it as the one you start in.
+
+### Fixed
+
+- **A billion tokens reads as `1.4B`, not `1000M`.** The token formatter stopped at millions, so crossing a billion just kept counting up in four-digit Ms. It also never carried between the tiers it did have — 999,600 rendered as `1000k`. Both are fixed, and the formatter itself now lives in one place: it had been copied into five (the status line, the statusline extension, `/context`, `/steak`, the Telegram renderer), which is why the ceiling was wrong in all of them at once.
+- **A denied search says which rule denied it.** Grep fetched ripgrep before checking whether the path could be read at all, so on a machine without it the answer to a blocked search was "ripgrep is not available" — the wrong reason entirely. The rule is checked first now, which also means a path you were never allowed to search no longer triggers a download to find that out. The deny itself always held; only the message was misleading.
+
 ## [0.18.4] - 2026-08-13
 
 ### Added

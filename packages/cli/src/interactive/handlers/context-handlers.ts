@@ -6,7 +6,7 @@
  * context size when one exists.
  */
 import chalk from "chalk";
-import { buildContextReport, getModelSync, type CommandContext } from "@notshekhar/loop-core";
+import { buildContextReport, formatTokens, getModelSync, type CommandContext } from "@notshekhar/loop-core";
 import type { AppDeps } from "../deps";
 import type { AppState } from "../state";
 import { dim } from "../ui/text";
@@ -18,8 +18,7 @@ const GRID_ROWS = 10;
 const GRID_COLS = 20;
 const CELLS = GRID_ROWS * GRID_COLS;
 
-const fmtTok = (n: number) =>
-    n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1_000 ? `${(n / 1_000).toFixed(1)}k` : String(n);
+const fmtTok = (n: number) => formatTokens(n);
 
 export function createContextHandlers(state: AppState, deps: AppDeps): ContextHandlers {
     const { tui, history, showWorking, hideWorking } = deps;

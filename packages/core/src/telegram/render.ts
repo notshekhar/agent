@@ -7,6 +7,7 @@
 import type { ContextReport } from "../agent/context-report";
 import type { SteakGrid } from "../agent/steak";
 import type { CostStats } from "../agent/cost";
+import { formatTokens } from "../format";
 import type { CostBreakdown } from "../types";
 
 /** Stay under Telegram's 4096 hard limit with margin for closing tags. */
@@ -495,8 +496,7 @@ function bar(fraction: number): string {
     return "#".repeat(filled) + ".".repeat(BAR_WIDTH - filled);
 }
 
-const compact = (n: number): string =>
-    n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+const compact = (n: number): string => formatTokens(n);
 
 export function formatContext(report: ContextReport): string {
     const lines: string[] = [];

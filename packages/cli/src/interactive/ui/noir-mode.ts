@@ -370,6 +370,22 @@ const NOIR_MODE: UiModePlugin = {
         turn: { summaryLine: true },
         layout: { blockGaps: true },
     },
+    /**
+     * Noir's live variant (ctrl+e) — the same canvas, reading differently
+     * because the transcript now has the keyboard.
+     *
+     * Grouping belongs here rather than in the base look: folding runs of
+     * calls into "Read 3 files" is only worth the hidden detail when you can
+     * open them again, which is exactly what live mode's arrows are for. In
+     * the normal transcript the same fold would just be information you can't
+     * get back without entering a mode first.
+     */
+    live: {
+        tool: { group: true },
+        // The transcript already has the keyboard here, so the route to hidden
+        // content is just the arrow — no "ctrl+e first".
+        hints: { expandHint: "→", selectedExpandHint: "→" },
+    },
     render: { thinking: renderThinking, toolExecution: renderTool },
 };
 

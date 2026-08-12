@@ -54,7 +54,6 @@ import {
 import { getSelectListTheme, initUiModeAndTheme, theme } from "./ui/theme";
 import { applyExtensionUiModes } from "./ui/ui-mode";
 import { registerNoirMode } from "./ui/noir-mode";
-import { registerLiveMode } from "./ui/live-mode";
 import { printResumeHint } from "./resume-hint";
 import { applyCanvasWash, resetCanvasWash } from "./ui/canvas-wash";
 import { ChatHistory } from "./components/chat-history";
@@ -149,7 +148,6 @@ async function showNoModelGuidance(history: ChatHistory, tui: TUI): Promise<void
 
 export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     registerNoirMode();
-    registerLiveMode();
     initUiModeAndTheme();
     registerAppKeybindings();
 

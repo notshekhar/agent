@@ -60,8 +60,8 @@ describe("path permission rules", () => {
     test("Read deny blocks a file read (relative and absolute)", async () => {
         mem.permissions = { deny: ["Read(secrets/**)"] };
         const read = createReadTool({ cwd: dir });
-        expect(exec(read, { path: "secrets/key.pem" })).rejects.toThrow(/permission rule/);
-        expect(exec(read, { path: join(dir, "secrets", "key.pem") })).rejects.toThrow(/permission rule/);
+        await expect(exec(read, { path: "secrets/key.pem" })).rejects.toThrow(/permission rule/);
+        await expect(exec(read, { path: join(dir, "secrets", "key.pem") })).rejects.toThrow(/permission rule/);
         // Unmatched paths still read fine.
         expect(await exec(read, { path: "src/main.ts" })).toContain("export");
     });
@@ -71,10 +71,10 @@ describe("path permission rules", () => {
         recordRead(join(dir, "secrets", "key.pem"));
         const edit = createEditTool({ cwd: dir });
         const write = createWriteTool({ cwd: dir });
-        expect(exec(edit, { path: "secrets/key.pem", edits: [{ oldText: "SECRET", newText: "X" }] })).rejects.toThrow(
-            /permission rule/,
-        );
-        expect(exec(write, { path: "secrets/other.pem", content: "X" })).rejects.toThrow(/permission rule/);
+        await expect(
+            exec(edit, { path: "secrets/key.pem", edits: [{ oldText: "SECRET", newText: "X" }] }),
+        ).rejects.toThrow(/permission rule/);
+        await expect(exec(write, { path: "secrets/other.pem", content: "X" })).rejects.toThrow(/permission rule/);
         // Read rules do not block edits and vice versa.
         expect(await exec(write, { path: "src/new.ts", content: "ok" })).toContain("Successfully");
     });
@@ -82,7 +82,7 @@ describe("path permission rules", () => {
     test("Read deny governs grep searches", async () => {
         mem.permissions = { deny: ["Read(secrets/**)"] };
         const grep = createGrepTool({ cwd: dir });
-        expect(exec(grep, { pattern: "SECRET", path: "secrets" })).rejects.toThrow(/permission rule/);
+        await expect(exec(grep, { pattern: "SECRET", path: "secrets" })).rejects.toThrow(/permission rule/);
     });
 
     test("ask rule prompts and allow-once proceeds", async () => {
@@ -98,12 +98,12 @@ describe("path permission rules", () => {
         mem.permissions = { ask: ["Edit(src/**)"] };
         fakeBridge(["deny"]);
         const write = createWriteTool({ cwd: dir });
-        expect(exec(write, { path: "src/blocked.ts", content: "x" })).rejects.toThrow(/declined/);
+        await expect(exec(write, { path: "src/blocked.ts", content: "x" })).rejects.toThrow(/declined/);
     });
 
     test("ask rule with no bridge fails closed", async () => {
         mem.permissions = { ask: ["Read(secrets/**)"] };
         const read = createReadTool({ cwd: dir });
-        expect(exec(read, { path: "secrets/key.pem" })).rejects.toThrow(/interactive user approval/);
+        await expect(exec(read, { path: "secrets/key.pem" })).rejects.toThrow(/interactive user approval/);
     });
 });

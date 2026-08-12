@@ -2,16 +2,9 @@ import { getExtensionHost, getModelSync, parseModelId } from "@notshekhar/loop-c
 import type { StatusLineContext, StatusSegment } from "@notshekhar/loop-core";
 import type { Component } from "@notshekhar/loop-tui";
 import { formatClock, formatCountdown } from "../time";
+import { formatTokens as fmtTokens } from "@notshekhar/loop-core";
 import { accent, dim, err, ok, warn } from "../ui/text";
 import { theme } from "../ui/theme";
-
-function fmtTokens(n: number): string {
-    if (n < 1000) return String(n);
-    if (n < 10_000) return `${(n / 1000).toFixed(1)}k`;
-    if (n < 1_000_000) return `${Math.round(n / 1000)}k`;
-    if (n < 10_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-    return `${Math.round(n / 1_000_000)}M`;
-}
 
 const ANSI_RE = /\x1b\[[0-9;]*m/g;
 function ansiLen(s: string): number {

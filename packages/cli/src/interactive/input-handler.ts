@@ -33,10 +33,7 @@ import {
     isUp,
 } from "./keys";
 import { isKeyRelease } from "@notshekhar/loop-tui";
-import { activeUiMode, setActiveUiMode } from "./ui/ui-mode";
-import { LIVE_MODE_ID } from "./ui/live-mode";
-import { applyCanvasWash } from "./ui/canvas-wash";
-import { initTheme, theme } from "./ui/theme";
+import { setLiveVariant } from "./ui/ui-mode";
 import { copyToClipboard, readClipboardText } from "./clipboard";
 import { traceEvent } from "./debug-log";
 import { pickImageFile, readClipboardImageToFile } from "./clipboard-image";
@@ -119,33 +116,19 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
     };
 
     /**
-     * The mode ctrl+e was pressed FROM, restored on the way out. Null while
-     * live mode is not active.
+     * Enter/leave the active mode's live variant. Live is a STATE of the mode
+     * you are already in, not a mode of its own — the theme and canvas never
+     * change, so flipping in and out mid-turn only moves the frame and the
+     * folds.
      */
-    let modeBeforeLive: string | null = null;
-
-    /**
-     * Swap the active UI mode and re-resolve everything derived from it.
-     *
-     * The theme is re-initialised by NAME, not reset: `initTheme` keeps the
-     * current theme when the incoming mode owns one by that name and falls back
-     * to the mode's default otherwise. Live carries noir's themes, so for the
-     * default (noir) user the canvas is byte-identical either side of the
-     * toggle — only the frame and the folds change, which is the whole point of
-     * a mode you flip in and out of mid-turn.
-     */
-    const swapMode = (id: string): void => {
-        if (!setActiveUiMode(id)) return;
-        initTheme(theme.name);
-        applyCanvasWash();
-        history.invalidate();
+    const setLive = (on: boolean): void => {
+        if (setLiveVariant(on)) history.invalidate();
     };
 
     const enterScrollbackFocus = (): boolean => {
         if (!history.selectLast()) return false;
         state.scrollbackFocus = true;
-        modeBeforeLive = activeUiMode().id;
-        if (modeBeforeLive !== LIVE_MODE_ID) swapMode(LIVE_MODE_ID);
+        setLive(true);
         history.setViewport(true);
         statusLine.setHint(SCROLLBACK_HINT);
         // SGR mouse reporting, live-scoped: the wheel scrolls the window here;
@@ -157,8 +140,7 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
 
     const exitScrollbackFocus = (): void => {
         state.scrollbackFocus = false;
-        if (modeBeforeLive !== null && modeBeforeLive !== LIVE_MODE_ID) swapMode(modeBeforeLive);
-        modeBeforeLive = null;
+        setLive(false);
         history.setViewport(false);
         history.clearSelection();
         statusLine.setHint(null);

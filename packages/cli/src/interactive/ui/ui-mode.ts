@@ -163,6 +163,17 @@ export interface UiModePlugin {
     themes: ThemeJson[];
     /** Knobs layered over the loop defaults. */
     style?: DeepPartial<UiStyleSpec>;
+    /**
+     * The mode's LIVE variant — knobs layered on top of its own `style` while
+     * the transcript holds the keyboard (ctrl+e).
+     *
+     * Live is a state a mode can be IN, not a mode of its own. Making it a
+     * separate registered mode meant a mode's live look could drift from its
+     * normal one, and it put a second entry in the picker for something you
+     * reach with a key. A mode that wants nothing special while live simply
+     * omits this and keeps its own look.
+     */
+    live?: DeepPartial<UiStyleSpec>;
     /** Per-block render overrides. */
     render?: BlockRenderers;
 }
@@ -171,7 +182,23 @@ const LOOP_MODE: UiModePlugin = { id: "loop", name: "Loop", themes: [DARK_THEME,
 
 const modes = new Map<string, UiModePlugin>([[LOOP_MODE.id, LOOP_MODE]]);
 let activeId = LOOP_MODE.id;
+let liveVariant = false;
 let resolvedStyle: UiStyleSpec | null = null;
+
+/**
+ * Enter/leave the active mode's live variant. Returns whether the state
+ * changed, so a caller can skip a repaint it doesn't need.
+ */
+export function setLiveVariant(on: boolean): boolean {
+    if (liveVariant === on) return false;
+    liveVariant = on;
+    resolvedStyle = null;
+    return true;
+}
+
+export function isLiveVariant(): boolean {
+    return liveVariant;
+}
 
 function mergeSpec(base: UiStyleSpec, partial: DeepPartial<UiStyleSpec> | undefined): UiStyleSpec {
     if (!partial) return base;
@@ -258,7 +285,14 @@ export function activeUiMode(): UiModePlugin {
 
 /** The active mode's fully-resolved style spec (partial layered over loop defaults). */
 export function uiStyle(): UiStyleSpec {
-    if (!resolvedStyle) resolvedStyle = mergeSpec(LOOP_STYLE, activeUiMode().style);
+    if (!resolvedStyle) {
+        const mode = activeUiMode();
+        // Three layers: loop's defaults, the mode's own look, then its live
+        // variant on top. Live can only ever ADD to the mode you are in, so a
+        // mode's two states can never drift into looking unrelated.
+        const base = mergeSpec(LOOP_STYLE, mode.style);
+        resolvedStyle = liveVariant ? mergeSpec(base, mode.live) : base;
+    }
     return resolvedStyle;
 }
 
