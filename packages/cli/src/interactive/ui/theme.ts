@@ -294,6 +294,18 @@ export function verticalRule(hex: string, glyph = "█"): string {
 }
 
 /**
+ * {@link verticalRule} for a bar whose colour comes from a theme slot.
+ *
+ * Falls back to plain foreground painting when the slot is a 256-index or the
+ * terminal default — there is no hex to hand the background path, and a
+ * mis-coloured bar is worse than a gapped one.
+ */
+export function verticalRuleSlot(slot: ThemeColor, glyph = "█"): string {
+    const raw = theme.raw(slot);
+    return typeof raw === "string" && raw.startsWith("#") ? verticalRule(raw, glyph) : theme.fg(slot, glyph);
+}
+
+/**
  * True when the active theme paints dark text — i.e. it is meant for a light
  * terminal. Derived from the `text` slot rather than the theme's name so
  * custom themes and extension modes classify correctly too.

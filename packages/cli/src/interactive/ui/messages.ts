@@ -15,7 +15,7 @@ import {
     Text,
     visibleWidth,
 } from "@notshekhar/loop-tui";
-import { getMarkdownTheme, theme } from "./theme";
+import { getMarkdownTheme, theme, verticalRuleSlot } from "./theme";
 import { type ThinkingBlockState, uiRenderers, uiStyle } from "./ui-mode";
 
 // OSC 133 shell-integration zones — let terminals jump between messages
@@ -68,7 +68,13 @@ export function markSelectedLines(lines: string[]): string[] {
     return lines.map((l) => {
         const prefix = l.match(LEADING_ANSI)?.[0] ?? "";
         const rest = l.slice(prefix.length);
-        return prefix + theme.fg("selectionBorder", "▌") + rest.slice(rest.length > 0 ? 1 : 0);
+        // verticalRuleSlot, not theme.fg: `▌` is a BLOCK ELEMENT, and macOS
+        // Terminal.app draws that family short of the cell box — so the
+        // "connected spine" above came out as exactly the dashes it is meant
+        // to avoid. There the bar is painted as a background instead, which
+        // fills the whole cell and cannot gap. A selection bar is already a
+        // solid mark, so the heavier treatment costs it nothing.
+        return prefix + verticalRuleSlot("selectionBorder", "▌") + rest.slice(rest.length > 0 ? 1 : 0);
     });
 }
 
