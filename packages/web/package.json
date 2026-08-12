@@ -1,6 +1,6 @@
 {
     "name": "@notshekhar/loop-web",
-    "version": "0.18.5",
+    "version": "0.18.6",
     "description": "Browser client assets for loop serve.",
     "license": "MIT",
     "type": "module",

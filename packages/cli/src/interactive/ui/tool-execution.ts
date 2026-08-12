@@ -110,23 +110,34 @@ export class ToolExecutionComponent extends Container {
         return this.result?.isError ?? false;
     }
 
+    /** Still streaming — a group counts it, and reads its label present tense. */
+    isRunning(): boolean {
+        return this.isPartial;
+    }
+
     /**
      * Whether this row may be swallowed into a verb group.
      *
-     * Three gates. A running call never groups: the whole reason to look at
-     * the transcript mid-turn is to watch the live one, and folding it into
-     * "Read 3 files" would hide exactly that. An open one doesn't either — the
-     * user asked to see it. And `plan` is an approval surface that must stay
+     * A RUNNING call groups too, and that is deliberate. Excluding it meant
+     * each call popped out its own row while it ran and then vanished into the
+     * header the moment it finished — the transcript changing height twice per
+     * call, which reads as the whole UI twitching upward as a turn streams.
+     * Counting it instead means the header only ever increments, so nothing
+     * moves; the present tense ("Reading 3 files") is what says it is live.
+     * This is why grok's vocabulary carries a tense at all.
+     *
+     * An OPEN call still leaves the group — the user asked to see that one —
+     * and `plan` never joins, being an approval surface that must stay
      * readable.
      *
-     * The fourth gate is the tool's KIND: only kinds whose individual detail
-     * is noise fold (reads, listings, searches). A command or an edit keeps
-     * its row because which command ran is the whole point, and so does any
-     * tool the vocabulary can't classify — see verb-group.ts on why staying
-     * visible is the safe failure for a third-party tool.
+     * The last gate is the tool's KIND: only kinds whose individual detail is
+     * noise fold (reads, listings, searches). A command or an edit keeps its
+     * row because which command ran is the whole point, and so does any tool
+     * the vocabulary can't classify — see verb-group.ts on why staying visible
+     * is the safe failure for a third-party tool.
      */
     isGroupable(): boolean {
-        return !this.isPartial && !this.expanded && this.toolName !== "plan" && foldsEagerly(this.toolName);
+        return !this.expanded && this.toolName !== "plan" && foldsEagerly(this.toolName);
     }
 
     /** Selection highlight for the ctrl+up/down block navigation. */

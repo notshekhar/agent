@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.18.6] - 2026-08-13
+
+### Fixed
+
+- **The transcript stops twitching as a turn streams in live mode.** Every tool call changed the height twice: it popped out its own row while running, then vanished into the group header the moment it landed, so a turn of four reads moved everything above it eight times. A running call now counts toward its group and the header reads present tense — "Reading 3 files" — so the count increments and nothing moves. Measured across a four-call turn, the transcript holds exactly one height from the first call to the last. Which file is being read is no longer visible while it reads, which is the trade: only kinds whose detail is noise group at all, and a command or an edit still keeps its own row.
+
 ## [0.18.5] - 2026-08-13
 
 ### Changed

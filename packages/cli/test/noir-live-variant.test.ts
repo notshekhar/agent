@@ -138,13 +138,41 @@ describe("live verb groups", () => {
         expect(text(h)).toContain("npm test");
     });
 
-    test("a RUNNING call never hides inside a group", () => {
+    test("a running call joins its group, in the present tense", () => {
         liveOn();
         const h = withReads(2);
         h.addToolCall("read", "live", { path: "/repo/slow.ts" }); // no result → running
-        const out = text(h);
-        expect(out).toContain("◈ Read 2 files");
-        expect(out).toContain("slow.ts");
+        // Counting the live call is what keeps the transcript still: excluded,
+        // it popped out its own row while running and vanished into the header
+        // the moment it landed — the height changing twice per call.
+        expect(text(h)).toContain("◈ Reading 3 files");
+    });
+
+    test("the transcript does not change height as a turn streams", () => {
+        liveOn();
+        const h = new ChatHistory(tui, "/repo");
+        const rows = () =>
+            text(h)
+                .split("\n")
+                .filter((l) => l.trim()).length;
+        const seen = new Set<number>();
+        for (let i = 0; i < 4; i++) {
+            h.addToolCall("read", `c${i}`, { path: `/repo/f${i}.ts` });
+            seen.add(rows()); // running
+            h.addToolResult(`c${i}`, "body");
+            seen.add(rows()); // finished
+        }
+        // One height for the whole turn — the header only ever increments.
+        expect(seen.size).toBe(1);
+    });
+
+    test("a still-running run reads present tense even once some calls have landed", () => {
+        liveOn();
+        const h = new ChatHistory(tui, "/repo");
+        h.addToolCall("read", "done", { path: "/repo/a.ts" });
+        h.addToolResult("done", "x");
+        h.addToolCall("read", "live", { path: "/repo/b.ts" });
+        expect(text(h)).toContain("◈ Reading 2 files");
     });
 });
 

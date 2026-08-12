@@ -280,7 +280,7 @@ export class ChatHistory extends Container {
         for (let i = run.start; i <= run.end; i++) {
             const c = this.foldables[i].comp;
             if (c instanceof ToolExecutionComponent) {
-                members.push({ toolName: c.getToolName(), isError: c.hasError(), isRunning: false });
+                members.push({ toolName: c.getToolName(), isError: c.hasError(), isRunning: c.isRunning() });
             }
         }
         return verbGroupLabel(members);
