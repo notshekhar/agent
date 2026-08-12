@@ -1,4 +1,4 @@
-import { Container, Markdown, Spacer, Text, type TUI } from "@notshekhar/loop-tui";
+import { Container, Markdown, Spacer, Text, truncateToWidth, visibleWidth, type TUI } from "@notshekhar/loop-tui";
 import { formatSubagentActivity, type SubagentActivityPart } from "@notshekhar/loop-core";
 import { getMarkdownTheme, theme } from "../ui/theme";
 import { uiStyle } from "../ui/ui-mode";
@@ -14,6 +14,7 @@ import {
     UserMessageComponent,
 } from "../ui/messages";
 import { ToolExecutionComponent } from "../ui/tool-execution";
+import { verbGroupLabel, type GroupMember } from "../ui/verb-group";
 import { matchSessionHookContext, settingsStore } from "@notshekhar/loop-core";
 import { accentTitle, dim, err } from "../ui/text";
 
@@ -37,6 +38,16 @@ interface PiAssistantMessage {
     };
     stopReason: "stop" | "length" | "toolUse" | "error" | "aborted";
     timestamp: number;
+}
+
+/**
+ * Clamp a group header to the terminal width. A mixed run's label grows with
+ * the number of kinds in it ("Read 4 files, Listed 3 dirs, Searched 2 patterns,
+ * Fetched 1 website"), and an overflowing line trips the TUI's width crash
+ * guard and takes the whole UI down with it.
+ */
+function fitGroupRow(line: string, width: number): string {
+    return visibleWidth(line) > width ? truncateToWidth(line, Math.max(0, width - 1)) + "…" : line;
 }
 
 function emptyAssistantMessage(provider: string, model: string): PiAssistantMessage {
@@ -224,9 +235,11 @@ export class ChatHistory extends Container {
                 if (start < 0) start = i;
                 continue;
             }
-            // A lone row is not a group — folding one call into a header that
-            // says "1 file" costs a keystroke and hides nothing.
-            if (start >= 0 && i - start >= 2) runs.push({ start, end: i - 1 });
+            // One member is enough, as in grok (`RunScan::folds`): "Read 1
+            // file" is already tighter than the row it replaces, and folding
+            // from the first call means a second one joining an existing
+            // header instead of the row visibly collapsing under you.
+            if (start >= 0) runs.push({ start, end: i - 1 });
             start = -1;
         }
         return runs;
@@ -274,59 +287,40 @@ export class ChatHistory extends Container {
         return null;
     }
 
-    /** Aggregated header text for a collapsed run, grok-style. */
-    private groupLabel(run: { start: number; end: number }): string {
-        const names: string[] = [];
+    /**
+     * Aggregated header for a collapsed run — one segment per KIND, so a mixed
+     * run reads "Listed 2 dirs, Read 1 file" rather than an anonymous count.
+     * See verb-group.ts for the vocabulary and how unknown tools degrade.
+     */
+    private groupLabel(run: { start: number; end: number }): { text: string; failed: number } {
+        const members: GroupMember[] = [];
         for (let i = run.start; i <= run.end; i++) {
             const c = this.foldables[i].comp;
-            if (c instanceof ToolExecutionComponent) names.push(c.getToolName());
-        }
-        const n = names.length;
-        const unique = [...new Set(names)];
-        const plural = (word: string) => (n === 1 ? word : `${word}s`);
-        if (unique.length === 1) {
-            switch (unique[0]) {
-                case "read":
-                    return `Read ${n} ${plural("file")}`;
-                case "write":
-                    return `Wrote ${n} ${plural("file")}`;
-                case "edit":
-                    return `Edited ${n} ${plural("file")}`;
-                case "bash":
-                    return `Ran ${n} ${plural("command")}`;
-                case "ls":
-                case "tree":
-                    return `Listed ${n} ${plural("directory").replace("directorys", "directories")}`;
-                case "grep":
-                case "glob":
-                case "find":
-                    return `Searched ${n} ${plural("time")}`;
-                case "task":
-                    return `${n} ${plural("subagent")}`;
-                default:
-                    return `${unique[0]} ×${n}`;
+            if (c instanceof ToolExecutionComponent) {
+                members.push({ toolName: c.getToolName(), isError: c.hasError(), isRunning: false });
             }
         }
-        return `${n} tool calls`;
+        return verbGroupLabel(members);
     }
 
     /**
-     * The one-line stand-in for a collapsed run: `◇ Read 3 files`.
+     * The one-line stand-in for a collapsed run: `◈ Read 2 files, Listed 1 dir`.
      *
-     * A hollow diamond, deliberately: a filled `◆` is what an individual call
-     * wears, and a group header is a different KIND of row — a fold, not a
-     * call — so it should not read as one more tool that ran.
+     * `◈` (a diamond containing a diamond), deliberately: `◆` is what an
+     * individual call wears, and a group header is a different KIND of row — a
+     * fold standing in for several calls, not one more call — so it reads as
+     * the container it is. Same glyph grok uses for the same distinction.
+     *
+     * The failure count rides in the theme's error colour rather than the
+     * muted one: a fold that hides a failure has to say so, or folding becomes
+     * a way to lose bad news.
      */
-    private renderGroupHeader(header: { text: string; count: number }, width: number, selected: boolean): string[] {
+    private renderGroupHeader(header: { text: string; failed: number }, width: number, selected: boolean): string[] {
         const hint = selected ? theme.fg("dim", ` (${uiStyle().hints.selectedExpandHint} to open)`) : "";
+        const failed = header.failed > 0 ? theme.fg("toolError", ` · ${header.failed} failed`) : "";
         const row =
-            "   " +
-            theme.fg("muted", "◇") +
-            " " +
-            theme.fg(selected ? "text" : "muted", header.text) +
-            theme.fg("dim", ` · ${header.count}`) +
-            hint;
-        const lines = ["", row];
+            "   " + theme.fg("muted", "◈") + " " + theme.fg(selected ? "text" : "muted", header.text) + failed + hint;
+        const lines = ["", fitGroupRow(row, width)];
         return selected ? markSelectedLines(lines) : lines;
     }
 
@@ -352,15 +346,11 @@ export class ChatHistory extends Container {
         });
         // Collapsed groups: the first member's component renders the aggregated
         // header instead of its own row, and the rest render nothing at all.
-        const groupHeader = new Map<unknown, { text: string; fIdx: number; count: number }>();
+        const groupHeader = new Map<unknown, { text: string; fIdx: number; failed: number }>();
         const groupHidden = new Set<unknown>();
         for (const run of this.groupRuns()) {
             if (this.isGroupOpen(run)) continue;
-            groupHeader.set(this.foldables[run.start].comp, {
-                text: this.groupLabel(run),
-                fIdx: run.start,
-                count: run.end - run.start + 1,
-            });
+            groupHeader.set(this.foldables[run.start].comp, { ...this.groupLabel(run), fIdx: run.start });
             for (let i = run.start + 1; i <= run.end; i++) groupHidden.add(this.foldables[i].comp);
         }
 

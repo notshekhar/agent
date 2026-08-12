@@ -10,6 +10,7 @@ import { getLanguageFromPath, getMarkdownTheme, highlightCode, theme } from "./t
 import { formatToolArgs, readGutterPrefixes, readLineRangeText } from "./tool-summary";
 import { uiRenderers, uiStyle } from "./ui-mode";
 import { markSelectedLines } from "./messages";
+import { foldsEagerly } from "./verb-group";
 /** Live-streaming preview cap in EXPANDED mode. Highlighting runs on every
  * flush while input streams — unbounded, a large file made a single frame
  * expensive enough to freeze the box. The full content still renders once
@@ -104,16 +105,28 @@ export class ToolExecutionComponent extends Container {
         return this.toolName;
     }
 
+    /** Did this call fail? (Feeds the group header's "· N failed" suffix.) */
+    hasError(): boolean {
+        return this.result?.isError ?? false;
+    }
+
     /**
      * Whether this row may be swallowed into a verb group.
      *
-     * A running call never groups: the whole reason to look at the transcript
-     * mid-turn is to watch the live one, and folding it into "Read 3 files"
-     * would hide exactly that. Neither does an open one (the user asked to see
-     * it) nor `plan`, which is an approval surface that must stay readable.
+     * Three gates. A running call never groups: the whole reason to look at
+     * the transcript mid-turn is to watch the live one, and folding it into
+     * "Read 3 files" would hide exactly that. An open one doesn't either — the
+     * user asked to see it. And `plan` is an approval surface that must stay
+     * readable.
+     *
+     * The fourth gate is the tool's KIND: only kinds whose individual detail
+     * is noise fold (reads, listings, searches). A command or an edit keeps
+     * its row because which command ran is the whole point, and so does any
+     * tool the vocabulary can't classify — see verb-group.ts on why staying
+     * visible is the safe failure for a third-party tool.
      */
     isGroupable(): boolean {
-        return !this.isPartial && !this.expanded && this.toolName !== "plan";
+        return !this.isPartial && !this.expanded && this.toolName !== "plan" && foldsEagerly(this.toolName);
     }
 
     /** Selection highlight for the ctrl+up/down block navigation. */

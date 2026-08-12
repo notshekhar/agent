@@ -106,35 +106,77 @@ describe("live mode verb groups", () => {
     test("a run of finished tool rows folds into one aggregated header", () => {
         liveOn();
         const out = text(withReads(3));
-        expect(out).toContain("◇ Read 3 files · 3");
+        expect(out).toContain("◈ Read 3 files");
         expect(out).not.toContain("f0.ts");
     });
 
-    test("a lone call is never grouped — a header hiding one row buys nothing", () => {
+    test("one member is enough to fold", () => {
+        // grok folds from the first call (RunScan::folds), so a second one
+        // joins an existing header instead of the row collapsing under you.
         liveOn();
         const out = text(withReads(1));
-        expect(out).not.toContain("◇");
-        expect(out).toContain("f0.ts");
+        expect(out).toContain("◈ Read 1 file");
+        expect(out).not.toContain("f0.ts");
     });
 
-    test("mixed tools aggregate as a plain count, one tool by its verb", () => {
+    test("a mixed run names every kind with its own count", () => {
+        liveOn();
+        const h = new ChatHistory(tui, "/repo");
+        h.addToolCall("ls", "a", { path: "/repo" });
+        h.addToolResult("a", "x");
+        h.addToolCall("ls", "b", { path: "/repo/src" });
+        h.addToolResult("b", "x");
+        h.addToolCall("read", "c", { path: "/repo/a.ts" });
+        h.addToolResult("c", "x");
+        expect(text(h)).toContain("◈ Listed 2 dirs, Read 1 file");
+    });
+
+    test("a hidden failure is still reported on the header", () => {
         liveOn();
         const h = new ChatHistory(tui, "/repo");
         h.addToolCall("read", "a", { path: "/repo/a.ts" });
         h.addToolResult("a", "x");
-        h.addToolCall("bash", "b", { command: "ls" });
+        h.addToolCall("read", "b", { path: "/repo/gone.ts" });
+        h.addToolResult("b", "ENOENT", true);
+        // Folding must never be a way to lose bad news.
+        expect(text(h)).toContain("· 1 failed");
+    });
+
+    test("commands and edits keep their rows — their detail IS the information", () => {
+        liveOn();
+        const h = new ChatHistory(tui, "/repo");
+        h.addToolCall("bash", "a", { command: "npm run build" });
+        h.addToolResult("a", "x");
+        h.addToolCall("bash", "b", { command: "npm test" });
         h.addToolResult("b", "x");
-        expect(text(h)).toContain("◇ 2 tool calls · 2");
-        expect(text(withReads(2, "bash"))).toContain("◇ Ran 2 commands · 2");
+        const out = text(h);
+        expect(out).not.toContain("◈");
+        expect(out).toContain("npm run build");
+        expect(out).toContain("npm test");
+    });
+
+    test("a non-folding call breaks the run around it", () => {
+        liveOn();
+        const h = new ChatHistory(tui, "/repo");
+        h.addToolCall("read", "a", { path: "/repo/a.ts" });
+        h.addToolResult("a", "x");
+        h.addToolCall("bash", "b", { command: "npm test" });
+        h.addToolResult("b", "x");
+        h.addToolCall("read", "c", { path: "/repo/c.ts" });
+        h.addToolResult("c", "x");
+        const out = text(h).split("\n").filter(Boolean);
+        // Two separate one-file headers with the command row between them.
+        expect(out.filter((l) => l.includes("◈ Read 1 file"))).toHaveLength(2);
+        expect(text(h)).toContain("npm test");
     });
 
     test("a RUNNING call never hides inside a group", () => {
         liveOn();
         const h = withReads(2);
-        h.addToolCall("bash", "live", { command: "npm test" }); // no result → running
+        h.addToolCall("read", "live", { path: "/repo/slow.ts" }); // no result → running
         const out = text(h);
-        expect(out).toContain("◇ Read 2 files · 2");
-        expect(out).toContain("npm test");
+        expect(out).toContain("◈ Read 2 files");
+        expect(out).toContain("slow.ts");
     });
 });
 
@@ -143,7 +185,7 @@ describe("live mode hierarchical navigation", () => {
         liveOn();
         const h = withReads(3);
         expect(h.selectLast()).toBe(true);
-        expect(text(h)).toContain("◇ Read 3 files");
+        expect(text(h)).toContain("◈ Read 3 files");
     });
 
     test("→ opens the group first, then the call's output", () => {
@@ -153,7 +195,7 @@ describe("live mode hierarchical navigation", () => {
 
         h.setSelectedExpanded(true); // level 1: the group
         const opened = text(h);
-        expect(opened).not.toContain("◇ Read 3 files");
+        expect(opened).not.toContain("◈ Read 3 files");
         expect(opened).toContain("f0.ts");
         expect(opened).toContain("f2.ts");
         expect(opened).not.toContain("body"); // contents still folded
@@ -171,7 +213,7 @@ describe("live mode hierarchical navigation", () => {
         // Expanding the head drops it out of the run; the remaining two must
         // NOT snap shut into a fresh "Read 2 files" header.
         const out = text(h);
-        expect(out).not.toContain("◇");
+        expect(out).not.toContain("◈");
         expect(out).toContain("f1.ts");
         expect(out).toContain("f2.ts");
     });
@@ -188,7 +230,7 @@ describe("live mode hierarchical navigation", () => {
         expect(text(h)).not.toContain("body"); // call folded, group still open
 
         h.setSelectedExpanded(false);
-        expect(text(h)).toContain("◇ Read 3 files · 3"); // group closed
+        expect(text(h)).toContain("◈ Read 3 files"); // group closed
     });
 
     test("Enter opens a closed group — same first step as →", () => {
@@ -196,7 +238,7 @@ describe("live mode hierarchical navigation", () => {
         const h = withReads(3);
         h.selectLast();
         expect(h.toggleSelected()).toBe(true);
-        expect(text(h)).not.toContain("◇ Read 3 files");
+        expect(text(h)).not.toContain("◈ Read 3 files");
     });
 
     test("moveSelection never stops on an entry hidden in a group", () => {
@@ -211,7 +253,7 @@ describe("live mode hierarchical navigation", () => {
         // Walking up from the header reaches the user prompt, never a hidden row.
         expect(h.moveSelection(-1)).toBe(true);
         const out = text(h);
-        expect(out).toContain("◇ Read 3 files");
+        expect(out).toContain("◈ Read 3 files");
         expect(out).toContain("go");
     });
 });
