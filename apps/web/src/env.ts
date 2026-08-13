@@ -19,3 +19,18 @@ export const isElectron = typeof window !== "undefined" && window.desktopBridge 
  * calls a `desktopBridge.*` method must keep asking `isElectron`.
  */
 export const isDesktopShell = typeof window !== "undefined" && window.loop !== undefined;
+
+/**
+ * True when the app draws its own window chrome, in either desktop host.
+ *
+ * This is the question a frameless titlebar actually asks, and it is the one
+ * every drag region should ask. Asking `isElectron` there is a silent no-op
+ * inside loop's shell, and that is what left the whole top row of the window —
+ * the chat header, the right panel's tab strip, the diff and preview panel
+ * headers — impossible to drag the window by. Only the sidebar header, which
+ * asked `isDesktopShell`, worked.
+ *
+ * Still `isElectron` for anything that goes on to CALL a `desktopBridge.*`
+ * method: this being true says nothing about that bridge existing.
+ */
+export const ownsWindowChrome = isDesktopShell || isElectron;

@@ -208,7 +208,9 @@ function createWindow(): void {
     height: workArea.height,
     minWidth: 720,
     minHeight: 480,
-    backgroundColor: "#0b0b0c",
+    // Matches the renderer's dark workspace, so the frame Electron paints
+    // before the first render isn't a different gray than the app that lands in it.
+    backgroundColor: "#191919",
     // macOS takes its icon from the app bundle, so this is for Linux and
     // Windows, where an unset icon means the default Electron diamond.
     ...(process.platform === "darwin" ? {} : { icon: appIconPath }),
@@ -297,11 +299,15 @@ app.whenReady().then(() => {
    * wrong for the browser panel, where following a link is the whole point.
    * Guests get their own handler instead, and a `target=_blank` loads in the
    * panel rather than as a chromeless Electron window with no way back.
+   *
+   * `file:` is in the list because the panel opens local pages that way (see
+   * openFileInPreview) — a generated report linking to a sibling page with
+   * `target="_blank"` would otherwise do nothing at all.
    */
   app.on("web-contents-created", (_event, contents) => {
     if (contents.getType() !== "webview") return;
     contents.setWindowOpenHandler(({ url }) => {
-      if (/^https?:\/\//i.test(url)) void contents.loadURL(url);
+      if (/^(?:https?|file):\/\//i.test(url)) void contents.loadURL(url);
       return { action: "deny" };
     });
   });

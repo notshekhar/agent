@@ -57,8 +57,13 @@ export const PREVIEW_PARTITION = "persist:loop-preview";
  * weaken context isolation: the guest is an ordinary sandboxed web page with
  * no bridge into either the app or Node. Element picking is injected on demand
  * instead (apps/desktop/src/previewPicker.ts), which needs none of that.
+ *
+ * `plugins` is what enables Chromium's built-in PDF viewer, and nothing else —
+ * the plugin architectures it used to gate are long gone. Without it a `.pdf`
+ * the panel is asked to open (openFileInPreview treats pdf as previewable)
+ * downloads instead of rendering.
  */
-const WEBVIEW_PREFERENCES = "contextIsolation=yes,sandbox=yes,nodeIntegration=no";
+const WEBVIEW_PREFERENCES = "contextIsolation=yes,sandbox=yes,nodeIntegration=no,plugins=yes";
 
 /** Chrome's zoom ladder, which is what the +/- buttons are expected to walk. */
 const ZOOM_STEPS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3];

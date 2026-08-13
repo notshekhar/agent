@@ -33,12 +33,10 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { stackedThreadToast, toastManager } from "~/components/ui/toast";
 import { type DraftId, useComposerDraftStore } from "~/composerDraftStore";
 import { buildFileReviewComment } from "~/reviewCommentContext";
-import { assetEnvironment } from "~/state/assets";
-import { useEnvironmentHttpBaseUrl, usePrimaryEnvironmentId } from "~/state/environments";
+import { usePrimaryEnvironmentId } from "~/state/environments";
 import { previewEnvironment } from "~/state/preview";
 import { projectEnvironment } from "~/state/projects";
 import { useAtomCommand } from "~/state/use-atom-command";
-import { useAtomQueryRunner } from "~/state/use-atom-query-runner";
 
 import FileBrowserPanel from "./FileBrowserPanel";
 import {
@@ -790,10 +788,6 @@ export default function FilePreviewPanel({
   const { resolvedTheme } = useTheme();
   const wordWrap = useClientSettings((settings) => settings.wordWrap);
   const primaryEnvironmentId = usePrimaryEnvironmentId();
-  const environmentHttpBaseUrl = useEnvironmentHttpBaseUrl(environmentId);
-  const createAssetUrl = useAtomQueryRunner(assetEnvironment.createUrl, {
-    reportFailure: false,
-  });
   const openPreview = useAtomCommand(previewEnvironment.open, {
     reportFailure: false,
   });
@@ -850,15 +844,9 @@ export default function FilePreviewPanel({
   };
 
   const handleOpenInBrowser = useCallback(() => {
-    if (!absolutePath || !environmentHttpBaseUrl) return;
+    if (!absolutePath) return;
     void (async () => {
-      const result = await openFileInPreview({
-        threadRef,
-        filePath: absolutePath,
-        httpBaseUrl: environmentHttpBaseUrl,
-        createAssetUrl,
-        openPreview,
-      });
+      const result = await openFileInPreview({ threadRef, filePath: absolutePath, openPreview });
       if (result._tag === "Success" || isAtomCommandInterrupted(result)) {
         return;
       }
@@ -871,7 +859,7 @@ export default function FilePreviewPanel({
         }),
       );
     })();
-  }, [absolutePath, createAssetUrl, environmentHttpBaseUrl, openPreview, threadRef]);
+  }, [absolutePath, openPreview, threadRef]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">

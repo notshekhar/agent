@@ -79,11 +79,8 @@ import { cn } from "../lib/utils";
 import { useRightPanelStore } from "../rightPanelStore";
 import { useActiveEnvironmentId } from "../state/entities";
 import { serverEnvironment } from "../state/server";
-import { assetEnvironment } from "../state/assets";
-import { usePreparedConnection } from "../state/session";
 import { previewEnvironment } from "../state/preview";
 import { useAtomCommand } from "../state/use-atom-command";
-import { useAtomQueryRunner } from "../state/use-atom-query-runner";
 import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
 import { isPreviewSupportedInRuntime } from "../previewStateStore";
 import {
@@ -1279,13 +1276,9 @@ function ChatMarkdown({
   sourceLines = false,
 }: ChatMarkdownProps) {
   const { resolvedTheme } = useTheme();
-  const createAssetUrl = useAtomQueryRunner(assetEnvironment.createUrl, {
-    reportFailure: false,
-  });
   const openPreview = useAtomCommand(previewEnvironment.open, {
     reportFailure: false,
   });
-  const preparedConnection = usePreparedConnection(threadRef?.environmentId ?? null);
   const environmentId = useActiveEnvironmentId();
   const serverConfig = useAtomValue(serverEnvironment.configValueAtom(environmentId));
   const openInPreferredEditor = useOpenInPreferredEditor(
@@ -1359,26 +1352,20 @@ function ChatMarkdown({
   );
   const openMarkdownFileInPreview = useCallback(
     (path: string) => {
-      if (!threadRef || preparedConnection._tag === "None") {
+      if (!threadRef) {
         return Promise.resolve(
           AsyncResult.failure<void, BrowserPreviewUnavailableError>(
             Cause.fail(
               new BrowserPreviewUnavailableError({
-                message: "Environment is not connected.",
+                message: "Thread context is unavailable.",
               }),
             ),
           ),
         );
       }
-      return openFileInPreview({
-        threadRef,
-        filePath: path,
-        httpBaseUrl: preparedConnection.value.httpBaseUrl,
-        createAssetUrl,
-        openPreview,
-      });
+      return openFileInPreview({ threadRef, filePath: path, openPreview });
     },
-    [createAssetUrl, openPreview, preparedConnection, threadRef],
+    [openPreview, threadRef],
   );
   const markdownComponents = useMemo<Components>(() => {
     const fileLinkChip = (
@@ -1483,7 +1470,39 @@ function ChatMarkdown({
                 onClick?.(event);
                 if (isSameDocumentLink && href) {
                   handleMarkdownFragmentClick(event, href);
+                  return;
                 }
+                // In the desktop app a web link belongs in the app's own
+                // browser panel, not in a different application: the panel is
+                // right there, it keeps the page next to the conversation that
+                // produced it, and `target="_blank"` here means the shell hands
+                // the URL to the system browser and the window never comes back.
+                //
+                // A modified or middle click keeps the old behaviour, so
+                // "open this somewhere I can keep it" is still one gesture
+                // away; the context menu offers it by name as well.
+                if (!canOpenInPreview || !href || !faviconHost) return;
+                if (
+                  event.defaultPrevented ||
+                  event.button !== 0 ||
+                  event.metaKey ||
+                  event.ctrlKey ||
+                  event.shiftKey ||
+                  event.altKey
+                ) {
+                  return;
+                }
+                event.preventDefault();
+                void (async () => {
+                  const result = await openExternalLinkInPreview(href);
+                  if (result._tag !== "Failure" || isAtomCommandInterrupted(result)) return;
+                  reportMarkdownActionFailure(
+                    { operation: "open-link-in-preview", target: href },
+                    result.cause,
+                  );
+                  // The click still has to go somewhere.
+                  void readLocalApi()?.shell.openExternal(href);
+                })();
               }}
               onContextMenu={(event) => {
                 if (!canOpenInPreview || !href || !faviconHost) return;

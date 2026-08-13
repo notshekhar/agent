@@ -11,7 +11,7 @@ import {
   useState,
 } from "react";
 
-import { isElectron } from "~/env";
+import { ownsWindowChrome } from "~/env";
 import type { RightPanelSurface } from "~/rightPanelStore";
 import { cn } from "~/lib/utils";
 import { readLocalApi } from "~/localApi";
@@ -272,7 +272,7 @@ function SurfaceIcon({
 }
 
 export function RightPanelTabs(props: RightPanelTabsProps) {
-  const ownsDesktopTitleBar = isElectron && props.mode === "inline";
+  const ownsDesktopTitleBar = ownsWindowChrome && props.mode === "inline";
   const { resolvedTheme } = useTheme();
   const tabListRef = useRef<HTMLDivElement>(null);
 

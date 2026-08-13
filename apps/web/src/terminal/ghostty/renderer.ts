@@ -14,6 +14,39 @@ export interface GhosttyCellMetrics {
 
 const DEFAULT_SELECTION_BACKGROUND = "rgba(72, 122, 191, 0.35)";
 
+/**
+ * `cursorStyle` as libghostty reports it, named rather than compared as bare
+ * integers at the point of use. Anything not listed draws a filled block,
+ * which is the terminal default.
+ */
+const GHOSTTY_CURSOR_STYLE = {
+  bar: 0,
+  block: 1,
+  underline: 2,
+  blockHollow: 3,
+} as const;
+
+/** CSS pixels, before the device-grid snap. */
+const CURSOR_BAR_WIDTH = 2;
+const CURSOR_UNDERLINE_HEIGHT = 2;
+
+/**
+ * The canvas' device-pixel scale, taken from the transform actually in effect.
+ *
+ * Read rather than passed so it cannot drift from the `setTransform(ratio, …)`
+ * the surface installs on resize. Guarded because the render tests drive this
+ * with a hand-built context stub.
+ */
+function deviceScaleOf(context: CanvasRenderingContext2D): number {
+  const scale = typeof context.getTransform === "function" ? context.getTransform().a : 1;
+  return Number.isFinite(scale) && scale > 0 ? scale : 1;
+}
+
+/** Put a CSS-pixel edge on a whole device pixel. */
+function snapToDevice(value: number, scale: number): number {
+  return Math.round(value * scale) / scale;
+}
+
 function cssColor(color: GhosttyColor): string {
   return `rgb(${color.r}, ${color.g}, ${color.b})`;
 }
@@ -228,27 +261,65 @@ export function renderGhosttySnapshot(options: {
   }
 
   if (cursorOn && snapshot.cursorVisible && snapshot.cursorX >= 0 && snapshot.cursorY >= 0) {
-    const left = padding + snapshot.cursorX * metrics.width;
-    const top = originY + snapshot.cursorY * metrics.height;
+    // Snapped to the device-pixel grid, unlike everything above it.
+    //
+    // The context is scaled by devicePixelRatio and a cell is a FRACTIONAL
+    // number of CSS pixels (7.2 at the default size), so filling the cursor at
+    // its raw offset puts the block's edges mid-device-pixel and Chromium
+    // anti-aliases them: MEASURED as one 48%-alpha column plus fourteen solid
+    // ones, a soft edge that crawled from column to column as the cursor
+    // advanced. Glyphs want that sub-pixel positioning — a solid rectangle is
+    // exactly what does not.
+    //
+    // Both edges are snapped rather than an origin plus a width, so the block
+    // stays flush with the next cell wherever the rounding lands.
+    const scale = deviceScaleOf(context);
+    const left = snapToDevice(padding + snapshot.cursorX * metrics.width, scale);
+    const right = snapToDevice(padding + (snapshot.cursorX + 1) * metrics.width, scale);
+    const top = snapToDevice(originY + snapshot.cursorY * metrics.height, scale);
+    const bottom = snapToDevice(originY + (snapshot.cursorY + 1) * metrics.height, scale);
+    const width = right - left;
+    const height = bottom - top;
+    // One device pixel, so the outline and the bar stay hairlines on a
+    // retina panel instead of doubling with the ratio.
+    const hairline = 1 / scale;
+    const barWidth = Math.max(hairline, snapToDevice(CURSOR_BAR_WIDTH, scale));
+    const underlineHeight = Math.max(hairline, snapToDevice(CURSOR_UNDERLINE_HEIGHT, scale));
+    const strokeCursorOutline = () => {
+      context.strokeStyle = cssColor(snapshot.cursor);
+      if (typeof context.lineWidth === "number") context.lineWidth = hairline;
+      // Stroke straddles the path, so the path sits half a device pixel inside
+      // the block for the line to land on whole pixels.
+      const inset = hairline / 2;
+      context.strokeRect(left + inset, top + inset, width - hairline, height - hairline);
+    };
+
     context.fillStyle = cssColor(snapshot.cursor);
     if (!focused) {
       // An unfocused terminal draws a hollow cursor so the active pane is obvious.
-      context.strokeStyle = cssColor(snapshot.cursor);
-      context.strokeRect(left + 0.5, top + 0.5, metrics.width - 1, metrics.height - 1);
-    } else if (snapshot.cursorStyle === 0) {
-      context.fillRect(left, top, 2, metrics.height);
-    } else if (snapshot.cursorStyle === 2) {
-      context.fillRect(left, top + metrics.height - 2, metrics.width, 2);
-    } else if (snapshot.cursorStyle === 3) {
-      context.strokeStyle = cssColor(snapshot.cursor);
-      context.strokeRect(left + 0.5, top + 0.5, metrics.width - 1, metrics.height - 1);
+      strokeCursorOutline();
+    } else if (snapshot.cursorStyle === GHOSTTY_CURSOR_STYLE.bar) {
+      context.fillRect(left, top, barWidth, height);
+    } else if (snapshot.cursorStyle === GHOSTTY_CURSOR_STYLE.underline) {
+      context.fillRect(left, bottom - underlineHeight, width, underlineHeight);
+    } else if (snapshot.cursorStyle === GHOSTTY_CURSOR_STYLE.blockHollow) {
+      strokeCursorOutline();
     } else {
-      context.fillRect(left, top, metrics.width, metrics.height);
+      context.fillRect(left, top, width, height);
       const cell = snapshot.rowData[snapshot.cursorY]?.cells[snapshot.cursorX];
       if (cell?.text) {
         context.font = fontForCell(cell, fontSize, fontFamily);
         context.fillStyle = cssColor(snapshot.background);
-        context.fillText(cell.text, left, top + metrics.baseline, metrics.width);
+        // The BLOCK snaps to the pixel grid; the glyph inside it must not.
+        // Text is positioned sub-pixel everywhere else, so snapping it here
+        // would shift the character sideways the moment the cursor arrived on
+        // it and shift it back when the cursor left.
+        context.fillText(
+          cell.text,
+          padding + snapshot.cursorX * metrics.width,
+          top + metrics.baseline,
+          metrics.width,
+        );
       }
     }
   }

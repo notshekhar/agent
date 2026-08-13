@@ -7,14 +7,14 @@
       content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content"
     />
     <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
-    <meta name="theme-color" content="#0a0a0a" media="(prefers-color-scheme: dark)" />
-    <meta name="theme-color" content="#0a0a0a" />
+    <meta name="theme-color" content="#191919" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#191919" />
     <link rel="icon" href="/favicon.ico" sizes="48x48" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <script>
       (() => {
         const LIGHT_BACKGROUND = "#ffffff";
-        const DARK_BACKGROUND = "#0a0a0a";
+        const DARK_BACKGROUND = "#191919";
         const themeColorMeta = document.querySelector('meta[name="theme-color"]');
         try {
           const storedTheme = window.localStorage.getItem("t3code:theme");
@@ -58,8 +58,8 @@
       }
 
       html.dark body {
-        background: #0a0a0a;
-        color: #f5f5f5;
+        background: #191919;
+        color: #e6e6e6;
       }
 
       #boot-shell {

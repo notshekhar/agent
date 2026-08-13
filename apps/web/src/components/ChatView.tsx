@@ -66,7 +66,7 @@ import {
 } from "@loop/runtime/state/runtime";
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/unstable/reactivity";
-import { isElectron } from "../env";
+import { isElectron, ownsWindowChrome } from "../env";
 import { readLocalApi } from "../localApi";
 import { useDiffPanelStore } from "../diffPanelStore";
 import { queuedTurnsForThread, useQueuedTurnsStore } from "../queuedTurnsStore";
@@ -4894,13 +4894,13 @@ function ChatViewContent(props: ChatViewProps) {
     // message here: an anchor keeps `maintainScrollAtEnd` switched off for the
     // rest of the thread's life, and following then depended on the timeline
     // effect firing, which a row growing under streamed text does not do.
-    isAtEndRef.current = true;
-    timelineScrollModeRef.current = "following-end";
-    liveFollowUserScrollGenerationRef.current = anchorUserScrollGenerationRef.current;
-    pendingTimelineAnchorRef.current = null;
-    activeTimelineAnchorIndexRef.current = null;
-    showScrollDebouncer.current.cancel();
-    setShowScrollToBottom(false);
+    //
+    // This has to MOVE the list, not just record that we intend to follow it.
+    // Setting the refs alone left `maintainScrollAtEnd` to do the work, and it
+    // only holds a list that is already at the end — so sending from halfway up
+    // a long thread stayed exactly where it was and the reply streamed in
+    // off-screen.
+    scrollToEnd();
     setTimelineAnchor({
       threadKey: scopedThreadKey(scopeThreadRef(activeThread.environmentId, threadIdForSend)),
       messageId: null,
@@ -5383,13 +5383,7 @@ function ChatViewContent(props: ChatViewProps) {
 
       // Same as the other send path: land at the live edge and follow from
       // there, rather than anchoring the sent row near the top.
-      isAtEndRef.current = true;
-      timelineScrollModeRef.current = "following-end";
-      liveFollowUserScrollGenerationRef.current = anchorUserScrollGenerationRef.current;
-      pendingTimelineAnchorRef.current = null;
-      activeTimelineAnchorIndexRef.current = null;
-      showScrollDebouncer.current.cancel();
-      setShowScrollToBottom(false);
+      scrollToEnd();
       setTimelineAnchor({
         threadKey: scopedThreadKey(scopeThreadRef(activeThread.environmentId, threadIdForSend)),
         messageId: null,
@@ -5958,7 +5952,7 @@ function ChatViewContent(props: ChatViewProps) {
           data-chat-header
           className={cn(
             "bg-background transition-[padding-left] duration-200 ease-linear motion-reduce:transition-none",
-            isElectron
+            ownsWindowChrome
               ? cn(
                   "workspace-topbar drag-region relative px-3 sm:px-5",
                   reserveTitleBarControlInset &&

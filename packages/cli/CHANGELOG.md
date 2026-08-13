@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.18.7] - 2026-08-13
+
+### Changed
+
+- **The desktop app's dark theme is one surface hierarchy, and the terminal is part of it.** The workspace, the panels and the terminal each carried their own hand-written grays, so the terminal read as a different application sitting inside this one — and every time the palette moved, it stayed behind, because its colors were written into the renderer's TypeScript rather than read from the theme. The terminal now takes its surface, its ink, its cursor and its selection from the same CSS tokens as everything else, so it is a panel like the sidebar is a panel and it follows any future retune on its own. Its ANSI sixteen are VS Code's terminal defaults, which separate the yellows and greens that `git status` leans on; the muted set they replaced was mixed for a black background and went flat on a lifted one.
+
+### Fixed
+
+- **The terminal cursor is no longer blurry.** The canvas is scaled by the display's pixel ratio and a cell is a fractional number of CSS pixels — 7.2 at the default size — so filling the cursor at its raw offset put the block's edges mid-device-pixel and the browser anti-aliased them. Measured across one pixel row, the cursor came out as fourteen solid columns plus one at 48% alpha, and because the fraction changes with the column, that soft edge crawled from side to side as the cursor advanced. Both edges are now snapped onto the device grid, which also keeps each block flush with the next cell rather than leaving a gap or an overlap. The glyph inside a block cursor is deliberately left unsnapped: text is positioned sub-pixel everywhere else, and rounding it here would shift the character sideways the moment the cursor landed on it. Outlines and bars are one device pixel now, so they stay hairlines on a retina panel instead of drawing double-thick.
+- **The whole title bar drags the window, not just the sidebar's corner of it.** Every header asked whether `window.desktopBridge` existed to decide if it owned window chrome, and this shell has never exposed that name — it exposes `window.loop`. So the test was false everywhere it was asked, and the chat header, the right panel's tab strip, and the diff and preview panel headers were all dead to a drag; only the sidebar header, which asked the right question, worked. They ask one flag now, named for what it actually means.
+- **An HTML file opened in the browser panel loads, and its stylesheets and images load with it.** The panel was handed a `blob:` URL minted in the app's own document, and the panel's guest is a separate web contents on its own session — it cannot resolve one, so the page came back not found. Even had it loaded, every relative stylesheet, script and image would have resolved against `blob:` and failed too. Local files are opened by path now, so a generated report renders the way it does in a browser, reload works, and the address bar shows where the page came from. PDFs render in the panel instead of downloading.
+- **Following a link from a reply opens it in the panel, and reuses the tab.** A link in the transcript went to the system browser on a plain click, with the panel reachable only through the right-click menu — and each open minted a new tab, so following three links from one answer left three tabs of the same trail behind. A click now lands in the panel's current tab, the way a browser behaves; a modified or middle click still goes out to the real browser, and the "+" button is what makes a new tab.
+- **Sending a message returns to the bottom of the transcript.** Both send paths recorded the intent to follow the live edge and then never moved the list, leaving that to the stick-to-bottom behaviour — which only holds a transcript that is already at the bottom. Sending from halfway up a long thread stayed exactly where it was while the reply streamed in off-screen.
+
 ## [0.18.6] - 2026-08-13
 
 ### Fixed

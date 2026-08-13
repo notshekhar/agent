@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { isElectron } from "~/env";
+import { ownsWindowChrome } from "~/env";
 import { cn } from "~/lib/utils";
 
 import { Skeleton } from "./ui/skeleton";
@@ -8,7 +8,7 @@ import { Skeleton } from "./ui/skeleton";
 export type DiffPanelMode = "inline" | "sheet" | "sidebar" | "embedded";
 
 function getDiffPanelHeaderRowClassName(mode: DiffPanelMode) {
-  const shouldUseDragRegion = isElectron && mode !== "sheet" && mode !== "embedded";
+  const shouldUseDragRegion = ownsWindowChrome && mode !== "sheet" && mode !== "embedded";
   return cn(
     "flex items-center justify-between gap-2 px-4",
     shouldUseDragRegion
@@ -22,7 +22,7 @@ export function DiffPanelShell(props: {
   header: ReactNode;
   children: ReactNode;
 }) {
-  const shouldUseDragRegion = isElectron && props.mode !== "sheet" && props.mode !== "embedded";
+  const shouldUseDragRegion = ownsWindowChrome && props.mode !== "sheet" && props.mode !== "embedded";
 
   return (
     <div

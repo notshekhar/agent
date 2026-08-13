@@ -105,10 +105,10 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
 }
 
 .dark {
-  --app-scrollbar-thumb: rgb(255 255 255 / 8%);
-  --app-scrollbar-thumb-hover: rgb(255 255 255 / 12%);
+  --app-scrollbar-thumb: rgb(140 140 140 / 40%);
+  --app-scrollbar-thumb-hover: rgb(170 170 170 / 55%);
   --glass-blur: 16px;
-  --glass-saturation: 1.08;
+  --glass-saturation: 1.02;
 }
 
 [data-slot="sidebar-wrapper"] {
@@ -314,9 +314,9 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   }
 
   .dark .stage-blueprint {
-    --stage-bp-top: #3a7ad1;
-    --stage-bp-mid: #2050ae;
-    --stage-bp-bottom: #101f6e;
+    --stage-bp-top: #6b7585;
+    --stage-bp-mid: #454c58;
+    --stage-bp-bottom: #23272e;
   }
 
   .workspace-topbar {
@@ -940,35 +940,35 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
 
   @variant dark {
     color-scheme: dark;
-    /* Keep the workspace in the same neutral-black family as sidebar v2.
-       Surfaces lift from this base instead of starting from a milky gray. */
-    --background: var(--color-neutral-950);
+    /* Neutral gray planes. Hue lives on buttons only — surfaces stay dead
+       gray so the workspace doesn't wash blue. */
+    --background: #191919;
     --app-chrome-background: var(--background);
     --surface-raised: var(--secondary);
-    --foreground: var(--color-neutral-100);
-    --card: color-mix(in srgb, var(--background) 97%, var(--color-white));
-    --card-foreground: var(--color-neutral-100);
-    --popover: color-mix(in srgb, var(--background) 94%, var(--color-white));
-    --popover-foreground: var(--color-neutral-100);
-    --primary: oklch(0.588 0.217 264);
+    --foreground: #e6e6e6;
+    --card: #202020;
+    --card-foreground: var(--foreground);
+    --popover: #272727;
+    --popover-foreground: var(--foreground);
+    --primary: oklch(0.72 0.07 264);
     --primary-foreground: var(--color-white);
-    --secondary: --alpha(var(--color-white) / 4%);
-    --secondary-foreground: var(--color-neutral-100);
-    --muted: --alpha(var(--color-white) / 4%);
-    --muted-foreground: color-mix(in srgb, var(--color-neutral-500) 90%, var(--color-white));
-    --accent: --alpha(var(--color-white) / 4%);
-    --accent-foreground: var(--color-neutral-100);
-    --destructive: color-mix(in srgb, var(--color-red-500) 90%, var(--color-white));
-    --border: --alpha(var(--color-white) / 6%);
-    --input: --alpha(var(--color-white) / 8%);
-    --ring: oklch(0.588 0.217 264);
-    --destructive-foreground: var(--color-red-400);
-    --info: var(--color-blue-500);
-    --info-foreground: var(--color-blue-400);
-    --success: var(--color-emerald-500);
-    --success-foreground: var(--color-emerald-400);
-    --warning: var(--color-amber-500);
-    --warning-foreground: var(--color-amber-400);
+    --secondary: --alpha(var(--color-white) / 8%);
+    --secondary-foreground: var(--foreground);
+    --muted: --alpha(var(--color-white) / 6%);
+    --muted-foreground: #9b9b9b;
+    --accent: --alpha(var(--color-white) / 8%);
+    --accent-foreground: var(--color-white);
+    --destructive: #f14c4c;
+    --border: --alpha(var(--color-white) / 11%);
+    --input: --alpha(var(--color-white) / 16%);
+    --ring: oklch(0.72 0.07 264);
+    --destructive-foreground: #f14c4c;
+    --info: #8fa4c4;
+    --info-foreground: #8fa4c4;
+    --success: #89d185;
+    --success-foreground: #89d185;
+    --warning: #e5c07b;
+    --warning-foreground: #e5c07b;
     --sidebar: var(--card);
     --sidebar-foreground: var(--foreground);
     --sidebar-muted-foreground: var(--muted-foreground);
@@ -1009,17 +1009,18 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
   background-color: var(--sidebar);
 }
 
+/* Sidebar one step below the workspace (#131313 against #191919). */
 .dark [data-sidebar-version="v1"],
 .dark [data-sidebar-version="v2"] {
-  --background: #000;
-  --foreground: #f1f3f7;
-  --card: #000;
+  --background: #131313;
+  --foreground: #e6e6e6;
+  --card: #131313;
   --card-foreground: var(--foreground);
-  --accent: #191a1d;
-  --accent-foreground: #f7f9ff;
-  --muted: #0a0a0a;
-  --muted-foreground: #a3a3a3;
-  --border: rgb(255 255 255 / 8%);
+  --accent: #252525;
+  --accent-foreground: var(--color-white);
+  --muted: #252525;
+  --muted-foreground: #9b9b9b;
+  --border: rgb(255 255 255 / 10%);
   --input: rgb(255 255 255 / 18%);
   --sidebar: var(--card);
   --sidebar-foreground: var(--foreground);
@@ -1033,6 +1034,24 @@ html[data-mobile-composer-route-transition="true"]::view-transition-old(t3-mobil
      global chrome background, or the fade shows a seam (same rule as the
      light palette above). */
   --sidebar-stage-fade: var(--card);
+}
+
+/* Terminal shares the sidebar's recessed plane. The drawer paints itself
+   with `bg-background`, and the renderer samples this element's computed
+   background and color, so these tokens move chrome, tab rail, and surface. */
+/* The terminal is a panel, so it sits on the same surface the app's other
+   panels use rather than a gray of its own — that is what kept it looking like
+   a different application every time the palette moved.
+
+   Everything the terminal renderer needs is a token here, because the renderer
+   SAMPLES this element's computed style (see `terminalThemeFromApp`). Colors
+   written into the TypeScript instead are frozen at whatever the theme was that
+   day, which is exactly how the surface, cursor and selection drifted apart
+   from the app. Retune the palette above and the terminal follows on its own. */
+.thread-terminal-drawer {
+  --background: var(--card);
+  --terminal-cursor: var(--foreground);
+  --terminal-selection: color-mix(in srgb, var(--primary) 55%, transparent);
 }
 
 body {

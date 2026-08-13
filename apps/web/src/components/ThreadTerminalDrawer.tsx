@@ -143,12 +143,20 @@ function hexColor(value: string): GhosttyColor {
 /**
  * ANSI 0-15 for the app's dark theme.
  *
- * Ghostty's own default palette, written down rather than inherited so the two
- * themes are decided in the same place and dark keeps the look it has today.
+ * VS Code's terminal defaults (`ansiColorMap` in its terminalColorRegistry).
+ * The app's surfaces are their own charcoal rather than VS Code's grays, but
+ * the ANSI sixteen are worth taking as-is: Ghostty's own palette — the muted
+ * Tomorrow Night colors this replaced — was mixed for a black terminal and
+ * went flat on a lifted panel, and its yellows and greens were close enough in
+ * value to be hard to tell apart in `git status` output.
+ *
+ * Black stays #000000 even though it disappears against the panel; every
+ * terminal has that property, and programs that use color 0 use it as a
+ * background, where it still reads.
  */
 const DARK_TERMINAL_PALETTE = [
-  "#1d1f21", "#cc6666", "#b5bd68", "#f0c674", "#81a2be", "#b294bb", "#8abeb7", "#c5c8c6",
-  "#666666", "#d54e53", "#b9ca4a", "#e7c547", "#7aa6da", "#c397d8", "#70c0b1", "#eaeaea",
+  "#000000", "#cd3131", "#0dbc79", "#e5e510", "#2472c8", "#bc3fbc", "#11a8cd", "#e5e5e5",
+  "#666666", "#f14c4c", "#23d18b", "#f5f543", "#3b8eea", "#d670d6", "#29b8db", "#e5e5e5",
 ].map(hexColor);
 
 /**
@@ -170,38 +178,68 @@ const LIGHT_TERMINAL_PALETTE = [
   "#57606a", "#c5221f", "#0f9d58", "#8a6100", "#1a63c4", "#8f39a8", "#0e7490", "#8b949e",
 ].map(hexColor);
 
+/**
+ * The terminal's colors, read off the app rather than written down here.
+ *
+ * Every color below comes from the drawer's own computed style, so the theme
+ * owns all of them (`.thread-terminal-drawer` in index.css). Hardcoding them
+ * here is what made the terminal look like a different application: the app's
+ * palette moved and the terminal kept the grays it was born with.
+ *
+ * The last-resort fallbacks are plain black and white — they only apply if the
+ * document has no styles at all, and a wrong guess there is more misleading
+ * than an obvious one.
+ */
 function terminalThemeFromApp(mountElement?: HTMLElement | null): GhosttyTheme {
   const isDark = document.documentElement.classList.contains("dark");
-  const fallbackBackground = isDark ? "rgb(14, 18, 24)" : "rgb(255, 255, 255)";
-  const fallbackForeground = isDark ? "rgb(237, 241, 247)" : "rgb(28, 33, 41)";
   const drawerSurface =
     mountElement?.closest(".thread-terminal-drawer") ??
     document.querySelector(".thread-terminal-drawer") ??
     document.body;
   const drawerStyles = getComputedStyle(drawerSurface);
   const bodyStyles = getComputedStyle(document.body);
+  const rootStyles = getComputedStyle(document.documentElement);
   const background = normalizeComputedColor(
     drawerStyles.backgroundColor,
-    normalizeComputedColor(bodyStyles.backgroundColor, fallbackBackground),
+    normalizeComputedColor(
+      bodyStyles.backgroundColor,
+      normalizeComputedColor(
+        rootStyles.getPropertyValue("--background"),
+        isDark ? "rgb(0, 0, 0)" : "rgb(255, 255, 255)",
+      ),
+    ),
   );
   const foreground = normalizeComputedColor(
     drawerStyles.color,
-    normalizeComputedColor(bodyStyles.color, fallbackForeground),
+    normalizeComputedColor(
+      bodyStyles.color,
+      normalizeComputedColor(
+        rootStyles.getPropertyValue("--foreground"),
+        isDark ? "rgb(255, 255, 255)" : "rgb(0, 0, 0)",
+      ),
+    ),
+  );
+  // The cursor is the terminal foreground unless the theme names one, which is
+  // also what VS Code does — it leaves terminalCursor.foreground unset. A block
+  // cursor draws its glyph in the background color, so this reads either way.
+  const cursor = normalizeComputedColor(
+    drawerStyles.getPropertyValue("--terminal-cursor"),
+    foreground,
   );
 
+  const fallbackBackground = isDark ? { r: 0, g: 0, b: 0 } : { r: 255, g: 255, b: 255 };
+  const fallbackForeground = isDark ? { r: 255, g: 255, b: 255 } : { r: 0, g: 0, b: 0 };
+
   return {
-    background: parseTerminalColor(
-      background,
-      isDark ? { r: 14, g: 18, b: 24 } : { r: 255, g: 255, b: 255 },
+    background: parseTerminalColor(background, fallbackBackground),
+    foreground: parseTerminalColor(foreground, fallbackForeground),
+    cursor: parseTerminalColor(cursor, fallbackForeground),
+    // Filled behind the glyphs rather than over them, so a translucent value
+    // composites against the cell and the text on top keeps its own color.
+    selectionBackground: normalizeComputedColor(
+      drawerStyles.getPropertyValue("--terminal-selection"),
+      isDark ? "rgba(255, 255, 255, 0.22)" : "rgba(0, 0, 0, 0.16)",
     ),
-    foreground: parseTerminalColor(
-      foreground,
-      isDark ? { r: 237, g: 241, b: 247 } : { r: 28, g: 33, b: 41 },
-    ),
-    cursor: isDark ? { r: 180, g: 203, b: 255 } : { r: 38, g: 56, b: 78 },
-    // Matches the xterm selection overlays this renderer replaced; the text
-    // color underneath is left unchanged for contrast in both themes.
-    selectionBackground: isDark ? "rgba(180, 203, 255, 0.25)" : "rgba(37, 63, 99, 0.2)",
     palette: isDark ? DARK_TERMINAL_PALETTE : LIGHT_TERMINAL_PALETTE,
   };
 }
