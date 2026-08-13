@@ -453,8 +453,30 @@ app.whenReady().then(() => {
     spawnDetached: (command, args) => {
       spawn(command, [...args], { detached: true, stdio: "ignore" }).unref();
     },
-    restart: () => {
-      app.relaunch();
+    /**
+     * Leave, and come back as the new copy.
+     *
+     * `null` means quit and nothing else — the Windows helper relaunches us
+     * itself, and doing it here too would re-lock the install directory it is
+     * waiting to move.
+     *
+     * On macOS the relaunch goes through `/usr/bin/open` rather than a bare
+     * `app.relaunch()`. Electron's default relaunch execs the inner Mach-O
+     * (`Loop.app/Contents/MacOS/Loop`) directly, which is a launch macOS never
+     * performs itself: the bundle has just been replaced on disk, and starting
+     * the executable behind LaunchServices' back is what leaves the app quit
+     * with nothing coming back. `open -n -a` asks macOS to launch the bundle
+     * the way a double-click does, so the new copy is registered, activated
+     * and given its dock icon.
+     */
+    restart: (relaunchFrom) => {
+      if (relaunchFrom !== null) {
+        if (process.platform === "darwin") {
+          app.relaunch({ execPath: "/usr/bin/open", args: ["-n", "-a", relaunchFrom] });
+        } else {
+          app.relaunch();
+        }
+      }
       app.quit();
     },
   });

@@ -20,6 +20,23 @@ describe("ComposerQueuedTurns", () => {
     expect(renderToStaticMarkup(<ComposerQueuedTurns turns={[]} onCancel={() => {}} />)).toBe("");
   });
 
+  it("offers to send a message now, stopping the running turn", () => {
+    // The terminal's Esc. Without it the only way to act on a turn going the
+    // wrong way was Stop, which threw the queued message away with it.
+    const markup = renderToStaticMarkup(
+      <ComposerQueuedTurns turns={[turn("a", "one")]} onCancel={() => {}} onSendNow={() => {}} />,
+    );
+    expect(markup).toContain('aria-label="Send this message now"');
+  });
+
+  it("leaves the send-now control out when no handler is given", () => {
+    const markup = renderToStaticMarkup(
+      <ComposerQueuedTurns turns={[turn("a", "one")]} onCancel={() => {}} />,
+    );
+    expect(markup).not.toContain('aria-label="Send this message now"');
+    expect(markup).toContain('aria-label="Remove queued message"');
+  });
+
   it("shows each queued message with a way to take it back", () => {
     const markup = renderToStaticMarkup(
       <ComposerQueuedTurns

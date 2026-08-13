@@ -67,8 +67,18 @@ export interface UpdateManagerOptions {
   readonly arch: Arch;
   readonly execPath: string;
   readonly run: Run;
-  /** Relaunches into the new copy. Electron's `app.relaunch()` + `quit()`. */
-  readonly restart: () => void;
+  /**
+   * Leave, so the new copy can take over.
+   *
+   * `relaunchFrom` is the installed root to come back from — or null when
+   * something else owns the relaunch and this process must ONLY quit. That is
+   * not a nicety: on Windows the swap helper waits for this pid to disappear
+   * before it moves any directory, so an app that relaunches itself on the way
+   * out re-locks the install directory a moment before the helper tries to
+   * move it. The move fails, the helper restores the backup, and the update
+   * silently reverts.
+   */
+  readonly restart: (relaunchFrom: string | null) => void;
   /** Detaches the Windows swap helper, which must outlive this process. */
   readonly spawnDetached?: (command: string, args: readonly string[]) => void;
   readonly fetchImpl?: Fetch;
@@ -226,12 +236,15 @@ export class UpdateManager extends EventEmitter {
         const spawnDetached = this.#options.spawnDetached;
         if (!spawnDetached) throw new Error("no way to detach the update helper");
         spawnDetached("cmd.exe", ["/c", script]);
-        this.#options.restart();
+        // Quit only — `start ""` at the end of the script is the relaunch.
+        this.#options.restart(null);
         return this.#state;
       }
 
       await swapInstall({ layout, stagedRoot: this.#stagedRoot });
-      this.#options.restart();
+      // The INSTALLED root, not the exec path: on macOS the thing to reopen is
+      // the bundle, and only the caller knows how to reopen one.
+      this.#options.restart(layout.root);
       return this.#state;
     } catch (error) {
       this.#fail("install", error);

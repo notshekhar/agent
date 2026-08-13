@@ -15,7 +15,13 @@ import { getLocalStorageItem } from "../hooks/useLocalStorage";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import { cn, isMacPlatform } from "../lib/utils";
 import { primaryServerKeybindingsAtom } from "../state/server";
-import { useEnvironmentIdentificationMode, useSidebarV2Enabled } from "../hooks/useSettings";
+import {
+  useEnvironmentIdentificationMode,
+  useSidebarStyle,
+  useSidebarV2Enabled,
+} from "../hooks/useSettings";
+import type { SidebarStyle } from "@loop/contracts/settings";
+import FocusedSidebar from "./loop/FocusedSidebar";
 import ProjectSidebar from "./loop/ProjectSidebar";
 import SidebarV2 from "./SidebarV2";
 import { useSidebarStageBackdropVariant } from "./SidebarStageBackdrop";
@@ -117,9 +123,23 @@ function SidebarControl() {
   );
 }
 
+/**
+ * The sidebar the user picked in Settings → Appearance.
+ *
+ * Three different answers to "what is this panel a list of", not three skins —
+ * see `SidebarStyle` in the settings contract. `threads` is upstream's own
+ * sidebar and stays the default; the other two are loop's.
+ */
+function SelectedSidebar({ style }: { style: SidebarStyle }) {
+  if (style === "projects") return <ProjectSidebar />;
+  if (style === "focused") return <FocusedSidebar />;
+  return <SidebarV2 />;
+}
+
 export function AppSidebarLayout({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const sidebarV2Enabled = useSidebarV2Enabled();
+  const sidebarStyle = useSidebarStyle();
   // Settings routes render the settings nav, which lives in the v1 component
   // and is identical for both sidebars — so v1 stays mounted there.
   const pathname = useLocation({ select: (location) => location.pathname });
@@ -221,7 +241,7 @@ export function AppSidebarLayout({ children }: { children: ReactNode }) {
             with the runtime; nightly's version wants a `threadPinning`
             capability and pinned-reorder helpers that came after our base.
             Settings still swaps in the section nav below. */}
-        {isOnSettings ? <ProjectSidebar /> : <SidebarV2 />}
+        {isOnSettings ? <ProjectSidebar /> : <SelectedSidebar style={sidebarStyle} />}
         <SidebarRail />
       </Sidebar>
       {children}

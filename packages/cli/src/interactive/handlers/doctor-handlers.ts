@@ -5,7 +5,6 @@
  * nothing here mutates state.
  */
 import { existsSync } from "node:fs";
-import chalk from "chalk";
 import {
     getCatalog,
     getConfigDir,
@@ -23,7 +22,7 @@ import {
 import type { AppDeps } from "../deps";
 import type { AppState } from "../state";
 import { resolveAvailableUpdate } from "../../commands";
-import { dim, err, ok, warn } from "../ui/text";
+import { dim, err, heading, ok, warn } from "../ui/text";
 
 type DoctorHandlers = Pick<CommandContext, "runDoctor">;
 
@@ -137,7 +136,7 @@ export function createDoctorHandlers(state: AppState, deps: AppDeps): DoctorHand
             add(Bun.which("git") ? "ok" : "warn", "binaries", opt.join(", "));
 
             hideWorking();
-            history.addSystem(chalk.bold("doctor"));
+            history.addSystem(heading("doctor"));
             const w = Math.max(...rows.map((r) => r.name.length));
             for (const r of rows) {
                 history.addSystem(`  ${MARK[r.status]} ${r.name.padEnd(w + 2)}${dim(r.detail)}`);

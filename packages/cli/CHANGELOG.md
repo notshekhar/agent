@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.18.11] - 2026-08-14
+
+### Added
+
+- **The desktop sidebar comes in three shapes, and one project is now the default.** The panel used to be one list of every thread under every project. It can now be that, or a list of folders you open one at a time, or — the new default — one project filling the panel with its threads sectioned by what they need from you: waiting on you, working, recent, settled. Settings → Appearance → Sidebar style switches between them and every option says what it gives you. The shapes differ in what the panel is a list of, not in how a row looks: a row says the same four things everywhere, and it says more than it used to. A thread now carries its real state — pending approval, awaiting input, working, plan ready, completed-and-unread — in the same colours the command palette has always used, so a thread blocked on a question stops looking exactly like an idle one. It carries its branch too, and marks a worktree, so two threads on two branches of the same repo are finally distinguishable. Threads waiting on you are lifted out of their folders into a shelf of their own, oldest ask first, and that shelf stays cross-project even in the one-project view — nothing can sit blocked in a folder you are not looking at. "Settled" now means settled: the thread's own `settledAt`, snooze and override, rather than "everything past row twenty".
+- **A queued message can be sent now, without losing it.** The terminal has always had this — Esc stops the turn and what you typed while it worked goes next — while the app could only wait. A message sat behind a turn you had already decided was going the wrong way, and the only way to act on that was Stop, which threw the message away with it. Each queued row now offers to stop the running turn and send that message instead.
+- **Project controls, in every sidebar shape.** loop's own project lists could only ever be added to: renaming and removing a project existed in the inherited sidebar and nowhere else, so a folder added by mistake stayed forever. Every project row now carries new thread, rename, copy path and remove — on right-click as well as on a menu — and renaming happens in the row rather than in a dialog. Removal keeps its confirmation and says how many conversations go with it. Thread rows answer a right-click too, with settle, archive, copy path, copy branch and delete, and archive is one click on the row itself.
+
+### Fixed
+
+- **Restarting after an update works on macOS, and no longer silently reverts on Windows.** The app relaunched itself by executing the binary inside its own bundle — a launch macOS never performs itself, and the bundle had just been replaced on disk, so the app quit and nothing came back. It now asks macOS to open the bundle the way a double-click does. Windows was worse than a failed restart: the swap helper waits for the app to exit before moving any directory, but the app relaunched itself on the way out and re-locked the install directory a moment before the helper tried to move it — so the move failed, the helper restored the backup, and the update reverted while reporting success. Windows now quits and leaves the relaunch to the helper, which is what the helper was always for.
+- **`/steak` and `/cost` belong to the theme.** Their headings and figures were painted bold in whatever foreground the terminal happened to use, so those blocks ignored `/theme` and `/uimode` entirely and stayed put while everything around them moved — most visibly against the heat grid underneath the steak wall, which was themed the whole time. `/doctor` and `/context` had the same defect in four more places. All of them now read from the theme's own heading colour.
+
 ## [0.18.10] - 2026-08-13
 
 ### Fixed

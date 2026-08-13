@@ -44,6 +44,8 @@ interface QueuedTurnsState {
   takeNext: (sessionId: string) => QueuedTurn | undefined;
   /** The user taking a message back. */
   remove: (id: string) => void;
+  /** Pull one out by id, to send it right now instead of in turn. */
+  take: (id: string) => QueuedTurn | undefined;
   /** Everything waiting on a session — what Stop discards. */
   clearSession: (sessionId: string) => void;
 }
@@ -59,6 +61,12 @@ export const useQueuedTurnsStore = create<QueuedTurnsState>()((set, get) => ({
     return next;
   },
   remove: (id) => set((state) => ({ queue: state.queue.filter((turn) => turn.id !== id) })),
+  take: (id) => {
+    const found = get().queue.find((turn) => turn.id === id);
+    if (!found) return undefined;
+    set((state) => ({ queue: state.queue.filter((turn) => turn.id !== id) }));
+    return found;
+  },
   clearSession: (sessionId) =>
     set((state) => ({ queue: state.queue.filter((turn) => turn.sessionId !== sessionId) })),
 }));

@@ -7,7 +7,6 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
-import chalk from "chalk";
 import {
     buildSteakGrid,
     filterAttachmentsByModalities,
@@ -25,7 +24,7 @@ import { readClipboardImageToFile } from "../clipboard-image";
 import { startLogin, startLogout } from "../login-flow";
 import { loadChangelogEntries } from "../../changelog";
 import { resolveAvailableUpdate, runUpgrade } from "../../commands";
-import { accent, dim, warn } from "../ui/text";
+import { accent, dim, heading, warn } from "../ui/text";
 import { theme } from "../ui/theme";
 
 type MiscHandlers = Pick<
@@ -68,7 +67,7 @@ export function createMiscHandlers(state: AppState, deps: AppDeps): MiscHandlers
         const GUTTER = 4; // "Mon " etc.
 
         const period = "year" in opts ? String(opts.year) : "the last year";
-        history.addSystem(chalk.bold(`🥩 ${fmtTok(grid.totalTokens)} tokens in ${period}`));
+        history.addSystem(heading(`🥩 ${fmtTok(grid.totalTokens)} tokens in ${period}`));
         history.addSystem("");
 
         // Month label row: drop each abbrev at its column, 1 char per week.
@@ -105,7 +104,7 @@ export function createMiscHandlers(state: AppState, deps: AppDeps): MiscHandlers
             });
         };
         const stat = (label: string, value: string, note = "") =>
-            history.addSystem(`  ${dim(label.padEnd(16))}${chalk.bold(value)}${note ? `   ${dim(note)}` : ""}`);
+            history.addSystem(`  ${dim(label.padEnd(16))}${accent(value)}${note ? `   ${dim(note)}` : ""}`);
         history.addSystem("");
         stat("current streak", days(st.currentStreak), st.currentStreak >= 3 ? "🔥" : "");
         stat("longest streak", days(st.longestStreak));
@@ -139,7 +138,7 @@ export function createMiscHandlers(state: AppState, deps: AppDeps): MiscHandlers
                     `  ${dim(label.padEnd(14))}${accent(fmtUsd(usd).padStart(10))}${extra ? `   ${dim(extra)}` : ""}`,
                 );
 
-            history.addSystem(chalk.bold("cost"));
+            history.addSystem(heading("cost"));
             row(
                 "session",
                 s.usd,

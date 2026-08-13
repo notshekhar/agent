@@ -60,6 +60,13 @@ describe("reduceCommandPaletteUiState", () => {
       mode: "command",
       openIntent: { kind: "new-thread-in" },
     });
+    // The focused sidebar's project switcher: the same list as new-thread-in,
+    // wired to navigate to the project rather than start a thread in it.
+    expect(reduceCommandPaletteUiState(filesOpen, { _tag: "OpenSwitchProject" })).toEqual({
+      open: true,
+      mode: "command",
+      openIntent: { kind: "switch-project" },
+    });
   });
 
   it("resets to command mode for dialog-driven opens and closes", () => {

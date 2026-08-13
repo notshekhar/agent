@@ -13,6 +13,31 @@ export const TimestampFormat = Schema.Literals(["locale", "12-hour", "24-hour"])
 export type TimestampFormat = typeof TimestampFormat.Type;
 export const DEFAULT_TIMESTAMP_FORMAT: TimestampFormat = "locale";
 
+/**
+ * Which sidebar the app draws.
+ *
+ * Three genuinely different answers to "what is this panel a list of", not
+ * three skins:
+ *
+ * - `threads` — every thread, grouped under its project, with the full row
+ *   vocabulary (search, multi-select, PR badges, worktree state). What the app
+ *   showed before there was a choice.
+ * - `projects` — folders first, one line each, opened to reveal their threads.
+ *   The shortest possible list when you keep a lot of repos.
+ * - `focused` — one project fills the panel, its threads sectioned by what
+ *   they need from you. The shape people know from Codex.
+ */
+export const SidebarStyle = Schema.Literals(["threads", "projects", "focused"]);
+export type SidebarStyle = typeof SidebarStyle.Type;
+/**
+ * `focused` is the default: most of the time you are working in one repo, and
+ * a panel that spends its height on the threads of that repo — sectioned by
+ * what they need from you — beats one that spends it listing repos you are not
+ * in. The other two are one setting away, and "Needs you" stays cross-project
+ * here so nothing can sit blocked in a project you are not looking at.
+ */
+export const DEFAULT_SIDEBAR_STYLE: SidebarStyle = "focused";
+
 export const SidebarProjectSortOrder = Schema.Literals(["updated_at", "created_at", "manual"]);
 export type SidebarProjectSortOrder = typeof SidebarProjectSortOrder.Type;
 export const DEFAULT_SIDEBAR_PROJECT_SORT_ORDER: SidebarProjectSortOrder = "updated_at";
@@ -120,6 +145,7 @@ export const ClientSettingsSchema = Schema.Struct({
   sidebarThreadPreviewCount: SidebarThreadPreviewCount.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_THREAD_PREVIEW_COUNT)),
   ),
+  sidebarStyle: SidebarStyle.pipe(Schema.withDecodingDefault(Effect.succeed(DEFAULT_SIDEBAR_STYLE))),
   sidebarV2Enabled: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   // Whether `sidebarV2Enabled` reflects an explicit choice in Settings → Beta.
   // Client settings persist as a whole blob, so every user who has ever touched
@@ -709,6 +735,7 @@ export const ClientSettingsPatch = Schema.Struct({
   sidebarProjectSortOrder: Schema.optionalKey(SidebarProjectSortOrder),
   sidebarThreadSortOrder: Schema.optionalKey(SidebarThreadSortOrder),
   sidebarThreadPreviewCount: Schema.optionalKey(SidebarThreadPreviewCount),
+  sidebarStyle: Schema.optionalKey(SidebarStyle),
   sidebarV2Enabled: Schema.optionalKey(Schema.Boolean),
   sidebarV2ConfiguredByUser: Schema.optionalKey(Schema.Boolean),
   timestampFormat: Schema.optionalKey(TimestampFormat),

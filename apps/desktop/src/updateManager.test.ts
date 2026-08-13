@@ -36,6 +36,7 @@ function harness(input?: {
 }) {
   const states: UpdateState[] = [];
   let restarted = 0;
+  const relaunchedFrom: Array<string | null> = [];
   const detached: Array<{ command: string; args: readonly string[] }> = [];
 
   const fetchImpl = (async (url: string | URL) => {
@@ -63,15 +64,16 @@ function harness(input?: {
     arch: "x64",
     execPath: "/opt/loop/Loop",
     run: async () => undefined,
-    restart: () => {
+    restart: (from) => {
       restarted += 1;
+      relaunchedFrom.push(from);
     },
     spawnDetached: (command, args) => detached.push({ command, args }),
     fetchImpl,
     ...(input?.enabled === undefined ? {} : { enabled: input.enabled }),
   });
   manager.on("state", (state) => states.push(state));
-  return { manager, states, restarted: () => restarted, detached };
+  return { manager, states, restarted: () => restarted, relaunchedFrom, detached };
 }
 
 describe("checking", () => {
@@ -158,6 +160,7 @@ describe("installing", () => {
     await mkdir(installed, { recursive: true });
     await writeFile(join(installed, "version.txt"), "old");
     let restarted = 0;
+    const relaunchedFrom: Array<string | null> = [];
     try {
       const manager = new UpdateManager({
         currentVersion: "1.0.0",
@@ -170,8 +173,9 @@ describe("installing", () => {
           await mkdir(out, { recursive: true });
           await writeFile(join(out, "version.txt"), "new");
         },
-        restart: () => {
+        restart: (from) => {
           restarted += 1;
+          relaunchedFrom.push(from);
         },
         fetchImpl: serveRelease("v9.9.9"),
       });
@@ -179,6 +183,9 @@ describe("installing", () => {
       await manager.download();
       await manager.install();
       expect(restarted).toBe(1);
+      // The INSTALLED root, not the exec path: macOS reopens the bundle, and
+      // only the caller knows how to reopen one.
+      expect(relaunchedFrom).toEqual([installed]);
       // The install really was replaced, not merely reported as replaced.
       expect(await readFile(join(installed, "version.txt"), "utf8")).toBe("new");
     } finally {
@@ -190,14 +197,16 @@ describe("installing", () => {
     // The running .exe is locked, so the swap cannot happen in-process.
     const detached: Array<{ command: string; args: readonly string[] }> = [];
     let restarted = 0;
+    const relaunchedFrom: Array<string | null> = [];
     const manager = new UpdateManager({
       currentVersion: "1.0.0",
       platform: "win32",
       arch: "x64",
       execPath: "C:\\App\\Loop.exe",
       run: async () => undefined,
-      restart: () => {
+      restart: (from) => {
         restarted += 1;
+        relaunchedFrom.push(from);
       },
       spawnDetached: (command, args) => detached.push({ command, args }),
       fetchImpl: (async (url: string | URL) => {
@@ -222,6 +231,11 @@ describe("installing", () => {
     expect(detached[0]?.args[0]).toBe("/c");
     // It still quits — the helper is what brings the app back.
     expect(restarted).toBe(1);
+    // And it must ask for a QUIT, not a relaunch. Relaunching here starts a
+    // new Loop.exe out of the very directory the helper is waiting to move,
+    // so the move fails, the helper restores the backup, and the update
+    // silently reverts to the old version.
+    expect(relaunchedFrom).toEqual([null]);
   });
 });
 

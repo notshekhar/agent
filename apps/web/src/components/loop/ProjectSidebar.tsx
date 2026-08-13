@@ -16,24 +16,37 @@
  * Projects come from the same atoms the old sidebars used, so this is a
  * presentation change only: no new data path, and the shell handler stays the
  * one place that decides what a project is.
+ *
+ * Two rules carry the shortest list here past "just shorter":
+ *
+ * - Threads waiting on YOU are lifted out of their folders into a shelf above
+ *   the list, oldest ask first. A folder-first list is otherwise the easiest
+ *   place in the app to leave a blocked thread sitting behind a collapsed row.
+ * - A folder row carries the state of what is inside it, not just a count — an
+ *   amber dot for an ask, a pulsing one for live work. Eleven sessions tells
+ *   you nothing about whether one of them is stuck.
+ *
+ * See `sidebarThreads.logic.ts` for the classification both this and the
+ * focused sidebar run on.
  */
 import { scopeProjectRef } from "@loop/runtime/environment";
 import {
   ChevronDownIcon,
   ChevronRightIcon,
   FolderIcon,
-  PlusIcon,
   SearchIcon,
   SquarePenIcon,
 } from "lucide-react";
-import { memo, useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useMemo, useState, type MouseEvent } from "react";
 import { Link, useLocation, useParams } from "@tanstack/react-router";
 
 import { openCommandPalette } from "../../commandPaletteBus";
 import { useComposerDraftStore } from "../../composerDraftStore";
 import { isDesktopShell } from "../../env";
 import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
+import { useClientSettings } from "../../hooks/useSettings";
 import { useProjects, useThreadShells } from "../../state/entities";
+import { useUiStateStore } from "../../uiStateStore";
 import { cn } from "../../lib/utils";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
 import { SettingsSidebarNav } from "../settings/SettingsSidebarNav";
@@ -43,190 +56,228 @@ import {
   SidebarGroup,
   SidebarGroupContent,
   SidebarMenu,
-  SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
-  SidebarMenuSub,
-  SidebarMenuSubButton,
-  SidebarMenuSubItem,
 } from "../ui/sidebar";
 import {
   buildProjectSidebarRows,
-  formatSessionCountLabel,
   compactTimeLabel,
   resolveActiveProjectId,
-  sessionsForProject,
   SIDEBAR_SETTLED_PAGE,
   type ProjectSidebarRow,
-  type ProjectSidebarSession,
-  type ProjectSidebarThreadInput,
 } from "./ProjectSidebar.logic";
+import { ProjectRowMenu, ProjectTitleEditor } from "./ProjectRowMenu";
+import { SidebarSectionHeader, SidebarThreadRow } from "./SidebarThreadRows";
+import { useProjectActions, type ProjectActionTarget } from "./useProjectActions";
+import { useThreadRowActions } from "./useThreadRowActions";
+import {
+  buildSidebarThreadSections,
+  rollupForProject,
+  sectionsForProject,
+  type ProjectRollup,
+  type SidebarThreadSections,
+  type SidebarThreadRow as ThreadRowModel,
+} from "./sidebarThreads.logic";
 import { decodeProjectRouteId, encodeProjectRouteId } from "./projectRoute";
 
-/** One session, with nightly's row anatomy: status, title, compact time. */
-const SessionRow = memo(function SessionRow({
-  session,
-  active,
+/**
+ * A project's threads, under the project.
+ *
+ * The sidebar answers "which folder" and the project page answers "which
+ * thread in it" — but switching between two or three threads in the same
+ * folder is something people do constantly, and routing that through a second
+ * page every time is friction.
+ *
+ * Working first, then recent, then the settled shelf. Threads waiting on you
+ * appear here too rather than only in the shelf above: a folder you have opened
+ * should show everything it holds, or the missing row reads as a bug.
+ */
+const ProjectThreadList = memo(function ProjectThreadList({
+  sections,
+  settledVisible,
+  settledOpen,
+  onToggleSettled,
+  onShowMoreSettled,
+  activeThreadId,
+  onThreadContextMenu,
+  onArchiveThread,
 }: {
-  session: ProjectSidebarSession;
-  active: boolean;
+  sections: SidebarThreadSections;
+  settledVisible: number;
+  settledOpen: boolean;
+  onToggleSettled: () => void;
+  onShowMoreSettled: () => void;
+  activeThreadId: string | null;
+  onThreadContextMenu: (row: ThreadRowModel, position: { x: number; y: number }) => void;
+  onArchiveThread: (row: ThreadRowModel) => void;
 }) {
+  const open = [...sections.needsYou, ...sections.working, ...sections.recent];
+  const settled = sections.settled.slice(0, settledVisible);
+  const remaining = sections.settled.length - settled.length;
+  if (open.length === 0 && sections.settled.length === 0) return null;
+
   return (
-    <SidebarMenuSubItem>
-      <SidebarMenuSubButton
-        isActive={active}
-        render={
-          <Link
-            params={{ environmentId: session.environmentId, threadId: session.id }}
-            to="/$environmentId/$threadId"
-          />
-        }
-      >
-        {/* The status slot is always present, so a session starting or
-            finishing does not shift the title under the cursor. */}
-        <span
-          aria-hidden
-          className={cn(
-            "size-1.5 shrink-0 rounded-full",
-            session.running ? "animate-pulse bg-primary" : "bg-transparent",
-          )}
+    // mt-1 is not decoration: without it the first thread sits flush against
+    // the project row and the two read as one block, so the folder stops
+    // looking like the thing the threads hang off.
+    <div className="mt-1 ml-3 flex flex-col gap-px border-sidebar-border/50 border-l pl-1">
+      {open.map((row) => (
+        <SidebarThreadRow
+          active={row.id === activeThreadId}
+          key={row.id}
+          onArchive={onArchiveThread}
+          onContextMenu={onThreadContextMenu}
+          row={row}
         />
-        <span className="min-w-0 flex-1 truncate">{session.title}</span>
-        <span className="shrink-0 text-[10px] text-sidebar-muted-foreground/55 tabular-nums">
-          {compactTimeLabel(formatRelativeTimeLabel(session.updatedAt))}
-        </span>
-      </SidebarMenuSubButton>
-    </SidebarMenuSubItem>
+      ))}
+      {sections.settled.length > 0 ? (
+        <SidebarSectionHeader
+          count={sections.settled.length}
+          label="Settled"
+          onToggle={onToggleSettled}
+          open={settledOpen}
+        />
+      ) : null}
+      {settledOpen ? (
+        <>
+          {settled.map((row) => (
+            <SidebarThreadRow
+              active={row.id === activeThreadId}
+              key={row.id}
+              onArchive={onArchiveThread}
+              onContextMenu={onThreadContextMenu}
+              row={row}
+            />
+          ))}
+          {remaining > 0 ? (
+            <button
+              className="ml-2 w-fit cursor-pointer rounded-md px-1 py-0.5 text-[11px] text-sidebar-muted-foreground/60 outline-hidden ring-ring hover:text-sidebar-foreground focus-visible:ring-2"
+              onClick={onShowMoreSettled}
+              type="button"
+            >
+              Show {Math.min(remaining, SIDEBAR_SETTLED_PAGE)} more
+            </button>
+          ) : null}
+        </>
+      ) : null}
+    </div>
   );
 });
 
 /**
- * A project's sessions, under the project.
+ * The figure on the right of a folder row.
  *
- * The sidebar answers "which folder" and the project page answers "which
- * session in it" — but switching between two or three sessions in the same
- * folder is something people do constantly, and routing that through a second
- * page every time is friction.
- *
- * The two-tier shape is nightly's: the recent ones listed outright, the deep
- * tail behind one labelled shelf that pages rather than dumping every row.
+ * Ordered by urgency and cut off after the first two marks, because the row has
+ * about forty pixels: an ask, then live work, then how many threads are open
+ * and when the folder last moved.
  */
-const ProjectSessionList = memo(function ProjectSessionList({
-  sessions,
-  settled,
-  settledCount,
-  settledOpen,
-  onToggleSettled,
-  onShowMoreSettled,
-  activeSessionId,
+const ProjectRollupFigure = memo(function ProjectRollupFigure({
+  rollup,
 }: {
-  sessions: readonly ProjectSidebarSession[];
-  settled: readonly ProjectSidebarSession[];
-  settledCount: number;
-  settledOpen: boolean;
-  onToggleSettled: () => void;
-  onShowMoreSettled: () => void;
-  activeSessionId: string | null;
+  rollup: ProjectRollup;
 }) {
-  if (sessions.length === 0) return null;
-  const remaining = settledCount - settled.length;
+  const relativeTime =
+    rollup.lastActivity > 0
+      ? compactTimeLabel(formatRelativeTimeLabel(new Date(rollup.lastActivity).toISOString()))
+      : null;
+  const title = [
+    rollup.needsYou > 0 ? `${rollup.needsYou} waiting on you` : null,
+    rollup.working > 0 ? `${rollup.working} running` : null,
+    `${rollup.openCount} open`,
+  ]
+    .filter((part) => part !== null)
+    .join(", ");
+
   return (
-    <SidebarMenuSub className="mr-0 gap-px pr-0">
-      {sessions.map((session) => (
-        <SessionRow active={session.id === activeSessionId} key={session.id} session={session} />
-      ))}
-
-      {settledCount > 0 ? (
-        <li className="list-none">
-          {/* Label, hairline, chevron — the shelf header reads as a divider
-              with a count rather than another row competing with the sessions. */}
-          <button
-            aria-expanded={settledOpen}
-            className="mt-2 mb-1 flex w-full cursor-pointer items-center gap-2 px-2 text-left"
-            onClick={onToggleSettled}
-            type="button"
-          >
-            <span className="font-medium text-[11px] text-sidebar-muted-foreground/50">
-              {settledOpen ? "Settled" : `Settled (${settledCount})`}
-            </span>
-            <span aria-hidden className="h-px flex-1 bg-sidebar-border/60" />
-            <ChevronDownIcon
-              aria-hidden
-              className={cn(
-                "size-3 text-sidebar-muted-foreground/50 transition-transform",
-                settledOpen && "rotate-180",
-              )}
-            />
-          </button>
-        </li>
+    <span
+      className="flex shrink-0 items-center gap-1 font-normal text-[10px] text-sidebar-muted-foreground/55 tabular-nums"
+      title={title}
+    >
+      {rollup.needsYou > 0 ? (
+        <span aria-hidden className="size-1.5 rounded-full bg-warning" />
       ) : null}
-
-      {settledOpen
-        ? settled.map((session) => (
-            <SessionRow
-              active={session.id === activeSessionId}
-              key={session.id}
-              session={session}
-            />
-          ))
-        : null}
-
-      {settledOpen && remaining > 0 ? (
-        <SidebarMenuSubItem>
-          <SidebarMenuSubButton
-            className="text-sidebar-muted-foreground/55"
-            onClick={onShowMoreSettled}
-          >
-            <PlusIcon className="size-3.5 shrink-0" />
-            <span className="truncate">
-              Show {Math.min(remaining, SIDEBAR_SETTLED_PAGE)} more
-            </span>
-          </SidebarMenuSubButton>
-        </SidebarMenuSubItem>
+      {rollup.working > 0 ? (
+        <span aria-hidden className="size-1.5 animate-status-pulse rounded-full bg-info" />
       ) : null}
-    </SidebarMenuSub>
+      {rollup.openCount > 0 ? <span>{rollup.openCount}</span> : null}
+      {relativeTime === null ? null : (
+        <>
+          <span aria-hidden className="text-sidebar-muted-foreground/35">·</span>
+          <span>{relativeTime}</span>
+        </>
+      )}
+    </span>
   );
 });
 
 const ProjectRowItem = memo(function ProjectRowItem({
   project,
+  rollup,
   active,
   expanded,
+  renaming,
   onToggle,
   onNewSession,
-  sessions,
-  settled,
-  settledCount,
-  settledOpen,
-  onToggleSettled,
-  onShowMoreSettled,
-  activeSessionId,
+  onStartRename,
+  onCommitRename,
+  onCancelRename,
+  onCopyPath,
+  onRemove,
+  onProjectContextMenu,
+  onThreadContextMenu,
+  onArchiveThread,
+  sections,
+  activeThreadId,
 }: {
   project: ProjectSidebarRow;
+  rollup: ProjectRollup;
   active: boolean;
   expanded: boolean;
+  renaming: boolean;
   onToggle: (project: ProjectSidebarRow) => void;
-  onNewSession: (project: ProjectSidebarRow) => void;
-  sessions: readonly ProjectSidebarSession[];
-  settled: readonly ProjectSidebarSession[];
-  settledCount: number;
-  settledOpen: boolean;
-  onToggleSettled: () => void;
-  onShowMoreSettled: () => void;
-  activeSessionId: string | null;
+  onNewSession: (project: ProjectActionTarget) => void;
+  onStartRename: (project: ProjectActionTarget) => void;
+  onCommitRename: (project: ProjectActionTarget, title: string) => void;
+  onCancelRename: () => void;
+  onCopyPath: (project: ProjectActionTarget) => void;
+  onRemove: (project: ProjectActionTarget) => void;
+  onProjectContextMenu: (
+    project: ProjectActionTarget,
+    position: { x: number; y: number },
+    handlers: { onNewThread: () => void; onStartRename: () => void },
+  ) => void;
+  onThreadContextMenu: (row: ThreadRowModel, position: { x: number; y: number }) => void;
+  onArchiveThread: (row: ThreadRowModel) => void;
+  sections: SidebarThreadSections | null;
+  activeThreadId: string | null;
 }) {
-  const relativeTime =
-    project.lastActivity > 0
-      ? compactTimeLabel(formatRelativeTimeLabel(new Date(project.lastActivity).toISOString()))
-      : null;
+  const [settledOpen, setSettledOpen] = useState(false);
+  const [settledVisible, setSettledVisible] = useState(SIDEBAR_SETTLED_PAGE);
+  const onToggleSettled = useCallback(() => setSettledOpen((open) => !open), []);
+  const onShowMoreSettled = useCallback(
+    () => setSettledVisible((count) => count + SIDEBAR_SETTLED_PAGE),
+    [],
+  );
 
   return (
     <SidebarMenuItem>
-      {/* pr-8 keeps the count clear of the hover action overlaying the right
+      {/* pr-8 keeps the figure clear of the hover action overlaying the right
           edge. */}
       <SidebarMenuButton
         className="pr-8"
         isActive={active}
+        onContextMenu={(event: MouseEvent) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onProjectContextMenu(
+            project,
+            { x: event.clientX, y: event.clientY },
+            {
+              onNewThread: () => onNewSession(project),
+              onStartRename: () => onStartRename(project),
+            },
+          );
+        }}
         render={
           <Link params={{ projectId: encodeProjectRouteId(project.id) }} to="/project/$projectId" />
         }
@@ -252,49 +303,39 @@ const ProjectRowItem = memo(function ProjectRowItem({
           )}
         </span>
         <FolderIcon />
-        <span className="min-w-0 flex-1 truncate">{project.title}</span>
-        {/* Count and time ride the right edge as one compact figure, the way
-            a nightly row does — a second line per project cost more height
-            than this list can afford. */}
-        <span
-          className="flex shrink-0 items-center gap-1 font-normal text-[10px] text-sidebar-muted-foreground/55 tabular-nums"
-          title={`${formatSessionCountLabel(project.sessionCount)}${
-            project.runningCount > 0 ? `, ${project.runningCount} running` : ""
-          }`}
-        >
-          {project.runningCount > 0 ? (
-            <span aria-hidden className="size-1.5 animate-pulse rounded-full bg-primary" />
-          ) : null}
-          {project.sessionCount > 0 ? <span>{project.sessionCount}</span> : null}
-          {relativeTime === null ? null : (
-            <>
-              <span aria-hidden className="text-sidebar-muted-foreground/35">·</span>
-              <span>{relativeTime}</span>
-            </>
-          )}
-        </span>
+        {renaming ? (
+          <ProjectTitleEditor
+            onCancel={onCancelRename}
+            onCommit={(title) => onCommitRename(project, title)}
+            title={project.title}
+          />
+        ) : (
+          <span className="min-w-0 flex-1 truncate">{project.title}</span>
+        )}
+        {renaming ? null : <ProjectRollupFigure rollup={rollup} />}
       </SidebarMenuButton>
-      {/* `!` is load-bearing: the component's own
-          `peer-data-[size=default]/menu-button:top-1.5` is a variant selector
-          and outranks a plain `top-1/2`. */}
-      <SidebarMenuAction
-        className="-translate-y-1/2 top-1/2!"
-        onClick={() => onNewSession(project)}
-        showOnHover
-        title={`New session in ${project.title}`}
-      >
-        <PlusIcon />
-        <span className="sr-only">New session in {project.title}</span>
-      </SidebarMenuAction>
-      {expanded ? (
-        <ProjectSessionList
-          activeSessionId={activeSessionId}
+      {/* The `!` inside ProjectRowMenu's className is load-bearing: the
+          component's own `peer-data-[size=default]/menu-button:top-1.5` is a
+          variant selector and outranks a plain `top-1/2`. */}
+      {renaming ? null : (
+        <ProjectRowMenu
+          onCopyPath={onCopyPath}
+          onNewThread={onNewSession}
+          onRemove={onRemove}
+          onStartRename={onStartRename}
+          project={project}
+        />
+      )}
+      {expanded && sections ? (
+        <ProjectThreadList
+          activeThreadId={activeThreadId}
+          onArchiveThread={onArchiveThread}
           onShowMoreSettled={onShowMoreSettled}
+          onThreadContextMenu={onThreadContextMenu}
           onToggleSettled={onToggleSettled}
-          sessions={sessions}
-          settled={settled}
-          settledCount={settledCount}
+          sections={sections}
           settledOpen={settledOpen}
+          settledVisible={settledVisible}
         />
       ) : null}
     </SidebarMenuItem>
@@ -302,73 +343,56 @@ const ProjectRowItem = memo(function ProjectRowItem({
 });
 
 /**
- * The session list is derived per project, and only for the ones that are
- * open — slicing every project's threads on every render would walk the whole
- * history for rows nobody is looking at.
+ * Threads waiting on you, across every project.
+ *
+ * The one part of this sidebar that ignores folders. A blocked thread behind a
+ * collapsed row is the failure mode a folder-first list invites, and the fix
+ * cannot itself be a folder you have to open.
  */
-const ExpandableProjectRow = memo(function ExpandableProjectRow({
-  project,
-  threads,
-  expanded,
-  ...rest
+const NeedsYouShelf = memo(function NeedsYouShelf({
+  rows,
+  activeThreadId,
+  onThreadContextMenu,
+  onArchiveThread,
 }: {
-  project: ProjectSidebarRow;
-  threads: readonly ProjectSidebarThreadInput[];
-  active: boolean;
-  expanded: boolean;
-  activeSessionId: string | null;
-  onToggle: (project: ProjectSidebarRow) => void;
-  onNewSession: (project: ProjectSidebarRow) => void;
+  rows: readonly ThreadRowModel[];
+  activeThreadId: string | null;
+  onThreadContextMenu: (row: ThreadRowModel, position: { x: number; y: number }) => void;
+  onArchiveThread: (row: ThreadRowModel) => void;
 }) {
-  // The shelf is per project and lives here rather than in the parent: only
-  // one project's tail is ever being paged, and hoisting it would re-render
-  // every row each time a page is revealed.
-  const [settledOpen, setSettledOpen] = useState(false);
-  const [settledVisible, setSettledVisible] = useState(SIDEBAR_SETTLED_PAGE);
-  const onToggleSettled = useCallback(() => setSettledOpen((open) => !open), []);
-  const onShowMoreSettled = useCallback(
-    () => setSettledVisible((count) => count + SIDEBAR_SETTLED_PAGE),
-    [],
-  );
-
-  const { active: sessions, settled, settledCount } = useMemo(
-    () =>
-      expanded
-        ? sessionsForProject({
-            threads,
-            projectId: project.id,
-            ...(settledOpen ? { settledVisible } : {}),
-          })
-        : EMPTY_SESSIONS,
-    [expanded, project.id, settledOpen, settledVisible, threads],
-  );
+  if (rows.length === 0) return null;
   return (
-    <ProjectRowItem
-      {...rest}
-      expanded={expanded}
-      onShowMoreSettled={onShowMoreSettled}
-      onToggleSettled={onToggleSettled}
-      project={project}
-      sessions={sessions}
-      settled={settled}
-      settledCount={settledCount}
-      settledOpen={settledOpen}
-    />
+    <SidebarGroup>
+      <SidebarGroupContent className="flex flex-col gap-px">
+        <SidebarSectionHeader count={rows.length} label="Needs you" tone="alert" />
+        {rows.map((row) => (
+          <SidebarThreadRow
+            active={row.id === activeThreadId}
+            key={row.id}
+            onArchive={onArchiveThread}
+            onContextMenu={onThreadContextMenu}
+            row={row}
+          />
+        ))}
+      </SidebarGroupContent>
+    </SidebarGroup>
   );
 });
-
-const EMPTY_SESSIONS = {
-  active: [] as readonly ProjectSidebarSession[],
-  settled: [] as readonly ProjectSidebarSession[],
-  settledCount: 0,
-} as const;
 
 export default function ProjectSidebar() {
   const projects = useProjects();
   const threads = useThreadShells();
-  const rows = useMemo(
-    () => buildProjectSidebarRows({ projects, threads }),
-    [projects, threads],
+  const autoSettleAfterDays = useClientSettings((settings) => settings.sidebarAutoSettleAfterDays);
+  const lastVisitedAtByKey = useUiStateStore((state) => state.threadLastVisitedAtById);
+  const rows = useMemo(() => buildProjectSidebarRows({ projects, threads }), [projects, threads]);
+  const sections = useMemo(
+    () =>
+      buildSidebarThreadSections(threads, {
+        now: new Date().toISOString(),
+        autoSettleAfterDays,
+        lastVisitedAtByKey,
+      }),
+    [autoSettleAfterDays, lastVisitedAtByKey, threads],
   );
 
   const params = useParams({ strict: false }) as {
@@ -398,13 +422,36 @@ export default function ProjectSidebar() {
   // the user meant, and losing it means picking it again in the composer.
   const startNewThread = useNewThreadHandler();
   const onNewSession = useCallback(
-    (project: ProjectSidebarRow) => {
+    (project: ProjectActionTarget) => {
       void startNewThread(scopeProjectRef(project.environmentId, project.id));
     },
     [startNewThread],
   );
 
-  // Which projects show their sessions. The one you are in opens itself —
+  // Rename, remove and copy-path, on the same commands and the same confirm
+  // upstream's sidebar uses — see useProjectActions.
+  const { renameProject, removeProject, copyProjectPath, openProjectContextMenu } =
+    useProjectActions();
+  const { openContextMenu, archive } = useThreadRowActions();
+  const [renamingProjectId, setRenamingProjectId] = useState<string | null>(null);
+  const onStartRename = useCallback(
+    (project: ProjectActionTarget) => setRenamingProjectId(project.id),
+    [],
+  );
+  const onCancelRename = useCallback(() => setRenamingProjectId(null), []);
+  const onCommitRename = useCallback(
+    (project: ProjectActionTarget, title: string) => {
+      setRenamingProjectId(null);
+      void renameProject(project, title);
+    },
+    [renameProject],
+  );
+  const onRemove = useCallback(
+    (project: ProjectActionTarget) => void removeProject(project),
+    [removeProject],
+  );
+
+  // Which projects show their threads. The one you are in opens itself —
   // that is the list you are switching within — and anything else is a
   // deliberate toggle that then sticks.
   const [toggledProjectIds, setToggledProjectIds] = useState<ReadonlySet<string>>(new Set());
@@ -441,6 +488,8 @@ export default function ProjectSidebar() {
     );
   }
 
+  const activeThreadId = params.threadId ?? null;
+
   return (
     <>
       <SidebarChromeHeader isDesktopShell={isDesktopShell} />
@@ -464,6 +513,13 @@ export default function ProjectSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
+        <NeedsYouShelf
+          activeThreadId={activeThreadId}
+          onArchiveThread={archive}
+          onThreadContextMenu={openContextMenu}
+          rows={sections.needsYou}
+        />
+
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
@@ -472,18 +528,34 @@ export default function ProjectSidebar() {
                   <span className="px-2 py-1.5 text-muted-foreground text-sm">No projects yet</span>
                 </SidebarMenuItem>
               ) : (
-                rows.map((project) => (
-                  <ExpandableProjectRow
-                    active={activeProjectId === project.id}
-                    activeSessionId={params.threadId ?? null}
-                    expanded={isExpanded(project.id)}
-                    key={project.id}
-                    onNewSession={onNewSession}
-                    onToggle={onToggle}
-                    project={project}
-                    threads={threads}
-                  />
-                ))
+                rows.map((project) => {
+                  const expanded = isExpanded(project.id);
+                  return (
+                    <ProjectRowItem
+                      active={activeProjectId === project.id}
+                      activeThreadId={activeThreadId}
+                      expanded={expanded}
+                      key={project.id}
+                      onArchiveThread={archive}
+                      onCancelRename={onCancelRename}
+                      onCommitRename={onCommitRename}
+                      onCopyPath={copyProjectPath}
+                      onProjectContextMenu={openProjectContextMenu}
+                      onThreadContextMenu={openContextMenu}
+                      onNewSession={onNewSession}
+                      onRemove={onRemove}
+                      onStartRename={onStartRename}
+                      onToggle={onToggle}
+                      project={project}
+                      renaming={renamingProjectId === project.id}
+                      rollup={rollupForProject(sections, project.id)}
+                      // Derived only for the folders that are open: slicing
+                      // every project's threads on every render would walk the
+                      // whole history for rows nobody is looking at.
+                      sections={expanded ? sectionsForProject(sections, project.id) : null}
+                    />
+                  );
+                })
               )}
             </SidebarMenu>
           </SidebarGroupContent>

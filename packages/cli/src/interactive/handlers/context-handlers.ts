@@ -5,11 +5,10 @@
  * buildContextReport; the headline number prefers the provider-reported
  * context size when one exists.
  */
-import chalk from "chalk";
 import { buildContextReport, formatTokens, getModelSync, type CommandContext } from "@notshekhar/loop-core";
 import type { AppDeps } from "../deps";
 import type { AppState } from "../state";
-import { dim } from "../ui/text";
+import { dim, heading, strong } from "../ui/text";
 import { theme } from "../ui/theme";
 
 type ContextHandlers = Pick<CommandContext, "showContext">;
@@ -48,7 +47,7 @@ export function createContextHandlers(state: AppState, deps: AppDeps): ContextHa
             const usedHeadline = state.latestContextTokens > 0 ? state.latestContextTokens : report.totalTokens;
 
             if (window <= 0) {
-                history.addSystem(chalk.bold("context"));
+                history.addSystem(heading("context"));
                 for (const c of report.categories) {
                     history.addSystem(`  ${c.label.padEnd(18)}${fmtTok(c.tokens).padStart(8)} tokens`);
                 }
@@ -84,10 +83,10 @@ export function createContextHandlers(state: AppState, deps: AppDeps): ContextHa
 
             // Info column pinned right of the grid rows.
             const side: string[] = new Array(GRID_ROWS).fill("");
-            side[0] = chalk.bold(info?.name ?? state.modelId);
+            side[0] = strong(info?.name ?? state.modelId);
             side[1] = dim(state.modelId);
             side[2] = `${fmtTok(usedHeadline)}/${fmtTok(window)} tokens (${Math.round((usedHeadline / window) * 100)}%)`;
-            side[4] = chalk.bold("Estimated usage by category");
+            side[4] = heading("Estimated usage by category");
             for (let i = 0; i < legend.length && 5 + i < GRID_ROWS; i++) side[5 + i] = legend[i];
             let next = 5 + legend.length;
             if (next < GRID_ROWS) {
@@ -99,7 +98,7 @@ export function createContextHandlers(state: AppState, deps: AppDeps): ContextHa
                 );
             }
 
-            history.addSystem(chalk.bold("Context usage"));
+            history.addSystem(heading("Context usage"));
             const overflow: string[] = [];
             // Legend lines that didn't fit beside the grid drop below it.
             if (5 + legend.length > GRID_ROWS) {
@@ -117,7 +116,7 @@ export function createContextHandlers(state: AppState, deps: AppDeps): ContextHa
 
             if (report.skills.length > 0) {
                 history.addSystem("");
-                history.addSystem(chalk.bold("Skills"));
+                history.addSystem(heading("Skills"));
                 report.skills.forEach((s, i) => {
                     const branch = i === report.skills.length - 1 ? "└" : "├";
                     history.addSystem(`${dim(branch)} ${s.name}: ${dim(`~${s.tokens} tokens`)}`);

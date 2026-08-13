@@ -32,10 +32,12 @@ import {
 } from "@loop/runtime/state/runtime";
 import {
   DEFAULT_ENVIRONMENT_IDENTIFICATION_MODE,
+  DEFAULT_SIDEBAR_STYLE,
   DEFAULT_UNIFIED_SETTINGS,
   type EnvironmentIdentificationMode,
   MAX_GLASS_OPACITY,
   MIN_GLASS_OPACITY,
+  type SidebarStyle,
 } from "@loop/contracts/settings";
 import {
   getBackgroundActivityBaseProfile,
@@ -64,7 +66,12 @@ import {
 import { isElectron } from "../../env";
 import { buildHostedChannelSelectionUrl, type HostedAppChannel } from "../../hostedPairing";
 import { useTheme } from "../../hooks/useTheme";
-import { usePrimarySettings, useUpdatePrimarySettings } from "../../hooks/useSettings";
+import {
+  usePrimarySettings,
+  useSidebarStyle,
+  useUpdateClientSettings,
+  useUpdatePrimarySettings,
+} from "../../hooks/useSettings";
 import { useThreadActions } from "../../hooks/useThreadActions";
 import { useDesktopUpdateState } from "../../state/desktopUpdate";
 import {
@@ -1109,8 +1116,89 @@ export function AppearanceSettingsPanel() {
             />
           }
         />
+
+        <SidebarStyleSetting />
       </SettingsSection>
     </SettingsPageContainer>
+  );
+}
+
+/**
+ * Which sidebar the app draws.
+ *
+ * A picker rather than a switch because the three are not degrees of one
+ * thing — each answers "what is this panel a list of" differently, so every
+ * option carries the sentence that says what you get. See `SidebarStyle` in
+ * the settings contract.
+ */
+interface SidebarStyleOption {
+  readonly value: SidebarStyle;
+  readonly label: string;
+  readonly description: string;
+}
+
+const SIDEBAR_STYLE_OPTIONS: readonly [SidebarStyleOption, ...SidebarStyleOption[]] = [
+  {
+    value: "threads",
+    label: "Threads",
+    description:
+      "Every thread, grouped under its project, with search, multi-select and pull-request state on the row.",
+  },
+  {
+    value: "projects",
+    label: "Projects",
+    description:
+      "Folders first, one line each. Open one to see its threads; anything waiting on you is lifted to the top.",
+  },
+  {
+    value: "focused",
+    label: "One project",
+    description:
+      "One project fills the panel, its threads sectioned by what they need from you. Switch projects from the header.",
+  },
+];
+
+function SidebarStyleSetting() {
+  const sidebarStyle = useSidebarStyle();
+  const updateClientSettings = useUpdateClientSettings();
+  const selected =
+    SIDEBAR_STYLE_OPTIONS.find((option) => option.value === sidebarStyle) ??
+    SIDEBAR_STYLE_OPTIONS[0];
+
+
+  return (
+    <SettingsRow
+      {...searchableSetting("sidebar-style")}
+      description={selected.description}
+      resetAction={
+        sidebarStyle !== DEFAULT_SIDEBAR_STYLE ? (
+          <SettingResetButton
+            label="sidebar style"
+            onClick={() => updateClientSettings({ sidebarStyle: DEFAULT_SIDEBAR_STYLE })}
+          />
+        ) : null
+      }
+      control={
+        <Select
+          value={sidebarStyle}
+          onValueChange={(value) => {
+            const next = SIDEBAR_STYLE_OPTIONS.find((option) => option.value === value);
+            if (next) updateClientSettings({ sidebarStyle: next.value });
+          }}
+        >
+          <SelectTrigger aria-label="Sidebar style" className="w-full sm:w-44">
+            <SelectValue>{selected.label}</SelectValue>
+          </SelectTrigger>
+          <SelectPopup align="end" alignItemWithTrigger={false}>
+            {SIDEBAR_STYLE_OPTIONS.map((option) => (
+              <SelectItem hideIndicator key={option.value} value={option.value}>
+                {option.label}
+              </SelectItem>
+            ))}
+          </SelectPopup>
+        </Select>
+      }
+    />
   );
 }
 

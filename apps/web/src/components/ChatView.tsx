@@ -230,7 +230,7 @@ import { ExpandedImageDialog } from "./chat/ExpandedImageDialog";
 import { PullRequestThreadDialog } from "./PullRequestThreadDialog";
 import { MessagesTimeline } from "./chat/MessagesTimeline";
 import { ChatHeader } from "./chat/ChatHeader";
-import { isDraftThread, loopSessionIdFor } from "../loop/handlers/dispatch";
+import { isDraftThread, loopSessionIdFor, sendQueuedTurnNow } from "../loop/handlers/dispatch";
 import { PanelLayoutControls, RightPanelMaximizeControl } from "./chat/PanelLayoutControls";
 import { type ExpandedImagePreview } from "./chat/ExpandedImagePreview";
 import { NoActiveThreadState } from "./NoActiveThreadState";
@@ -1305,6 +1305,10 @@ function ChatViewContent(props: ChatViewProps) {
   // every read, so every thread would re-render on every unrelated queue change.
   const allQueuedTurns = useQueuedTurnsStore((state) => state.queue);
   const removeQueuedTurn = useQueuedTurnsStore((state) => state.remove);
+  // The terminal's Esc: stop what is running and let this one go next.
+  const sendQueuedTurnEarly = useCallback((id: string) => {
+    void sendQueuedTurnNow(id);
+  }, []);
   const cancelQueuedTurn = useCallback(
     (id: string) => {
       removeQueuedTurn(id);
@@ -6123,6 +6127,7 @@ function ChatViewContent(props: ChatViewProps) {
                     <ComposerQueuedTurns
                       turns={queuedTurnsForThisThread}
                       onCancel={cancelQueuedTurn}
+                      onSendNow={sendQueuedTurnEarly}
                     />
                   </div>
                   <div

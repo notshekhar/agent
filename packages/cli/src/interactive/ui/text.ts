@@ -38,6 +38,18 @@ export const accent = slot("accent", chalk.cyan);
 
 /** Selector and overlay headings ("Settings", "Model · …"). */
 export const accentTitle = (s: string): string => chalk.bold(accent(s));
+/**
+ * A heading inside command output — the `cost`, `doctor` and `Context usage`
+ * lines that lead a block printed into the transcript.
+ *
+ * Rides the same slot markdown headings do, so a heading loop PRINTS and a
+ * heading loop RENDERS are the same colour. These were `chalk.bold` alone,
+ * which is bold in whatever the terminal's default foreground happens to be —
+ * so `/cost` and `/steak` sat outside the theme entirely and stayed put when
+ * `/theme` moved everything else.
+ */
+export const heading = (s: string): string => chalk.bold(headingInk(s));
+const headingInk = slot("mdHeading", (s) => s);
 /** Headings on surfaces that need caution (the bash-approval prompt). */
 export const warnTitle = (s: string): string => chalk.bold(warn(s));
 /** A cancelled todo: struck through and receded. */

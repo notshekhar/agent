@@ -272,6 +272,39 @@ function discardQueuedTurns(sessionId: string): void {
   useQueuedTurnsStore.getState().clearSession(sessionId);
 }
 
+/**
+ * Send a queued message NOW, interrupting whatever is running.
+ *
+ * The terminal has always had this: Esc stops the turn, and what you typed
+ * while it worked goes next. The app could only wait — a message sat behind a
+ * turn you had already decided was going the wrong way, and the only way to
+ * act on that was Stop, which threw the message away with it.
+ *
+ * Taken out of the queue FIRST, deliberately: `thread.turn.interrupt`
+ * discards everything still waiting on the session, so a message left in the
+ * queue while we cancel would be destroyed by the very cancel meant to make
+ * room for it.
+ *
+ * A failed send puts it back at the front rather than losing it — the turn may
+ * not have finished cancelling yet, and the drain that runs on the real end
+ * will pick it up.
+ */
+export async function sendQueuedTurnNow(id: string): Promise<void> {
+  const turn = useQueuedTurnsStore.getState().take(id);
+  if (!turn) return;
+  try {
+    await loopCall("session.cancel", { sessionId: turn.sessionId });
+    await turn.send();
+  } catch (error) {
+    useQueuedTurnsStore.getState().requeueFirst(turn);
+    console.warn("A queued message could not be sent early.", {
+      operation: "send-queued-turn-now",
+      sessionId: turn.sessionId,
+      error,
+    });
+  }
+}
+
 function watchTurnEnds(): void {
   if (watchingTurnEnds) return;
   watchingTurnEnds = true;

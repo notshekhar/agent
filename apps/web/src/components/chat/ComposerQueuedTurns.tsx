@@ -1,4 +1,4 @@
-import { ImageIcon, XIcon } from "lucide-react";
+import { CornerDownLeftIcon, ImageIcon, XIcon } from "lucide-react";
 
 import type { QueuedTurn } from "../../queuedTurnsStore";
 import { cn } from "~/lib/utils";
@@ -17,14 +17,22 @@ import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
  * all: a message held somewhere the user cannot see or cancel is
  * indistinguishable from one that was swallowed, which is exactly how queueing
  * felt before this existed.
+ *
+ * And every row can be sent NOW, which is the terminal's Esc: once you have
+ * decided the running turn is going the wrong way, waiting for it to finish is
+ * the one thing you do not want to do. Stop would have thrown the message away
+ * with the turn.
  */
 export function ComposerQueuedTurns({
   turns,
   onCancel,
+  onSendNow,
   className,
 }: {
   readonly turns: ReadonlyArray<QueuedTurn>;
   readonly onCancel: (id: string) => void;
+  /** Interrupt the running turn and send this message instead. */
+  readonly onSendNow?: (id: string) => void;
   readonly className?: string;
 }) {
   if (turns.length === 0) return null;
@@ -60,6 +68,26 @@ export function ComposerQueuedTurns({
                 {turn.attachmentCount}
               </span>
             )}
+            {onSendNow ? (
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      className="shrink-0 text-muted-foreground/60 opacity-0 transition-opacity group-hover/queued:opacity-100 focus-visible:opacity-100 hover:text-foreground"
+                      aria-label="Send this message now"
+                      onClick={() => onSendNow(turn.id)}
+                    />
+                  }
+                >
+                  <CornerDownLeftIcon className="size-3" />
+                </TooltipTrigger>
+                {/* Named for what it costs, not just what it does: this stops
+                    the turn that is running. */}
+                <TooltipPopup side="top">Stop the turn and send this</TooltipPopup>
+              </Tooltip>
+            ) : null}
             <Tooltip>
               <TooltipTrigger
                 render={

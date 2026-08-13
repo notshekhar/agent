@@ -69,6 +69,11 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/appearance",
   },
   {
+    id: "sidebar-style",
+    title: "Sidebar style",
+    to: "/settings/appearance",
+  },
+  {
     id: "project-grouping",
     title: "Project grouping",
     to: "/settings/general",

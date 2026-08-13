@@ -21,7 +21,9 @@ import {
   type ClientSettingsPatch,
   type ClientSettings,
   DEFAULT_CLIENT_SETTINGS,
+  DEFAULT_SIDEBAR_STYLE,
   type EnvironmentIdentificationMode,
+  type SidebarStyle,
   type UnifiedSettings,
 } from "@loop/contracts/settings";
 import { safeErrorLogAttributes } from "@loop/runtime/errors";
@@ -261,6 +263,20 @@ export function useSidebarV2Enabled(): boolean {
       }),
     [settings.sidebarV2Enabled, settings.sidebarV2ConfiguredByUser, settingsHydrated],
   );
+}
+
+/**
+ * Which sidebar to draw.
+ *
+ * Held at the default until client settings hydrate, for the same reason as
+ * `useSidebarV2Enabled`: the pre-hydration snapshot is only the schema
+ * defaults, and resolving against it would mount one sidebar and swap it for
+ * another the moment the persisted choice lands.
+ */
+export function useSidebarStyle(): SidebarStyle {
+  const settingsHydrated = useClientSettingsHydrated();
+  const settings = useClientSettingsValue();
+  return settingsHydrated ? settings.sidebarStyle : DEFAULT_SIDEBAR_STYLE;
 }
 
 /** Read current settings for one environment, merged with client-local preferences. */

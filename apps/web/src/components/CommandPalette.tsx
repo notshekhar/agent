@@ -376,6 +376,7 @@ export function CommandPalette({ children }: { children: ReactNode }) {
   );
   const openAddProject = useCallback(() => dispatch({ _tag: "OpenAddProject" }), []);
   const openNewThreadIn = useCallback(() => dispatch({ _tag: "OpenNewThreadIn" }), []);
+  const openSwitchProject = useCallback(() => dispatch({ _tag: "OpenSwitchProject" }), []);
   const clearOpenIntent = useCallback(() => dispatch({ _tag: "ClearOpenIntent" }), []);
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const composerHandleRef = useRef<ChatComposerHandle | null>(null);
@@ -437,13 +438,15 @@ export function CommandPalette({ children }: { children: ReactNode }) {
       onOpenCommandPalette((detail) => {
         if (detail.open === "new-thread-in") {
           openNewThreadIn();
+        } else if (detail.open === "switch-project") {
+          openSwitchProject();
         } else if (detail.open === "add-project") {
           openAddProject();
         } else {
           setOpen(true);
         }
       }),
-    [openAddProject, openNewThreadIn, setOpen],
+    [openAddProject, openNewThreadIn, openSwitchProject, setOpen],
   );
 
   return (
@@ -1352,6 +1355,56 @@ function OpenCommandPaletteDialog(props: {
     currentProjectId,
     openIntent,
     projectThreadItems,
+    pushPaletteView,
+  ]);
+
+  /**
+   * The same project list, opened to SWITCH rather than to start a thread.
+   *
+   * The focused sidebar's project switcher opens this: with one project filling
+   * the panel, picking another one is a navigation, and a palette view searches
+   * and shows favicons in a way a plain select cannot. Picking a project
+   * navigates to it (`projectSearchItems` runs `openProjectFromSearch`), which
+   * is what makes the sidebar follow — it reads the project off the route.
+   */
+  useLayoutEffect(() => {
+    if (openIntent?.kind !== "switch-project" || projectSearchItems.length === 0) {
+      return;
+    }
+    clearOpenIntent();
+    browseNavigation.invalidate();
+    setAddProjectCloneFlow(null);
+    setViewStack([]);
+    setQuery("");
+    // The project you are already in goes first, the same way new-thread-in
+    // prioritises it — it is the one you are most likely switching back to.
+    const currentPrefix =
+      currentProjectEnvironmentId && currentProjectId
+        ? `project:${currentProjectEnvironmentId}:${currentProjectId}`
+        : null;
+    const prioritized = currentPrefix
+      ? [
+          ...projectSearchItems.filter((item) => item.value === currentPrefix),
+          ...projectSearchItems.filter((item) => item.value !== currentPrefix),
+        ]
+      : projectSearchItems;
+    pushPaletteView({
+      addonIcon: <FolderIcon className={ADDON_ICON_CLASS} />,
+      groups: [
+        {
+          value: "projects",
+          label: "Switch to project",
+          items: enumerateCommandPaletteItems(prioritized),
+        },
+      ],
+    });
+  }, [
+    clearOpenIntent,
+    browseNavigation,
+    currentProjectEnvironmentId,
+    currentProjectId,
+    openIntent,
+    projectSearchItems,
     pushPaletteView,
   ]);
 

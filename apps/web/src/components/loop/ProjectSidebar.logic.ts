@@ -76,29 +76,19 @@ export function buildProjectSidebarRows(input: {
     .toSorted((a, b) => b.lastActivity - a.lastActivity);
 }
 
-export function formatSessionCountLabel(count: number): string {
-  if (count === 0) return "No sessions";
-  return count === 1 ? "1 session" : `${count} sessions`;
-}
-
 /**
- * How many of a project's sessions sit in the open list before the rest go
- * behind the settled shelf, and how many that shelf reveals per press.
+ * How many settled threads a shelf reveals per press.
  *
- * The same two-tier shape t3code's nightly sidebar uses
- * (`SETTLED_TAIL_INITIAL_COUNT` / `SETTLED_TAIL_PAGE_COUNT`): the recent
- * handful is the common lookup, the deep tail stays behind one explicit step.
+ * The same paging shape t3code's nightly sidebar uses
+ * (`SETTLED_TAIL_PAGE_COUNT`): the deep tail stays behind one explicit step
+ * rather than dumping three hundred rows into the list.
+ *
+ * What "settled" MEANS is no longer this file's business. It used to mean
+ * "past the first twenty", because loop was believed to have no settle flag —
+ * the thread shell has carried `settledAt`, `settledOverride` and
+ * `snoozedUntil` for a while now, and `sidebarThreads.logic.ts` reads them.
  */
-export const SIDEBAR_SESSIONS_PER_PROJECT = 20;
 export const SIDEBAR_SETTLED_PAGE = 25;
-
-export interface ProjectSidebarSession {
-  readonly id: string;
-  readonly environmentId: string;
-  readonly title: string;
-  readonly updatedAt: string;
-  readonly running: boolean;
-}
 
 /**
  * `15m`, not `15m ago` — a sidebar row has no width to spare.
@@ -107,51 +97,6 @@ export interface ProjectSidebarSession {
 export function compactTimeLabel(label: string): string {
   if (label === "just now") return "now";
   return label.endsWith(" ago") ? label.slice(0, -4) : label;
-}
-
-export interface ProjectSessionShelves {
-  /** The recent ones, listed outright. */
-  readonly active: readonly ProjectSidebarSession[];
-  /** Everything older, behind the shelf. */
-  readonly settled: readonly ProjectSidebarSession[];
-  readonly settledCount: number;
-}
-
-/**
- * A project's sessions, split the way the nightly sidebar splits threads.
- *
- * loop has no settle flag — no `settledAt`, no snooze, no pins — so "settled"
- * cannot mean what it means upstream. It means the tail here: the sessions
- * past the recent ones, which is the same job the shelf does (keep the deep
- * history reachable without letting one busy folder bury every other project).
- *
- * `settledVisible` pages that tail, so the shelf grows a page at a time
- * instead of dumping three hundred rows into the list.
- */
-export function sessionsForProject(input: {
-  readonly threads: readonly ProjectSidebarThreadInput[];
-  readonly projectId: string;
-  readonly limit?: number;
-  readonly settledVisible?: number;
-}): ProjectSessionShelves {
-  const limit = input.limit ?? SIDEBAR_SESSIONS_PER_PROJECT;
-  const settledVisible = input.settledVisible ?? 0;
-  const mine = input.threads
-    .filter((thread) => thread.projectId === input.projectId)
-    .toSorted((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt))
-    .map((thread) => ({
-      id: thread.id,
-      environmentId: thread.environmentId,
-      title: thread.title?.trim() ? thread.title : "Untitled",
-      updatedAt: thread.updatedAt,
-      running: thread.session?.status === "running",
-    }));
-  const tail = mine.slice(limit);
-  return {
-    active: mine.slice(0, limit),
-    settled: tail.slice(0, settledVisible),
-    settledCount: tail.length,
-  };
 }
 
 /**
