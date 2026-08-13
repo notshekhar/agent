@@ -49,7 +49,9 @@ import { LoopCompactRow } from "../loop/LoopCompactRow";
 import { LoopHookRow } from "../loop/LoopHookRow";
 import { LoopRecapRow } from "../loop/LoopRecapRow";
 import { LoopThinkingRow } from "../loop/LoopThinkingRow";
+import { LoopToolGroupRow } from "../loop/LoopToolGroupRow";
 import { LoopToolRow } from "../loop/LoopToolRow";
+import { groupToolRuns } from "../loop/loopVerbGroup";
 import {
   BotIcon,
   CheckIcon,
@@ -1195,6 +1197,15 @@ const WorkGroupSection = memo(function WorkGroupSection({
       : `${nonEmptyEntries.length} tool calls`
     : "Work Log";
 
+  // Runs of finished reads/listings/searches fold into one line the reader can
+  // open — the same fold the terminal's live mode makes, with the same
+  // vocabulary. A call still running keeps its own row: it is the one worth
+  // watching, and it joins the header when it lands.
+  const runs = useMemo(
+    () => groupToolRuns(nonEmptyEntries, (entry) => loopToolOf(entry)),
+    [nonEmptyEntries],
+  );
+
   if (nonEmptyEntries.length === 0) return null;
 
   return (
@@ -1205,9 +1216,28 @@ const WorkGroupSection = memo(function WorkGroupSection({
         </p>
       )}
       <div className="space-y-px">
-        {nonEmptyEntries.map((workEntry) => (
-          <WorkEntryRow key={workEntry.id} workEntry={workEntry} workspaceRoot={workspaceRoot} />
-        ))}
+        {runs.map((run) =>
+          run.kind === "single" ? (
+            <WorkEntryRow key={run.item.id} workEntry={run.item} workspaceRoot={workspaceRoot} />
+          ) : (
+            <LoopToolGroupRow
+              count={run.items.length}
+              failed={run.failed}
+              // The head's id: a run is identified by where it starts, and a
+              // call joining the end must not reset the open/closed state.
+              key={run.items[0]!.id}
+              label={run.label}
+            >
+              {run.items.map((workEntry) => (
+                <WorkEntryRow
+                  key={workEntry.id}
+                  workEntry={workEntry}
+                  workspaceRoot={workspaceRoot}
+                />
+              ))}
+            </LoopToolGroupRow>
+          ),
+        )}
       </div>
     </section>
   );

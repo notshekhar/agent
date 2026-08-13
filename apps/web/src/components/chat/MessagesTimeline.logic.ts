@@ -7,6 +7,8 @@ import {
   type WorkLogEntry,
 } from "../../session-logic";
 import { type ChatMessage, type ProposedPlan, type TurnDiffSummary } from "../../types";
+import { loopToolOf } from "../loop/loopEntry";
+import { isGroupableTool } from "../loop/loopVerbGroup";
 import { type MessageId, type OrchestrationLatestTurn, type TurnId } from "@loop/contracts";
 
 export const MAX_VISIBLE_WORK_LOG_ENTRIES = 1;
@@ -101,6 +103,17 @@ export function resolveTimelineMinimapInteractiveWidth(
   expanded: boolean,
 ): number | string {
   return expanded ? TIMELINE_MINIMAP_EXPANDED_HIT_STRIP_WIDTH : collapsedWidth;
+}
+
+/**
+ * Whether a work entry is a finished tool call that may be folded away into a
+ * run header. Anything that is not one of loop's tool calls — an approval, a
+ * hook line, a compaction — is never folded: a header that swallowed it would
+ * be describing calls that are not there.
+ */
+function isGroupableWorkEntry(entry: WorkLogEntry): boolean {
+  const tool = loopToolOf(entry);
+  return tool !== null && isGroupableTool(tool);
 }
 
 function computeElapsedMs(startIso: string, endIso: string): number | null {
@@ -486,15 +499,45 @@ export function deriveMessagesTimelineRows(input: {
 
     if (timelineEntry.kind === "work") {
       if (input.groupWorkEntries === false) {
-        // One row per entry, in order, nothing hidden.
-        if (!workEntryIndicatesToolNeutralStatus(timelineEntry.entry)) {
-          nextRows.push({
-            kind: "work",
-            id: timelineEntry.id,
-            createdAt: timelineEntry.createdAt,
-            groupedEntries: [timelineEntry.entry],
-          });
+        // One row per entry, in order, nothing hidden — with one exception:
+        // a RUN of finished tool calls whose individual detail is noise (reads,
+        // listings, searches) is gathered into a single row, which draws as one
+        // foldable "Read 3 files" line the reader opens when they want the
+        // calls. See loopVerbGroup.ts; the terminal's live mode folds the same
+        // runs with the same vocabulary. A running call is never groupable, so
+        // it ends the run and keeps its own row until it lands.
+        if (workEntryIndicatesToolNeutralStatus(timelineEntry.entry)) {
+          continue;
         }
+        const runEntries = [timelineEntry.entry];
+        let runCursor = index + 1;
+        if (isGroupableWorkEntry(timelineEntry.entry)) {
+          while (runCursor < input.timelineEntries.length) {
+            const nextEntry = input.timelineEntries[runCursor];
+            if (
+              !nextEntry ||
+              nextEntry.kind !== "work" ||
+              collapsedEntryIds.has(nextEntry.id) ||
+              foldsByAnchorEntryId.has(nextEntry.id)
+            ) {
+              break;
+            }
+            // A neutral entry draws nothing either way, so it neither joins
+            // the run nor breaks it.
+            if (!workEntryIndicatesToolNeutralStatus(nextEntry.entry)) {
+              if (!isGroupableWorkEntry(nextEntry.entry)) break;
+              runEntries.push(nextEntry.entry);
+            }
+            runCursor += 1;
+          }
+        }
+        nextRows.push({
+          kind: "work",
+          id: timelineEntry.id,
+          createdAt: timelineEntry.createdAt,
+          groupedEntries: runEntries,
+        });
+        index = runCursor - 1;
         continue;
       }
       const groupedEntries = [timelineEntry.entry];

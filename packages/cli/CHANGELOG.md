@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.18.9] - 2026-08-13
+
+### Added
+
+- **The desktop app folds runs of tool calls, and you open the ones you want.** A turn that reads six files put six rows between the question and the answer, and none of them was what anyone came to read. A run of finished calls whose individual detail is noise — reads, listings, searches, subagents — is now one row saying what the run did, "Read 3 files, Listed 1 dir", which opens on a click to the real rows underneath. It is the same fold the terminal's live mode makes and it speaks the same vocabulary, so the two surfaces describe a run identically. The rules carry over with it: a command or an edit keeps its own row because which command ran is the point, a tool the vocabulary cannot classify stays visible rather than being hidden under a label that might misdescribe it, a call still running is never folded away, and a header that hides a failure says so.
+
 ## [0.18.8] - 2026-08-13
 
 ### Fixed
