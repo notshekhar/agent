@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.18.10] - 2026-08-13
+
+### Fixed
+
+- **An MCP server can be signed into again, at any time, in both the terminal and the app.** The authorize action was offered only to a server that had already broken — `needs-auth` or `error` in `/mcp`, and in the app only to one whose config carried `auth: "oauth"`. So a server that signed in once had no way back in, which is precisely the wrong shape for OAuth: the session expires on the provider's clock, the status still reads "ready", and every call is being refused. Signing in is now offered to any server it could apply to — configured for OAuth, or asking for auth, or signed into before — and reads "re-authorize" when it is replacing a session rather than starting one. A server added as a plain URL, which is how most are added, is covered: only the 401 on first connect ever says it wanted OAuth.
+- **Signing in no longer needs a connect first.** The settings page lists servers from disk without connecting — connecting costs up to 30 seconds per server — so the login refused with "reconnect first" for anything this process had not already reached. The config on disk is all a login needs, and the project's path travels with the request so a project-scoped server is found too.
+
 ## [0.18.9] - 2026-08-13
 
 ### Added

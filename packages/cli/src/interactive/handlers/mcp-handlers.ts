@@ -6,7 +6,9 @@
 import type { SelectItem } from "@notshekhar/loop-tui";
 import {
     getMcpManager,
+    hasStoredTokens,
     isGlobalServer,
+    isOAuthServer,
     type CommandContext,
     type McpServerConfig,
     type ServerSnapshot,
@@ -130,8 +132,19 @@ export function createMcpHandlers(_state: AppState, deps: AppDeps): McpHandlers 
     async function serverActions(s: ServerSnapshot): Promise<void> {
         const global = isGlobalServer(s.name);
         const items: SelectItem[] = [];
-        if (s.status === "needs-auth" || s.status === "error") {
-            items.push({ value: "authorize", label: "authorize", description: "run the OAuth browser login" });
+        // Offered whenever signing in applies to this server AT ALL, not only
+        // when it has already broken. An OAuth session expires on the server's
+        // clock, not ours — the status still reads "ready" while every call is
+        // being refused — so a signed-in server has to keep the way back in.
+        if (isOAuthServer(s.name, s.config, s.status === "needs-auth" || s.status === "error")) {
+            const again = hasStoredTokens(s.name);
+            items.push({
+                value: "authorize",
+                label: again ? "re-authorize" : "authorize",
+                description: again
+                    ? "sign in again — replaces the current session"
+                    : "run the OAuth browser login",
+            });
         }
         items.push({ value: "reconnect", label: "reconnect", description: "retry the connection" });
         if (global) {

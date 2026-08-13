@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { clearMcpAuth, McpOAuthProvider, oauthClientOptions } from "../src/mcp/oauth";
+import { clearMcpAuth, isOAuthServer, McpOAuthProvider, oauthClientOptions } from "../src/mcp/oauth";
 import type { HttpServerConfig } from "../src/mcp/config";
 
 const REDIRECT = "http://127.0.0.1:8976/callback";
@@ -119,5 +119,46 @@ describe("MCP OAuth: authorization server metadata", () => {
         // `authorizeServer` calls this before every interactive login.
         clearMcpAuth(server);
         expect(p.authorizationServerInformation()).toBeUndefined();
+    });
+});
+
+/**
+ * Which servers offer a "sign in" action.
+ *
+ * The bug this pins: a server signed in once showed no way to sign in again,
+ * so an expired session had no route back — the status still read "ready"
+ * while every call was being refused.
+ */
+describe("MCP OAuth: when signing in applies", () => {
+    const http = { type: "http" as const, url: "https://mcp.example.com/mcp" };
+
+    test("a server configured for OAuth always offers it", () => {
+        expect(isOAuthServer("test-cfg", { ...http, auth: "oauth" })).toBe(true);
+    });
+
+    test("a server that has ASKED for auth offers it, config flag or not", () => {
+        // The common case: added as a plain URL, and only the 401 on first
+        // connect reveals that it wants OAuth at all.
+        expect(isOAuthServer("test-401", http)).toBe(false);
+        expect(isOAuthServer("test-401", http, true)).toBe(true);
+    });
+
+    test("a server signed in before keeps offering it — this is the expiry case", () => {
+        const server = "test-signed-in-" + Date.now();
+        const p = new McpOAuthProvider(server, REDIRECT);
+        try {
+            expect(isOAuthServer(server, http)).toBe(false);
+            p.saveTokens({ access_token: "at", token_type: "bearer" });
+            // Nothing about the status changed — the tokens are what make the
+            // action meaningful, and they stay meaningful once they expire.
+            expect(isOAuthServer(server, http)).toBe(true);
+        } finally {
+            clearMcpAuth(server);
+        }
+    });
+
+    test("a stdio server never offers it — it has no login of any kind", () => {
+        const stdio = { type: "stdio" as const, command: "npx", args: ["server"] };
+        expect(isOAuthServer("test-stdio", stdio, true)).toBe(false);
     });
 });

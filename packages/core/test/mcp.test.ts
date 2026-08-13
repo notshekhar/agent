@@ -149,3 +149,40 @@ function makeProjectWith(servers: Record<string, McpServerConfig>): string {
     writeFileSync(join(root, CONFIG_DIR_NAME, "mcp.json"), JSON.stringify({ mcpServers: servers }));
     return root;
 }
+
+/**
+ * Signing in to a server this process has not connected.
+ *
+ * `mcp.list` deliberately does not connect (up to 30s per server), so on a
+ * freshly-opened settings page the manager knows nothing — and the login used
+ * to refuse on that basis, telling the user to reconnect first. The config on
+ * disk is all a login actually needs.
+ */
+describe("the MCP login flow", () => {
+    test("starts for a configured server the manager has never connected", async () => {
+        const { startMcpLogin, cancelMcpLogin, resetMcpLogins, listMcpServers } =
+            await import("../src/rpc/mcp-flows");
+        const { getMcpManager } = await import("../src/mcp/manager");
+        resetMcpLogins();
+        const root = makeProjectWith({ unconnected: { type: "http", url: "http://127.0.0.1:9/mcp" } });
+
+        // Nothing has connected it — this is exactly the state the panel is in.
+        expect(getMcpManager().getServer("unconnected")).toBeUndefined();
+        expect(listMcpServers(root).servers.map((s) => s.name)).toContain("unconnected");
+
+        // The URL is a dead local port: the flow starts (which is what this
+        // pins) and its background half fails immediately, with no network.
+        const flow = startMcpLogin("unconnected", root);
+        expect(flow.server).toBe("unconnected");
+        expect(flow.flowId).toBeTruthy();
+        cancelMcpLogin(flow.flowId);
+        resetMcpLogins();
+    });
+
+    test("still refuses a name that is configured nowhere", async () => {
+        const { startMcpLogin, resetMcpLogins } = await import("../src/rpc/mcp-flows");
+        resetMcpLogins();
+        const root = makeProjectWith({});
+        expect(() => startMcpLogin("nosuchserver", root)).toThrow(/unknown MCP server/);
+    });
+});

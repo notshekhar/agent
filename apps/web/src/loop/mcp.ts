@@ -175,7 +175,10 @@ export async function startMcpLogin(
 ): Promise<string> {
   const result = await loopCall<{ flowId: string }>(
     "mcp.login.start",
-    { name },
+    // The cwd travels with the request: a project-scoped server lives in the
+    // repo's own mcp.json, and loop cannot find its config without knowing
+    // which repo — it has not necessarily connected the server yet.
+    { name, ...(cwd ? { cwd } : {}) },
     cwd ?? undefined,
   );
   if (!result?.flowId) throw new Error("loop did not start the authorization");

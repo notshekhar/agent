@@ -23,6 +23,7 @@ import {
     isGlobalServer,
     isHttpServer,
     isMcpEnabled,
+    isOAuthServer,
     isServerEnabled,
     loadMcpServers,
     projectServersPath,
@@ -46,7 +47,13 @@ export interface McpServerDescriptor {
     readonly command?: string;
     /** http/sse only. */
     readonly url?: string;
-    /** True when this server logs in with OAuth rather than static headers. */
+    /**
+     * True when signing in applies to this server — it is configured for OAuth,
+     * has asked for auth, or has been signed into before. A client shows its
+     * authorize action on this, not on `status`: a live session can expire
+     * while the status still reads "ready", and that is exactly when someone
+     * needs the button.
+     */
     readonly oauth: boolean;
     /** OAuth servers only: whether tokens are on disk right now. */
     readonly authorized?: boolean;
@@ -94,7 +101,7 @@ export function listMcpServers(cwd: string): McpListResult {
     const servers = Object.entries(configured).map(([name, config]): McpServerDescriptor => {
         const snapshot = live.get(name);
         const enabled = isServerEnabled(config);
-        const oauth = isHttpServer(config) && config.auth === "oauth";
+        const oauth = isOAuthServer(name, config, snapshot?.status === "needs-auth");
         const prefix = `${name}__`;
         const tools = toolNames.filter((tool) => tool.includes(prefix));
         return {
@@ -208,12 +215,17 @@ function finish(login: Login, status: McpLoginStatus, event: McpLoginEvent): voi
     login.events.push(event);
 }
 
-export function startMcpLogin(name: string): { flowId: string; server: string } {
+export function startMcpLogin(name: string, cwd = process.cwd()): { flowId: string; server: string } {
     sweep();
     const server = name.trim();
     if (!server) throw new Error("server name required");
-    if (!getMcpManager().getServer(server)) {
-        throw new Error(`unknown MCP server: ${server} (reconnect first, or check the name)`);
+    // Configured is enough: `mcp.list` deliberately does not connect, so on a
+    // freshly-opened settings page the manager knows nothing yet — and being
+    // told to reconnect before signing in is a step that only exists because
+    // of how this happens to be wired.
+    const config = getMcpManager().getServer(server)?.config ?? loadMcpServers(cwd)[server];
+    if (!config) {
+        throw new Error(`unknown MCP server: ${server} (check the name)`);
     }
 
     // A second login for the same server would race the first over the same
@@ -233,7 +245,7 @@ export function startMcpLogin(name: string): { flowId: string; server: string } 
     logins.set(login.id, login);
 
     void getMcpManager()
-        .authorize(server, (url) => login.events.push({ type: "auth", url }))
+        .authorize(server, (url) => login.events.push({ type: "auth", url }), config)
         .then(() => {
             const snapshot = getMcpManager().getServer(server);
             finish(login, "done", {

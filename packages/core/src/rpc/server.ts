@@ -1114,7 +1114,7 @@ export class RpcServer {
                 return listMcpServers(String(params.cwd ?? process.cwd()));
             }
             case "mcp.login.start":
-                return startMcpLogin(String(params.name ?? ""));
+                return startMcpLogin(String(params.name ?? ""), String(params.cwd ?? process.cwd()));
             case "mcp.login.poll":
                 return pollMcpLogin(String(params.flowId ?? ""), Number(params.cursor ?? 0));
             case "mcp.login.cancel":

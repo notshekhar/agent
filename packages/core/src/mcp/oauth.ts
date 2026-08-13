@@ -15,7 +15,7 @@ import type {
     OAuthClientProvider,
     OAuthTokens,
 } from "@ai-sdk/mcp";
-import { resolveSecrets, type HttpServerConfig } from "./config";
+import { isHttpServer, resolveSecrets, type HttpServerConfig, type McpServerConfig } from "./config";
 
 /**
  * Optional, user-supplied OAuth client config (from the server entry). When a
@@ -88,6 +88,27 @@ function write(server: string, patch: Partial<StoredAuth>): void {
 /** True once a server has completed login (used to decide auto-connect). */
 export function hasStoredTokens(server: string): boolean {
     return read(server).tokens?.access_token != null;
+}
+
+/**
+ * Whether signing in applies to this server — the question every UI asks
+ * before offering an authorize action.
+ *
+ * Deliberately NOT just `auth: "oauth"`. Most servers are never configured
+ * with that flag: they are added as a plain URL and only reveal that they want
+ * OAuth when the first connect comes back 401, which is what `needsAuth`
+ * carries. And a server that HAS been signed in stays signed-in-able forever
+ * after — the reason this exists at all is the session that expires while the
+ * status still reads "ready", where the only fix is to sign in again and the
+ * old rule showed no way to.
+ *
+ * `false` for a stdio server, which has no login of any kind, and for a remote
+ * one that has never asked for auth and holds no tokens — an authorize button
+ * on a public server is an offer that can only fail.
+ */
+export function isOAuthServer(server: string, cfg: McpServerConfig, needsAuth = false): boolean {
+    if (!isHttpServer(cfg)) return false;
+    return cfg.auth === "oauth" || needsAuth || hasStoredTokens(server);
 }
 
 /** Forget a server's OAuth session entirely (used on /mcp delete or re-auth). */

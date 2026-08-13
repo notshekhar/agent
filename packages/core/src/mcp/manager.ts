@@ -172,12 +172,17 @@ export class McpManager {
     }
 
     /** Run the browser OAuth login for a server, then connect it. */
-    async authorize(name: string, openUrl: (url: string) => void): Promise<void> {
+    async authorize(name: string, openUrl: (url: string) => void, cfg?: McpServerConfig): Promise<void> {
         const server = this.servers.get(name);
-        if (!server) throw new Error(`unknown MCP server: ${name}`);
-        await authorizeServer(name, server.config, openUrl);
-        await this.closeOne(server);
-        await this.connectOne(name, server.config);
+        // A caller holding the config can sign in to a server this process has
+        // never connected — a settings page lists from disk without connecting
+        // (that costs up to 30s per server), and "reconnect before you can sign
+        // in" is a step nobody should have to know about.
+        const config = server?.config ?? cfg;
+        if (!config) throw new Error(`unknown MCP server: ${name}`);
+        await authorizeServer(name, config, openUrl);
+        if (server) await this.closeOne(server);
+        await this.connectOne(name, config);
     }
 
     /** Toggle a global server on/off, persisting the choice and (dis)connecting. */

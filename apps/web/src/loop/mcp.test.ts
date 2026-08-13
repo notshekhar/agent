@@ -122,4 +122,12 @@ describe("the OAuth login", () => {
     withLoop({ "mcp.login.start": {} });
     await expect(startMcpLogin(null, "figma")).rejects.toThrow(/did not start/);
   });
+
+  it("sends the cwd, so a project server can be signed into before it connects", async () => {
+    // loop finds the config on disk when it has not connected the server yet,
+    // and a project-scoped one only exists relative to a repo.
+    const calls = withLoop({ "mcp.login.start": { flowId: "abc123", server: "figma" } });
+    await startMcpLogin("/w/project", "figma");
+    expect(calls[0]?.params).toMatchObject({ name: "figma", cwd: "/w/project" });
+  });
 });
