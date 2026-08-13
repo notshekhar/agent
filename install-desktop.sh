@@ -196,6 +196,17 @@ resolve_latest_tag() {
     | sed -n 's/.*"tag_name" *: *"\([^"]*\)".*/\1/p' | head -1
 }
 
+# ── Newest release that actually carries an asset ─────────────────────────
+# The desktop app only rebuilds when its own version moves, so a CLI-only
+# release publishes no desktop archives at all — "latest" is regularly not the
+# newest release that HAS this asset. The releases list comes back newest
+# first, so the first download URL matching the name is the one to take.
+resolve_asset_url() {
+  curl -fsSL "https://api.github.com/repos/${REPO_SLUG}/releases?per_page=30" 2>/dev/null \
+    | sed -n 's/.*"browser_download_url" *: *"\([^"]*\)".*/\1/p' \
+    | grep -- "/$1\$" | head -1
+}
+
 TARGET="$(detect_target)"
 OS="${TARGET%-*}"
 
@@ -234,8 +245,23 @@ else
 fi
 URL="https://github.com/${REPO_SLUG}/releases/download/${TAG}/${ASSET}"
 
+# A CLI-only release ships no desktop archives, so the latest tag regularly
+# isn't the newest one carrying this asset. Fall back to the release that has
+# it — but never when the user pinned a tag: they asked for that build, and
+# quietly installing a different one would be worse than failing.
+NOTE=""
+if [ -z "$PIN_VERSION" ] && ! curl -fsSLI -o /dev/null "$URL" 2>/dev/null; then
+  ALT="$(resolve_asset_url "$ASSET")"
+  if [ -n "$ALT" ]; then
+    NOTE="${TAG} has no desktop build — installing the newest that does"
+    URL="$ALT"
+    TAG="$(printf '%s' "$ALT" | awk -F/ '{ print $(NF - 1) }')"
+  fi
+fi
+
 bold "loop desktop ${TAG}"
 dim "  target: ${TARGET}"
+if [ -n "$NOTE" ]; then dim "  ${NOTE}"; fi
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT

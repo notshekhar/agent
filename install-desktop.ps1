@@ -83,15 +83,52 @@ function Resolve-LatestTag {
     } catch { return $null }
 }
 
-$tag = if ($env:LOOP_VERSION) { $env:LOOP_VERSION } else { Resolve-LatestTag }
+# ── Newest release that actually carries an asset ─────────────────────────
+# The desktop app only rebuilds when its own version moves, so a CLI-only
+# release publishes no desktop archives — "latest" is regularly not the newest
+# release that HAS this asset. The releases list comes back newest first, so
+# the first download URL matching the name is the one to take.
+function Resolve-AssetUrl($name) {
+    try {
+        $releases = Invoke-RestMethod -Uri "https://api.github.com/repos/$RepoSlug/releases?per_page=30" -UseBasicParsing
+        foreach ($r in $releases) {
+            foreach ($a in $r.assets) { if ($a.name -eq $name) { return $a.browser_download_url } }
+        }
+    } catch { }
+    return $null
+}
+
+$pinned = [bool]$env:LOOP_VERSION
+$tag = if ($pinned) { $env:LOOP_VERSION } else { Resolve-LatestTag }
 if (-not $tag) { Err "could not resolve latest release tag from $RepoSlug"; exit 1 }
 if ($tag -notmatch "^v") { $tag = "v$tag" }
 
 $asset = "loop-desktop-$target.zip"
 $url   = "https://github.com/$RepoSlug/releases/download/$tag/$asset"
 
+# Fall back to the release that carries the archive — but never when the user
+# pinned a tag: they asked for that build, and quietly installing a different
+# one would be worse than failing.
+$note = $null
+if (-not $pinned) {
+    $has = $false
+    try {
+        Invoke-WebRequest -Uri $url -Method Head -UseBasicParsing | Out-Null
+        $has = $true
+    } catch { }
+    if (-not $has) {
+        $alt = Resolve-AssetUrl $asset
+        if ($alt) {
+            $note = "$tag has no desktop build - installing the newest that does"
+            $url = $alt
+            $tag = ($alt -split "/")[-2]
+        }
+    }
+}
+
 Bold "loop desktop $tag"
 Dim  "  target: $target"
+if ($note) { Dim "  $note" }
 
 $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("loop-desktop-" + [Guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Path $tmp -Force | Out-Null

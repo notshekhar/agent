@@ -274,6 +274,11 @@ export class ChatHistory extends Container {
      * Aggregated header for a collapsed run — one segment per KIND, so a mixed
      * run reads "Listed 2 dirs, Read 1 file" rather than an anonymous count.
      * See verb-group.ts for the vocabulary and how unknown tools degrade.
+     *
+     * A run only ever holds FINISHED calls (a running one is not groupable),
+     * so the label lands in the past tense; `isRunning` is still passed
+     * honestly rather than hardcoded, so the vocabulary's present tense stays
+     * correct if a live member is ever admitted again.
      */
     private groupLabel(run: { start: number; end: number }): { text: string; failed: number } {
         const members: GroupMember[] = [];

@@ -110,7 +110,8 @@ export class ToolExecutionComponent extends Container {
         return this.result?.isError ?? false;
     }
 
-    /** Still streaming — a group counts it, and reads its label present tense. */
+    /** Still streaming. A running call never joins a group, so this only ever
+     * reports the row's own state — see {@link isGroupable}. */
     isRunning(): boolean {
         return this.isPartial;
     }
@@ -118,15 +119,15 @@ export class ToolExecutionComponent extends Container {
     /**
      * Whether this row may be swallowed into a verb group.
      *
-     * A RUNNING call groups too, and that is deliberate. Excluding it meant
-     * each call popped out its own row while it ran and then vanished into the
-     * header the moment it finished — the transcript changing height twice per
-     * call, which reads as the whole UI twitching upward as a turn streams.
-     * Counting it instead means the header only ever increments, so nothing
-     * moves; the present tense ("Reading 3 files") is what says it is live.
-     * This is why grok's vocabulary carries a tense at all.
+     * Four gates. A RUNNING call never groups: live mode is the base mode plus
+     * folding, not a different way to watch a turn — while a call is in flight
+     * it renders exactly the row noir renders normally, showing which file is
+     * being read and its live status. Only once it lands does it fold into the
+     * header with the calls before it. Grouping mid-flight was tried (it holds
+     * the transcript height still) and hid the one thing you look at the
+     * transcript mid-turn to see.
      *
-     * An OPEN call still leaves the group — the user asked to see that one —
+     * An OPEN call also leaves the group — the user asked to see that one —
      * and `plan` never joins, being an approval surface that must stay
      * readable.
      *
@@ -137,7 +138,7 @@ export class ToolExecutionComponent extends Container {
      * is the safe failure for a third-party tool.
      */
     isGroupable(): boolean {
-        return !this.expanded && this.toolName !== "plan" && foldsEagerly(this.toolName);
+        return !this.isPartial && !this.expanded && this.toolName !== "plan" && foldsEagerly(this.toolName);
     }
 
     /** Selection highlight for the ctrl+up/down block navigation. */

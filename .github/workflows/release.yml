@@ -10,19 +10,30 @@ on:
             tag:
                 description: "Version tag (e.g. v0.1.5)."
                 required: true
+            desktop:
+                description: "Build the desktop app even if apps/desktop's version is unchanged."
+                type: boolean
+                default: false
 
 permissions:
     contents: write
 
 jobs:
-    # ─── Job 1: resolve tag ───────────────────────────────────────────────────
+    # ─── Job 1: resolve tag, and decide whether the desktop app ships ─────────
     prepare:
         name: prepare
         runs-on: ubuntu-latest
         outputs:
             tag: ${{ steps.tag.outputs.tag }}
             ver: ${{ steps.tag.outputs.ver }}
+            desktop: ${{ steps.desktop.outputs.build }}
         steps:
+            # Full history + tags: the desktop gate below reads a file out of
+            # the PREVIOUS release tag, which a shallow clone doesn't have.
+            - uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+
             - name: Resolve tag
               id: tag
               run: |
@@ -35,6 +46,36 @@ jobs:
                   v="${tag#v}"
                   echo "tag=$tag" >> "$GITHUB_OUTPUT"
                   echo "ver=$v"   >> "$GITHUB_OUTPUT"
+
+            # The desktop app is versioned by hand in apps/desktop/package.json
+            # and is NOT in the CLI's lockstep bump — most releases are CLI-only
+            # and would otherwise repackage five identical ~170 MB Electron
+            # bundles. So it ships only when that version actually moved since
+            # the previous tag. Bump apps/desktop/package.json to ship it (or
+            # run the workflow by hand with `desktop` checked).
+            #
+            # Every ambiguous case builds: no previous tag, no file at that tag,
+            # an unreadable version. Shipping a redundant bundle costs runner
+            # minutes; silently skipping one the release needed strands the
+            # desktop on an old build.
+            - name: Decide whether the desktop app ships
+              id: desktop
+              run: |
+                  ver_of() { sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1; }
+                  if [ "${{ github.event.inputs.desktop }}" = "true" ]; then
+                    echo "forced by workflow input"; echo "build=true" >> "$GITHUB_OUTPUT"; exit 0
+                  fi
+                  tag="${{ steps.tag.outputs.tag }}"
+                  prev="$(git tag --list 'v*.*.*' --sort=-v:refname | grep -vx "$tag" | head -1)"
+                  cur="$(ver_of < apps/desktop/package.json)"
+                  old="$(git show "$prev:apps/desktop/package.json" 2>/dev/null | ver_of)"
+                  if [ -z "$prev" ] || [ -z "$cur" ] || [ -z "$old" ] || [ "$cur" != "$old" ]; then
+                    echo "desktop ${old:-?} → ${cur:-?} (prev tag: ${prev:-none}) — building"
+                    echo "build=true" >> "$GITHUB_OUTPUT"
+                  else
+                    echo "desktop still $cur since $prev — skipping the desktop matrix"
+                    echo "build=false" >> "$GITHUB_OUTPUT"
+                  fi
 
     # ─── Job 2: per-platform binary build (matrix) ───────────────────────────
     # loop has no native NAPI modules anymore, so `bun build --compile
@@ -147,9 +188,12 @@ jobs:
     # linux runner — hence a real matrix rather than one host fanning out.
     # darwin-x64 is the exception in the other direction: it has a prebuild, so
     # the arm64 mac runner can package it (GitHub offers no free Intel mac).
+    #
+    # Gated on the desktop's own version having moved — see the prepare job.
     build-desktop:
         name: desktop (${{ matrix.target }})
         needs: prepare
+        if: needs.prepare.outputs.desktop == 'true'
         strategy:
             fail-fast: false
             matrix:
@@ -238,6 +282,10 @@ jobs:
     release:
         name: github-release
         needs: [prepare, build-binary, build-desktop]
+        # build-desktop is skipped on a CLI-only release, and a skipped `needs`
+        # would otherwise skip this job with it. Anything actually FAILING still
+        # stops the release.
+        if: ${{ !failure() && !cancelled() }}
         runs-on: ubuntu-latest
         steps:
             - name: Download all binary artifacts
@@ -248,6 +296,7 @@ jobs:
                   merge-multiple: true
 
             - name: Download all desktop artifacts
+              if: needs.prepare.outputs.desktop == 'true'
               uses: actions/download-artifact@v4
               with:
                   pattern: desktop-*
@@ -268,6 +317,10 @@ jobs:
                   done
                   cat SHA256SUMS
 
+            # The desktop globs match nothing on a CLI-only release; that is a
+            # warning, not a failure (fail_on_unmatched_files defaults off), so
+            # the release publishes with the binaries alone. The installers walk
+            # back to the newest release that carries a desktop asset.
             - name: Create / update GitHub Release
               uses: softprops/action-gh-release@v2
               with:

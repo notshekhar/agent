@@ -138,41 +138,37 @@ describe("live verb groups", () => {
         expect(text(h)).toContain("npm test");
     });
 
-    test("a running call joins its group, in the present tense", () => {
+    test("a running call keeps its own row — grouping happens once it lands", () => {
         liveOn();
         const h = withReads(2);
         h.addToolCall("read", "live", { path: "/repo/slow.ts" }); // no result → running
-        // Counting the live call is what keeps the transcript still: excluded,
-        // it popped out its own row while running and vanished into the header
-        // the moment it landed — the height changing twice per call.
-        expect(text(h)).toContain("◈ Reading 3 files");
+        // Live mode is the base look plus folding: in flight the call reads
+        // exactly as it does in normal noir, naming the file it is reading.
+        const out = text(h);
+        expect(out).toContain("◈ Read 2 files");
+        expect(out).toContain("slow.ts");
+        expect(out).not.toContain("Reading 3 files");
     });
 
-    test("the transcript does not change height as a turn streams", () => {
+    test("a call joins the group in front of it the moment it finishes", () => {
         liveOn();
-        const h = new ChatHistory(tui, "/repo");
-        const rows = () =>
-            text(h)
-                .split("\n")
-                .filter((l) => l.trim()).length;
-        const seen = new Set<number>();
-        for (let i = 0; i < 4; i++) {
-            h.addToolCall("read", `c${i}`, { path: `/repo/f${i}.ts` });
-            seen.add(rows()); // running
-            h.addToolResult(`c${i}`, "body");
-            seen.add(rows()); // finished
-        }
-        // One height for the whole turn — the header only ever increments.
-        expect(seen.size).toBe(1);
+        const h = withReads(2);
+        h.addToolCall("read", "live", { path: "/repo/slow.ts" });
+        h.addToolResult("live", "body");
+        const out = text(h);
+        expect(out).toContain("◈ Read 3 files");
+        expect(out).not.toContain("slow.ts");
     });
 
-    test("a still-running run reads present tense even once some calls have landed", () => {
+    test("only the running call sits outside the header", () => {
         liveOn();
         const h = new ChatHistory(tui, "/repo");
         h.addToolCall("read", "done", { path: "/repo/a.ts" });
         h.addToolResult("done", "x");
         h.addToolCall("read", "live", { path: "/repo/b.ts" });
-        expect(text(h)).toContain("◈ Reading 2 files");
+        const out = text(h);
+        expect(out).toContain("◈ Read 1 file"); // the finished one, folded
+        expect(out).toContain("b.ts"); // the live one, still a row
     });
 });
 

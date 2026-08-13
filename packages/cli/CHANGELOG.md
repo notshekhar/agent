@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.18.8] - 2026-08-13
+
+### Fixed
+
+- **A tool call in live mode keeps its own row until it finishes.** 0.18.6 folded a running call into its group header to hold the transcript's height still, which meant a call was hidden for exactly as long as it was the one thing worth watching — the group said "Reading 3 files" without saying which. Live mode is the base look plus folding, so a call in flight now renders the row noir renders normally, naming the file and its status, and joins the header the moment it lands. The height moves as a turn streams; seeing the live call is worth it.
+
+### Changed
+
+- **The desktop app ships only when the desktop app changed.** Every tag repackaged five Electron bundles across five runners whether or not a line of the app had moved, which is most releases, since the CLI is what usually changes. The release now builds the desktop matrix when `apps/desktop`'s own version has moved since the previous tag (or on demand from the workflow), so a CLI-only release publishes binaries alone. `install-desktop.sh` and `install-desktop.ps1` walk back from the latest tag to the newest release that actually carries a build for your platform, so installing is unaffected; pinning a tag with `--version` never falls back, because a pin is a request for that exact build.
+
 ## [0.18.7] - 2026-08-13
 
 ### Changed
