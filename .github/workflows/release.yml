@@ -363,6 +363,12 @@ jobs:
     update-homebrew-tap:
         name: update-homebrew-tap
         needs: [prepare, release]
+        # Needed for the same reason as `release`, and needed SEPARATELY: a
+        # skipped job propagates down the whole `needs` graph, not just one hop.
+        # `release` overriding it for itself does not save this job — v0.18.8
+        # published fine and left the tap a release behind, which is invisible
+        # until someone's `brew upgrade` finds nothing.
+        if: ${{ !failure() && !cancelled() }}
         runs-on: ubuntu-latest
         steps:
             - name: Check out loop (for the render script)
