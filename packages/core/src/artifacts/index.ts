@@ -32,12 +32,50 @@
  * directly cannot leave the listing stale.
  */
 import { randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import {
+    copyFileSync,
+    existsSync,
+    mkdirSync,
+    readdirSync,
+    readFileSync,
+    rmSync,
+    statSync,
+    writeFileSync,
+} from "node:fs";
+import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { getConfigDir } from "../brand";
 
-/** What an artifact can be. */
-export type ArtifactKind = "html" | "markdown";
+/**
+ * What an artifact can be.
+ *
+ * Everything a language model can author is text, which is what bounds this
+ * list — there is no `pdf` or `png` here because the agent cannot write one.
+ * PDF is an export format, not an authored kind.
+ *
+ * The split that matters is not the file extension but whether the content can
+ * EXECUTE, because that decides where a viewer may render it. `html` and `svg`
+ * can carry script and must be shown in something sandboxed; the rest are inert
+ * data and can be rendered by the app itself. See ARTIFACT_KIND_EXECUTES.
+ */
+export type ArtifactKind = "html" | "markdown" | "svg" | "json" | "csv" | "text";
+
+/**
+ * Whether a kind's content can run code.
+ *
+ * `svg` is the one people get wrong: an SVG document can contain `<script>` and
+ * event handlers, so it is every bit as executable as HTML and must never be
+ * rendered inline by a trusting viewer. Everything else here is data that only
+ * becomes dangerous if a renderer chooses to interpret it as markup.
+ */
+export const ARTIFACT_KIND_EXECUTES: Record<ArtifactKind, boolean> = {
+    html: true,
+    svg: true,
+    markdown: false,
+    json: false,
+    csv: false,
+    text: false,
+};
 
 /** The fields that live in `meta.json` — everything the filesystem can't say. */
 export interface ArtifactRecord {
@@ -78,7 +116,14 @@ const META_FILE = "meta.json";
 const FILE_FOR_KIND: Record<ArtifactKind, string> = {
     html: "index.html",
     markdown: "index.md",
+    svg: "index.svg",
+    json: "index.json",
+    csv: "index.csv",
+    text: "index.txt",
 };
+
+/** Every kind, for a tool's enum and a UI's filter. */
+export const ARTIFACT_KINDS = Object.keys(FILE_FOR_KIND) as ArtifactKind[];
 
 export class ArtifactError extends Error {}
 
@@ -292,4 +337,65 @@ export function updateArtifactMeta(
     writeRecord(next);
     cache = null;
     return hydrate(next);
+}
+
+/**
+ * A filename a human would recognise, derived from the title.
+ *
+ * The store names every content file `index.<ext>` so a path is derivable from
+ * a kind alone — which is right on disk and useless in a Downloads folder,
+ * where four artifacts would all arrive as `index.html`. Exporting is the one
+ * place the title becomes the name.
+ */
+export function artifactFileName(meta: ArtifactRecord): string {
+    const ext = FILE_FOR_KIND[meta.kind] ? FILE_FOR_KIND[meta.kind].replace(/^index/, "") : "";
+    const slug = meta.title
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 60);
+    // A title of only punctuation or non-Latin script slugs to nothing; the id
+    // is never empty and is still the artifact's real name.
+    return `${slug || meta.id}${ext}`;
+}
+
+/** Where an export lands when the caller does not say. */
+export function defaultExportDir(): string {
+    return join(homedir(), "Downloads");
+}
+
+/**
+ * Copy an artifact out to a real folder, and say where it landed.
+ *
+ * This is what "download" means for a local-first tool: the artifact is already
+ * a single self-contained file, so sharing it is a copy — no bundle, no server.
+ * Both clients call this rather than each rolling their own, so the terminal
+ * and the app produce byte-identical results with the same name.
+ *
+ * Never overwrites. A second export of the same artifact makes `report-2.html`
+ * rather than silently replacing whatever was already there — the folder is the
+ * user's, and a download that destroys a file is worse than a cluttered one.
+ */
+export function exportArtifact(id: string, destDir?: string): string {
+    const meta = getArtifact(id);
+    if (!meta) throw new ArtifactError(`No such artifact: ${id}`);
+    if (!meta.written) throw new ArtifactError(`Artifact ${id} has no content yet`);
+
+    const dir = destDir ?? defaultExportDir();
+    mkdirSync(dir, { recursive: true });
+
+    const name = artifactFileName(meta);
+    const dot = name.lastIndexOf(".");
+    const stem = dot > 0 ? name.slice(0, dot) : name;
+    const ext = dot > 0 ? name.slice(dot) : "";
+
+    let target = join(dir, name);
+    for (let n = 2; existsSync(target); n++) {
+        target = join(dir, `${stem}-${n}${ext}`);
+        // A folder already holding thousands of these is a bug somewhere else;
+        // failing loudly beats spinning.
+        if (n > 1000) throw new ArtifactError(`Could not find a free filename in ${dir}`);
+    }
+    copyFileSync(artifactFilePath(meta), target);
+    return target;
 }

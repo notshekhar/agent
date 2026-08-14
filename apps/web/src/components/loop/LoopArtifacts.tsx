@@ -1,11 +1,13 @@
 /**
  * The Artifacts panel — pages the agent wrote, listed so you can open them.
  *
- * Artifacts live outside any repo (under loop's config dir) and are opened from
- * disk rather than served, so a row's action is a shell open of its `file://`
- * URL. Nothing here reads the content: the browser renders HTML, and a markdown
- * artifact opens as its source, which is the honest consequence of not running
- * a server for this.
+ * Artifacts live outside any repo, under loop's config dir, and are read from
+ * disk rather than served — there is no HTTP route for them by design. A row
+ * opens into ArtifactViewer, which picks a lane by kind: the kinds that can
+ * execute go into a sandboxed `<webview>`, the rest are rendered by this app.
+ *
+ * Both lanes need the desktop shell (one for the webview, one for the RPC that
+ * ships the bytes), so in a browser the list is shown but nothing opens.
  *
  * The feature is off by default, so the first thing this panel has to handle is
  * the case where there is nothing to list BECAUSE it was never turned on. That
@@ -19,6 +21,7 @@ import {
   BookOpenIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  DownloadIcon,
   FileTextIcon,
   LayersIcon,
   RefreshCwIcon,
@@ -37,6 +40,9 @@ import { Switch } from "../ui/switch";
 import { SettingsPageContainer, SettingsSection } from "../settings/settingsLayout";
 import { Input } from "../ui/input";
 import {
+  artifactKindLabel,
+  exportArtifact,
+  takePendingArtifactId,
   filterArtifacts,
   formatArtifactAge,
   formatArtifactSize,
@@ -94,6 +100,19 @@ function ArtifactRow({
 }) {
   const open = useCallback(() => onOpen(artifact), [artifact, onOpen]);
   const remove = useCallback(() => onDelete(artifact.id), [artifact.id, onDelete]);
+  // Where the copy landed, shown on the row itself. A download with no
+  // confirmation is indistinguishable from a button that does nothing, and the
+  // destination is the one fact the user needs in order to go and find it.
+  const [saved, setSaved] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const download = useCallback(() => {
+    setSaveError(null);
+    void exportArtifact(artifact.id)
+      .then(setSaved)
+      .catch((cause: unknown) =>
+        setSaveError(cause instanceof Error ? cause.message : String(cause)),
+      );
+  }, [artifact.id]);
 
   return (
     <div className="group flex items-center gap-3 border-b border-border/40 px-3 py-2.5 last:border-b-0 sm:px-4">
@@ -114,9 +133,13 @@ function ArtifactRow({
           {artifact.title}
         </span>
         <span className="w-full truncate text-xs text-muted-foreground/70">
-          {artifact.written
-            ? `${artifact.kind === "html" ? "Page" : "Markdown"} · ${formatArtifactSize(artifact.size)} · ${formatArtifactAge(artifact.updatedAt)}`
-            : "Waiting for the agent to write it"}
+          {saveError
+            ? `Could not save: ${saveError}`
+            : saved
+              ? `Saved to ${saved}`
+              : artifact.written
+                ? `${artifactKindLabel(artifact.kind)} · ${formatArtifactSize(artifact.size)} · ${formatArtifactAge(artifact.updatedAt)}`
+                : "Waiting for the agent to write it"}
         </span>
       </button>
 
@@ -131,6 +154,18 @@ function ArtifactRow({
           variant="ghost"
         >
           <BookOpenIcon className="size-4" />
+        </Button>
+      ) : null}
+
+      {artifact.written ? (
+        <Button
+          aria-label={`Download ${artifact.title}`}
+          className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+          onClick={download}
+          size="icon"
+          variant="ghost"
+        >
+          <DownloadIcon className="size-4" />
         </Button>
       ) : null}
 
@@ -199,7 +234,8 @@ export function LoopArtifacts() {
   const [enabling, setEnabling] = useState(false);
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
-  const [openedId, setOpenedId] = useState<string | null>(null);
+  // Claimed on mount: a card in the transcript parks an id and navigates here.
+  const [openedId, setOpenedId] = useState<string | null>(() => takePendingArtifactId());
 
   const setting = settings.find((entry) => entry.key === ARTIFACTS_SETTING_KEY);
   // Absent means an older loop that predates the setting — treat that as off

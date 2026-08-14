@@ -37,7 +37,9 @@ const rowSizes = async (events: ReadonlyArray<{ type: string; data?: unknown }>,
 
 describe("folding a run of tool calls", () => {
   it("gathers a run of finished reads into one row", async () => {
-    expect(await rowSizes([...read("a.ts", "1"), ...read("b.ts", "2"), ...read("c.ts", "3")])).toEqual([3]);
+    expect(
+      await rowSizes([...read("a.ts", "1"), ...read("b.ts", "2"), ...read("c.ts", "3")]),
+    ).toEqual([3]);
   });
 
   it("keeps every call inside the row it folded them into", async () => {
@@ -48,12 +50,10 @@ describe("folding a run of tool calls", () => {
     expect(view.blocks.filter((block) => block.kind === "tool")).toHaveLength(2);
   });
 
-  it("breaks the run around an edit, whose detail IS the information", async () => {
-    const events = [
-      ...read("a.ts", "1"),
-      ...call("edit", { path: "/w/project/b.ts" }, "2"),
-      ...read("c.ts", "3"),
-    ];
+  it("breaks the run around a call the user has to answer", async () => {
+    // `ask` is the surface a count would hide, so it is what splits a run now
+    // that edits fold.
+    const events = [...read("a.ts", "1"), ...call("ask", {}, "2"), ...read("c.ts", "3")];
     expect(await rowSizes(events)).toEqual([1, 1, 1]);
   });
 
@@ -77,7 +77,11 @@ describe("folding a run of tool calls", () => {
   });
 
   it("leaves a running call in its own row, in front of the run behind it", async () => {
-    const events = [...read("a.ts", "1"), ...read("b.ts", "2"), ...running("read", { path: "/w/project/c.ts" }, "3")];
+    const events = [
+      ...read("a.ts", "1"),
+      ...read("b.ts", "2"),
+      ...running("read", { path: "/w/project/c.ts" }, "3"),
+    ];
     // Two finished reads folded; the live one still visible on its own.
     expect(await rowSizes(events, true)).toEqual([2, 1]);
   });
@@ -87,11 +91,11 @@ describe("folding a run of tool calls", () => {
     expect(await rowSizes(events, true)).toEqual([3]);
   });
 
-  it("does not fold an edit — which file changed is the point", async () => {
+  it("folds a run of edits", async () => {
     const events = [
       ...call("edit", { path: "/w/project/a.ts" }, "1"),
       ...call("edit", { path: "/w/project/b.ts" }, "2"),
     ];
-    expect(await rowSizes(events)).toEqual([1, 1]);
+    expect(await rowSizes(events)).toEqual([2]);
   });
 });

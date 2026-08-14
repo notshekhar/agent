@@ -100,10 +100,10 @@ async function until(cond: () => boolean, tries = 400, ms = 5) {
 }
 
 /** Drive an in-process server through its real newline-delimited transport. */
-function harness() {
+function harness(opts?: { remote?: boolean }) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sent: any[] = [];
-    const server = new RpcServer();
+    const server = new RpcServer(opts);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { feed } = server.attach({ send: (m: any) => sent.push(m) });
     let id = 0;
@@ -223,9 +223,7 @@ describe("rpc: session lifecycle", () => {
         expect(hist.result.model).toBe("openai/gpt-5.6");
         expect(hist.result.provider).toBe("openai");
 
-        const row = (await call("session.list", { cwd: CWD })).result.find(
-            (r: { id: string }) => r.id === sessionId,
-        );
+        const row = (await call("session.list", { cwd: CWD })).result.find((r: { id: string }) => r.id === sessionId);
         expect(row.model).toBe(MODEL);
         expect(row.lastModel).toBe("openai/gpt-5.6");
         expect(row.lastProvider).toBe("openai");
@@ -245,10 +243,7 @@ describe("rpc: session lifecycle", () => {
         await call("session.send", { sessionId, input: "hi" });
         await until(() =>
             events().some(
-                (p) =>
-                    p.sessionId === sessionId &&
-                    p.part.type === "session-running" &&
-                    p.part.data.running === false,
+                (p) => p.sessionId === sessionId && p.part.type === "session-running" && p.part.data.running === false,
             ),
         );
 
@@ -271,9 +266,7 @@ describe("rpc: session lifecycle", () => {
         const { call } = harness();
         const created = await call("session.create", { cwd: CWD, provider: "anthropic", model: MODEL });
         const sessionId = created.result.sessionId as string;
-        const row = (await call("session.list", { cwd: CWD })).result.find(
-            (r: { id: string }) => r.id === sessionId,
-        );
+        const row = (await call("session.list", { cwd: CWD })).result.find((r: { id: string }) => r.id === sessionId);
         expect(row.lastModel).toBe(MODEL);
         expect(row.lastProvider).toBe("anthropic");
     });
@@ -290,9 +283,7 @@ describe("rpc: session lifecycle", () => {
         await until(() => events().some((p) => p.sessionId === sessionId && p.part.type === "finish"));
 
         const before = await call("session.tree", { sessionId });
-        const firstUser = before.result.rows.find(
-            (row: { role?: string; text?: string }) => row.role === "user",
-        );
+        const firstUser = before.result.rows.find((row: { role?: string; text?: string }) => row.role === "user");
         expect(firstUser.text).toBe("question one");
         expect(before.result.rows.every((row: { onPath: boolean }) => row.onPath)).toBe(true);
 
@@ -304,19 +295,13 @@ describe("rpc: session lifecycle", () => {
 
         doStreamImpl = async () => textTurn("second answer");
         await call("session.send", { sessionId, input: "question two" });
-        await until(
-            () =>
-                events().filter((p) => p.sessionId === sessionId && p.part.type === "finish").length === 2,
-        );
+        await until(() => events().filter((p) => p.sessionId === sessionId && p.part.type === "finish").length === 2);
 
         const after = await call("session.tree", { sessionId });
         const userRows = after.result.rows.filter((row: { role?: string }) => row.role === "user");
         // The branch the session is ON sorts first among siblings, so the
         // current one leads rather than being buried under an abandoned one.
-        expect(userRows.map((row: { text: string }) => row.text)).toEqual([
-            "question two",
-            "question one",
-        ]);
+        expect(userRows.map((row: { text: string }) => row.text)).toEqual(["question two", "question one"]);
         // The abandoned branch is off-path; the new one is on it.
         expect(userRows.find((r: { text: string }) => r.text === "question one").onPath).toBe(false);
         expect(userRows.find((r: { text: string }) => r.text === "question two").onPath).toBe(true);
@@ -848,9 +833,7 @@ describe("rpc: the ask tool", () => {
     test("declines rather than hanging when nobody is watching the session", async () => {
         // No session context at all: a turn that waited here would never end.
         const { getAskUserBridge } = await import("../src/tools/ask-bridge");
-        const answers = await getAskUserBridge()!.ask([
-            { question: "Which?", header: "Pick", options: [] },
-        ]);
+        const answers = await getAskUserBridge()!.ask([{ question: "Which?", header: "Pick", options: [] }]);
         expect(answers).toEqual([{ answers: [], declined: true }]);
     });
 
@@ -1008,5 +991,55 @@ describe("rpc: datasources", () => {
         const { call } = harness();
         const { error } = await call("datasource.test", { id: "nosuch" });
         expect(error?.message).toContain("unknown datasource");
+    });
+});
+
+/**
+ * Artifacts never cross the network.
+ *
+ * `loop serve` binds 0.0.0.0 by default and an artifact is a page the agent
+ * wrote out of the contents of a repo. Refusing the whole family at the RPC
+ * layer — rather than leaving a client to decline to render them — is what
+ * makes "artifacts are local" a property of the server instead of a habit of
+ * one UI.
+ */
+describe("rpc: artifacts are local-only", () => {
+    const ARTIFACT_METHODS = ["artifact.list", "artifact.get", "artifact.read", "artifact.export", "artifact.delete"];
+
+    test("the local server answers them", async () => {
+        const { call } = harness();
+        const { result, error } = await call("artifact.list");
+        expect(error).toBeUndefined();
+        expect(Array.isArray(result)).toBe(true);
+    });
+
+    test("a server reachable over the network refuses every one", async () => {
+        const { call } = harness({ remote: true });
+        for (const method of ARTIFACT_METHODS) {
+            const { error } = await call(method, { id: "a1b2c3d4e5f6" });
+            expect(error).toBeDefined();
+            // Names the method and says why, so the refusal is diagnosable from
+            // the client rather than looking like an unknown-method error.
+            expect(error.message).toContain(method);
+            expect(error.message).toContain("serve");
+        }
+    });
+
+    test("the refusal is about the transport, not about the artifact existing", async () => {
+        // A bogus id over the local socket reports the artifact is missing; the
+        // same call over the network must not reveal even that much.
+        const local = await harness().call("artifact.get", { id: "a1b2c3d4e5f6" });
+        expect(local.error.message).toContain("no such artifact");
+
+        const remote = await harness({ remote: true }).call("artifact.get", { id: "a1b2c3d4e5f6" });
+        expect(remote.error.message).not.toContain("no such artifact");
+    });
+
+    test("the rest of the surface still works over the network", async () => {
+        // The gate must be artifact-shaped, not a blanket lockout of serve.
+        const { call } = harness({ remote: true });
+        const { result, error } = await call("server.info");
+        expect(error).toBeUndefined();
+        expect(result.methods).toContain("artifact.list");
     });
 });

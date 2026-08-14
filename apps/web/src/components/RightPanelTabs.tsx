@@ -1,6 +1,16 @@
 import type { ContextMenuItem, PreviewSessionSnapshot } from "@loop/contracts";
 import { getTerminalLabel } from "@loop/shared/terminalLabels";
-import { ClipboardList, FileDiff, Files, Globe2, Plus, TerminalSquare, X } from "lucide-react";
+import {
+  ClipboardList,
+  FileDiff,
+  Files,
+  FileTextIcon,
+  Globe2,
+  LayersIcon,
+  Plus,
+  TerminalSquare,
+  X,
+} from "lucide-react";
 import {
   type MouseEvent as ReactMouseEvent,
   type ReactElement,
@@ -13,6 +23,7 @@ import {
 
 import { ownsWindowChrome } from "~/env";
 import type { RightPanelSurface } from "~/rightPanelStore";
+import { artifactTitle } from "./loop/artifacts";
 import { cn } from "~/lib/utils";
 import { readLocalApi } from "~/localApi";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
@@ -42,6 +53,7 @@ interface RightPanelTabsProps {
   onCopyFilePath: (relativePath: string) => void;
   onAddBrowser: () => void;
   onAddTerminal: () => void;
+  onAddArtifacts: () => void;
   onAddDiff: () => void;
   onAddFiles: () => void;
   browserAvailable: boolean;
@@ -89,6 +101,7 @@ function SurfaceMenuItem(props: {
 function RightPanelEmptyState(props: {
   onAddBrowser: () => void;
   onAddTerminal: () => void;
+  onAddArtifacts: () => void;
   onAddDiff: () => void;
   onAddFiles: () => void;
   browserAvailable: boolean;
@@ -111,6 +124,14 @@ function RightPanelEmptyState(props: {
       available: true,
       disabledReason: null,
       onClick: props.onAddTerminal,
+    },
+    {
+      label: "Artifacts",
+      description: "Pages the agent wrote for you.",
+      icon: LayersIcon,
+      available: true,
+      disabledReason: null,
+      onClick: props.onAddArtifacts,
     },
     {
       label: "Files",
@@ -207,6 +228,12 @@ function surfaceTitle(
       );
     case "plan":
       return "Plan";
+    case "artifacts":
+      return "Artifacts";
+    case "artifact":
+      // The id, until the panel below resolves the real title. A tab that said
+      // "Artifact" would be indistinguishable from the next one.
+      return artifactTitle(surface.resourceId) ?? surface.resourceId;
     case "preview": {
       const snapshot = surface.resourceId ? sessions[surface.resourceId] : null;
       if (!snapshot || snapshot.navStatus._tag === "Idle") return "Browser";
@@ -255,6 +282,10 @@ function SurfaceIcon({
       return <FileDiff className="size-3.5 shrink-0" />;
     case "files":
       return <Files className="size-3.5 shrink-0" />;
+    case "artifacts":
+      return <LayersIcon className="size-3.5 shrink-0" />;
+    case "artifact":
+      return <FileTextIcon className="size-3.5 shrink-0" />;
     case "file":
       return (
         <PierreEntryIcon
@@ -457,6 +488,10 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
                     <TerminalSquare />
                     Terminal
                   </SurfaceMenuItem>
+                  <SurfaceMenuItem available onClick={props.onAddArtifacts}>
+                    <LayersIcon />
+                    Artifacts
+                  </SurfaceMenuItem>
                   <SurfaceMenuItem
                     available={props.filesAvailable}
                     disabledReason={SURFACE_DISABLED_REASONS.files}
@@ -485,6 +520,7 @@ export function RightPanelTabs(props: RightPanelTabsProps) {
           <RightPanelEmptyState
             onAddBrowser={props.onAddBrowser}
             onAddTerminal={props.onAddTerminal}
+            onAddArtifacts={props.onAddArtifacts}
             onAddDiff={props.onAddDiff}
             onAddFiles={props.onAddFiles}
             browserAvailable={props.browserAvailable}

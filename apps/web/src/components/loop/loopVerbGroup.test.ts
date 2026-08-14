@@ -11,7 +11,11 @@ interface Item {
   notATool?: boolean;
 }
 
-const item = (id: string, name: string, extra: Partial<Item> = {}): Item => ({ id, name, ...extra });
+const item = (id: string, name: string, extra: Partial<Item> = {}): Item => ({
+  id,
+  name,
+  ...extra,
+});
 
 const runs = (items: readonly Item[]) =>
   groupToolRuns(items, (entry) =>
@@ -54,17 +58,18 @@ describe("what may be folded away", () => {
     expect(isGroupableTool({ name: "ls", isError: false, isPartial: false })).toBe(true);
   });
 
-  it("folds commands and third-party calls too", () => {
-    expect(isGroupableTool({ name: "bash", isError: false, isPartial: false })).toBe(true);
-    expect(isGroupableTool({ name: "linear__frobnicate", isError: false, isPartial: false })).toBe(
-      true,
-    );
-    expect(isGroupableTool({ name: "frobnicate", isError: false, isPartial: false })).toBe(true);
+  it("folds commands, edits and third-party calls too", () => {
+    for (const name of ["bash", "edit", "write", "linear__frobnicate", "frobnicate"]) {
+      expect(isGroupableTool({ name, isError: false, isPartial: false })).toBe(true);
+    }
   });
 
-  it("keeps an edit visible — which file changed is the information", () => {
-    expect(isGroupableTool({ name: "edit", isError: false, isPartial: false })).toBe(false);
-    expect(isGroupableTool({ name: "write", isError: false, isPartial: false })).toBe(false);
+  it("keeps the surfaces the user has to act on visible", () => {
+    // A question folded into a count is one nobody answers.
+    expect(isGroupableTool({ name: "ask", isError: false, isPartial: false })).toBe(false);
+    expect(isGroupableTool({ name: "enter_plan_mode", isError: false, isPartial: false })).toBe(
+      false,
+    );
   });
 
   it("never folds a running call — it is the one worth watching", () => {
@@ -135,17 +140,22 @@ describe("folding a work log", () => {
   });
 
   it("breaks the run around a call that keeps its own row", () => {
-    expect(drawn([item("a", "read"), item("b", "edit"), item("c", "read")])).toEqual([
+    expect(drawn([item("a", "read"), item("b", "ask"), item("c", "read")])).toEqual([
       "Read 1 file",
-      "edit",
+      "ask",
       "Read 1 file",
     ]);
   });
 
   it("folds a mixed run into one header with a segment per kind", () => {
-    expect(drawn([item("a", "read"), item("b", "bash"), item("c", "linear__frobnicate")])).toEqual([
-      "Read 1 file, Ran 1 command, Called 1 MCP tool",
-    ]);
+    expect(
+      drawn([
+        item("a", "read"),
+        item("b", "bash"),
+        item("c", "edit"),
+        item("d", "linear__frobnicate"),
+      ]),
+    ).toEqual(["Read 1 file, Ran 1 command, Edited 1 file, Called 1 MCP tool"]);
   });
 
   it("leaves a running call outside the group in front of it", () => {
@@ -155,11 +165,9 @@ describe("folding a work log", () => {
   });
 
   it("breaks the run around a row that is not a tool call at all", () => {
-    expect(drawn([item("a", "read"), item("b", "approval", { notATool: true }), item("c", "read")])).toEqual([
-      "Read 1 file",
-      "approval",
-      "Read 1 file",
-    ]);
+    expect(
+      drawn([item("a", "read"), item("b", "approval", { notATool: true }), item("c", "read")]),
+    ).toEqual(["Read 1 file", "approval", "Read 1 file"]);
   });
 
   it("keeps the head of a run stable as calls join it", () => {

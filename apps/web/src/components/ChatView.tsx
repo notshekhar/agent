@@ -145,6 +145,7 @@ import { DiffWorkerPoolProvider } from "./DiffWorkerPoolProvider";
 import { BranchToolbar } from "./BranchToolbar";
 import { resolveShortcutCommand, shortcutLabelForCommand } from "../keybindings";
 import PlanSidebar from "./PlanSidebar";
+import { ArtifactPanel, ArtifactsListPanel } from "./loop/ArtifactPanel";
 import ThreadTerminalDrawer from "./ThreadTerminalDrawer";
 import {
   AlarmClockIcon,
@@ -3282,6 +3283,11 @@ function ChatViewContent(props: ChatViewProps) {
       useRightPanelStore.getState().close(activeThreadRef);
     }
   }, [activeThreadRef]);
+  const addArtifactsSurface = useCallback(() => {
+    if (!activeThreadRef) return;
+    useRightPanelStore.getState().open(activeThreadRef, "artifacts");
+  }, [activeThreadRef]);
+
   const addTerminalSurface = useCallback(() => {
     if (!activeThreadRef || !activeThreadId || !activeProject) return;
     const cwd = gitCwd ?? activeProject.workspaceRoot;
@@ -5904,6 +5910,10 @@ function ChatViewContent(props: ChatViewProps) {
             : {})}
         />
       </Suspense>
+    ) : activeRightPanelSurface?.kind === "artifacts" ? (
+      <ArtifactsListPanel threadRef={activeThreadRef} />
+    ) : activeRightPanelSurface?.kind === "artifact" ? (
+      <ArtifactPanel artifactId={activeRightPanelSurface.resourceId} />
     ) : activeRightPanelSurface?.kind === "plan" ? (
       <PlanSidebar
         activePlan={activePlan}
@@ -6365,6 +6375,7 @@ function ChatViewContent(props: ChatViewProps) {
           onCopyFilePath={copyRightPanelFilePath}
           onAddBrowser={createBrowserSurface}
           onAddTerminal={addTerminalSurface}
+          onAddArtifacts={addArtifactsSurface}
           onAddDiff={addDiffSurface}
           onAddFiles={addFilesSurface}
           browserAvailable={isPreviewSupportedInRuntime()}
@@ -6392,6 +6403,7 @@ function ChatViewContent(props: ChatViewProps) {
             onCopyFilePath={copyRightPanelFilePath}
             onAddBrowser={createBrowserSurface}
             onAddTerminal={addTerminalSurface}
+            onAddArtifacts={addArtifactsSurface}
             onAddDiff={addDiffSurface}
             onAddFiles={addFilesSurface}
             browserAvailable={isPreviewSupportedInRuntime()}

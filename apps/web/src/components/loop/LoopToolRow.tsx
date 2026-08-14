@@ -35,6 +35,7 @@ import {
   WrenchIcon,
 } from "lucide-react";
 import { memo, useEffect, useState, type KeyboardEvent } from "react";
+import type { ScopedThreadRef } from "@loop/contracts";
 
 import { cn } from "../../lib/utils";
 import {
@@ -45,6 +46,8 @@ import {
   readLineRangeText,
   visibleSubagentSteps,
 } from "./loopToolSummary";
+import { ArtifactChip } from "./ArtifactChip";
+import { artifactResultSummary, parseArtifactResult } from "./artifacts";
 import type { LoopSubagentStep, LoopToolEntry } from "./loopEntry";
 
 /** Live tail while input streams — the terminal's `thinking.liveTailLines`. */
@@ -77,7 +80,8 @@ function ToolIcon({ name, state }: { name: string; state: ToolState }) {
           ? "text-muted-foreground/40"
           : "text-muted-foreground/70",
   );
-  if (state === "running") return <CircleDashedIcon aria-hidden className={cn(className, "animate-spin")} />;
+  if (state === "running")
+    return <CircleDashedIcon aria-hidden className={cn(className, "animate-spin")} />;
   if (state === "error") return <CircleAlertIcon aria-hidden className={className} />;
   switch (name) {
     case "bash":
@@ -306,9 +310,7 @@ const SubagentLog = memo(function SubagentLog({
           </p>
         ),
       )}
-      {running ? (
-        <div className="py-0.5 text-[11px] text-muted-foreground/40">working…</div>
-      ) : null}
+      {running ? <div className="py-0.5 text-[11px] text-muted-foreground/40">working…</div> : null}
     </div>
   );
 });
@@ -321,9 +323,12 @@ function argsOf(input: unknown): Record<string, unknown> {
 }
 
 export const LoopToolRow = memo(function LoopToolRow({
+  threadRef,
   tool,
   workspaceRoot,
 }: {
+  /** Which thread's right panel an artifact card should open into. */
+  threadRef: ScopedThreadRef | null;
   tool: LoopToolEntry;
   workspaceRoot: string | undefined;
 }) {
@@ -338,7 +343,9 @@ export const LoopToolRow = memo(function LoopToolRow({
   // `task <agent> · <status> · <prompt snippet>` — a subagent's identity line.
   const agent = typeof tool.args.agent === "string" ? tool.args.agent : "default";
   const snippet =
-    typeof tool.args.prompt === "string" ? (tool.args.prompt.split("\n")[0] ?? "").slice(0, 60) : "";
+    typeof tool.args.prompt === "string"
+      ? (tool.args.prompt.split("\n")[0] ?? "").slice(0, 60)
+      : "";
   // Every running call, not only a subagent's. A `bash` that compiles for
   // ninety seconds and a `read` that returns instantly render identically
   // otherwise — both a static "running" — and the whole complaint about this
@@ -361,9 +368,10 @@ export const LoopToolRow = memo(function LoopToolRow({
   const status = isTask
     ? taskStatus
     : tool.isPartial
-      ? [tool.statusText || "running", ...(elapsedMs === undefined ? [] : [formatDuration(elapsedMs)])].join(
-          " · ",
-        )
+      ? [
+          tool.statusText || "running",
+          ...(elapsedMs === undefined ? [] : [formatDuration(elapsedMs)]),
+        ].join(" · ")
       : tool.interrupted
         ? "interrupted"
         : "";
@@ -371,7 +379,14 @@ export const LoopToolRow = memo(function LoopToolRow({
   // A settled subagent's closing text IS its report, and loop keeps both — so
   // without this the answer renders twice, dim in the log and again below it.
   const activity = visibleSubagentSteps(tool.activity ?? [], !tool.isPartial, tool.output);
-  const outputLines = writeContentAdditions(tool) ?? (tool.output ? tool.output.split("\n") : []);
+  // An `artifact` result carries a card payload after its summary. Render the
+  // card instead of the raw output — the JSON is for this component, not to be
+  // read — and keep only the human half as text.
+  const artifactCard = parseArtifactResult(tool.output);
+  const visibleOutput =
+    artifactCard && tool.output ? artifactResultSummary(tool.output) : tool.output;
+  const outputLines =
+    writeContentAdditions(tool) ?? (visibleOutput ? visibleOutput.split("\n") : []);
   // While the input is still arriving there is no output — the growing file
   // content stands in, which is how a long `write` shows progress.
   const streamingLines =
@@ -434,6 +449,10 @@ export const LoopToolRow = memo(function LoopToolRow({
           </span>
         ) : null}
       </div>
+
+      {/* Outside the collapsible body: the card is the point of the row, so it
+          must not be hidden behind a disclosure the reader has to find. */}
+      {artifactCard ? <ArtifactChip artifact={artifactCard} threadRef={threadRef} /> : null}
 
       {streamingLines ? (
         <OutputSurface>

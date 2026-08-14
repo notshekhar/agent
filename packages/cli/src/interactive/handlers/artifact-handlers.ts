@@ -12,7 +12,9 @@
 import type { SelectItem } from "@notshekhar/loop-tui";
 import {
     artifactFilePath,
+    defaultExportDir,
     deleteArtifact,
+    exportArtifact,
     getSetting,
     listArtifacts,
     type ArtifactMeta,
@@ -39,6 +41,7 @@ function artifactLabel(a: ArtifactMeta): string {
 }
 
 const DELETE = "\x00delete";
+const EXPORT = "\x00export";
 
 export async function runArtifactsManager(deps: AppDeps): Promise<void> {
     const { history, tui, searchOnce, selectOnce } = deps;
@@ -54,9 +57,7 @@ export async function runArtifactsManager(deps: AppDeps): Promise<void> {
     while (true) {
         const artifacts = listArtifacts();
         if (artifacts.length === 0) {
-            history.addSystem(
-                `no artifacts yet — ask for a document, report or write-up and one will appear here.`,
-            );
+            history.addSystem(`no artifacts yet — ask for a document, report or write-up and one will appear here.`);
             tui.requestRender();
             return;
         }
@@ -83,11 +84,22 @@ export async function runArtifactsManager(deps: AppDeps): Promise<void> {
         const action = await selectOnce(
             [
                 { value: "open", label: "Open in browser", description: path },
+                { value: EXPORT, label: "Download a copy", description: `to ${defaultExportDir()}` },
                 { value: DELETE, label: "Delete", description: "remove this artifact from disk" },
             ],
             artifact.title,
         );
         if (!action) continue;
+
+        if (action.value === EXPORT) {
+            try {
+                history.addSystem(`saved ${exportArtifact(artifact.id)}`);
+            } catch (err) {
+                history.addSystem(`could not export: ${(err as Error).message}`);
+            }
+            tui.requestRender();
+            continue;
+        }
 
         if (action.value === DELETE) {
             history.addSystem(

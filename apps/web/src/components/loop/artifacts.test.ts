@@ -1,7 +1,17 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import { loopCall } from "../../loop/transport";
-import { filterArtifacts, formatArtifactAge, formatArtifactSize, paginate } from "./artifacts";
+import {
+  artifactKindExecutes,
+  artifactKindLabel,
+  artifactResultSummary,
+  artifactsForSession,
+  parseArtifactResult,
+  filterArtifacts,
+  formatArtifactAge,
+  formatArtifactSize,
+  paginate,
+} from "./artifacts";
 
 const globals = globalThis as { window?: Window & typeof globalThis };
 
@@ -173,5 +183,116 @@ describe("row formatting", () => {
     // Clock skew, or a file touched by something else a moment ahead of us.
     const now = Date.parse("2026-08-14T12:00:00Z");
     expect(formatArtifactAge(now + 60_000, now)).toBe("just now");
+  });
+});
+
+describe("which lane a kind renders in", () => {
+  it("treats html and svg as executable, everything else as inert", () => {
+    // This is the security boundary of the viewer: `true` means the content
+    // may only ever appear inside the sandboxed <webview>. svg is the one that
+    // catches people out — an SVG document can carry <script>.
+    expect(artifactKindExecutes("html")).toBe(true);
+    expect(artifactKindExecutes("svg")).toBe(true);
+    for (const kind of ["markdown", "json", "csv", "text"] as const) {
+      expect(artifactKindExecutes(kind)).toBe(false);
+    }
+  });
+
+  it("names every kind for a list row", () => {
+    for (const kind of ["html", "markdown", "svg", "json", "csv", "text"] as const) {
+      expect(artifactKindLabel(kind)).toBeTruthy();
+      expect(artifactKindLabel(kind)).not.toBe("File"); // the fallback
+    }
+  });
+});
+
+describe("the artifact card payload", () => {
+  // This parser is a port of core's. The separator is the contract between
+  // them, so these cases mirror packages/core/test/artifact-tool.test.ts.
+  const result = (payload: unknown) =>
+    `Created artifact "Q3 Report" (a1b2c3d4e5f6).\nWrite the content to: /x\n artifact:${JSON.stringify(payload)}`;
+
+  it("reads the card out of a tool result", () => {
+    const payload = {
+      id: "a1b2c3d4e5f6",
+      title: "Q3 Report",
+      kind: "markdown",
+      path: "/home/u/.loop/artifacts/a1b2c3d4e5f6/index.md",
+      url: "file:///home/u/.loop/artifacts/a1b2c3d4e5f6/index.md",
+    };
+    expect(parseArtifactResult(result(payload))).toEqual(payload);
+  });
+
+  it("keeps only the human half as the row's text", () => {
+    const summary = artifactResultSummary(result({ id: "a1b2c3d4e5f6", title: "Q3 Report" }));
+    // The JSON is for this component, not for anyone to read.
+    expect(summary).not.toContain("artifact:{");
+    expect(summary).toContain("Created artifact");
+  });
+
+  it("returns null for every other tool's output", () => {
+    // Every tool's result flows through the same row renderer.
+    for (const junk of ["", "Successfully wrote 12 bytes", "{}", null, undefined, 42]) {
+      expect(parseArtifactResult(junk)).toBeNull();
+    }
+  });
+
+  it("survives a truncated payload rather than throwing in a render", () => {
+    expect(parseArtifactResult('Created artifact "X".\n artifact:{"id":"a1b2')).toBeNull();
+    expect(artifactResultSummary("plain output")).toBe("plain output");
+  });
+});
+
+describe("the card survives a thread reload", () => {
+  // Mirrors packages/core/test/artifact-tool.test.ts. The JSON payload is
+  // live-only — loop keeps it out of the model's context and the AI SDK
+  // persists the model-facing value — so a reopened thread has only this.
+  const persisted = 'Created artifact "Q3 Report" (a1b2c3d4e5f6).\nWrite the content to: /x';
+
+  it("rebuilds the card from the persisted summary", () => {
+    const card = parseArtifactResult(persisted);
+    expect(card).toEqual({ id: "a1b2c3d4e5f6", title: "Q3 Report" });
+  });
+
+  it("still opens, because a card only needs the id", () => {
+    // path/url are absent after a reload; the chip navigates by id and the
+    // artifacts page resolves the rest.
+    const card = parseArtifactResult(persisted)!;
+    expect(card.url).toBeUndefined();
+    expect(card.id).toBe("a1b2c3d4e5f6");
+  });
+
+  it("does not mistake ordinary prose for an artifact result", () => {
+    expect(parseArtifactResult("Successfully wrote 812 bytes to artifact.ts")).toBeNull();
+    expect(parseArtifactResult('the artifact "X" was fine')).toBeNull();
+  });
+});
+
+describe("scoping artifacts to a chat", () => {
+  const withSession = (id: string, sessionId?: string) =>
+    ({ id, sessionId }) as unknown as Parameters<typeof artifactsForSession>[0][number];
+
+  const rows = [
+    withSession("1", "01M00SRPS7WW5PW8YA5M3WABZM"),
+    withSession("2", "01KZZ9SH7DQQ672A6VH7CN0FV5"),
+    withSession("3", "01M00SRPS7WW5PW8YA5M3WABZM"),
+    withSession("4"), // headless run, or made before the field existed
+  ];
+
+  it("keeps only the session's own artifacts", () => {
+    expect(artifactsForSession(rows, "01M00SRPS7WW5PW8YA5M3WABZM").map((r) => r.id)).toEqual([
+      "1",
+      "3",
+    ]);
+  });
+
+  it("never matches an artifact that belongs to no chat", () => {
+    expect(artifactsForSession(rows, "nope")).toHaveLength(0);
+  });
+
+  it("shows nothing rather than everything when there is no session", () => {
+    // A draft thread has no session yet. Falling back to the full list would
+    // claim artifacts this chat did not make.
+    expect(artifactsForSession(rows, null)).toHaveLength(0);
   });
 });

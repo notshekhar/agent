@@ -49,7 +49,13 @@ const KIND = {
     nounMany: "patterns",
     folds: true,
   },
-  web: { past: "Fetched", present: "Fetching", nounOne: "website", nounMany: "websites", folds: true },
+  web: {
+    past: "Fetched",
+    present: "Fetching",
+    nounOne: "website",
+    nounMany: "websites",
+    folds: true,
+  },
   memory: {
     past: "Searched",
     present: "Searching",
@@ -57,12 +63,42 @@ const KIND = {
     nounMany: "memories",
     folds: true,
   },
-  subagent: { past: "Ran", present: "Running", nounOne: "subagent", nounMany: "subagents", folds: true },
-  todo: { past: "Updated", present: "Updating", nounOne: "todo list", nounMany: "todo lists", folds: true },
-  data: { past: "Queried", present: "Querying", nounOne: "datasource", nounMany: "datasources", folds: true },
-  artifact: { past: "Created", present: "Creating", nounOne: "artifact", nounMany: "artifacts", folds: true },
+  subagent: {
+    past: "Ran",
+    present: "Running",
+    nounOne: "subagent",
+    nounMany: "subagents",
+    folds: true,
+  },
+  todo: {
+    past: "Updated",
+    present: "Updating",
+    nounOne: "todo list",
+    nounMany: "todo lists",
+    folds: true,
+  },
+  data: {
+    past: "Queried",
+    present: "Querying",
+    nounOne: "datasource",
+    nounMany: "datasources",
+    folds: true,
+  },
+  artifact: {
+    past: "Created",
+    present: "Creating",
+    nounOne: "artifact",
+    nounMany: "artifacts",
+    folds: true,
+  },
 
-  command: { past: "Ran", present: "Running", nounOne: "command", nounMany: "commands", folds: true },
+  command: {
+    past: "Ran",
+    present: "Running",
+    nounOne: "command",
+    nounMany: "commands",
+    folds: true,
+  },
 
   // Tools we did not write, named by the only thing we reliably know about
   // them — where they came from. Both fold.
@@ -81,12 +117,17 @@ const KIND = {
     folds: true,
   },
 
-  // Kinds that keep their rows. `edit` because which file changed is the
-  // information and it is what gets reviewed; `ask` and `plan` because they are
-  // surfaces the user acts on, and a surface folded into a count is one nobody
-  // answers.
-  edit: { past: "Edited", present: "Editing", nounOne: "file", nounMany: "files", folds: false },
-  ask: { past: "Asked", present: "Asking", nounOne: "question", nounMany: "questions", folds: false },
+  edit: { past: "Edited", present: "Editing", nounOne: "file", nounMany: "files", folds: true },
+
+  // The only kinds that keep their rows: surfaces the user has to ACT on. A
+  // question or a plan folded into a count is one nobody answers.
+  ask: {
+    past: "Asked",
+    present: "Asking",
+    nounOne: "question",
+    nounMany: "questions",
+    folds: false,
+  },
   plan: { past: "Planned", present: "Planning", nounOne: "plan", nounMany: "plans", folds: false },
 } as const satisfies Record<string, VerbGroupKind>;
 
@@ -191,9 +232,9 @@ export interface GroupableTool {
  * `plan` never joins either — it is an approval surface that must stay
  * readable, and the timeline routes it to its own card anyway.
  *
- * The last gate is the KIND. Nearly every kind folds, including commands and
- * third-party (MCP / extension) calls; `edit` is the exception, because which
- * file changed is the information and it is what gets reviewed.
+ * The last gate is the KIND. Every kind folds — reads, commands, edits,
+ * third-party calls — except the surfaces the user has to act on (`ask`,
+ * `plan`), which a count would hide.
  */
 export function isGroupableTool(tool: GroupableTool): boolean {
   return !tool.isPartial && tool.name !== "plan" && foldsEagerly(tool.name);

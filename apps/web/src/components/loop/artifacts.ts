@@ -16,12 +16,38 @@ import { useCallback, useEffect, useState } from "react";
 
 import { loopCall } from "../../loop/transport";
 
+/** Kinds loop can produce. Mirrors `ArtifactKind` in core. */
+export type LoopArtifactKind = "html" | "markdown" | "svg" | "json" | "csv" | "text";
+
+/**
+ * Whether a kind can run code, and therefore must be shown in the sandboxed
+ * `<webview>` rather than rendered by the app. Mirrors `ARTIFACT_KIND_EXECUTES`
+ * in core — `svg` counts, because an SVG document can carry `<script>`.
+ */
+export function artifactKindExecutes(kind: LoopArtifactKind): boolean {
+  return kind === "html" || kind === "svg";
+}
+
+/** What a row calls each kind. Exhaustive, so a new kind fails the typecheck here. */
+const KIND_LABEL: Record<LoopArtifactKind, string> = {
+  html: "Page",
+  markdown: "Document",
+  svg: "Diagram",
+  json: "JSON",
+  csv: "Table",
+  text: "Text",
+};
+
+export function artifactKindLabel(kind: LoopArtifactKind): string {
+  return KIND_LABEL[kind] ?? "File";
+}
+
 export interface LoopArtifact {
   readonly id: string;
   readonly title: string;
   readonly description?: string;
   readonly favicon?: string;
-  readonly kind: "html" | "markdown";
+  readonly kind: LoopArtifactKind;
   readonly createdAt: number;
   readonly updatedAt: number;
   readonly size: number;
@@ -96,6 +122,235 @@ export function useLoopArtifacts(enabled: boolean): LoopArtifactsState {
   const reload = useCallback(() => setGeneration((value) => value + 1), []);
 
   return { artifacts, loading, error, deleteArtifact, reload };
+}
+
+/**
+ * The `artifact` tool result, as the transcript needs it.
+ *
+ * Ported from `parseArtifactResult` in core (tools/artifact.ts) for the same
+ * reason as loopToolSummary and loopVerbGroup: the core module is a Node tree.
+ * KEEP IN SYNC — the separator is the contract between them.
+ */
+const ARTIFACT_RESULT_SEPARATOR = "\n artifact:";
+
+/**
+ * Everything but `id` and `title` is optional: the JSON payload does not
+ * survive a thread reload, and what gets rebuilt from the persisted summary has
+ * only those two. A card needs no more — it opens by id.
+ */
+export interface ArtifactResultPayload {
+  readonly id: string;
+  readonly title: string;
+  readonly kind?: LoopArtifactKind;
+  readonly description?: string;
+  readonly favicon?: string;
+  readonly path?: string;
+  readonly url?: string;
+}
+
+/** The id and title as the persisted summary states them. */
+const ARTIFACT_SUMMARY_RE = /artifact "([^"]+)" \(([a-f0-9]{12})\)/;
+
+/**
+ * The card payload in a tool result, or null for anything else.
+ *
+ * Two sources, because the JSON is LIVE-ONLY: loop keeps it out of the model's
+ * context, and the AI SDK persists the model-facing value — so a reloaded
+ * thread has only the summary. Without the fallback the card would appear while
+ * the turn ran and be gone the next time the thread was opened.
+ */
+export function parseArtifactResult(output: unknown): ArtifactResultPayload | null {
+  if (typeof output !== "string") return null;
+  const at = output.indexOf(ARTIFACT_RESULT_SEPARATOR);
+  if (at >= 0) {
+    try {
+      const payload = JSON.parse(
+        output.slice(at + ARTIFACT_RESULT_SEPARATOR.length),
+      ) as ArtifactResultPayload;
+      if (payload && typeof payload.id === "string" && typeof payload.title === "string") {
+        return payload;
+      }
+    } catch {
+      // Truncated in transit — fall through and rebuild from the summary.
+    }
+  }
+  const match = ARTIFACT_SUMMARY_RE.exec(output);
+  return match ? { id: match[2]!, title: match[1]! } : null;
+}
+
+/** The human half of the result — what a row shows when there is no card. */
+export function artifactResultSummary(output: string): string {
+  const at = output.indexOf(ARTIFACT_RESULT_SEPARATOR);
+  return at < 0 ? output : output.slice(0, at);
+}
+
+/**
+ * Copy an artifact into a real folder and report where it landed.
+ *
+ * Server-side on purpose. The browser route — Blob plus `<a download>` — goes
+ * through Electron's `will-download`, and loop's preload exposes no handler for
+ * it, so it would either do nothing or land somewhere with no way to say where.
+ * loop's own process has the filesystem, so it does the copy and returns the
+ * path, which is the only part the UI actually needs to show.
+ */
+export async function exportArtifact(id: string): Promise<string> {
+  const { path } = await loopCall<{ path: string }>("artifact.export", { id });
+  return path;
+}
+
+/**
+ * Titles seen this session, so a panel tab can be named before its content
+ * loads.
+ *
+ * The surface stores only the artifact id — the one field that survives a
+ * thread reload — and a tab reading `a1b2c3d4e5f6` says nothing. Whoever knows
+ * a title (the chip that opened it, the panel once it has loaded) records it
+ * here; the tab falls back to the id until someone does.
+ */
+const titlesById = new Map<string, string>();
+
+export function rememberArtifactTitle(id: string, title: string): void {
+  titlesById.set(id, title);
+}
+
+export function artifactTitle(id: string): string | undefined {
+  return titlesById.get(id);
+}
+
+/**
+ * Hand-off for "open this artifact" across a navigation.
+ *
+ * A card in the transcript has to get the Artifacts page to open one specific
+ * artifact, and the page is a different route. No route in this app declares
+ * search params, so rather than introduce that pattern for one link, the id is
+ * parked here and claimed by the page as it mounts — which is exactly when it
+ * arrives, since the click navigates away from a chat route.
+ */
+let pendingOpenId: string | null = null;
+
+export function requestOpenArtifact(id: string): void {
+  pendingOpenId = id;
+}
+
+/** Read once and clear, so a later visit to the page does not reopen it. */
+export function takePendingArtifactId(): string | null {
+  const id = pendingOpenId;
+  pendingOpenId = null;
+  return id;
+}
+
+/**
+ * The artifact's bytes.
+ *
+ * Needed because the non-executable kinds are rendered by the app itself, and a
+ * component in the page cannot open a `file://` URL — only the sandboxed
+ * `<webview>` can, which is exactly the lane these kinds are kept out of.
+ */
+export async function readArtifactContent(id: string): Promise<string> {
+  const row = await loopCall<{ content: string }>("artifact.read", { id });
+  return row.content;
+}
+
+/** One artifact's metadata, by id — what a panel needs before it can render. */
+export function useArtifact(id: string | null): {
+  readonly artifact: LoopArtifact | null;
+  readonly loading: boolean;
+  readonly error: string | null;
+} {
+  const [artifact, setArtifact] = useState<LoopArtifact | null>(null);
+  const [loading, setLoading] = useState(id !== null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (id === null) {
+      setArtifact(null);
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    void loopCall<LoopArtifact>("artifact.get", { id })
+      .then((next) => {
+        if (cancelled) return;
+        setArtifact(next);
+        setError(null);
+      })
+      .catch((cause: unknown) => {
+        if (cancelled) return;
+        setArtifact(null);
+        setError(cause instanceof Error ? cause.message : String(cause));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+
+  return { artifact, loading, error };
+}
+
+/** One artifact's content, loaded on demand. Null id = nothing open. */
+export function useArtifactContent(id: string | null): {
+  readonly content: string | null;
+  readonly loading: boolean;
+  readonly error: string | null;
+} {
+  const [content, setContent] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (id === null) {
+      setContent(null);
+      setError(null);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    // Cleared up front: leaving the previous artifact's text on screen while
+    // the next one loads reads as the new one having that content.
+    setContent(null);
+    void readArtifactContent(id)
+      .then((next) => {
+        if (cancelled) return;
+        setContent(next);
+        setError(null);
+      })
+      .catch((cause: unknown) => {
+        if (cancelled) return;
+        setError(cause instanceof Error ? cause.message : String(cause));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+
+  return { content, loading, error };
+}
+
+/**
+ * The artifacts one session produced.
+ *
+ * `sessionId` is loop's id for the session, which is not always the id this app
+ * knows the thread by — `session.create` can bind one to the other. Callers
+ * must pass the TRANSLATED id (`loopSessionIdFor(threadId)`), never
+ * `threadRef.threadId` raw, or a thread whose ids had diverged would show an
+ * empty panel with nothing to explain it.
+ *
+ * An artifact with no `sessionId` belongs to no chat — made before the field
+ * existed, or by a headless run — so it never matches a session.
+ */
+export function artifactsForSession(
+  artifacts: readonly LoopArtifact[],
+  sessionId: string | null,
+): readonly LoopArtifact[] {
+  if (!sessionId) return [];
+  return artifacts.filter((artifact) => artifact.sessionId === sessionId);
 }
 
 /**

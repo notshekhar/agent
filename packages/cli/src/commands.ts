@@ -105,7 +105,7 @@ Usage:
   ${PRODUCT_NAME} archive <id>        Archive a session (hides it from the lists)
   ${PRODUCT_NAME} unarchive <id>      Restore an archived session
   ${PRODUCT_NAME} goals <cmd>         Manage background tasks (list, add, rm, run, tick, daemon…)
-  ${PRODUCT_NAME} artifacts           List pages the agent wrote (open one with /artifacts)
+  ${PRODUCT_NAME} artifacts [export <id>] List pages the agent wrote, or save one out
   ${PRODUCT_NAME} models              List available models
   ${PRODUCT_NAME} whoami              Show active provider + auth status
   ${PRODUCT_NAME} cost audit          Verify the cost ledger reconciles (self-audit)
@@ -206,9 +206,7 @@ export async function cmdSessions(args?: Args): Promise<void> {
     const scope: SessionScope = args?.flags.all ? "all" : args?.flags.archived ? "archived" : "active";
     const sessions = mgr.list(process.cwd(), scope);
     if (sessions.length === 0) {
-        console.log(
-            scope === "archived" ? "No archived sessions in this cwd." : "No sessions in this cwd.",
-        );
+        console.log(scope === "archived" ? "No archived sessions in this cwd." : "No sessions in this cwd.");
         return;
     }
     for (const s of sessions) {
@@ -447,8 +445,25 @@ export async function cmdRun(args: Args): Promise<void> {
  * "open it" lives. An artifact the agent reserved but never wrote is listed
  * too, marked, rather than hidden — otherwise it looks like it was lost.
  */
-export async function cmdArtifacts(): Promise<void> {
-    const { getSetting, listArtifacts, artifactFilePath } = await import("@notshekhar/loop-core");
+export async function cmdArtifacts(args?: Args): Promise<void> {
+    const { getSetting, listArtifacts, artifactFilePath, exportArtifact } = await import("@notshekhar/loop-core");
+    // `loop artifacts export <id> [dir]` — the scriptable half of the picker's
+    // Download action, sharing its implementation so both name the file alike.
+    if (args?.positional[0] === "export") {
+        const id = args.positional[1];
+        if (!id) {
+            console.error(`Usage: ${PRODUCT_NAME} artifacts export <id> [dir]`);
+            process.exitCode = 1;
+            return;
+        }
+        try {
+            console.log(exportArtifact(id, args.positional[2]));
+        } catch (err) {
+            console.error((err as Error).message);
+            process.exitCode = 1;
+        }
+        return;
+    }
     if (getSetting("artifacts") !== true) {
         console.error(`Artifacts are off. Enable them in ${PRODUCT_NAME} → /settings → artifacts.`);
         process.exitCode = 1;

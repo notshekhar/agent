@@ -1991,6 +1991,10 @@ const WorkEntryRow = memo(function WorkEntryRow(props: {
   workspaceRoot: string | undefined;
 }) {
   const { workEntry, workspaceRoot } = props;
+  // The artifact card opens into this thread's right panel, so the row needs to
+  // know which thread it belongs to. Read here rather than threaded through
+  // every caller — the context is already the source for workspaceRoot.
+  const { threadRef } = use(TimelineRowCtx);
   const compact = loopCompactOf(workEntry);
   if (compact) return <LoopCompactRow compact={compact} />;
   const recap = loopRecapOf(workEntry);
@@ -2000,7 +2004,7 @@ const WorkEntryRow = memo(function WorkEntryRow(props: {
   const thinking = loopThinkingOf(workEntry);
   if (thinking) return <LoopThinkingRow thinking={thinking} />;
   const tool = loopToolOf(workEntry);
-  if (tool) return <LoopToolRow tool={tool} workspaceRoot={workspaceRoot} />;
+  if (tool) return <LoopToolRow threadRef={threadRef} tool={tool} workspaceRoot={workspaceRoot} />;
   return <SimpleWorkEntryRow workEntry={workEntry} workspaceRoot={workspaceRoot} />;
 });
 

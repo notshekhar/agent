@@ -38,7 +38,15 @@ import {
 } from "../agent/agents";
 import { setAskUserBridge, type AskAnswer, type AskQuestion } from "../tools/ask-bridge";
 import { THINKING_LEVELS, type ThinkingLevel } from "../agent/thinking";
-import { artifactFilePath, deleteArtifact, getArtifact, listArtifacts, type ArtifactMeta } from "../artifacts";
+import {
+    artifactFilePath,
+    deleteArtifact,
+    exportArtifact,
+    getArtifact,
+    listArtifacts,
+    readArtifact,
+    type ArtifactMeta,
+} from "../artifacts";
 import { bustCatalogCache, getCatalog, listUsableProviders } from "../catalog";
 import { CommandRegistry, registerBuiltins } from "../commands";
 import { getExtensionHost, setBuiltinEnabled, setRecordEnabled } from "../extensions";
@@ -105,6 +113,11 @@ function providerOfModel(modelId: string): string | null {
     } catch {
         return null;
     }
+}
+
+/** Refusal text for a local-only method reached over the network. */
+function localOnlyError(method: string): Error {
+    return new Error(`${method} is not available over ${PRODUCT_NAME} serve — artifacts stay on the local machine`);
 }
 
 /**
@@ -182,6 +195,8 @@ const RPC_METHODS = [
     "git.commitMessage",
     "artifact.list",
     "artifact.get",
+    "artifact.read",
+    "artifact.export",
     "artifact.delete",
 ] as const;
 
@@ -313,6 +328,17 @@ export class RpcServer {
     private sessions = new Map<string, ActiveSession>();
     private manager = new SessionManager();
     private commands = new CommandRegistry();
+    /**
+     * True when this server is reachable over the network (`loop serve`) rather
+     * than only over the local unix socket / stdio.
+     *
+     * Only artifacts care so far, and deliberately: an artifact is a page the
+     * agent wrote out of the contents of your repo, and `serve` binds 0.0.0.0
+     * by default. Refusing the whole `artifact.*` family here means those bytes
+     * never cross the network at all, which is a stronger guarantee than a UI
+     * that merely declines to render them.
+     */
+    private readonly remote: boolean;
     /** Startup work (extensions, command registry) every request waits on —
      * otherwise an early session.send could run a turn before extension
      * tools/providers exist. */
@@ -322,7 +348,13 @@ export class RpcServer {
     private pendingAsks = new Map<string, (answers: AskAnswer[]) => void>();
     private nextAskId = 1;
 
-    constructor() {
+    /** Throw unless this server is the local one. See `remote`. */
+    private requireLocal(method: string): void {
+        if (this.remote) throw localOnlyError(method);
+    }
+
+    constructor(opts: { remote?: boolean } = {}) {
+        this.remote = opts.remote === true;
         // Registering a bridge is what makes the ask tool exist at all: runTurn
         // only attaches it when one is present, which is why RPC clients never
         // saw a question before.
@@ -1186,14 +1218,36 @@ export class RpcServer {
             // second round trip — there is no HTTP route serving artifacts, by
             // design, so the file itself is what gets opened.
             case "artifact.list": {
+                this.requireLocal(req.method);
                 return listArtifacts().map(artifactRow);
             }
             case "artifact.get": {
+                this.requireLocal(req.method);
                 const meta = getArtifact(String(params.id));
                 if (!meta) throw new Error(`no such artifact: ${params.id}`);
                 return artifactRow(meta);
             }
+            case "artifact.read": {
+                this.requireLocal(req.method);
+                // The bytes, for a client that renders an artifact itself rather
+                // than pointing a browser at the file — the desktop app's viewer
+                // reads markdown/json/csv/text this way, since a renderer in the
+                // page cannot open a file:// URL.
+                const meta = getArtifact(String(params.id));
+                if (!meta) throw new Error(`no such artifact: ${params.id}`);
+                if (!meta.written) throw new Error(`artifact ${meta.id} has no content yet`);
+                return { ...artifactRow(meta), content: readArtifact(meta.id) };
+            }
+            case "artifact.export": {
+                this.requireLocal(req.method);
+                // Copies the artifact into a real folder (~/Downloads unless
+                // asked otherwise) and reports where — the client has no
+                // filesystem of its own, so the path is the whole answer.
+                const dest = typeof params.dest === "string" ? params.dest : undefined;
+                return { path: exportArtifact(String(params.id), dest) };
+            }
             case "artifact.delete": {
+                this.requireLocal(req.method);
                 return { deleted: deleteArtifact(String(params.id)) };
             }
             case "settings.set": {

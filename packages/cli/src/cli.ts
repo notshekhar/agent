@@ -120,7 +120,7 @@ async function main(): Promise<void> {
             await (await commands()).cmdModels();
             return;
         case "artifacts":
-            await (await commands()).cmdArtifacts();
+            await (await commands()).cmdArtifacts(args);
             return;
         case "whoami":
             (await commands()).cmdWhoami();

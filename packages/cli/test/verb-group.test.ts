@@ -26,10 +26,12 @@ describe("classification", () => {
         expect(kindIdOf("task")).toBe("subagent");
     });
 
-    test("everything folds except edits", () => {
-        for (const t of ["read", "ls", "grep", "webfetch", "task", "bash"]) expect(foldsEagerly(t)).toBe(true);
-        // Which file changed is the information, and it is what gets reviewed.
-        for (const t of ["edit", "write"]) expect(foldsEagerly(t)).toBe(false);
+    test("everything folds except the surfaces the user acts on", () => {
+        for (const t of ["read", "ls", "grep", "webfetch", "task", "bash", "edit", "write", "artifact"]) {
+            expect(foldsEagerly(t)).toBe(true);
+        }
+        // A question or a plan folded into a count is one nobody answers.
+        for (const t of ["ask", "plan", "enter_plan_mode"]) expect(foldsEagerly(t)).toBe(false);
     });
 });
 
@@ -94,8 +96,9 @@ describe("tools we did not write", () => {
         registerToolVerbGroup("github__search_issues", "search");
         expect(kindIdOf("github__search_issues")).toBe("search");
 
-        // Even when it opts a tool OUT of folding.
-        registerToolVerbGroup("dangerous_thing", "edit");
+        // Even when it opts a tool OUT of folding — `ask` is a kind that keeps
+        // its rows, so an extension whose tool needs answering can say so.
+        registerToolVerbGroup("dangerous_thing", "ask");
         expect(foldsEagerly("dangerous_thing")).toBe(false);
     });
 });

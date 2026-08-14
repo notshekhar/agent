@@ -133,7 +133,8 @@ export function startWebServer(opts: { host?: string; port?: number } = {}): Ser
     const hostname = opts.host ?? "127.0.0.1";
     const port = opts.port ?? SERVE_DEFAULT_PORT;
     const token = getOrCreateServeToken();
-    const rpc = new RpcServer();
+    // Reachable over the network, so artifact.* is refused — see RpcServer.remote.
+    const rpc = new RpcServer({ remote: true });
 
     const unauthorized = () =>
         new Response("Unauthorized: token required (start with `serve` and use the printed URL)", { status: 401 });

@@ -23,10 +23,16 @@
  * do is render badly.
  */
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeftIcon, RefreshCwIcon } from "lucide-react";
+import { ArrowLeftIcon, CheckIcon, DownloadIcon, RefreshCwIcon } from "lucide-react";
 
 import { Button } from "../ui/button";
-import type { LoopArtifact } from "./artifacts";
+import { ArtifactCsv, ArtifactJson, ArtifactMarkdown, ArtifactPlainText } from "./ArtifactContent";
+import {
+  artifactKindExecutes,
+  exportArtifact,
+  useArtifactContent,
+  type LoopArtifact,
+} from "./artifacts";
 
 /**
  * Its own store, sharing nothing with the app or with the thread browser's
@@ -53,6 +59,14 @@ export function ArtifactViewer({
   // not re-fetch on its own.
   const [generation, setGeneration] = useState(0);
   const reload = useCallback(() => setGeneration((value) => value + 1), []);
+  const executes = artifactKindExecutes(artifact.kind);
+  // The header has no room for a path, so the tick plus its tooltip carries it.
+  const [saved, setSaved] = useState<string | null>(null);
+  const download = useCallback(() => {
+    void exportArtifact(artifact.id)
+      .then(setSaved)
+      .catch(() => setSaved(null));
+  }, [artifact.id]);
 
   // Escape leaves the viewer, the way it closes every other overlay here.
   useEffect(() => {
@@ -77,18 +91,69 @@ export function ArtifactViewer({
             </span>
           ) : null}
         </div>
+        <Button
+          aria-label={saved ? `Saved to ${saved}` : `Download ${artifact.title}`}
+          onClick={download}
+          size="icon"
+          title={saved ? `Saved to ${saved}` : "Download a copy"}
+          variant="ghost"
+        >
+          {saved ? (
+            <CheckIcon className="size-4 text-success" />
+          ) : (
+            <DownloadIcon className="size-4" />
+          )}
+        </Button>
         <Button aria-label="Reload artifact" onClick={reload} size="icon" variant="ghost">
           <RefreshCwIcon className="size-4" />
         </Button>
       </div>
 
-      <webview
-        key={generation}
-        className="min-h-0 flex-1 bg-white"
-        partition={ARTIFACT_PARTITION}
-        src={artifact.url}
-        webpreferences={ARTIFACT_WEBPREFERENCES}
-      />
+      {executes ? (
+        // html and svg can carry script, so they only ever render inside the
+        // sandbox — never in this document.
+        <webview
+          key={generation}
+          className="min-h-0 flex-1 bg-white"
+          partition={ARTIFACT_PARTITION}
+          src={artifact.url}
+          webpreferences={ARTIFACT_WEBPREFERENCES}
+        />
+      ) : (
+        <div className="min-h-0 flex-1 overflow-auto" key={generation}>
+          <InertArtifact artifact={artifact} />
+        </div>
+      )}
     </div>
   );
+}
+
+/**
+ * The kinds the app renders itself.
+ *
+ * Content arrives over RPC rather than from the file, because a component in
+ * this document cannot read a `file://` URL — only the webview can, and these
+ * kinds are deliberately kept out of it.
+ */
+function InertArtifact({ artifact }: { readonly artifact: LoopArtifact }) {
+  const { content, loading, error } = useArtifactContent(artifact.id);
+
+  if (loading) return <Note>Loading…</Note>;
+  if (error) return <Note>{`Could not read this artifact: ${error}`}</Note>;
+  if (content === null) return null;
+
+  switch (artifact.kind) {
+    case "markdown":
+      return <ArtifactMarkdown content={content} />;
+    case "json":
+      return <ArtifactJson content={content} />;
+    case "csv":
+      return <ArtifactCsv content={content} />;
+    default:
+      return <ArtifactPlainText content={content} />;
+  }
+}
+
+function Note({ children }: { children: React.ReactNode }) {
+  return <p className="px-6 py-6 text-[13px] text-muted-foreground/80">{children}</p>;
 }

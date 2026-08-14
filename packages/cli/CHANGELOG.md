@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.18.13] - 2026-08-15
+
+### Added
+
+- **Artifacts open beside the chat that made them.** A new artifact used to leave nothing in the transcript but whatever the model chose to type — usually a raw `file:///Users/…/index.html`, unclickable in a terminal and, in the app, a string sitting next to nothing that opened it. The model is no longer told that URL at all; it goes to the renderer, which draws a card you click. It opens in the right panel, next to Browser, Terminal and Files, rather than in the OS browser or by navigating away from the conversation you are reading it against. The panel's "+" menu also gains an Artifacts surface listing what this chat has produced — scoped to the session exactly, translating the thread's id the way every other call to loop does, so a thread whose ids have diverged still finds its own work.
+- **More kinds than a web page.** Alongside `html`, artifacts can now be `markdown`, `svg`, `json`, `csv` or `text`, and the app renders each properly — markdown as prose, JSON pretty-printed, CSV as a table — instead of showing you its source. The split that governs this is not the file extension but whether the content can execute: `html` and `svg` can carry script and are shown only inside a sandboxed view with its own partition and no preload, while the inert kinds are rendered by the app itself. `svg` counts as executable, which is the part that is easy to get wrong.
+- **Download a copy, from either client.** A download button on every artifact row and in the viewer, and `loop artifacts export <id> [dir]` plus a Download action in `/artifacts` for the terminal. On disk every artifact is `index.<ext>` so a path follows from its kind; exporting is where the title becomes the name, so a Downloads folder gets `q3-revenue-report.html` rather than a fourth `index.html`. It never overwrites — a second export is `report-2.html`.
+
+### Changed
+
+- **Live mode folds edits and writes too.** The rule is simpler than it was: everything folds — reads, listings, searches, commands, edits, third-party calls — except the surfaces you have to act on, `ask` and `plan`, which a count would hide. The detail is still one key away.
+- **Artifacts never cross the network.** `loop serve` binds every interface by design, and an artifact is a page the agent wrote out of the contents of a repo, so the whole `artifact.*` family is refused over it. That is a property of the server rather than a habit of one UI: the bytes are never sent, not merely never rendered.
+
+### Fixed
+
+- **An artifact card survives reopening the thread.** loop keeps a tool's UI payload out of the model's context, and the SDK persists the model-facing value — so the card appeared while the turn ran and was gone the next time the thread was opened. It is now rebuilt from the summary, which still names the artifact, and a card needs nothing more: it opens by id.
+
 ## [0.18.12] - 2026-08-14
 
 ### Added

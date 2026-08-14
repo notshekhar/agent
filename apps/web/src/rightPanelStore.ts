@@ -14,7 +14,16 @@ import { createJSONStorage, persist } from "zustand/middleware";
 
 import { resolveStorage } from "./lib/storage";
 
-export const RIGHT_PANEL_KINDS = ["plan", "diff", "files", "file", "preview", "terminal"] as const;
+export const RIGHT_PANEL_KINDS = [
+  "plan",
+  "diff",
+  "files",
+  "file",
+  "preview",
+  "terminal",
+  "artifacts",
+  "artifact",
+] as const;
 export type RightPanelKind = (typeof RIGHT_PANEL_KINDS)[number];
 
 export type RightPanelSurface =
@@ -47,7 +56,18 @@ export type RightPanelSurface =
       revealLine: number | null;
       revealRequestId: number;
     }
-  | { id: "plan"; kind: "plan" };
+  | { id: "plan"; kind: "plan" }
+  /**
+   * One artifact, opened beside the chat that produced it.
+   *
+   * Its own tab rather than a singleton: a turn can make several, and reading
+   * one is not a reason to lose the last. `resourceId` is the artifact id, and
+   * the panel resolves everything else from it — the id is the only part that
+   * survives a thread reload (see parseArtifactResult).
+   */
+  | { id: `artifact:${string}`; kind: "artifact"; resourceId: string }
+  /** The index: every artifact, this chat's first. A singleton, like Files. */
+  | { id: "artifacts"; kind: "artifacts" };
 
 const RIGHT_PANEL_STORAGE_KEY = "t3code:right-panel-state:v2";
 /**
@@ -67,10 +87,15 @@ export interface ThreadRightPanelState {
 
 interface RightPanelStoreState {
   byThreadKey: Record<string, ThreadRightPanelState>;
-  open: (ref: ScopedThreadRef, kind: Exclude<RightPanelKind, "file" | "terminal">) => void;
+  open: (
+    ref: ScopedThreadRef,
+    kind: Exclude<RightPanelKind, "file" | "terminal" | "artifact">,
+  ) => void;
   openBrowser: (ref: ScopedThreadRef, tabId: string | null) => void;
   openFile: (ref: ScopedThreadRef, relativePath: string, line?: number) => void;
   openTerminal: (ref: ScopedThreadRef, terminalId: string) => void;
+  /** Show an artifact in the panel, by id. */
+  openArtifact: (ref: ScopedThreadRef, artifactId: string) => void;
   /** One repository from a folder of repositories, as its own tab. */
   openRepositoryDiff: (ref: ScopedThreadRef, repositoryPath: string) => void;
   splitTerminal: (
@@ -91,7 +116,10 @@ interface RightPanelStoreState {
   show: (ref: ScopedThreadRef) => void;
   close: (ref: ScopedThreadRef) => void;
   toggleVisibility: (ref: ScopedThreadRef) => void;
-  toggle: (ref: ScopedThreadRef, kind: Exclude<RightPanelKind, "file" | "terminal">) => void;
+  toggle: (
+    ref: ScopedThreadRef,
+    kind: Exclude<RightPanelKind, "file" | "terminal" | "artifact">,
+  ) => void;
   removeThread: (ref: ScopedThreadRef) => void;
 }
 
@@ -102,7 +130,7 @@ const EMPTY_THREAD_STATE: ThreadRightPanelState = {
 };
 
 const singletonSurface = (
-  kind: Exclude<RightPanelKind, "file" | "preview" | "terminal">,
+  kind: Exclude<RightPanelKind, "file" | "preview" | "terminal" | "artifact">,
 ): RightPanelSurface => {
   switch (kind) {
     case "diff":
@@ -111,6 +139,8 @@ const singletonSurface = (
       return { id: "files", kind };
     case "plan":
       return { id: "plan", kind };
+    case "artifacts":
+      return { id: "artifacts", kind };
   }
 };
 
@@ -129,6 +159,12 @@ const fileSurface = (
   relativePath,
   revealLine,
   revealRequestId,
+});
+
+const artifactSurface = (artifactId: string): RightPanelSurface => ({
+  id: `artifact:${artifactId}`,
+  kind: "artifact",
+  resourceId: artifactId,
 });
 
 const terminalSurface = (terminalId: string): RightPanelSurface => ({
@@ -286,6 +322,12 @@ export const useRightPanelStore = create<RightPanelStoreState>()(
               : current.surfaces;
             return upsertSurface({ ...current, surfaces: withoutPlaceholder }, surface);
           }),
+        })),
+      openArtifact: (ref, artifactId) =>
+        set((state) => ({
+          byThreadKey: updateThread(state.byThreadKey, scopedThreadKey(ref), (current) =>
+            upsertSurface(current, artifactSurface(artifactId)),
+          ),
         })),
       openFile: (ref, relativePath, line) =>
         set((state) => ({

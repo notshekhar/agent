@@ -6,10 +6,11 @@
  * that makes the whole thing work: a tool is classified into a KIND, and the
  * kind decides both the grammar and whether a run of them folds into a header.
  *
- * Nearly everything folds — reads, listings, searches, fetches, subagents,
- * commands, and third-party calls — because a run's individual detail is noise
- * you can open the group to get back. `edit` is the one exception: which file
- * changed is the thing you are watching for, and it is what you review.
+ * Everything folds — reads, listings, searches, fetches, subagents, commands,
+ * edits, and third-party calls — because a run's individual detail is noise you
+ * can open the group to get back. The exceptions are not about noise at all:
+ * `ask` and `plan` are surfaces the user has to act on, and one folded into a
+ * count is one nobody answers.
  *
  * ## Tools we did not write
  *
@@ -77,11 +78,10 @@ const KIND = {
         folds: true,
     },
 
-    // Kinds that keep their rows. `edit` because which file changed is the
-    // information and it is what gets reviewed; `ask` and `plan` because they
-    // are surfaces the user acts on, and a surface folded into a count is one
-    // nobody answers.
-    edit: { past: "Edited", present: "Editing", nounOne: "file", nounMany: "files", folds: false },
+    edit: { past: "Edited", present: "Editing", nounOne: "file", nounMany: "files", folds: true },
+
+    // The only kinds that keep their rows: surfaces the user has to ACT on. A
+    // question or a plan folded into a count is one nobody answers.
     ask: { past: "Asked", present: "Asking", nounOne: "question", nounMany: "questions", folds: false },
     plan: { past: "Planned", present: "Planning", nounOne: "plan", nounMany: "plans", folds: false },
 } as const satisfies Record<string, VerbGroupKind>;

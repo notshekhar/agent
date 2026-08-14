@@ -5,7 +5,7 @@
  * syntax highlighting for read.
  */
 import { Box, Container, Markdown, Spacer, Text, type TUI } from "@notshekhar/loop-tui";
-import { normalizePlanText } from "@notshekhar/loop-core";
+import { artifactResultSummary, normalizePlanText } from "@notshekhar/loop-core";
 import { getLanguageFromPath, getMarkdownTheme, highlightCode, theme } from "./theme";
 import { formatToolArgs, readGutterPrefixes, readLineRangeText } from "./tool-summary";
 import { uiRenderers, uiStyle } from "./ui-mode";
@@ -131,10 +131,9 @@ export class ToolExecutionComponent extends Container {
      * and `plan` never joins, being an approval surface that must stay
      * readable.
      *
-     * The last gate is the tool's KIND. Nearly every kind folds, including
-     * commands and third-party (MCP / extension) calls; `edit` is the
-     * exception, because which file changed is the information and it is what
-     * gets reviewed. See verb-group.ts for the vocabulary.
+     * The last gate is the tool's KIND. Every kind folds — reads, commands,
+     * edits, third-party calls — except the surfaces the user has to act on
+     * (`ask`, `plan`). See verb-group.ts for the vocabulary.
      */
     isGroupable(): boolean {
         return !this.isPartial && !this.expanded && this.toolName !== "plan" && foldsEagerly(this.toolName);
@@ -405,11 +404,16 @@ export class ToolExecutionComponent extends Container {
 
     private outputText(): string {
         if (!this.result) return "";
-        return this.result.content
+        const text = this.result.content
             .filter((c) => c.type === "text" && c.text)
             .map((c) => c.text)
             .join("\n")
             .trimEnd();
+        // An `artifact` result carries a JSON card payload for the desktop app
+        // after its summary. The terminal has no card to draw, so it shows the
+        // summary and drops the payload rather than printing raw JSON at the
+        // user — `/artifacts` is where a terminal opens one.
+        return artifactResultSummary(text).trimEnd();
     }
 
     private colorOutput(lines: string[]): string[] {

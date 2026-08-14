@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { artifactFilePath, getArtifact, listArtifacts, readArtifact, setArtifactsDirForTests } from "../src/artifacts";
-import { createArtifactTool } from "../src/tools/artifact";
+import { artifactResultSummary, createArtifactTool, parseArtifactResult } from "../src/tools/artifact";
 import { setPlanMode } from "../src/tools/utils/plan-mode";
 
 let root: string;
@@ -55,8 +55,9 @@ describe("artifact tool", () => {
         expect(pathFrom(out)).toBe(artifactFilePath(meta));
         expect(pathFrom(out)).toBe(join(root, meta.id, "index.html"));
 
-        // And the URL it quotes resolves to that same file.
-        const url = out.split("\n")[2].replace("It will open at: ", "");
+        // The openable URL moved into the card payload — the model is no
+        // longer told it, so it can no longer paste it into a reply.
+        const url = parseArtifactResult(out)!.url;
         expect(fileURLToPath(url)).toBe(artifactFilePath(meta));
     });
 
@@ -127,5 +128,113 @@ describe("artifact tool", () => {
     test("a blank title is refused before a directory appears", async () => {
         await expect(run({ title: "   " })).rejects.toThrow(/needs a title/);
         expect(listArtifacts()).toHaveLength(0);
+    });
+});
+
+/**
+ * The result is two halves: a summary for the model, and a card payload for the
+ * UIs. The separator between them is a contract with two ported parsers (the
+ * desktop's artifacts.ts and the terminal's tool-execution.ts), so it is worth
+ * pinning rather than assuming.
+ */
+describe("the model and the UI get different halves", () => {
+    test("the model never sees a file:// URL", async () => {
+        // Handing it one is why replies used to contain a raw
+        // file:///Users/…/index.html that nothing could click.
+        const out = await run({ title: "Q3 Report" });
+        const summary = artifactResultSummary(out);
+        // `file:///` is a URL; the summary only mentions "file://" when telling
+        // the model NOT to print one.
+        expect(summary).not.toContain("file:///");
+        expect(out).toContain("file:///"); // …but the payload still carries it
+    });
+
+    test("the summary still tells the model where to write", async () => {
+        const out = await run({ title: "Q3 Report" });
+        const { id } = listArtifacts()[0];
+        const summary = artifactResultSummary(out);
+        expect(summary).toContain(artifactFilePath(getArtifact(id)!));
+        expect(summary).toContain(id);
+    });
+
+    test("the payload carries what a card needs", async () => {
+        const out = await run({ title: "Q3 Report", kind: "markdown", favicon: "📊" });
+        const payload = parseArtifactResult(out)!;
+        const meta = getArtifact(payload.id)!;
+        expect(payload.title).toBe("Q3 Report");
+        expect(payload.kind).toBe("markdown");
+        expect(payload.favicon).toBe("📊");
+        expect(payload.path).toBe(artifactFilePath(meta));
+        expect(fileURLToPath(payload.url)).toBe(artifactFilePath(meta));
+    });
+
+    test("an update carries a payload too, so the card still renders", async () => {
+        await run({ title: "Draft" });
+        const { id } = listArtifacts()[0];
+        const out = await run({ title: "Final", id });
+        expect(parseArtifactResult(out)?.id).toBe(id);
+        expect(parseArtifactResult(out)?.title).toBe("Final");
+    });
+
+    test("parsing tolerates anything that is not an artifact result", () => {
+        // Every tool's output flows through the same renderer, so this runs
+        // against bash output, truncated results, and non-strings.
+        for (const junk of ["", "Successfully wrote 12 bytes", "{}", null, undefined, 42]) {
+            expect(parseArtifactResult(junk)).toBeNull();
+        }
+        // A payload cut off in transit must not throw inside a render.
+        expect(parseArtifactResult('Created artifact "X".\n artifact:{"id":"a1b2')).toBeNull();
+        // And a summary with no payload comes back unchanged.
+        expect(artifactResultSummary("plain output")).toBe("plain output");
+    });
+});
+
+/**
+ * The card has to survive a reload.
+ *
+ * `toModelOutput` keeps the JSON payload out of the model's context, and the AI
+ * SDK persists the model-facing value — so a reopened thread has only the
+ * summary. Without a fallback the card appeared while the turn ran and was gone
+ * the next time the thread was opened, which is worse than never showing one.
+ */
+describe("the card survives replay", () => {
+    /** What a reloaded thread actually has: the model-facing half, alone. */
+    const persisted = (out: string) => artifactResultSummary(out);
+
+    test("rebuilds id and title from the persisted summary", async () => {
+        const out = await run({ title: "Q3 Report" });
+        const { id } = listArtifacts()[0];
+
+        const replayed = parseArtifactResult(persisted(out));
+        expect(replayed).not.toBeNull();
+        expect(replayed!.id).toBe(id);
+        expect(replayed!.title).toBe("Q3 Report");
+    });
+
+    test("an updated artifact replays too", async () => {
+        await run({ title: "Draft" });
+        const { id } = listArtifacts()[0];
+        const out = await run({ title: "Final", id });
+        const replayed = parseArtifactResult(persisted(out))!;
+        expect(replayed.id).toBe(id);
+        expect(replayed.title).toBe("Final");
+    });
+
+    test("a title with punctuation still round-trips", async () => {
+        const out = await run({ title: "Q3: revenue (and churn)" });
+        expect(parseArtifactResult(persisted(out))!.title).toBe("Q3: revenue (and churn)");
+    });
+
+    test("the live payload still wins when it is there", async () => {
+        // Full fidelity during the turn; the fallback is only for replay.
+        const out = await run({ title: "Q3 Report", kind: "markdown" });
+        expect(parseArtifactResult(out)!.kind).toBe("markdown");
+        expect(parseArtifactResult(persisted(out))!.kind).toBeUndefined();
+    });
+
+    test("another tool's output is still not an artifact", async () => {
+        // The fallback scans text, so it must not match ordinary prose.
+        expect(parseArtifactResult("Successfully wrote 812 bytes to artifact.ts")).toBeNull();
+        expect(parseArtifactResult('the artifact "X" was fine')).toBeNull();
     });
 });
