@@ -87,6 +87,8 @@ export interface CommandContext {
     /** /gateways — manage remote chat gateways (Telegram now, more later);
      * each runs as its own daemon process. */
     manageGateways(): Promise<void> | void;
+    /** /artifacts — list the pages the agent wrote, and open one. */
+    manageArtifacts(): Promise<void> | void;
 }
 
 /** /init — runs as a normal agent turn via the "run-prompt" emit. */
@@ -505,6 +507,13 @@ export async function registerBuiltins(reg: CommandRegistry, opts: { cwd?: strin
             description: "Set up remote chat gateways — each runs as its own daemon",
             handler: async (ctx) => {
                 await ctx.manageGateways();
+            },
+        },
+        {
+            name: "artifacts",
+            description: "Pages the agent wrote — pick one to open it in your browser",
+            handler: async (ctx) => {
+                await ctx.manageArtifacts();
             },
         },
         { name: "quit", description: "Quit loop-agent", handler: (ctx) => ctx.exit() },

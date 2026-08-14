@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.18.12] - 2026-08-14
+
+### Added
+
+- **Artifacts: the agent can write you a page, and you can open it.** Ask for a report, a summary or a write-up and the result no longer has to land as a file in your repo or as a wall of text in the transcript. The agent reserves an artifact, gets an ordinary path back, and writes it with the same `write` and `edit` it uses for everything else — so permission rules, hooks and the diff view all apply unchanged, and revising an artifact is an edit rather than a re-publish. They live under `~/.loop/artifacts`, outside any working tree, so a report drafted in a repo still opens after that repo is cleaned or switched branches. The metadata sits beside the content rather than in a database: nothing can list an artifact that is no longer on disk, and copying the folder copies the artifact. `/artifacts` in the terminal lists them and opens one in your browser; `loop artifacts` prints them for scripting. The desktop app gets an Artifacts page in the sidebar with search, pagination, and its own browser pane to read them in. **Off by default** — turn it on in `/settings`, or from the app's Artifacts page, which asks rather than showing an empty list it can never fill.
+
+### Changed
+
+- **Live mode folds commands and third-party calls too, and stops guessing what a tool does.** A run of bash commands, MCP calls or extension tools now collapses into the same one-line header reads and searches already did — only edits keep their own rows, because which file changed is what gets reviewed. The bigger fix is underneath: an unrecognised tool used to be classified by reading a verb off its name, which made folding a lottery on spelling — `sentry__list_errors` folded and `sentry__get_error` did not, from one server in one run — and borrowed a builtin's noun on the way, so a run of Sentry lookups rendered as "Listed 2 dirs". A tool we did not write is now described by the only thing we actually know about it, where it came from: "Called 2 MCP tools". Extensions that want a builtin's grammar can still say so explicitly. loop's own tools are named properly rather than falling through — `sql`, `ask`, `plan` and `enter_plan_mode` had all been missing from that table.
+
 ## [0.18.11] - 2026-08-14
 
 ### Added

@@ -105,6 +105,7 @@ Usage:
   ${PRODUCT_NAME} archive <id>        Archive a session (hides it from the lists)
   ${PRODUCT_NAME} unarchive <id>      Restore an archived session
   ${PRODUCT_NAME} goals <cmd>         Manage background tasks (list, add, rm, run, tick, daemon…)
+  ${PRODUCT_NAME} artifacts           List pages the agent wrote (open one with /artifacts)
   ${PRODUCT_NAME} models              List available models
   ${PRODUCT_NAME} whoami              Show active provider + auth status
   ${PRODUCT_NAME} cost audit          Verify the cost ledger reconciles (self-audit)
@@ -436,6 +437,33 @@ export async function cmdRun(args: Args): Promise<void> {
         sessionId: (args.flags.session as string) || undefined,
         maxSteps,
     });
+}
+
+/**
+ * `loop artifacts` — the pages the agent wrote, one per line.
+ *
+ * Prints the file:// URL rather than opening anything: this is the scriptable
+ * surface, and the interactive picker (`/artifacts` in the TUI) is where
+ * "open it" lives. An artifact the agent reserved but never wrote is listed
+ * too, marked, rather than hidden — otherwise it looks like it was lost.
+ */
+export async function cmdArtifacts(): Promise<void> {
+    const { getSetting, listArtifacts, artifactFilePath } = await import("@notshekhar/loop-core");
+    if (getSetting("artifacts") !== true) {
+        console.error(`Artifacts are off. Enable them in ${PRODUCT_NAME} → /settings → artifacts.`);
+        process.exitCode = 1;
+        return;
+    }
+    const artifacts = listArtifacts();
+    if (artifacts.length === 0) {
+        console.log("No artifacts yet.");
+        return;
+    }
+    const { pathToFileURL } = await import("node:url");
+    for (const a of artifacts) {
+        const where = a.written ? pathToFileURL(artifactFilePath(a)).href : "(not written yet)";
+        console.log(`${a.id}  ${new Date(a.updatedAt).toISOString()}  ${a.title}\t${where}`);
+    }
 }
 
 export async function cmdModels(): Promise<void> {

@@ -119,6 +119,9 @@ async function main(): Promise<void> {
         case "models":
             await (await commands()).cmdModels();
             return;
+        case "artifacts":
+            await (await commands()).cmdArtifacts();
+            return;
         case "whoami":
             (await commands()).cmdWhoami();
             return;

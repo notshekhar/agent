@@ -16,8 +16,10 @@
  *
  * The one thing NOT ported is the CLI's `registerToolVerbGroup` seam, which
  * exists for extensions — CLI-side code that cannot run in a browser. A tool
- * registered there classifies by the name heuristic here instead, which is the
- * same answer for anything named `verb_noun` and a visible row otherwise.
+ * registered there classifies by source here instead ("Called 2 extension
+ * tools"), so a registration makes the terminal's label more specific than the
+ * web's for the same run. Both fold it the same way, so the shape of the
+ * transcript still agrees.
  */
 
 /** A kind's grammar: tense-aware verb plus a singular/plural noun. */
@@ -57,17 +59,40 @@ const KIND = {
   },
   subagent: { past: "Ran", present: "Running", nounOne: "subagent", nounMany: "subagents", folds: true },
   todo: { past: "Updated", present: "Updating", nounOne: "todo list", nounMany: "todo lists", folds: true },
+  data: { past: "Queried", present: "Querying", nounOne: "datasource", nounMany: "datasources", folds: true },
+  artifact: { past: "Created", present: "Creating", nounOne: "artifact", nounMany: "artifacts", folds: true },
 
-  // Label-only: the detail is the point, so these keep their own rows.
-  command: { past: "Ran", present: "Running", nounOne: "command", nounMany: "commands", folds: false },
+  command: { past: "Ran", present: "Running", nounOne: "command", nounMany: "commands", folds: true },
+
+  // Tools we did not write, named by the only thing we reliably know about
+  // them — where they came from. Both fold.
+  mcp: {
+    past: "Called",
+    present: "Calling",
+    nounOne: "MCP tool",
+    nounMany: "MCP tools",
+    folds: true,
+  },
+  extension: {
+    past: "Called",
+    present: "Calling",
+    nounOne: "extension tool",
+    nounMany: "extension tools",
+    folds: true,
+  },
+
+  // Kinds that keep their rows. `edit` because which file changed is the
+  // information and it is what gets reviewed; `ask` and `plan` because they are
+  // surfaces the user acts on, and a surface folded into a count is one nobody
+  // answers.
   edit: { past: "Edited", present: "Editing", nounOne: "file", nounMany: "files", folds: false },
-  mcp: { past: "Called", present: "Calling", nounOne: "MCP tool", nounMany: "MCP tools", folds: false },
-  other: { past: "Ran", present: "Running", nounOne: "tool", nounMany: "tools", folds: false },
+  ask: { past: "Asked", present: "Asking", nounOne: "question", nounMany: "questions", folds: false },
+  plan: { past: "Planned", present: "Planning", nounOne: "plan", nounMany: "plans", folds: false },
 } as const satisfies Record<string, VerbGroupKind>;
 
 export type VerbGroupKindId = keyof typeof KIND;
 
-/** loop's builtin tools. Anything absent falls through to the heuristic. */
+/** loop's builtin tools. Anything absent is somebody else's tool. */
 const BUILTIN: Record<string, VerbGroupKindId> = {
   read: "file",
   skill: "skill",
@@ -84,34 +109,24 @@ const BUILTIN: Record<string, VerbGroupKindId> = {
   bash: "command",
   edit: "edit",
   write: "edit",
+  sql: "data",
+  artifact: "artifact",
+  ask: "ask",
+  plan: "plan",
+  enter_plan_mode: "plan",
 };
 
-/**
- * Leading verbs that classify an unregistered tool by name. Only unambiguous
- * ones: `get_*` is absent on purpose (it is as often a mutation-adjacent RPC as
- * a read), and so is `run_*` (which says nothing about what ran).
- */
-const NAME_VERBS: ReadonlyArray<readonly [RegExp, VerbGroupKindId]> = [
-  [/^(read|cat|open)(_|$)/, "file"],
-  [/^(ls|list|dir)(_|$)/, "dir"],
-  [/^(search|grep|find|query|lookup)(_|$)/, "search"],
-  [/^(fetch|crawl|scrape|browse)(_|$)/, "web"],
-  [/^(edit|write|patch|update|create|delete)(_|$)/, "edit"],
-];
+/** MCP tools arrive namespaced as `server__tool`. */
+function isMcpToolName(toolName: string): boolean {
+  return toolName.includes("__");
+}
 
 /** The kind id for a tool name — see the layering note at the top of the file. */
 export function kindIdOf(toolName: string): VerbGroupKindId {
   const builtin = BUILTIN[toolName];
   if (builtin) return builtin;
-  // MCP tools arrive namespaced (`server__tool`); classify on the tool part,
-  // and fall back to the MCP bucket rather than the anonymous one so at least
-  // the header says where the call went.
-  const bare = toolName.includes("__")
-    ? toolName.slice(toolName.lastIndexOf("__") + 2)
-    : toolName;
-  const lower = bare.toLowerCase();
-  for (const [pattern, kind] of NAME_VERBS) if (pattern.test(lower)) return kind;
-  return toolName.includes("__") ? "mcp" : "other";
+  // Not ours: say where it came from and nothing more.
+  return isMcpToolName(toolName) ? "mcp" : "extension";
 }
 
 export function kindOf(toolName: string): VerbGroupKind {
@@ -176,10 +191,9 @@ export interface GroupableTool {
  * `plan` never joins either — it is an approval surface that must stay
  * readable, and the timeline routes it to its own card anyway.
  *
- * The last gate is the KIND: only kinds whose individual detail is noise fold.
- * A command or an edit keeps its row because which command ran is the whole
- * point, and so does any tool the vocabulary cannot classify — staying visible
- * is the safe failure for a third-party tool.
+ * The last gate is the KIND. Nearly every kind folds, including commands and
+ * third-party (MCP / extension) calls; `edit` is the exception, because which
+ * file changed is the information and it is what gets reviewed.
  */
 export function isGroupableTool(tool: GroupableTool): boolean {
   return !tool.isPartial && tool.name !== "plan" && foldsEagerly(tool.name);

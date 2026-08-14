@@ -131,11 +131,10 @@ export class ToolExecutionComponent extends Container {
      * and `plan` never joins, being an approval surface that must stay
      * readable.
      *
-     * The last gate is the tool's KIND: only kinds whose individual detail is
-     * noise fold (reads, listings, searches). A command or an edit keeps its
-     * row because which command ran is the whole point, and so does any tool
-     * the vocabulary can't classify — see verb-group.ts on why staying visible
-     * is the safe failure for a third-party tool.
+     * The last gate is the tool's KIND. Nearly every kind folds, including
+     * commands and third-party (MCP / extension) calls; `edit` is the
+     * exception, because which file changed is the information and it is what
+     * gets reviewed. See verb-group.ts for the vocabulary.
      */
     isGroupable(): boolean {
         return !this.isPartial && !this.expanded && this.toolName !== "plan" && foldsEagerly(this.toolName);

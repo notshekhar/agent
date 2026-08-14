@@ -64,6 +64,7 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
         webSearch: false,
         serve: false,
         todos: false,
+        artifacts: false,
         clock: false,
         reminders: true,
         mcp: true,
@@ -183,6 +184,11 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                         value: "todos",
                         label: `todos: ${boolSetting("todos") ? "on" : "off"}`,
                         description: "pinned checklist the agent maintains during multi-step tasks",
+                    },
+                    {
+                        value: "artifacts",
+                        label: `artifacts: ${boolSetting("artifacts") ? "on" : "off"}`,
+                        description: "let the agent publish documents it writes as pages under ~/.loop/artifacts",
                     },
                     {
                         value: "clock",

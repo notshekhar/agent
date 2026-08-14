@@ -145,9 +145,21 @@ export function isValidAgentName(name: string): boolean {
  * "ask" (user questions; only active when the askUser setting is on),
  * "websearch" (only active when the webSearch setting is on), "plan"
  * (the plan-delivery tool that ends the turn), "todo" (the visible
- * checklist; only active when the todos setting is on) and "skill"
- * (explicit skill invocation; only active when the turn has skills). */
-export const AGENT_TOOL_NAMES = [...TOOL_NAMES, "task", "ask", "websearch", "plan", "todo", "skill"] as const;
+ * checklist; only active when the todos setting is on), "skill"
+ * (explicit skill invocation; only active when the turn has skills) and
+ * "artifact" (publish a written file as a page; only active when the
+ * artifacts setting is on, and only for agents that also have "write" —
+ * it publishes what write produced). */
+export const AGENT_TOOL_NAMES = [
+    ...TOOL_NAMES,
+    "task",
+    "ask",
+    "websearch",
+    "plan",
+    "todo",
+    "skill",
+    "artifact",
+] as const;
 
 /**
  * Tool names valid in an agent allowlist: the builtins/task plus any tools
@@ -159,11 +171,27 @@ export function agentToolNames(): string[] {
     return [...AGENT_TOOL_NAMES, ...getExtensionHost().getTools().add.keys()];
 }
 
+/**
+ * Tool names that do NOT have to appear for a list to count as exhaustive.
+ *
+ * Listing every tool means "unrestricted" (see sanitizeTools), and an agent
+ * file written before a tool existed cannot name it. Without this, adding a
+ * tool to AGENT_TOOL_NAMES silently demotes every existing agent that had
+ * enumerated the full set — and a demoted agent is not merely missing the new
+ * tool, it loses MCP and extension tools too, since runTurn gives those to
+ * unrestricted agents only. So a name added after the fact is optional for the
+ * exhaustiveness test: listing the older tools still means "everything", with
+ * or without it.
+ */
+const OPTIONAL_FOR_EXHAUSTIVE: readonly string[] = ["artifact"];
+
 function sanitizeTools(tools: string[] | undefined, valid: readonly string[]): string[] | undefined {
     if (!tools) return undefined;
     const kept = tools.filter((t) => valid.includes(t));
-    if (kept.length === 0 || kept.length === valid.length) return undefined;
-    return kept;
+    if (kept.length === 0) return undefined;
+    const keptSet = new Set(kept);
+    const coversEverything = valid.filter((t) => !OPTIONAL_FOR_EXHAUSTIVE.includes(t)).every((t) => keptSet.has(t));
+    return coversEverything ? undefined : kept;
 }
 
 export function parseAgentFile(raw: string): { prompt: string; tools?: string[]; model?: string } {

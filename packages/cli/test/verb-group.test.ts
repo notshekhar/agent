@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { AGENT_TOOL_NAMES, ENTER_PLAN_MODE_TOOL_NAME } from "@notshekhar/loop-core";
 import {
     clearToolVerbGroups,
     foldsEagerly,
@@ -25,51 +26,77 @@ describe("classification", () => {
         expect(kindIdOf("task")).toBe("subagent");
     });
 
-    test("only kinds whose detail is noise fold; the rest keep their rows", () => {
-        for (const t of ["read", "ls", "grep", "webfetch", "task"]) expect(foldsEagerly(t)).toBe(true);
-        // The command that ran and the file that changed ARE the information.
-        for (const t of ["bash", "edit", "write"]) expect(foldsEagerly(t)).toBe(false);
+    test("everything folds except edits", () => {
+        for (const t of ["read", "ls", "grep", "webfetch", "task", "bash"]) expect(foldsEagerly(t)).toBe(true);
+        // Which file changed is the information, and it is what gets reviewed.
+        for (const t of ["edit", "write"]) expect(foldsEagerly(t)).toBe(false);
     });
 });
 
-describe("third-party tools", () => {
-    test("an unknown tool never folds — staying visible is the safe failure", () => {
-        expect(kindIdOf("frobnicate")).toBe("other");
-        expect(foldsEagerly("frobnicate")).toBe(false);
+describe("loop's own tools are never mistaken for somebody else's", () => {
+    // The guard that matters. The fallback rule describes an unrecognised tool
+    // by its SOURCE, so a builtin missing from the table does not merely lose
+    // its grammar — it claims to be an extension tool, which is a lie the user
+    // has no way to see through. `artifact`, `sql`, `ask`, `plan` and
+    // `enter_plan_mode` all shipped that way once; this is why they cannot again.
+    const BUILTIN_TOOLS = [...AGENT_TOOL_NAMES, ENTER_PLAN_MODE_TOOL_NAME];
+
+    test("every tool loop can emit classifies as one of loop's own kinds", () => {
+        for (const name of BUILTIN_TOOLS) {
+            const kind = kindIdOf(name);
+            expect({ name, kind }).toEqual({ name, kind: expect.not.stringMatching(/^(mcp|extension)$/) });
+        }
     });
 
-    test("a transparent verb_noun name classifies itself", () => {
-        // The overwhelmingly common shape for extension and MCP tools.
-        expect(kindIdOf("search_issues")).toBe("search");
-        expect(kindIdOf("list_repos")).toBe("dir");
-        expect(kindIdOf("fetch_page")).toBe("web");
-        expect(kindIdOf("read_document")).toBe("file");
-        expect(foldsEagerly("search_issues")).toBe(true);
+    test("the artifact tool reads as creating an artifact", () => {
+        expect(kindIdOf("artifact")).toBe("artifact");
+        expect(verbGroupLabel([member("artifact")]).text).toBe("Created 1 artifact");
+        expect(verbGroupLabel([member("artifact"), member("artifact")]).text).toBe("Created 2 artifacts");
     });
 
-    test("the heuristic stays conservative where a guess would mislead", () => {
-        // `get_*` is as often a mutation-adjacent RPC as a read, and `run_*`
-        // says nothing about what ran — a wrong guess here would hide a row
-        // under a label that misdescribes it.
-        expect(kindIdOf("get_user")).toBe("other");
-        expect(kindIdOf("run_pipeline")).toBe("other");
-        // A verb has to lead, not merely appear.
-        expect(kindIdOf("deep_search_helper")).toBe("other");
+    test("surfaces the user has to act on keep their rows", () => {
+        for (const t of ["ask", "plan", "enter_plan_mode"]) expect(foldsEagerly(t)).toBe(false);
+    });
+});
+
+describe("tools we did not write", () => {
+    test("an MCP call is an MCP call, whatever the server named it", () => {
+        // The point of the rule: one server's tools all group the same way, so
+        // folding is not a lottery on how each one happened to be spelled.
+        for (const t of ["sentry__list_errors", "sentry__get_error", "github__frobnicate"]) {
+            expect(kindIdOf(t)).toBe("mcp");
+            expect(foldsEagerly(t)).toBe(true);
+        }
     });
 
-    test("MCP tools classify on the tool half and fall back to the MCP bucket", () => {
-        expect(kindIdOf("github__search_issues")).toBe("search");
-        expect(kindIdOf("github__frobnicate")).toBe("mcp");
+    test("an unregistered extension tool is named by its source, and folds", () => {
+        expect(kindIdOf("frobnicate")).toBe("extension");
+        expect(kindIdOf("search_issues")).toBe("extension");
+        expect(foldsEagerly("frobnicate")).toBe(true);
     });
 
-    test("an explicit registration beats both the builtin table and the name", () => {
+    test("a name is never evidence of what a tool does", () => {
+        // The old heuristic read a leading verb off the name and borrowed the
+        // builtin's NOUN with it, so `sentry__list_errors` rendered as "Listed
+        // 2 dirs". A verb travels to a third-party tool; the noun does not.
+        expect(verbGroupLabel([member("sentry__list_errors"), member("sentry__list_errors")]).text).toBe(
+            "Called 2 MCP tools",
+        );
+        expect(verbGroupLabel([member("confluence__read_page")]).text).toBe("Called 1 MCP tool");
+    });
+
+    test("an explicit registration is the way to earn a builtin's grammar", () => {
         registerToolVerbGroup("frobnicate", "web");
         expect(kindIdOf("frobnicate")).toBe("web");
         expect(foldsEagerly("frobnicate")).toBe(true);
 
-        // Even when the name actively lies about what the tool does.
-        registerToolVerbGroup("search_nothing", "command");
-        expect(kindIdOf("search_nothing")).toBe("command");
+        // And it beats the source rule for MCP names too.
+        registerToolVerbGroup("github__search_issues", "search");
+        expect(kindIdOf("github__search_issues")).toBe("search");
+
+        // Even when it opts a tool OUT of folding.
+        registerToolVerbGroup("dangerous_thing", "edit");
+        expect(foldsEagerly("dangerous_thing")).toBe(false);
     });
 });
 
@@ -102,6 +129,11 @@ describe("labels", () => {
     });
 
     test("an unclassified tool still gets a truthful segment", () => {
-        expect(verbGroupLabel([member("frobnicate"), member("frobnicate")]).text).toBe("Ran 2 tools");
+        expect(verbGroupLabel([member("frobnicate"), member("frobnicate")]).text).toBe("Called 2 extension tools");
+    });
+
+    test("MCP and extension calls are separate segments — different sources", () => {
+        const { text } = verbGroupLabel([member("github__frobnicate"), member("frobnicate")]);
+        expect(text).toBe("Called 1 MCP tool, Called 1 extension tool");
     });
 });

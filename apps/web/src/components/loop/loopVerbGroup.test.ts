@@ -37,17 +37,14 @@ describe("classifying a tool", () => {
     expect(kindIdOf("edit")).toBe("edit");
   });
 
-  it("classifies an unknown verb_noun tool by its leading verb", () => {
-    expect(kindIdOf("search_issues")).toBe("search");
-    expect(kindIdOf("fetch_page")).toBe("web");
-    // Ambiguous leading verbs are deliberately absent from the heuristic.
-    expect(kindIdOf("get_user")).toBe("other");
-    expect(kindIdOf("run_job")).toBe("other");
-  });
-
-  it("names the server for an MCP tool it cannot classify", () => {
-    expect(kindIdOf("linear__create_issue")).toBe("edit");
+  it("describes a tool it did not write by where it came from", () => {
+    // A name is not evidence of what a tool does, so nothing is inferred from
+    // it — one server's tools all classify the same way regardless of spelling.
+    expect(kindIdOf("linear__create_issue")).toBe("mcp");
     expect(kindIdOf("linear__frobnicate")).toBe("mcp");
+    expect(kindIdOf("sentry__list_errors")).toBe("mcp");
+    expect(kindIdOf("search_issues")).toBe("extension");
+    expect(kindIdOf("get_user")).toBe("extension");
   });
 });
 
@@ -57,10 +54,17 @@ describe("what may be folded away", () => {
     expect(isGroupableTool({ name: "ls", isError: false, isPartial: false })).toBe(true);
   });
 
-  it("keeps a command, an edit and an unknown tool visible", () => {
-    expect(isGroupableTool({ name: "bash", isError: false, isPartial: false })).toBe(false);
+  it("folds commands and third-party calls too", () => {
+    expect(isGroupableTool({ name: "bash", isError: false, isPartial: false })).toBe(true);
+    expect(isGroupableTool({ name: "linear__frobnicate", isError: false, isPartial: false })).toBe(
+      true,
+    );
+    expect(isGroupableTool({ name: "frobnicate", isError: false, isPartial: false })).toBe(true);
+  });
+
+  it("keeps an edit visible — which file changed is the information", () => {
     expect(isGroupableTool({ name: "edit", isError: false, isPartial: false })).toBe(false);
-    expect(isGroupableTool({ name: "frobnicate", isError: false, isPartial: false })).toBe(false);
+    expect(isGroupableTool({ name: "write", isError: false, isPartial: false })).toBe(false);
   });
 
   it("never folds a running call — it is the one worth watching", () => {
@@ -101,6 +105,22 @@ describe("the header a run reads as", () => {
     ]);
     expect(failed).toBe(1);
   });
+
+  it("never borrows a builtin's noun for a tool it did not write", () => {
+    const { text } = verbGroupLabel([
+      { toolName: "sentry__list_errors", isError: false, isRunning: false },
+      { toolName: "sentry__get_error", isError: false, isRunning: false },
+    ]);
+    expect(text).toBe("Called 2 MCP tools");
+  });
+
+  it("separates MCP from extension calls — different sources", () => {
+    const { text } = verbGroupLabel([
+      { toolName: "linear__frobnicate", isError: false, isRunning: false },
+      { toolName: "frobnicate", isError: false, isRunning: false },
+    ]);
+    expect(text).toBe("Called 1 MCP tool, Called 1 extension tool");
+  });
 });
 
 describe("folding a work log", () => {
@@ -115,10 +135,16 @@ describe("folding a work log", () => {
   });
 
   it("breaks the run around a call that keeps its own row", () => {
-    expect(drawn([item("a", "read"), item("b", "bash"), item("c", "read")])).toEqual([
+    expect(drawn([item("a", "read"), item("b", "edit"), item("c", "read")])).toEqual([
       "Read 1 file",
-      "bash",
+      "edit",
       "Read 1 file",
+    ]);
+  });
+
+  it("folds a mixed run into one header with a segment per kind", () => {
+    expect(drawn([item("a", "read"), item("b", "bash"), item("c", "linear__frobnicate")])).toEqual([
+      "Read 1 file, Ran 1 command, Called 1 MCP tool",
     ]);
   });
 

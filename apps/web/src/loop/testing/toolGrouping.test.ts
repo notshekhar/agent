@@ -48,13 +48,23 @@ describe("folding a run of tool calls", () => {
     expect(view.blocks.filter((block) => block.kind === "tool")).toHaveLength(2);
   });
 
-  it("breaks the run around a command, whose detail IS the information", async () => {
+  it("breaks the run around an edit, whose detail IS the information", async () => {
     const events = [
       ...read("a.ts", "1"),
-      ...call("bash", { command: "npm test" }, "2"),
+      ...call("edit", { path: "/w/project/b.ts" }, "2"),
       ...read("c.ts", "3"),
     ];
     expect(await rowSizes(events)).toEqual([1, 1, 1]);
+  });
+
+  it("folds commands and MCP calls into the run rather than breaking it", async () => {
+    const events = [
+      ...read("a.ts", "1"),
+      ...call("bash", { command: "npm test" }, "2"),
+      ...call("sentry__list_errors", {}, "3"),
+      ...read("c.ts", "4"),
+    ];
+    expect(await rowSizes(events)).toEqual([4]);
   });
 
   it("mixes kinds in one run and names each — reads and listings together", async () => {

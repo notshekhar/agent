@@ -69,6 +69,21 @@ describe("parseAgentFile", () => {
         expect(parsed.tools).toBeUndefined();
     });
 
+    test("a pre-artifact full list still means all tools, with or without artifact named", () => {
+        // Agent files written before the artifact tool existed enumerate the
+        // older set. They must keep normalizing to unrestricted: a demotion to
+        // "restricted" would quietly cut them off from MCP and extension tools.
+        const withArtifact = parseAgentFile(
+            "---\ntools: read, write, edit, bash, ls, grep, find, sql, task, ask, websearch, plan, todo, skill, artifact\n---\n\nBody.",
+        );
+        expect(withArtifact.tools).toBeUndefined();
+    });
+
+    test("artifact is a valid agent tool", () => {
+        const parsed = parseAgentFile("---\ntools: read, write, artifact\n---\n\nBody.");
+        expect(parsed.tools).toEqual(["read", "write", "artifact"]);
+    });
+
     test("skill is a valid agent tool", () => {
         const parsed = parseAgentFile("---\ntools: read, grep, skill\n---\n\nBody.");
         expect(parsed.tools).toEqual(["read", "grep", "skill"]);

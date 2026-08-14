@@ -96,6 +96,11 @@ export { askInputSchema, createAskTool, formatAskAnswers, type AskToolContext } 
 // websearch tool: also conditionally attached in runTurn, gated on the
 // webSearch setting (default off). No UI bridge — works in print mode too.
 export { createWebsearchTool, type WebsearchToolContext } from "./websearch";
+// artifact tool: conditionally attached in runTurn, gated on the `artifacts`
+// setting (default off). Publishes a file the agent wrote with the ordinary
+// write tool — authoring stays on write/edit, so nothing here special-cases
+// paths. No UI bridge; print mode gets it too.
+export { ARTIFACT_TOOL_NAME, createArtifactTool, type ArtifactToolContext } from "./artifact";
 // skill tool: conditionally attached in runTurn whenever the turn has visible
 // skills (rides the `skills` setting + trust gate — no setting of its own).
 // Parent turn only; subagents keep the read-tool fallback.

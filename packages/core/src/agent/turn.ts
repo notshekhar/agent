@@ -9,6 +9,8 @@ import { getModel, parseModelId } from "../providers";
 import { getCatalog } from "../catalog";
 import { getSetting } from "../settings";
 import {
+    ARTIFACT_TOOL_NAME,
+    createArtifactTool,
     createAskTool,
     createEnterPlanModeTool,
     createPlanTool,
@@ -237,6 +239,18 @@ async function assembleTurnTools(
     // ask). Restricted agents opt in by naming "websearch".
     if (getSetting("webSearch") === true && (!allowedTools?.length || allowedTools.includes("websearch"))) {
         toolsForTurn.websearch = createWebsearchTool({ abortSignal });
+    }
+
+    // Artifacts: opt-in `artifacts` setting (default off). Publishes a file the
+    // agent wrote with the ordinary write tool, so it is useless to an agent
+    // that has no write tool — a restricted read-only agent like plan never
+    // gets it, even by naming it. Added BEFORE the task tool so a subagent
+    // researching and drafting a report can publish its own result.
+    if (
+        getSetting("artifacts") === true &&
+        (!allowedTools?.length || (allowedTools.includes(ARTIFACT_TOOL_NAME) && allowedTools.includes("write")))
+    ) {
+        toolsForTurn[ARTIFACT_TOOL_NAME] = createArtifactTool({ abortSignal, sessionId: session.id });
     }
 
     // MCP tools (already namespaced mcp__server__tool) join the turn for

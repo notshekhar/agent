@@ -67,6 +67,11 @@ export interface AppSettings {
     /** Todo tool: a visible checklist the agent maintains during multi-step
      * turns, pinned above the editor. Default OFF. */
     todos?: boolean;
+    /** Artifacts: let the agent publish a document it wrote as a standalone
+     * page under ~/.loop/artifacts, listed in the app and openable in a
+     * browser. Default OFF — until it is on, the artifact tool is not offered
+     * to the model at all. */
+    artifacts?: boolean;
     /** Live date + hh:mm:ss clock in the footer. Default off. */
     clock?: boolean;
     /** Fire /reminder alerts. Default on; set false to mute reminders entirely. */

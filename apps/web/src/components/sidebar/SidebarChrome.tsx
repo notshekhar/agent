@@ -1,4 +1,4 @@
-import { ChartNoAxesColumnIcon, SettingsIcon } from "lucide-react";
+import { ChartNoAxesColumnIcon, LayersIcon, SettingsIcon } from "lucide-react";
 import { memo, useCallback } from "react";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 
@@ -106,7 +106,7 @@ export const SidebarChromeFooter = memo(function SidebarChromeFooter() {
   // One handler shape for both rows: closing the mobile drawer is part of
   // navigating away from it, not part of what each destination means.
   const navigateFromFooter = useCallback(
-    (to: "/usage" | "/settings") => {
+    (to: "/usage" | "/artifacts" | "/settings") => {
       if (isMobile) {
         setOpenMobile(false);
       }
@@ -115,6 +115,10 @@ export const SidebarChromeFooter = memo(function SidebarChromeFooter() {
     [isMobile, navigate, setOpenMobile],
   );
   const handleUsageClick = useCallback(() => navigateFromFooter("/usage"), [navigateFromFooter]);
+  const handleArtifactsClick = useCallback(
+    () => navigateFromFooter("/artifacts"),
+    [navigateFromFooter],
+  );
   const handleSettingsClick = useCallback(
     () => navigateFromFooter("/settings"),
     [navigateFromFooter],
@@ -134,6 +138,15 @@ export const SidebarChromeFooter = memo(function SidebarChromeFooter() {
           <SidebarMenuButton isActive={pathname === "/usage"} onClick={handleUsageClick}>
             <ChartNoAxesColumnIcon />
             <span>Usage</span>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+        {/* Artifacts sits beside Usage for the same reason: it is a place you
+            go to look at something, not a configuration surface, so it
+            highlights when active and opens in the main body. */}
+        <SidebarMenuItem>
+          <SidebarMenuButton isActive={pathname === "/artifacts"} onClick={handleArtifactsClick}>
+            <LayersIcon />
+            <span>Artifacts</span>
           </SidebarMenuButton>
         </SidebarMenuItem>
         <SidebarMenuItem>

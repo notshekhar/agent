@@ -110,7 +110,7 @@ describe("live verb groups", () => {
         expect(text(h)).toContain("· 1 failed");
     });
 
-    test("commands and edits keep their rows — their detail IS the information", () => {
+    test("commands fold too — the run is one line, the detail is one key away", () => {
         liveOn();
         const h = new ChatHistory(tui, "/repo");
         h.addToolCall("bash", "a", { command: "npm run build" });
@@ -118,9 +118,33 @@ describe("live verb groups", () => {
         h.addToolCall("bash", "b", { command: "npm test" });
         h.addToolResult("b", "x");
         const out = text(h);
+        expect(out).toContain("◈ Ran 2 commands");
+        expect(out).not.toContain("npm run build");
+    });
+
+    test("edits keep their rows — which file changed is the information", () => {
+        liveOn();
+        const h = new ChatHistory(tui, "/repo");
+        h.addToolCall("edit", "a", { path: "/repo/a.ts" });
+        h.addToolResult("a", "x");
+        h.addToolCall("write", "b", { path: "/repo/b.ts" });
+        h.addToolResult("b", "x");
+        const out = text(h);
         expect(out).not.toContain("◈");
-        expect(out).toContain("npm run build");
-        expect(out).toContain("npm test");
+        expect(out).toContain("a.ts");
+        expect(out).toContain("b.ts");
+    });
+
+    test("MCP calls fold by source, however the server spelled them", () => {
+        liveOn();
+        const h = new ChatHistory(tui, "/repo");
+        h.addToolCall("sentry__list_errors", "a", {});
+        h.addToolResult("a", "x");
+        h.addToolCall("sentry__get_error", "b", {});
+        h.addToolResult("b", "x");
+        // Both in one group: folding must not depend on the tool's spelling,
+        // and the noun must not be borrowed from a builtin ("Listed 2 dirs").
+        expect(text(h)).toContain("◈ Called 2 MCP tools");
     });
 
     test("a non-folding call breaks the run around it", () => {
@@ -128,14 +152,14 @@ describe("live verb groups", () => {
         const h = new ChatHistory(tui, "/repo");
         h.addToolCall("read", "a", { path: "/repo/a.ts" });
         h.addToolResult("a", "x");
-        h.addToolCall("bash", "b", { command: "npm test" });
+        h.addToolCall("edit", "b", { path: "/repo/b.ts" });
         h.addToolResult("b", "x");
         h.addToolCall("read", "c", { path: "/repo/c.ts" });
         h.addToolResult("c", "x");
         const out = text(h).split("\n").filter(Boolean);
-        // Two separate one-file headers with the command row between them.
+        // Two separate one-file headers with the edit row between them.
         expect(out.filter((l) => l.includes("◈ Read 1 file"))).toHaveLength(2);
-        expect(text(h)).toContain("npm test");
+        expect(text(h)).toContain("b.ts");
     });
 
     test("a running call keeps its own row — grouping happens once it lands", () => {

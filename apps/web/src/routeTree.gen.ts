@@ -14,6 +14,7 @@ import { Route as ConnectRouteImport } from './routes/connect'
 import { Route as PairRouteImport } from './routes/pair'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as ChatIndexRouteImport } from './routes/_chat.index'
+import { Route as ChatArtifactsRouteImport } from './routes/_chat.artifacts'
 import { Route as ChatUsageRouteImport } from './routes/_chat.usage'
 import { Route as ConnectCallbackRouteImport } from './routes/connect_.callback'
 import { Route as SettingsAgentsRouteImport } from './routes/settings.agents'
@@ -55,6 +56,11 @@ const SettingsRoute = SettingsRouteImport.update({
 const ChatIndexRoute = ChatIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => ChatRoute,
+} as any)
+const ChatArtifactsRoute = ChatArtifactsRouteImport.update({
+  id: '/artifacts',
+  path: '/artifacts',
   getParentRoute: () => ChatRoute,
 } as any)
 const ChatUsageRoute = ChatUsageRouteImport.update({
@@ -154,6 +160,7 @@ export interface FileRoutesByFullPath {
   '/connect': typeof ConnectRoute
   '/pair': typeof PairRoute
   '/settings': typeof SettingsRouteWithChildren
+  '/artifacts': typeof ChatArtifactsRoute
   '/usage': typeof ChatUsageRoute
   '/connect/callback': typeof ConnectCallbackRoute
   '/settings/agents': typeof SettingsAgentsRoute
@@ -177,6 +184,7 @@ export interface FileRoutesByTo {
   '/connect': typeof ConnectRoute
   '/pair': typeof PairRoute
   '/settings': typeof SettingsRouteWithChildren
+  '/artifacts': typeof ChatArtifactsRoute
   '/usage': typeof ChatUsageRoute
   '/connect/callback': typeof ConnectCallbackRoute
   '/settings/agents': typeof SettingsAgentsRoute
@@ -203,6 +211,7 @@ export interface FileRoutesById {
   '/connect': typeof ConnectRoute
   '/pair': typeof PairRoute
   '/settings': typeof SettingsRouteWithChildren
+  '/_chat/artifacts': typeof ChatArtifactsRoute
   '/_chat/usage': typeof ChatUsageRoute
   '/connect_/callback': typeof ConnectCallbackRoute
   '/settings/agents': typeof SettingsAgentsRoute
@@ -230,6 +239,7 @@ export interface FileRouteTypes {
     | '/connect'
     | '/pair'
     | '/settings'
+    | '/artifacts'
     | '/usage'
     | '/connect/callback'
     | '/settings/agents'
@@ -253,6 +263,7 @@ export interface FileRouteTypes {
     | '/connect'
     | '/pair'
     | '/settings'
+    | '/artifacts'
     | '/usage'
     | '/connect/callback'
     | '/settings/agents'
@@ -278,6 +289,7 @@ export interface FileRouteTypes {
     | '/connect'
     | '/pair'
     | '/settings'
+    | '/_chat/artifacts'
     | '/_chat/usage'
     | '/connect_/callback'
     | '/settings/agents'
@@ -342,6 +354,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof ChatIndexRouteImport
+      parentRoute: typeof ChatRoute
+    }
+    '/_chat/artifacts': {
+      id: '/_chat/artifacts'
+      path: '/artifacts'
+      fullPath: '/artifacts'
+      preLoaderRoute: typeof ChatArtifactsRouteImport
       parentRoute: typeof ChatRoute
     }
     '/_chat/usage': {
@@ -474,6 +493,7 @@ declare module '@tanstack/react-router' {
 }
 
 interface ChatRouteChildren {
+  ChatArtifactsRoute: typeof ChatArtifactsRoute
   ChatUsageRoute: typeof ChatUsageRoute
   ChatIndexRoute: typeof ChatIndexRoute
   ChatEnvironmentIdThreadIdRoute: typeof ChatEnvironmentIdThreadIdRoute
@@ -482,6 +502,7 @@ interface ChatRouteChildren {
 }
 
 const ChatRouteChildren: ChatRouteChildren = {
+  ChatArtifactsRoute: ChatArtifactsRoute,
   ChatUsageRoute: ChatUsageRoute,
   ChatIndexRoute: ChatIndexRoute,
   ChatEnvironmentIdThreadIdRoute: ChatEnvironmentIdThreadIdRoute,

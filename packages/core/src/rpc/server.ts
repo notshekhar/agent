@@ -6,6 +6,7 @@ import { EventEmitter } from "node:events";
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import {
     buildSessionTreeView,
     extractMessageText,
@@ -37,6 +38,7 @@ import {
 } from "../agent/agents";
 import { setAskUserBridge, type AskAnswer, type AskQuestion } from "../tools/ask-bridge";
 import { THINKING_LEVELS, type ThinkingLevel } from "../agent/thinking";
+import { artifactFilePath, deleteArtifact, getArtifact, listArtifacts, type ArtifactMeta } from "../artifacts";
 import { bustCatalogCache, getCatalog, listUsableProviders } from "../catalog";
 import { CommandRegistry, registerBuiltins } from "../commands";
 import { getExtensionHost, setBuiltinEnabled, setRecordEnabled } from "../extensions";
@@ -65,13 +67,7 @@ import {
     saveCustomProviderConfig,
     setActiveCustomProvider,
 } from "./custom-providers";
-import {
-    cancelMcpLogin,
-    listMcpServers,
-    parseServerConfig,
-    pollMcpLogin,
-    startMcpLogin,
-} from "./mcp-flows";
+import { cancelMcpLogin, listMcpServers, parseServerConfig, pollMcpLogin, startMcpLogin } from "./mcp-flows";
 import { parseDatasourceConfig } from "./datasource-flows";
 import {
     type DataSourceConfig,
@@ -109,6 +105,18 @@ function providerOfModel(modelId: string): string | null {
     } catch {
         return null;
     }
+}
+
+/**
+ * One artifact, as the wire sees it: the stored metadata plus the two things a
+ * client would otherwise have to reconstruct — where the file is, and the URL
+ * that opens it. Artifacts are served from disk rather than over HTTP (see
+ * artifacts/index.ts), so `url` is a file:// URL and `path` is what a desktop
+ * shell hands to the OS.
+ */
+function artifactRow(meta: ArtifactMeta): Record<string, unknown> {
+    const path = artifactFilePath(meta);
+    return { ...meta, path, url: pathToFileURL(path).href };
 }
 
 /** Every method `dispatch` handles — surfaced via `server.info`. Keep in sync. */
@@ -172,6 +180,9 @@ const RPC_METHODS = [
     "datasource.remove",
     "datasource.test",
     "git.commitMessage",
+    "artifact.list",
+    "artifact.get",
+    "artifact.delete",
 ] as const;
 
 /**
@@ -192,6 +203,12 @@ const WEB_SETTINGS: ReadonlyArray<{ key: keyof AppSettings; label: string; descr
         def: false,
     },
     { key: "todos", label: "todos", description: "visible checklist during multi-step tasks", def: false },
+    {
+        key: "artifacts",
+        label: "artifacts",
+        description: "let the agent publish documents it writes as pages you can open",
+        def: false,
+    },
     { key: "reminders", label: "reminders", description: "fire /reminder alerts", def: true },
     {
         key: "mcp",
@@ -1163,6 +1180,21 @@ export class RpcServer {
                     agents: listAgents().length,
                     providers: (await listUsableProviders()).length,
                 };
+            }
+            // Artifacts: pages the agent wrote under ~/<config>/artifacts. The
+            // rows carry `path` and `url` so a client can open one without a
+            // second round trip — there is no HTTP route serving artifacts, by
+            // design, so the file itself is what gets opened.
+            case "artifact.list": {
+                return listArtifacts().map(artifactRow);
+            }
+            case "artifact.get": {
+                const meta = getArtifact(String(params.id));
+                if (!meta) throw new Error(`no such artifact: ${params.id}`);
+                return artifactRow(meta);
+            }
+            case "artifact.delete": {
+                return { deleted: deleteArtifact(String(params.id)) };
             }
             case "settings.set": {
                 const key = String(params.key);
