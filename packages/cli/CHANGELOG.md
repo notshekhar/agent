@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.18.14] - 2026-08-15
+
+### Fixed
+
+- **One leftover `Loop.app.old` could stop the desktop app updating, permanently.** Cleaning up the previous copy after a swap is best-effort by necessity — the app is still running out of it when that runs, so a leftover backup is the normal state after any update. Deleting that backup was then the first thing the *next* swap did, unguarded, so the moment one would not delete, every update afterwards failed on its first line with `ENOTEMPTY … Loop.app.old/Contents/Resources` and nothing was ever swapped. Re-downloading could not help: the download was fine, the swap never started. Removing the old backup is still attempted, but a failure now moves the swap aside to a free name and carries on, sweeping what it could not remove on a later run. Every tree removal also retries the errors that mean "busy right now" — the ones `fs.rm` documents `maxRetries` for — so a bundle that is merely open or being indexed no longer reads as permanently stuck.
+
 ## [0.18.13] - 2026-08-15
 
 ### Added

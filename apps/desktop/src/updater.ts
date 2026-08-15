@@ -257,6 +257,57 @@ export async function extractRelease(input: {
  * (the loader keeps the .exe locked), so `installUpdate` hands that platform to
  * a detached helper instead and never calls this.
  */
+/**
+ * Delete a tree, retrying the errors that mean "busy right now".
+ *
+ * `fs.rm` documents `maxRetries` for exactly EBUSY/EMFILE/ENFILE/ENOTEMPTY/
+ * EPERM, and a backup bundle hits them: the app is still running out of it,
+ * and macOS is often indexing it at the same moment. Without the retries a
+ * transient hold reads as a permanent failure.
+ */
+async function removeTree(target: string): Promise<void> {
+  await rm(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 120 });
+}
+
+/**
+ * A backup path this swap can have to itself.
+ *
+ * The old code deleted `layout.backup` first and let a failure abort the whole
+ * update. That made one stuck directory permanently fatal: the final cleanup is
+ * best-effort (the app is still running out of the backup when it runs), so a
+ * leftover `Loop.app.old` is normal — and once it was there and would not
+ * delete, EVERY later update failed on its first line with
+ * `ENOTEMPTY … Loop.app.old/Contents/Resources`, before anything was swapped.
+ *
+ * Removing it is still worth trying, because unbounded `.old-<n>` directories
+ * in /Applications would be their own bug. But if it will not go, the swap
+ * moves aside to a fresh name and carries on rather than refusing to update.
+ */
+async function freeBackupPath(preferred: string): Promise<string> {
+  if (!existsSync(preferred)) return preferred;
+  try {
+    await removeTree(preferred);
+    if (!existsSync(preferred)) return preferred;
+  } catch {
+    // Falls through to a unique name.
+  }
+  for (let n = 2; n < 100; n++) {
+    const candidate = `${preferred}-${n}`;
+    if (!existsSync(candidate)) return candidate;
+  }
+  // A hundred stuck backups is a different bug; say so rather than loop.
+  throw new Error(`could not find a free backup path beside ${preferred}`);
+}
+
+/** Best-effort tidy of backups an earlier update could not remove. */
+async function sweepStaleBackups(preferred: string): Promise<void> {
+  for (let n = 2; n < 100; n++) {
+    const candidate = `${preferred}-${n}`;
+    if (!existsSync(candidate)) break;
+    await removeTree(candidate).catch(() => undefined);
+  }
+}
+
 export async function swapInstall(input: {
   readonly layout: InstallLayout;
   readonly stagedRoot: string;
@@ -264,16 +315,19 @@ export async function swapInstall(input: {
   const { layout, stagedRoot } = input;
   if (!existsSync(stagedRoot)) throw new Error(`nothing staged at ${stagedRoot}`);
 
-  await rm(layout.backup, { recursive: true, force: true });
-  await rename(layout.root, layout.backup);
+  const backup = await freeBackupPath(layout.backup);
+  await rename(layout.root, backup);
   try {
     await rename(stagedRoot, layout.root);
   } catch (error) {
     // Put the working copy back before giving up.
-    await rename(layout.backup, layout.root).catch(() => undefined);
+    await rename(backup, layout.root).catch(() => undefined);
     throw error;
   }
-  await rm(layout.backup, { recursive: true, force: true }).catch(() => undefined);
+  // Best-effort: the app is still running out of this, so on macOS it usually
+  // cannot go until the relaunch. The next update will sweep it.
+  await removeTree(backup).catch(() => undefined);
+  await sweepStaleBackups(layout.backup).catch(() => undefined);
 }
 
 /**

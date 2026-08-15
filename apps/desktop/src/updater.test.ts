@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync } from "node:fs";
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -286,6 +286,43 @@ describe("swapping the install", () => {
       await swapInstall({ layout: { kind: "bundle", root, backup: `${root}.old` }, stagedRoot: staged });
       expect(await readFile(join(root, "version.txt"), "utf8")).toBe("new");
     } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  /**
+   * The reported failure: `ENOTEMPTY … Loop.app.old/Contents/Resources`, on
+   * every update, forever.
+   *
+   * The final cleanup is best-effort — the app is still running out of the
+   * backup when it runs — so a leftover `Loop.app.old` is expected. Deleting it
+   * used to be the FIRST thing a swap did, unguarded, so once one would not
+   * delete, no update could ever start again.
+   *
+   * An undeletable directory is simulated the way the real one behaves:
+   * unlinking an entry needs write permission on its parent.
+   */
+  test("a backup that cannot be deleted moves aside instead of failing the update", async () => {
+    const { dir, root, staged } = await tree();
+    const locked = join(`${root}.old`, "Contents");
+    try {
+      await mkdir(join(locked, "Resources"), { recursive: true });
+      await writeFile(join(locked, "Resources", "app.asar"), "held");
+      await chmod(locked, 0o500);
+
+      await swapInstall({ layout: { kind: "bundle", root, backup: `${root}.old` }, stagedRoot: staged });
+
+      // The update landed, which is the whole point: a backup nobody can
+      // delete must not be able to stop one.
+      expect(await readFile(join(root, "version.txt"), "utf8")).toBe("new");
+      // The stuck directory is still there — a recursive delete removes what
+      // it can before failing, so the tree is partly eaten, but the path
+      // survives. That is what forced the swap to move aside to `.old-2`…
+      expect(existsSync(join(`${root}.old`, "Contents", "Resources"))).toBe(true);
+      // …and `.old-2` is gone again, cleaned up once the swap succeeded.
+      expect(existsSync(`${root}.old-2`)).toBe(false);
+    } finally {
+      await chmod(locked, 0o700).catch(() => undefined);
       await rm(dir, { recursive: true, force: true });
     }
   });
