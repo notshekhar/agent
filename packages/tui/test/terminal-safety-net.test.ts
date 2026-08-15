@@ -17,6 +17,27 @@ function withTTY<T>(isTTY: boolean, fn: () => T): T {
     }
 }
 
+describe("terminal teardown", () => {
+    test("stop() disables mouse reporting", () => {
+        // stop() removes the exit safety net BEFORE tearing down, so whatever
+        // it fails to reset here is not reset by anything else on a clean quit.
+        // Mouse reporting used to ride out on nav mode always turning it off
+        // itself; a prompt pinned for the whole session holds it to teardown,
+        // and a terminal left reporting answers every scroll and click on the
+        // shell prompt with raw `\x1b[<64;20;5M`.
+        const term = new ProcessTerminal();
+        const write = spyOn(process.stdout, "write").mockImplementation(() => true);
+        try {
+            term.stop();
+            const written = write.mock.calls.map((c) => String(c[0])).join("");
+            expect(written).toContain("\x1b[?1000l");
+            expect(written).toContain("\x1b[?1006l");
+        } finally {
+            write.mockRestore();
+        }
+    });
+});
+
 describe("terminal exit safety net", () => {
     test("writes the reset sequence to fd 1 when stdout is a TTY", () => {
         const term = new ProcessTerminal() as unknown as { resetKeyboardModesSync(): void };

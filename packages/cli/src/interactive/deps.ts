@@ -44,4 +44,7 @@ export interface AppDeps {
     restoreConsole: () => void;
     /** Start/stop the shared 1s ticker after clock/timer/reminder changes. */
     syncTicker: () => void;
+    /** Apply the `pinnedInput` setting live — pins/unpins the prompt and
+     * turns wheel reporting on/off to match. */
+    applyPinnedInput: (on: boolean) => void;
 }

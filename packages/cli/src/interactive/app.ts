@@ -225,6 +225,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         latestContextTokens: seededCtxTokens,
         busy: false,
         scrollbackFocus: false,
+        pinnedInput: Boolean(settingsStore.get("pinnedInput")),
         abort: new AbortController(),
         pendingInjection: null,
         lastCtrlCAt: 0,
@@ -295,6 +296,40 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     // sits flush with the terminal's bottom row once the screen fills up.
     root.addChild(new Spacer(1));
     tui.addChild(root);
+
+    // What the transcript window may NOT use: every row the chrome under it is
+    // taking this frame (loader slot, todos, queued messages, editor, status
+    // line, trailing spacer). Measured rather than assumed, because all of it
+    // moves — the editor grows a row per line of draft, the todo panel appears
+    // mid-turn — and an under-reserve is what pushes the pinned prompt off the
+    // screen. Re-rendering to measure is safe: component renders are pure (the
+    // spinner advances on its own interval, not on render), the same property
+    // the click-to-select mapper already relies on, and the transcript itself
+    // is NOT re-rendered here — it is the one child this skips.
+    history.setReserveRows(() => {
+        const width = tui.terminal.columns;
+        let rows = 0;
+        for (const child of root.children) {
+            if ((child as unknown) === (history as unknown)) continue;
+            rows += child.render(width).length;
+        }
+        return rows;
+    });
+
+    /**
+     * Turn the pinned prompt on/off live (startup + the /settings row).
+     *
+     * The wheel is the point of the mouse reporting: without it the terminal
+     * scrolls its own scrollback and the window under the prompt never moves.
+     * The cost is that the terminal stops seeing drags as selections while it
+     * is on, so it goes back off the moment the setting does.
+     */
+    const applyPinnedInput = (on: boolean): void => {
+        state.pinnedInput = on;
+        history.setPinned(on);
+        tui.terminal.write(on ? "\x1b[?1006h\x1b[?1000h" : "\x1b[?1000l\x1b[?1006l");
+        tui.requestRender(true);
+    };
 
     showWhatsNew(history, opts.version, Boolean(opts.sessionId));
     // Routes its result to the welcome banner (top), not chat history; safe to
@@ -554,6 +589,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         version: opts.version,
         restoreConsole,
         syncTicker,
+        applyPinnedInput,
     };
     syncTicker();
 
@@ -592,6 +628,13 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     // After start: terminal.start() cleanses stale modes (incl. OSC 111
     // background reset), so the mode's wash must be applied after it.
     applyCanvasWash();
+    // Same reason, and the same trap: the cleanse writes `?1000l ?1006l`, so a
+    // pinned prompt asking for wheel reports BEFORE start() has its request
+    // wiped a few thousand bytes into the first paint. The window still
+    // scrolls on any wheel report it is handed — it just never gets handed
+    // one, because the terminal was told to stop sending them and keeps the
+    // wheel for its own scrollback.
+    if (state.pinnedInput) applyPinnedInput(true);
     tui.requestRender();
 
     // Catalog warm-up: models change between releases — kick the

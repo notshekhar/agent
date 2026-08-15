@@ -21,6 +21,9 @@ export interface AppState {
     busy: boolean;
     /** Scrollback focus mode: arrow keys navigate transcript entries. */
     scrollbackFocus: boolean;
+    /** The `pinnedInput` setting, live: the prompt holds the last rows and the
+     * wheel scrolls the transcript without the transcript taking the keyboard. */
+    pinnedInput: boolean;
     abort: AbortController;
     pendingInjection: string | null;
     lastCtrlCAt: number;

@@ -445,7 +445,8 @@ export class ProcessTerminal implements Terminal {
         try {
             // pop kitty keyboard protocol · disable modifyOtherKeys · disable
             // bracketed paste · disable mouse reporting (normal + SGR — nav
-            // mode turns these on) · restore default background + foreground
+            // mode and the pinned prompt both turn these on) · restore default
+            // background + foreground
             // (OSC 111/110, undoes the canvas wash) · show cursor. All
             // idempotent no-ops when the modes are already off, so this
             // doubles as the startup cleanse for a predecessor killed with
@@ -514,6 +515,15 @@ export class ProcessTerminal implements Terminal {
         setKittyProtocolActive(false);
         process.stdout.write("\x1b[>4;0m"); // disable modifyOtherKeys
         this._modifyOtherKeysActive = false;
+
+        // Mouse reporting goes off here for the same reason and in the same
+        // unconditional spirit. It used to be safe to omit only because the one
+        // thing that turned it on — nav mode — also turned it off on its way
+        // out, so it was always already off by the time we got here. A prompt
+        // pinned for the whole session holds it on until teardown, and leaving
+        // it on hands the shell a terminal that answers every scroll and click
+        // with raw `\x1b[<64;20;5M` on the command line. Idempotent when off.
+        process.stdout.write("\x1b[?1000l\x1b[?1006l");
 
         // Clean up StdinBuffer
         if (this.stdinBuffer) {

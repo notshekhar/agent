@@ -158,7 +158,9 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
         // gets the mode's default view back, not whatever was left open.
         history.resetFolds();
         statusLine.setHint(null);
-        tui.terminal.write("\x1b[?1000l\x1b[?1006l");
+        // Pinned mode wants the wheel for the whole session — only navigation's
+        // own request for it is withdrawn here.
+        if (!state.pinnedInput) tui.terminal.write("\x1b[?1000l\x1b[?1006l");
         if (wheelTimer) {
             clearTimeout(wheelTimer);
             wheelTimer = null;
@@ -182,7 +184,7 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
             const page = history.viewportPage();
             const net = Math.max(-page, Math.min(page, wheelAccum * 2));
             wheelAccum = 0;
-            if (net !== 0 && state.scrollbackFocus) {
+            if (net !== 0 && (state.scrollbackFocus || state.pinnedInput)) {
                 history.scrollViewportLines(net);
                 tui.requestRender();
             }
@@ -349,6 +351,33 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
         } else if (state.scrollbackFocus) {
             // A selector/overlay took over — drop focus mode quietly.
             exitScrollbackFocus();
+        }
+
+        // Pinned prompt, outside navigation: the wheel scrolls the transcript
+        // window WITHOUT the transcript taking the keyboard — that is the whole
+        // difference between this and nav mode. Everything else still types.
+        if (state.pinnedInput && !state.scrollbackFocus) {
+            const wheel = countWheelScroll(data);
+            if (wheel !== 0 && deps.getSelectorDepth() === 0) {
+                queueWheel(wheel);
+                return { consume: true };
+            }
+            // Clicks, drags, and wheel events a selector owns: swallowed, not
+            // typed. Mouse reporting is on for the whole session here, so an
+            // unhandled report would otherwise land in the editor as raw
+            // `[<64;20;5M` text.
+            if (MOUSE_SGR_ANY.test(data)) return { consume: true };
+            // PgUp/PgDn scroll the transcript only while there is no draft to
+            // page through: with a draft in it the editor owns them
+            // (tui.editor.pageUp), and silently taking those away would be a
+            // regression for anyone composing a long message.
+            if (editorFocused && deps.getSelectorDepth() === 0 && (isPageUp(data) || isPageDown(data))) {
+                if ((editor.getText?.() ?? "") === "") {
+                    history.scrollViewportLines(isPageUp(data) ? -history.viewportPage() : history.viewportPage());
+                    tui.requestRender();
+                    return { consume: true };
+                }
+            }
         }
 
         // Drag-and-drop / paste of attachable file(s) — images/PDFs — into the

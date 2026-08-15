@@ -121,8 +121,15 @@ export class ChatHistory extends Container {
         this.markDirty();
         super.invalidate();
     }
-    /** Window geometry of the last render, when the viewport clipped it. */
-    private lastViewport: { offset: number; sliceLen: number } | null = null;
+    /**
+     * Window geometry of the last render, when the viewport shaped it.
+     *
+     * `lead` is how many rows the window puts BEFORE the transcript lines —
+     * one clip indicator when it scrolls, or the whole top pad when a short
+     * pinned transcript is sitting on the bottom. Clicks land in window
+     * coordinates and have to come back out in transcript ones.
+     */
+    private lastViewport: { offset: number; sliceLen: number; lead: number } | null = null;
 
     constructor(
         private tui: TUI,
@@ -141,7 +148,7 @@ export class ChatHistory extends Container {
         for (const c of this.compactionComponents) c.setExpanded(expanded);
         for (const c of this.assistantComponents) c.setThinkingExpanded(expanded);
         // Expand-all reflows the whole transcript — re-anchor on the selection.
-        if (this.viewportOn) this.pendingAnchor = true;
+        if (this.viewportOn()) this.pendingAnchor = true;
     }
     toggleToolsExpanded(): boolean {
         this.setToolsExpanded(!this.expanded);
@@ -173,28 +180,86 @@ export class ChatHistory extends Container {
     }
 
     // ------------------------------------------------------------------
-    // Navigation viewport: while nav mode is on, render() shows a window of
-    // the transcript that follows the selection — loop owns the scrolling
-    // instead of the terminal, so selection/expand never "jumps" the screen.
+    // The transcript window.
+    //
+    // Two things ask for it, and either one alone keeps it on:
+    //
+    //  - NAVIGATION (Tab/ctrl+e), where the window follows the selection so
+    //    that stepping through entries and opening folds never jumps the
+    //    screen; and
+    //  - PINNED INPUT (the `pinnedInput` setting), where it is on for the
+    //    whole session so the prompt keeps the last rows of the terminal and
+    //    the transcript scrolls under it.
+    //
+    // Both are the same mechanism — loop owning the scrolling instead of the
+    // terminal — so they share the offset, the clamp and the render cache.
     // ------------------------------------------------------------------
-    private viewportOn = false;
+    private navViewport = false;
+    private pinned = false;
     private viewportOffset = 0;
     /** Anchor the window to the selection on the NEXT render only. Set by
      * user actions (selection moves, folds) — never by passive re-renders,
      * so a streaming turn growing the selected entry can't drag the window
      * to the bottom on every delta. */
     private pendingAnchor = false;
+    /**
+     * Pinned mode only: keep the window at the live edge as the turn streams.
+     * DERIVED, not commanded — every render sets it from whether the clamped
+     * offset came to rest at the bottom, so scrolling up drops follow and
+     * scrolling back down re-arms it without either scroll path having to say
+     * so. Starts armed: a session opens at its newest line.
+     */
+    private followEnd = true;
+    /** Rows the chrome below the transcript is using this frame; see setReserveRows. */
+    private reserveRows: (() => number) | null = null;
+
+    /** True while anything is asking for the window. */
+    private viewportOn(): boolean {
+        return this.navViewport || this.pinned;
+    }
 
     setViewport(on: boolean): void {
         this.markDirty();
-        this.viewportOn = on;
+        this.navViewport = on;
         this.pendingAnchor = true;
         if (on) this.viewportOffset = Number.MAX_SAFE_INTEGER; // clamp to bottom
     }
 
+    /** The `pinnedInput` setting, on or off. Turning it on jumps to the live
+     * edge — the same place a fresh session sits. */
+    setPinned(on: boolean): void {
+        this.markDirty();
+        this.pinned = on;
+        if (on) {
+            this.followEnd = true;
+            this.viewportOffset = Number.MAX_SAFE_INTEGER;
+        }
+    }
+
+    isPinned(): boolean {
+        return this.pinned;
+    }
+
+    /**
+     * How many rows everything BELOW the transcript is taking right now.
+     *
+     * The window's height is the terminal minus this, so a wrong answer is
+     * exactly the bug pinned mode exists to fix: under-reserve and the frame
+     * overflows the screen, the terminal scrolls, and the prompt the setting
+     * promised to pin walks off the bottom. It cannot be a constant — the
+     * editor grows with the draft, and the loader, the todo panel and queued
+     * messages come and go mid-turn — so the app measures the real thing.
+     */
+    setReserveRows(fn: () => number): void {
+        this.reserveRows = fn;
+    }
+
     /** Rows the transcript window may use (editor + status keep the rest). */
     private viewportRows(): number {
-        return Math.max(6, this.tui.terminal.rows - 8);
+        // The fallback matches the chrome's idle height, and is what nav mode
+        // ran on before the measurement existed.
+        const reserved = this.reserveRows?.() ?? 8;
+        return Math.max(6, this.tui.terminal.rows - reserved);
     }
 
     /** Page height for PgUp/PgDn (full page minus one line of continuity). */
@@ -206,12 +271,18 @@ export class ChatHistory extends Container {
     scrollViewportLines(delta: number): void {
         this.viewportOffset = Math.max(0, this.viewportOffset + delta);
         this.pendingAnchor = false;
+        // Hand the offset to the user. Follow would otherwise snap the window
+        // straight back to the bottom on the very next render — the scroll
+        // would look like it never happened. The render re-arms it if this
+        // lands at the live edge anyway (scrolling down past the end).
+        this.followEnd = false;
     }
 
     /** Jump the window to the very top/bottom (Home/End). */
     scrollViewportEdge(edge: "top" | "bottom"): void {
         this.viewportOffset = edge === "top" ? 0 : Number.MAX_SAFE_INTEGER;
         this.pendingAnchor = false;
+        this.followEnd = false;
     }
 
     // ------------------------------------------------------------------
@@ -414,18 +485,51 @@ export class ChatHistory extends Container {
     }
 
     override render(width: number): string[] {
+        const viewport = this.viewportOn();
         let full: string[];
-        if (this.viewportOn && this.fullCache && this.fullCache.width === width) {
+        if (viewport && this.fullCache && this.fullCache.width === width) {
             full = this.fullCache.lines;
             this.lastRanges = this.fullCache.ranges;
         } else {
             full = this.renderFull(width);
-            this.fullCache = this.viewportOn ? { width, lines: full, ranges: this.lastRanges } : null;
+            this.fullCache = viewport ? { width, lines: full, ranges: this.lastRanges } : null;
         }
         this.lastViewport = null;
-        if (!this.viewportOn) return full;
+        if (!viewport) return full;
         const rows = this.viewportRows();
-        if (full.length <= rows) return full;
+        if (full.length <= rows) {
+            // Nothing to scroll: the whole transcript is on screen, so the
+            // live edge is too. Re-arm, or a stream that grew past the window
+            // after the user had scrolled up in a SHORTER one would open
+            // stuck at a stale offset.
+            this.followEnd = true;
+            // Navigation is a temporary mode: leaving the short transcript
+            // where it already is keeps Tab from shunting the whole screen
+            // around.
+            if (!this.pinned) return full;
+            // Pinned is a promise about WHERE THE PROMPT IS, and a promise
+            // that only held once the transcript got tall enough would be the
+            // most annoying half of the feature: a fresh session would start
+            // with the prompt up under the banner and it would sink to the
+            // bottom at some unannounced message count.
+            //
+            // So the window is always exactly `rows` tall and the transcript
+            // sits at the BOTTOM of it. Growing upward from the prompt is what
+            // every chat does, and it keeps the newest line next to the
+            // caret — top-aligning instead would open each turn as far from
+            // the prompt as the screen allows and walk it back down.
+            const pad = rows - full.length;
+            this.lastViewport = { offset: 0, sliceLen: full.length, lead: pad };
+            return [...new Array<string>(pad).fill(""), ...full];
+        }
+
+        // Pinned mode rides the live edge as the turn streams. An explicit
+        // anchor (a selection move in nav mode) outranks it — that is a user
+        // action about a specific entry, and following would yank the window
+        // off it on the very next delta.
+        if (this.pinned && this.followEnd && !this.pendingAnchor) {
+            this.viewportOffset = Number.MAX_SAFE_INTEGER;
+        }
 
         // The selected entry's line range is the scroll anchor — applied once
         // per user action, then cleared (see pendingAnchor).
@@ -444,13 +548,17 @@ export class ChatHistory extends Container {
 
         const maxOffset = full.length - (rows - 2);
         this.viewportOffset = Math.max(0, Math.min(this.viewportOffset, maxOffset));
+        // Follow is whatever the clamp just decided: resting at the bottom
+        // means the user is at the live edge and wants to stay there.
+        this.followEnd = this.viewportOffset >= maxOffset;
         const hasTop = this.viewportOffset > 0;
         const inner = rows - 2;
         const hasBottom = this.viewportOffset + inner < full.length;
         const slice = full.slice(this.viewportOffset, this.viewportOffset + inner);
         const above = this.viewportOffset;
         const below = full.length - this.viewportOffset - slice.length;
-        this.lastViewport = { offset: this.viewportOffset, sliceLen: slice.length };
+        // One lead row here: the top clip indicator.
+        this.lastViewport = { offset: this.viewportOffset, sliceLen: slice.length, lead: 1 };
         return [
             hasTop ? theme.fg("dim", `   ▲ ${above} more line${above === 1 ? "" : "s"}`) : "",
             ...slice,
@@ -608,9 +716,10 @@ export class ChatHistory extends Container {
     clickAtLocalLine(local: number): boolean {
         let line = local;
         if (this.lastViewport) {
-            // Window layout: [top indicator, ...slice, bottom indicator].
-            if (local < 1 || local > this.lastViewport.sliceLen) return false;
-            line = this.lastViewport.offset + (local - 1);
+            // Window layout: [lead rows, ...slice, trailing rows].
+            const { lead, sliceLen, offset } = this.lastViewport;
+            if (local < lead || local >= lead + sliceLen) return false;
+            line = offset + (local - lead);
         }
         const hit = this.lastRanges.find((r) => line >= r.start && line <= r.end);
         if (!hit) return false;
@@ -637,6 +746,10 @@ export class ChatHistory extends Container {
         this.expandedGroups.clear();
         this.lastRanges = [];
         this.lastViewport = null;
+        // A fresh transcript (/new, /clear, a mode switch) opens at its top,
+        // which is also its live edge.
+        this.followEnd = true;
+        this.viewportOffset = 0;
     }
 
     addUser(text: string, ts?: number): void {

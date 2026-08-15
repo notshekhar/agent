@@ -54,6 +54,14 @@ Other notable keys (all managed via `/settings` too):
   classic boxed look). Switch live with `/ui <mode>`; each mode keeps its
   own theme (loop: `dark`/`light` on the `theme` key; other modes under
   `uiThemes`, e.g. `{ "noir": "day" }`).
+- `"pinnedInput": true` — pin the prompt to the last rows of the terminal.
+  The transcript stops growing the screen and becomes a window that scrolls
+  under the prompt: mouse wheel any time, `PgUp`/`PgDn` while the prompt is
+  empty, and it follows the newest line again as soon as you scroll back to
+  the bottom. `Tab` still opens the full entry navigation on top of it. The
+  cost is your terminal's own mouse behaviour — loop asks for wheel reporting
+  while this is on, so drag-selecting text needs the terminal's bypass
+  modifier (Shift in most; Option in iTerm2 and Ghostty). Default off.
 - `"subagentModel"` — default model for subagents (full `provider/model` id,
   cross-provider allowed). An agent file's own `model:` wins over it; unset =
   subagents inherit the parent's model. Invalid/unavailable picks fall back to
