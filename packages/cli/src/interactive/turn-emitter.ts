@@ -141,6 +141,14 @@ export function wireTurnEmitter(emitter: TurnEmitter, deps: TurnEmitterDeps): vo
         history.addHook(m);
         tui.requestRender();
     });
+    // The provider dropped the stream between steps and the turn is reopening
+    // it. Said out loud because a recovered turn emits no error at all — the
+    // alternative is the agent appearing to stall for the backoff.
+    emitter.on("stream-retry", (e: { attempt: number; max: number; reason: string }) => {
+        history.addSystem(`stream failed (${e.reason}) — retrying ${e.attempt}/${e.max}`);
+        showWorking("Retrying");
+        tui.requestRender();
+    });
     // OSC sequences from hooks (Warp-style notifications): invisible control
     // sequences, safe to write directly without tearing the renderer.
     emitter.on("hook-terminal-sequence", (s: string) => {

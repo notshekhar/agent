@@ -33,7 +33,7 @@ import {
     isUp,
 } from "./keys";
 import { isKeyRelease } from "@notshekhar/loop-tui";
-import { setLiveVariant } from "./ui/ui-mode";
+import { activeUiMode, setLiveVariant } from "./ui/ui-mode";
 import { copyToClipboard, readClipboardText } from "./clipboard";
 import { traceEvent } from "./debug-log";
 import { pickImageFile, readClipboardImageToFile } from "./clipboard-image";
@@ -125,6 +125,17 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
         if (setLiveVariant(on)) history.invalidate();
     };
 
+    /**
+     * The live state the user actually chose (the `uiLive` setting, honoured
+     * only by modes that have a live variant) — the same expression theme.ts
+     * applies at startup.
+     *
+     * Leaving navigation has to come back to THIS, not to off: a user whose
+     * mode starts live was being dropped out of live every time they left nav,
+     * which looks exactly like the transcript un-grouping itself.
+     */
+    const preferredLive = (): boolean => Boolean(getSetting("uiLive")) && Boolean(activeUiMode().live);
+
     const enterScrollbackFocus = (): boolean => {
         if (!history.selectLast()) return false;
         state.scrollbackFocus = true;
@@ -140,9 +151,12 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
 
     const exitScrollbackFocus = (): void => {
         state.scrollbackFocus = false;
-        setLive(false);
+        setLive(preferredLive());
         history.setViewport(false);
         history.clearSelection();
+        // Folds opened while navigating are part of navigating — the prompt
+        // gets the mode's default view back, not whatever was left open.
+        history.resetFolds();
         statusLine.setHint(null);
         tui.terminal.write("\x1b[?1000l\x1b[?1006l");
         if (wheelTimer) {

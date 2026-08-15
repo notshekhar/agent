@@ -47,6 +47,13 @@ import { buildAgentCallConfig, createStepBilling, createYieldGate } from "./mode
 import { withToolHooks } from "./tool-hooks";
 import { createTaskTool } from "./subagent";
 import { isAbortError } from "./abort";
+import {
+    abortableDelay,
+    DEFAULT_MAX_STREAM_RESUMES,
+    describeRetry,
+    isRetryableStreamError,
+    resumeDelayMs,
+} from "./retry";
 import { debugLog } from "../debug";
 import { getMcpManager, isMcpEnabled } from "../mcp";
 import { getExtensionHost } from "../extensions";
@@ -543,42 +550,56 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
         }
     }
 
-    // If we extracted image paths, override the last user message with a multipart
-    // content array (text + image parts) so vision models actually see the image.
-    const messages = toModelMessages(session);
-    if (images.length > 0) {
-        const lastUserIdx = (() => {
-            for (let i = messages.length - 1; i >= 0; i--) if (messages[i].role === "user") return i;
-            return -1;
-        })();
-        if (lastUserIdx >= 0) {
-            // AI SDK v6 user-content attachment shape: a `file` part with the
-            // bytes as `data` and an IANA `mediaType`. (The older `image` part is
-            // deprecated in favor of this for all attachment kinds.)
-            const parts: Array<{ type: "text"; text: string } | { type: "file"; data: Buffer; mediaType: string }> = [];
-            if (textWithoutPaths) parts.push({ type: "text", text: textWithoutPaths });
-            for (const img of images) parts.push({ type: "file", data: img.data, mediaType: img.mediaType });
-            messages[lastUserIdx] = { role: "user", content: parts as never };
-        }
-    }
-
-    // Hook-injected context rides only the model-bound copy, not the transcript.
-    // Must target the *last* user message even when image extraction already
-    // turned it into a parts array — falling through to an earlier message would
-    // rewrite history and bust the prompt-cache prefix.
-    if (promptHooks.additionalContext) {
-        const ctxBlock = `<hook-context>\n${promptHooks.additionalContext}\n</hook-context>`;
-        for (let i = messages.length - 1; i >= 0; i--) {
-            const m = messages[i];
-            if (m.role !== "user") continue;
-            if (typeof m.content === "string") {
-                messages[i] = { role: "user", content: `${m.content}\n\n${ctxBlock}` };
-            } else if (Array.isArray(m.content)) {
-                messages[i] = { role: "user", content: [...m.content, { type: "text", text: ctxBlock }] as never };
+    /**
+     * The model-bound message array: the session's transcript plus the two
+     * decorations that never belong in it (image parts, hook context).
+     *
+     * A function rather than a value because a resumed stream has to rebuild
+     * it — the completed steps of the failed attempt are in the session by
+     * then, and the decorations must land on the same last user message they
+     * did the first time, or the prompt-cache prefix moves.
+     */
+    const buildMessages = (): ModelMessage[] => {
+        // If we extracted image paths, override the last user message with a multipart
+        // content array (text + image parts) so vision models actually see the image.
+        const messages = toModelMessages(session);
+        if (images.length > 0) {
+            const lastUserIdx = (() => {
+                for (let i = messages.length - 1; i >= 0; i--) if (messages[i].role === "user") return i;
+                return -1;
+            })();
+            if (lastUserIdx >= 0) {
+                // AI SDK v6 user-content attachment shape: a `file` part with the
+                // bytes as `data` and an IANA `mediaType`. (The older `image` part is
+                // deprecated in favor of this for all attachment kinds.)
+                const parts: Array<{ type: "text"; text: string } | { type: "file"; data: Buffer; mediaType: string }> =
+                    [];
+                if (textWithoutPaths) parts.push({ type: "text", text: textWithoutPaths });
+                for (const img of images) parts.push({ type: "file", data: img.data, mediaType: img.mediaType });
+                messages[lastUserIdx] = { role: "user", content: parts as never };
             }
-            break;
         }
-    }
+
+        // Hook-injected context rides only the model-bound copy, not the transcript.
+        // Must target the *last* user message even when image extraction already
+        // turned it into a parts array — falling through to an earlier message would
+        // rewrite history and bust the prompt-cache prefix.
+        if (promptHooks.additionalContext) {
+            const ctxBlock = `<hook-context>\n${promptHooks.additionalContext}\n</hook-context>`;
+            for (let i = messages.length - 1; i >= 0; i--) {
+                const m = messages[i];
+                if (m.role !== "user") continue;
+                if (typeof m.content === "string") {
+                    messages[i] = { role: "user", content: `${m.content}\n\n${ctxBlock}` };
+                } else if (Array.isArray(m.content)) {
+                    messages[i] = { role: "user", content: [...m.content, { type: "text", text: ctxBlock }] as never };
+                }
+                break;
+            }
+        }
+        return messages;
+    };
+    const messages = buildMessages();
 
     const thinkingLevel: ThinkingLevel = opts.thinkingLevel ?? getSetting("thinkingLevel") ?? "off";
     // Shared provider shaping (see model-call.ts): effective sdk mapping for
@@ -703,45 +724,54 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
             .catch((err) => debugLog("persist", `step persistence failed for session ${session.id}:`, err));
         return persistChain;
     };
-    const result = streamText({
-        model,
-        ...(call.maxOutputTokens ? { maxOutputTokens: call.maxOutputTokens } : {}),
-        ...(call.anthropicCaching
-            ? // system inside messages is our deliberate Anthropic prompt-caching
-              // pattern — allowSystemInMessages opts out of the AI SDK warning.
-              {
-                  messages: withAnthropicCaching(system, messages),
-                  allowSystemInMessages: true,
-              }
-            : { instructions: system, messages }),
-        // Caching tail-move and/or todo nudge — undefined when neither applies.
-        ...(prepareStep ? { prepareStep } : {}),
-        tools,
-        // A plan-capable turn also stops once a substantial plan is delivered
-        // (stub deliveries keep the loop alive — see planDeliveredThisStep).
-        stopWhen:
-            PLAN_TOOL_NAME in toolsForTurn ? [isStepCount(maxSteps), planDeliveredThisStep] : isStepCount(maxSteps),
-        abortSignal,
-        // v7 portable reasoning effort for first-party providers (off → "none").
-        // Undefined for community providers / non-reasoning models, which use
-        // providerOptions (or nothing) instead.
-        ...(call.reasoning ? { reasoning: call.reasoning } : {}),
-        // Persist each step's messages as it finishes (mirrors the reference's
-        // per-message persistence). Errors here must not break the turn.
-        onStepEnd: (step) => {
-            void persistStep(step as never);
-        },
-        // The SDK's default onError does console.error(error) with the whole
-        // APICallError (request body, tool defs — a wall of noise). We already
-        // surface stream errors cleanly via the stream "error" part below,
-        // so swallow this duplicate to keep the console clean.
-        onError: () => {},
-        // smoothStream removed: it re-buffers tokens and releases them on its
-        // own 20ms timers, coupling stream delivery to the timer phase — the
-        // same phase that starves during a turn, which can deadlock delivery
-        // and freeze the TUI. the reference doesn't use it; we stream parts raw.
-        ...(providerOptions ? { providerOptions: providerOptions as never } : {}),
-    });
+    /**
+     * Open a stream over `attemptMessages`, with `remainingSteps` of the
+     * turn's step budget left. Called once normally, and again per resume — a
+     * resumed stream is a fresh call over the conversation the finished steps
+     * left behind, not a replay.
+     */
+    const openStream = (attemptMessages: ModelMessage[], remainingSteps: number) =>
+        streamText({
+            model,
+            ...(call.maxOutputTokens ? { maxOutputTokens: call.maxOutputTokens } : {}),
+            ...(call.anthropicCaching
+                ? // system inside messages is our deliberate Anthropic prompt-caching
+                  // pattern — allowSystemInMessages opts out of the AI SDK warning.
+                  {
+                      messages: withAnthropicCaching(system, attemptMessages),
+                      allowSystemInMessages: true,
+                  }
+                : { instructions: system, messages: attemptMessages }),
+            // Caching tail-move and/or todo nudge — undefined when neither applies.
+            ...(prepareStep ? { prepareStep } : {}),
+            tools,
+            // A plan-capable turn also stops once a substantial plan is delivered
+            // (stub deliveries keep the loop alive — see planDeliveredThisStep).
+            stopWhen:
+                PLAN_TOOL_NAME in toolsForTurn
+                    ? [isStepCount(remainingSteps), planDeliveredThisStep]
+                    : isStepCount(remainingSteps),
+            abortSignal,
+            // v7 portable reasoning effort for first-party providers (off → "none").
+            // Undefined for community providers / non-reasoning models, which use
+            // providerOptions (or nothing) instead.
+            ...(call.reasoning ? { reasoning: call.reasoning } : {}),
+            // Persist each step's messages as it finishes (mirrors the reference's
+            // per-message persistence). Errors here must not break the turn.
+            onStepEnd: (step) => {
+                void persistStep(step as never);
+            },
+            // The SDK's default onError does console.error(error) with the whole
+            // APICallError (request body, tool defs — a wall of noise). We already
+            // surface stream errors cleanly via the stream "error" part below,
+            // so swallow this duplicate to keep the console clean.
+            onError: () => {},
+            // smoothStream removed: it re-buffers tokens and releases them on its
+            // own 20ms timers, coupling stream delivery to the timer phase — the
+            // same phase that starves during a turn, which can deadlock delivery
+            // and freeze the TUI. the reference doesn't use it; we stream parts raw.
+            ...(providerOptions ? { providerOptions: providerOptions as never } : {}),
+        });
 
     let assistantText = "";
     const toolsUsed: string[] = [];
@@ -760,108 +790,211 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
     // The AI SDK skips its stream `finish` part on abort; track whether we
     // already forwarded one so RPC/web clients still get a single end event.
     let sawFinish = false;
+    // Steps this turn has completed across every attempt — the resume budget
+    // is what remains of maxSteps, so a resumed turn can't exceed the cap.
+    let stepsDone = 0;
+    // Set by the `error` case (and the catch below) when the failure looks
+    // transient; cleared at the top of each attempt, so it always describes
+    // the CURRENT attempt. Drives the resume decision once the stream ends,
+    // and is the error reported if there is no attempt left — a failure we
+    // then recovered from is never reported at all.
+    let streamError: unknown;
+    // A `finish` withheld because the stream ended on a retryable error —
+    // emitted only if we end up giving up, so a resumed turn never tells its
+    // consumers the turn ended and then keeps going.
+    let pendingFinish: { usage?: UsageBlock } | undefined;
 
     const maybeYield = createYieldGate();
-    // The interrupt can land between parts (caught by the `break` below) or while
-    // awaiting the next part. A real fetch-backed provider rejects its body
-    // stream on abort, which can throw straight out of `for await`; without this
-    // guard that throw would skip the persistence below, losing the partial
-    // reply. Swallow only aborts; any other error still propagates.
-    try {
-        for await (const part of result.stream) {
-            if (abortSignal?.aborted) break;
-            switch (part.type) {
-                case "text-delta":
-                    assistantText += part.text;
-                    textSinceStep += part.text;
-                    emitter.emit("text-delta", part.text);
-                    break;
-                case "reasoning-delta": {
-                    const rt = (part as { text: string }).text;
-                    reasoningSinceStep += rt;
-                    emitter.emit("reasoning-delta", rt);
-                    break;
-                }
-                case "reasoning-start":
-                    reasoningStartedAt = Date.now();
-                    emitter.emit("reasoning-start");
-                    break;
-                case "reasoning-end":
-                    reasoningDurations.push(Date.now() - (reasoningStartedAt || Date.now()));
-                    emitter.emit("reasoning-end");
-                    break;
-                case "tool-input-start":
-                    // Surface the pending tool box as soon as the call begins,
-                    // before its (possibly large) input has finished streaming.
-                    // Field mapping lives in toolInputStartEvent — v7 renamed
-                    // toolCallId → id on these parts and the old cast silently
-                    // read undefined, suppressing the pending box entirely.
-                    emitter.emit("tool-input-start", toolInputStartEvent(part as { id?: string; toolName?: string }));
-                    break;
-                case "tool-input-delta":
-                    emitter.emit("tool-input-delta", toolInputDeltaEvent(part as { id?: string; delta?: string }));
-                    break;
-                case "tool-call":
-                    if (part.toolName) toolsUsed.push(part.toolName);
-                    emitter.emit("tool-call", part);
-                    break;
-                case "tool-result":
-                    emitter.emit("tool-result", part);
-                    break;
-                case "tool-error": {
-                    // A tool's execute threw (MCP transport failure, timeout, bad
-                    // args…). The AI SDK still feeds the error back to the model as
-                    // the tool result, so the loop continues and the model can try
-                    // another approach — we just surface it in the UI (red) instead
-                    // of leaving the tool box spinning forever.
-                    const e = part as { toolCallId?: string; toolName?: string; error?: unknown };
-                    emitter.emit("tool-error", { toolCallId: e.toolCallId, toolName: e.toolName, error: e.error });
-                    break;
-                }
-                case "finish-step": {
-                    // Cost accrues per step (one API round-trip each), not at turn
-                    // end — the footer updates live, and an aborted turn keeps the
-                    // cost of the steps that already ran. Step usages sum to the
-                    // turn total, so nothing is added again on finish.
-                    const u = (part as { usage?: UsageBlock }).usage;
-                    if (u) {
-                        lastStepUsage = u;
-                        // Attribution handoff: persistStep attaches the queued
-                        // row to the entry that carries the same usage once the
-                        // entry has its id (persist and billing race per step;
-                        // the queue tolerates either order).
-                        const { breakdown } = billing.onStepUsage(u);
-                        emitter.emit("step-usage", { usage: u, breakdown });
+    // A turn may reopen its stream when a transient provider failure kills it
+    // between steps. 0 disables (the old behaviour: first error ends the turn).
+    const maxResumes = Math.max(0, getSetting("maxStreamResumes") ?? DEFAULT_MAX_STREAM_RESUMES);
+    let attemptMessages = messages;
+    let resumes = 0;
+
+    // One iteration = one stream. The body below is the original consume loop;
+    // everything it accumulates (text, tools, billing, usage) is deliberately
+    // outer-scoped, so a resumed stream continues the same turn rather than
+    // starting a new one.
+    streamAttempts: for (;;) {
+        streamError = undefined;
+        const result = openStream(attemptMessages, Math.max(1, maxSteps - stepsDone));
+        // The interrupt can land between parts (caught by the `break` below) or while
+        // awaiting the next part. A real fetch-backed provider rejects its body
+        // stream on abort, which can throw straight out of `for await`; without this
+        // guard that throw would skip the persistence below, losing the partial
+        // reply. Swallow only aborts; any other error still propagates.
+        try {
+            for await (const part of result.stream) {
+                if (abortSignal?.aborted) break;
+                switch (part.type) {
+                    case "text-delta":
+                        assistantText += part.text;
+                        textSinceStep += part.text;
+                        emitter.emit("text-delta", part.text);
+                        break;
+                    case "reasoning-delta": {
+                        const rt = (part as { text: string }).text;
+                        reasoningSinceStep += rt;
+                        emitter.emit("reasoning-delta", rt);
+                        break;
                     }
-                    // This step's text/reasoning is now persisted via onStepEnd
-                    // and billed via the usage above — reset the tail so it
-                    // tracks only what streams in the NEXT (possibly aborted)
-                    // step. Keeps multi-step aborts from re-persisting or
-                    // double-counting finished text.
-                    textSinceStep = "";
-                    reasoningSinceStep = "";
-                    break;
+                    case "reasoning-start":
+                        reasoningStartedAt = Date.now();
+                        emitter.emit("reasoning-start");
+                        break;
+                    case "reasoning-end":
+                        reasoningDurations.push(Date.now() - (reasoningStartedAt || Date.now()));
+                        emitter.emit("reasoning-end");
+                        break;
+                    case "tool-input-start":
+                        // Surface the pending tool box as soon as the call begins,
+                        // before its (possibly large) input has finished streaming.
+                        // Field mapping lives in toolInputStartEvent — v7 renamed
+                        // toolCallId → id on these parts and the old cast silently
+                        // read undefined, suppressing the pending box entirely.
+                        emitter.emit(
+                            "tool-input-start",
+                            toolInputStartEvent(part as { id?: string; toolName?: string }),
+                        );
+                        break;
+                    case "tool-input-delta":
+                        emitter.emit("tool-input-delta", toolInputDeltaEvent(part as { id?: string; delta?: string }));
+                        break;
+                    case "tool-call":
+                        if (part.toolName) toolsUsed.push(part.toolName);
+                        emitter.emit("tool-call", part);
+                        break;
+                    case "tool-result":
+                        emitter.emit("tool-result", part);
+                        break;
+                    case "tool-error": {
+                        // A tool's execute threw (MCP transport failure, timeout, bad
+                        // args…). The AI SDK still feeds the error back to the model as
+                        // the tool result, so the loop continues and the model can try
+                        // another approach — we just surface it in the UI (red) instead
+                        // of leaving the tool box spinning forever.
+                        const e = part as { toolCallId?: string; toolName?: string; error?: unknown };
+                        emitter.emit("tool-error", { toolCallId: e.toolCallId, toolName: e.toolName, error: e.error });
+                        break;
+                    }
+                    case "finish-step": {
+                        // The SDK closes a failed stream with a finish-step of its
+                        // own (finishReason "error"). That is not a step the model
+                        // completed: it produced nothing, it must not spend the
+                        // step budget, and — the part that matters — it must not
+                        // clear the un-persisted tail below, which is how the
+                        // resume decision knows whether text was mid-flight.
+                        if ((part as { finishReason?: string }).finishReason === "error") break;
+                        // Cost accrues per step (one API round-trip each), not at turn
+                        // end — the footer updates live, and an aborted turn keeps the
+                        // cost of the steps that already ran. Step usages sum to the
+                        // turn total, so nothing is added again on finish.
+                        const u = (part as { usage?: UsageBlock }).usage;
+                        if (u) {
+                            lastStepUsage = u;
+                            // Attribution handoff: persistStep attaches the queued
+                            // row to the entry that carries the same usage once the
+                            // entry has its id (persist and billing race per step;
+                            // the queue tolerates either order).
+                            const { breakdown } = billing.onStepUsage(u);
+                            emitter.emit("step-usage", { usage: u, breakdown });
+                        }
+                        // This step's text/reasoning is now persisted via onStepEnd
+                        // and billed via the usage above — reset the tail so it
+                        // tracks only what streams in the NEXT (possibly aborted)
+                        // step. Keeps multi-step aborts from re-persisting or
+                        // double-counting finished text.
+                        textSinceStep = "";
+                        reasoningSinceStep = "";
+                        // Counts across attempts: the resume budget is the
+                        // remainder of maxSteps, never a fresh allowance.
+                        stepsDone++;
+                        break;
+                    }
+                    case "finish": {
+                        const u = (part as { totalUsage?: UsageBlock }).totalUsage;
+                        lastUsage = u;
+                        // The SDK ends a failed stream with a finish too. Announcing
+                        // the turn's end here would be a lie if we are about to
+                        // reopen it — and `finish` is terminal for RPC/web clients.
+                        // Hold it; the resume decision either continues (no finish)
+                        // or gives up and emits it after the error.
+                        if ((part as { finishReason?: string }).finishReason === "error" && streamError !== undefined) {
+                            pendingFinish = { usage: u };
+                            break;
+                        }
+                        sawFinish = true;
+                        emitter.emit("finish", { usage: u, lastStepUsage });
+                        break;
+                    }
+                    case "error": {
+                        const msg = String((part as { error?: unknown }).error ?? "");
+                        if (/^(reasoning|text) part .* not found$/.test(msg)) break;
+                        // Hold a transient failure back: the stream is about to end
+                        // either way, and if the resume succeeds the user never
+                        // needed to see it. Anything else is reported immediately,
+                        // exactly as before.
+                        if (isRetryableStreamError(part.error)) streamError = part.error;
+                        else emitter.emit("error", part.error);
+                        break;
+                    }
                 }
-                case "finish": {
-                    const u = (part as { totalUsage?: UsageBlock }).totalUsage;
-                    lastUsage = u;
-                    sawFinish = true;
-                    emitter.emit("finish", { usage: u, lastStepUsage });
-                    break;
-                }
-                case "error": {
-                    const msg = String((part as { error?: unknown }).error ?? "");
-                    if (/^(reasoning|text) part .* not found$/.test(msg)) break;
-                    emitter.emit("error", part.error);
-                    break;
-                }
+                // Let the TUI's render timers fire between bursts of buffered
+                // parts — see model-call.ts for the starvation rationale.
+                await maybeYield();
             }
-            // Let the TUI's render timers fire between bursts of buffered
-            // parts — see model-call.ts for the starvation rationale.
-            await maybeYield();
+        } catch (err) {
+            // A transport failure can throw straight out of the iteration
+            // instead of arriving as an error part — same decision either way.
+            if (isAbortError(err) || abortSignal?.aborted) {
+                // fall through: abort is handled below, never retried
+            } else if (isRetryableStreamError(err)) {
+                streamError = err;
+            } else throw err;
         }
-    } catch (err) {
-        if (!isAbortError(err) && !abortSignal?.aborted) throw err;
+
+        // ---- resume decision -------------------------------------------------
+        // Reopen the stream only when the failure landed BETWEEN steps: the
+        // finished steps are persisted, so a fresh stream over them continues
+        // the turn. With an un-persisted tail in flight, the model would
+        // regenerate that step and the user would see the text twice — so that
+        // case reports the error instead, which is what always happened.
+        const tailInFlight = textSinceStep !== "" || reasoningSinceStep !== "";
+        const canResume =
+            streamError !== undefined &&
+            !sawFinish &&
+            !abortSignal?.aborted &&
+            !tailInFlight &&
+            resumes < maxResumes &&
+            stepsDone < maxSteps;
+        if (!canResume) {
+            // Report only THIS attempt's failure. A held-back error from an
+            // earlier attempt that we then recovered from is not news — the
+            // turn went on to finish.
+            if (streamError !== undefined) emitter.emit("error", streamError);
+            // Then the finish we withheld, so a finish-keyed consumer (an RPC
+            // client) still sees exactly one end event.
+            if (pendingFinish && !sawFinish) {
+                sawFinish = true;
+                emitter.emit("finish", { usage: pendingFinish.usage, lastStepUsage });
+            }
+            break streamAttempts;
+        }
+        pendingFinish = undefined;
+        resumes++;
+        emitter.emit("stream-retry", {
+            attempt: resumes,
+            max: maxResumes,
+            reason: describeRetry(streamError),
+            stepsDone,
+        });
+        debugLog("retry", `stream failed after ${stepsDone} step(s), resume ${resumes}/${maxResumes}`);
+        // Let the finished steps land before rebuilding the conversation from
+        // them — otherwise the resumed stream re-asks the last question.
+        await persistChain;
+        await abortableDelay(resumeDelayMs(resumes - 1), abortSignal);
+        if (abortSignal?.aborted) break streamAttempts;
+        attemptMessages = buildMessages();
     }
 
     // Flush any in-flight step persistence before deciding on the fallback /

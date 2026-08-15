@@ -1,79 +1,57 @@
 /**
  * Shell tab completion for the `loop` command.
  *
- * One table of commands, subcommands, and flags drives bash, zsh, and fish, so
- * a new subcommand is described once rather than in three dialects that drift
- * apart. The generated scripts are static text — completion must not shell out
- * to `loop` on every Tab, which would put a process spawn (and a cold config
+ * The command and flag tables live in spec.ts — the same data the parser
+ * validates against — so a new subcommand is described once rather than in
+ * three shell dialects that drift apart from what the CLI actually accepts.
+ * The generated scripts are static text: completion must not shell out to
+ * `loop` on every Tab, which would put a process spawn (and a cold config
  * read) in front of a keystroke.
  */
 import { PRODUCT_NAME } from "@notshekhar/loop-core";
+import { COMMANDS, FLAG_SPECS, GLOBAL_FLAGS, INTERACTIVE_FLAGS, type CommandSpec } from "./spec";
 
 export const SUPPORTED_SHELLS = ["bash", "zsh", "fish"] as const;
 export type Shell = (typeof SUPPORTED_SHELLS)[number];
 
-interface CommandSpec {
-    name: string;
-    description: string;
-    /** Fixed words that may follow the command. */
-    subcommands?: string[];
-}
+export { COMMANDS };
 
-/** Every command `loop` dispatches, in the order `loop --help` lists them. */
-export const COMMANDS: CommandSpec[] = [
-    { name: "run", description: "Run a single prompt and exit" },
-    { name: "login", description: "Configure provider auth" },
-    { name: "logout", description: "Remove provider auth" },
-    { name: "sessions", description: "List sessions in the current directory" },
-    { name: "archive", description: "Archive a session (hide it from the lists)" },
-    { name: "unarchive", description: "Restore an archived session" },
-    { name: "artifacts", description: "List pages the agent wrote", subcommands: ["export"] },
-    { name: "models", description: "List available models" },
-    { name: "whoami", description: "Show active provider and auth status" },
-    { name: "cost", description: "Cost ledger tools", subcommands: ["audit"] },
-    {
-        name: "goals",
-        description: "Manage background tasks",
-        subcommands: ["list", "add", "rm", "run", "tick", "daemon"],
-    },
-    {
-        name: "background",
-        description: "Manage background tasks (alias of goals)",
-        subcommands: ["list", "add", "rm", "run", "tick", "daemon"],
-    },
-    {
-        name: "mcp",
-        description: "Manage MCP servers",
-        subcommands: ["add", "add-json", "list", "get", "remove", "enable", "disable", "login"],
-    },
-    { name: "gateways", description: "Run remote chat gateways", subcommands: ["status", "stop", "telegram"] },
-    { name: "serve", description: "Web UI + WebSocket RPC" },
-    { name: "rpc", description: "JSON-RPC server", subcommands: ["stop"] },
-    { name: "install", description: "Install an extension" },
-    { name: "link", description: "Link a local extension" },
-    { name: "remove", description: "Remove an extension" },
-    { name: "extensions", description: "List installed extensions" },
-    { name: "enable", description: "Enable an extension" },
-    { name: "disable", description: "Disable an extension" },
-    { name: "completion", description: "Print a shell completion script", subcommands: [...SUPPORTED_SHELLS] },
-    { name: "man", description: "Open the manual" },
-    { name: "upgrade", description: "Update to the latest release" },
-    { name: "version", description: "Print version" },
-    { name: "help", description: "Show help" },
+/** Commands worth offering at the first word — aliases stay out of the list. */
+const listedCommands = (): CommandSpec[] => COMMANDS.filter((c) => !c.hidden);
+
+/** Flags offered before or instead of a command: what bare `loop` accepts. */
+export const FLAGS: { flag: string; description: string }[] = [...INTERACTIVE_FLAGS, ...GLOBAL_FLAGS].map((name) => ({
+    flag: `--${name}`,
+    description: FLAG_SPECS[name].description,
+}));
+
+/** Value-taking flags, which must complete a value rather than another flag. */
+const valueFlags = (): string[] =>
+    Object.values(FLAG_SPECS)
+        .filter((f) => f.takesValue)
+        .map((f) => `--${f.name}`);
+
+/**
+ * What may follow a command: its subcommands and its own flags. Offering the
+ * per-command flags is the reason completion reads the parser's table — the
+ * shell now suggests exactly the set the parser will accept, so `--max-steps`
+ * completes after `run` and nowhere else.
+ */
+const commandWords = (c: CommandSpec): string[] => [
+    ...(c.subcommands ?? []),
+    ...(c.flags ?? []).map((f) => `--${f}`),
+    // --help is worth offering everywhere; --version after a command is
+    // accepted but meaningless, so it stays out of the suggestions.
+    "--help",
 ];
 
-/** Flags accepted before or instead of a command. */
-export const FLAGS: { flag: string; description: string }[] = [
-    { flag: "--model", description: "Override the model (provider/id)" },
-    { flag: "--provider", description: "Override the active provider" },
-    { flag: "--cwd", description: "Working directory" },
-    { flag: "--session", description: "Resume a session by id" },
-    { flag: "--max-steps", description: "Cap agent steps in run mode" },
-    { flag: "--help", description: "Show help" },
-    { flag: "--version", description: "Print version" },
-];
+/** Commands that have anything of their own to offer at the second word. */
+const commandsWithWords = (): CommandSpec[] => listedCommands().filter((c) => c.subcommands?.length || c.flags?.length);
 
-const commandNames = (): string => COMMANDS.map((c) => c.name).join(" ");
+const commandNames = (): string =>
+    listedCommands()
+        .map((c) => c.name)
+        .join(" ");
 const flagNames = (): string => FLAGS.map((f) => f.flag).join(" ");
 
 /** Escape for a single-quoted POSIX shell string. */
@@ -81,10 +59,14 @@ const qq = (s: string): string => s.replace(/'/g, `'\\''`);
 
 function bashScript(name: string): string {
     // A case over the first word: `loop gateways <Tab>` completes that command's
-    // subcommands, anything else completes the command list plus flags.
-    const cases = COMMANDS.filter((c) => c.subcommands?.length)
-        .map((c) => `        ${c.name}) COMPREPLY=($(compgen -W '${c.subcommands!.join(" ")}' -- "$cur")); return;;`)
+    // subcommands and flags, anything else completes the command list plus flags.
+    const cases = commandsWithWords()
+        .map((c) => `        ${c.name}) COMPREPLY=($(compgen -W '${commandWords(c).join(" ")}' -- "$cur")); return;;`)
         .join("\n");
+    // --cwd wants a directory; every other value flag has nothing we can offer.
+    const opaque = valueFlags()
+        .filter((f) => f !== "--cwd")
+        .join("|");
     return `# ${name} completion for bash
 _${name}_complete() {
     local cur prev
@@ -94,10 +76,10 @@ _${name}_complete() {
     # Flags that take a value: let the shell complete paths, not our words.
     case "$prev" in
         --cwd) COMPREPLY=($(compgen -d -- "$cur")); return;;
-        --model|--provider|--session|--max-steps) return;;
+        ${opaque}) return;;
     esac
 
-    # Second word onward: complete the command's own subcommands.
+    # Second word onward: complete the command's own subcommands and flags.
     if [ "$COMP_CWORD" -gt 1 ]; then
         case "\${COMP_WORDS[1]}" in
 ${cases}
@@ -113,10 +95,14 @@ complete -F _${name}_complete ${name}
 function zshScript(name: string): string {
     // zsh shows the description beside each candidate, which is the whole
     // reason to emit a native script instead of reusing bashcompinit.
-    const described = COMMANDS.map((c) => `        '${c.name}:${qq(c.description)}'`).join("\n");
+    const described = listedCommands()
+        .map((c) => `        '${c.name}:${qq(c.description)}'`)
+        .join("\n");
     const flagLines = FLAGS.map((f) => `        '${f.flag}:${qq(f.description)}'`).join("\n");
-    const subCases = COMMANDS.filter((c) => c.subcommands?.length)
-        .map((c) => `                ${c.name}) _values '${c.name} subcommand' ${c.subcommands!.join(" ")} ;;`)
+    // compadd rather than _values: the word lists now contain --flags, and
+    // `_values 'tag' --flag` would read the leading -- as its own terminator.
+    const subCases = commandsWithWords()
+        .map((c) => `        ${c.name}) compadd -- ${commandWords(c).join(" ")} ;;`)
         .join("\n");
     return `#compdef ${name}
 # ${name} completion for zsh
@@ -150,10 +136,17 @@ function fishScript(name: string): string {
     const lines: string[] = [`# ${name} completion for fish`];
     // No file completion by default: the first word is a command, not a path.
     lines.push(`complete -c ${name} -f`);
-    for (const c of COMMANDS) {
+    for (const c of listedCommands()) {
         lines.push(`complete -c ${name} -n '__fish_use_subcommand' -a '${c.name}' -d '${qq(c.description)}'`);
         for (const sub of c.subcommands ?? []) {
             lines.push(`complete -c ${name} -n '__fish_seen_subcommand_from ${c.name}' -a '${sub}'`);
+        }
+        // The command's own flags, offered only once that command is on the line.
+        for (const f of c.flags ?? []) {
+            const spec = FLAG_SPECS[f];
+            lines.push(
+                `complete -c ${name} -n '__fish_seen_subcommand_from ${c.name}' -l '${f}' -d '${qq(spec.description)}'`,
+            );
         }
     }
     for (const f of FLAGS) {

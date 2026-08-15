@@ -19,11 +19,25 @@ const VERSION = typeof __APP_VERSION__ !== "undefined" ? __APP_VERSION__ : "0.0.
 async function main(): Promise<void> {
     const args = parseArgs(process.argv.slice(2));
 
-    if (args.flags.version || args.flags.v) {
+    // Refuse an invocation we didn't understand instead of running the nearest
+    // thing to it: an unknown command used to open the TUI, and an unknown
+    // flag used to be kept and ignored (a typo'd --model billed a whole turn
+    // on the default model). Checked before --version/--help so a typo is
+    // never masked by a flag that happens to parse.
+    if (args.errors.length > 0) {
+        // Brand-correct name for the messages; the import cost only lands on
+        // an invocation that is already failing.
+        const { PRODUCT_NAME } = await import("@notshekhar/loop-core");
+        for (const e of args.errors) console.error(`${PRODUCT_NAME}: ${e}`);
+        console.error(`Run \`${PRODUCT_NAME} help\` for usage.`);
+        process.exit(1);
+    }
+
+    if (args.flags.version) {
         console.log(VERSION);
         return;
     }
-    if (args.flags.help || args.flags.h) {
+    if (args.flags.help) {
         (await commands()).printHelp(VERSION);
         return;
     }
@@ -37,7 +51,6 @@ async function main(): Promise<void> {
 
     switch (args.cmd) {
         case "version":
-        case "-v":
             console.log(VERSION);
             return;
         case "help":
@@ -153,8 +166,10 @@ async function main(): Promise<void> {
         case "disable":
             (await extCommands()).cmdSetExtensionEnabled(args, false);
             return;
+        // No command: the interactive TUI. An *unknown* command never reaches
+        // here — parseArgs rejects it above, so a typo can no longer open a
+        // chat session instead of saying it was a typo.
         case undefined:
-        default:
             await (
                 await interactive()
             ).runInteractive({
@@ -164,6 +179,12 @@ async function main(): Promise<void> {
                 sessionId: (args.flags.session as string) || undefined,
                 version: VERSION,
             });
+            return;
+        default:
+            // parseArgs accepted it, so spec.ts lists a command this switch
+            // does not dispatch — a table/dispatch mismatch, not user error.
+            console.error(`internal: no handler for command "${args.cmd}" (packages/cli/src/spec.ts lists it)`);
+            process.exit(70);
     }
 }
 

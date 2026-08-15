@@ -22,6 +22,7 @@ import {
 } from "@notshekhar/loop-core";
 import type { ProviderId } from "@notshekhar/loop-core";
 import { readStdinAll, readStdinLine, type Args } from "./args";
+import type { OutputFormat } from "./spec";
 import { runPrint } from "./print";
 import { openBrowser } from "./open-browser";
 
@@ -117,13 +118,32 @@ Usage:
   ${PRODUCT_NAME} completion <shell>  Print a tab-completion script (bash, zsh, fish)
   ${PRODUCT_NAME} upgrade             Pull latest and rebuild
   ${PRODUCT_NAME} version | -v        Print version
+  ${PRODUCT_NAME} help | -h           Show this help
+
+Extensions:
+  ${PRODUCT_NAME} install <spec>      Install an extension
+  ${PRODUCT_NAME} link <path>         Link a local extension for development
+  ${PRODUCT_NAME} remove <name>       Remove an installed extension
+  ${PRODUCT_NAME} extensions          List installed extensions
+  ${PRODUCT_NAME} enable <name>       Enable an extension
+  ${PRODUCT_NAME} disable <name>      Disable an extension
 
 Flags:
   --model <provider/id>    Override default model
   --provider <id>          Override active provider
   --cwd <path>             Working directory
   --session <id>           Resume session by id
-  --max-steps <n>          Cap agent steps in run mode (default: maxSteps setting)`);
+  --max-steps <n>          Cap agent steps in run mode (default: maxSteps setting)
+  --output-format <fmt>    run mode output: text (default), json, stream-json
+  --                       End flag parsing (a prompt may then start with -)
+
+In run mode, text puts the reply on stdout and activity on stderr; json prints
+one result object when the run ends; stream-json prints one JSON event per line
+as it happens. Both JSON formats keep stdout free of anything but JSON, and
+report the session id so a follow-up can pass --session.
+
+Unknown commands and flags are refused rather than guessed at; each command
+accepts only its own flags (${PRODUCT_NAME} completion <shell> teaches your shell which).`);
 }
 
 export async function runUpgrade(version: string, opts: { force?: boolean } = {}): Promise<void> {
@@ -434,6 +454,8 @@ export async function cmdRun(args: Args): Promise<void> {
         cwd: (args.flags.cwd as string) || undefined,
         sessionId: (args.flags.session as string) || undefined,
         maxSteps,
+        // parseArgs has already rejected any value outside the set.
+        outputFormat: (args.flags["output-format"] as OutputFormat) || undefined,
     });
 }
 

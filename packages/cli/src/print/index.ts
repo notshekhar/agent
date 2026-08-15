@@ -19,6 +19,8 @@ import {
 } from "@notshekhar/loop-core";
 import type { ProviderId, Session } from "@notshekhar/loop-core";
 import { openBrowser } from "../open-browser";
+import type { OutputFormat } from "../spec";
+import { createReporter } from "./reporters";
 
 export interface PrintOptions {
     prompt: string;
@@ -29,9 +31,23 @@ export interface PrintOptions {
     sessionId?: string;
     /** Step cap for the turn (`--max-steps`); unset = maxSteps setting / unlimited. */
     maxSteps?: number;
+    /** `--output-format`; defaults to the human-readable stream. */
+    outputFormat?: OutputFormat;
+}
+
+/**
+ * Fail before the turn exists. A JSON caller gets a result object it can parse
+ * like any other — a startup failure that printed only prose would make every
+ * consumer special-case "no output at all".
+ */
+function failEarly(format: OutputFormat, message: string): never {
+    if (format === "text") process.stderr.write(`${message}\n`);
+    else process.stdout.write(JSON.stringify({ type: "result", is_error: true, errors: [message] }) + "\n");
+    process.exit(1);
 }
 
 export async function runPrint(opts: PrintOptions): Promise<void> {
+    const format = opts.outputFormat ?? "text";
     const manager = new SessionManager();
     // Resume before model resolution: a resumed session carries its own model
     // and cwd as defaults. open() throws on an unknown id — never fall back to
@@ -41,8 +57,7 @@ export async function runPrint(opts: PrintOptions): Promise<void> {
         try {
             resumed = await manager.open(opts.sessionId);
         } catch {
-            process.stderr.write(`Session not found: ${opts.sessionId} (see \`${PRODUCT_NAME} sessions\`)\n`);
-            process.exit(1);
+            failEarly(format, `Session not found: ${opts.sessionId} (see \`${PRODUCT_NAME} sessions\`)`);
         }
     }
     const cwd = opts.cwd ?? resumed?.info.cwd ?? process.cwd();
@@ -53,10 +68,10 @@ export async function runPrint(opts: PrintOptions): Promise<void> {
         getProjectModel(cwd) ??
         (settingsStore.get("defaultModel") as string | undefined);
     if (!modelId) {
-        process.stderr.write(
-            `No model selected. Pass --model <provider/model>, or run ${PRODUCT_NAME} interactively and use /login + /provider first.\n`,
+        failEarly(
+            format,
+            `No model selected. Pass --model <provider/model>, or run ${PRODUCT_NAME} interactively and use /login + /provider first.`,
         );
-        process.exit(1);
     }
     const provider = (getActiveProvider() ?? parseModelId(modelId).provider) as ProviderId;
     const session = resumed ?? (await manager.create({ cwd, provider, model: modelId }));
@@ -64,36 +79,14 @@ export async function runPrint(opts: PrintOptions): Promise<void> {
     const emitter = asTurnEmitter(new EventEmitter());
     const abort = new AbortController();
 
-    emitter.on("text-delta", (text: string) => process.stdout.write(text));
-    emitter.on("tool-call", (part: { toolName?: string; input?: unknown }) => {
-        process.stderr.write(`\n[tool:${part.toolName}] ${JSON.stringify(part.input)}\n`);
-    });
-    emitter.on("tool-input-updated", (e: { toolName?: string; input?: unknown }) => {
-        process.stderr.write(`[tool:${e.toolName} rewritten] ${JSON.stringify(e.input)}\n`);
-    });
-    emitter.on("subagent-tool", (e: { agent: string; toolName?: string; input?: unknown }) => {
-        process.stderr.write(`[subagent:${e.agent}] ${e.toolName} ${JSON.stringify(e.input)}\n`);
-    });
-    emitter.on("subagent-finish", (e: { agent: string; usage?: { totalTokens?: number } }) => {
-        process.stderr.write(
-            `[subagent:${e.agent}] done${e.usage?.totalTokens ? ` (${e.usage.totalTokens} tokens)` : ""}\n`,
-        );
-    });
-    emitter.on("hook-message", (m: string) => {
-        process.stderr.write(`\n[hook] ${m}\n`);
-    });
-    emitter.on("hook-terminal-sequence", (s: string) => {
-        process.stdout.write(s);
-    });
-    // Turn-level stream errors are emitted, not thrown (the turn winds down
-    // normally after one) — track them so CI gets a nonzero exit instead of a
-    // clean 0 with an [error] line buried in stderr.
-    let turnErrored = false;
-    emitter.on("error", (err: unknown) => {
-        turnErrored = true;
-        process.stderr.write(`\n[error] ${String(err)}\n`);
-    });
-    emitter.on("finish", () => process.stdout.write("\n"));
+    // The reporter owns every write to stdout/stderr. Turn-level stream errors
+    // are emitted, not thrown (the turn winds down normally after one), so it
+    // also records them — CI needs a nonzero exit rather than a clean 0 with an
+    // error line buried in stderr.
+    const reporter = createReporter(format);
+    reporter.attach(emitter);
+    const startedAt = Date.now();
+    reporter.begin({ sessionId: session.id, model: modelId, cwd });
 
     process.on("SIGINT", () => abort.abort());
 
@@ -105,8 +98,11 @@ export async function runPrint(opts: PrintOptions): Promise<void> {
         { session_id: session.id, transcript_path: session.path, source: "startup" },
         cwd,
     );
-    for (const m of startHooks.messages) process.stderr.write(`\n[hook] ${m}\n`);
-    for (const s of startHooks.terminalSequences) process.stdout.write(s);
+    // Through the emitter rather than straight to the streams, so the reporter
+    // decides where it goes: a hook's terminal escape sequence written raw to
+    // stdout would corrupt a JSON run's output.
+    for (const m of startHooks.messages) emitter.emit("hook-message", m);
+    for (const s of startHooks.terminalSequences) emitter.emit("hook-terminal-sequence", s);
     const userInput = startHooks.additionalContext ? `${startHooks.additionalContext}\n\n${opts.prompt}` : opts.prompt;
 
     // Connect MCP servers before the turn (same gate as the agent loop) so
@@ -149,9 +145,13 @@ export async function runPrint(opts: PrintOptions): Promise<void> {
         new Promise((r) => setTimeout(r, 3_000)),
     ]);
 
-    process.stderr.write(`\n${tracker.format()}\n`);
+    reporter.end({
+        ok: !reporter.errored,
+        cost: tracker.sessionBreakdown(),
+        durationMs: Date.now() - startedAt,
+    });
     // Checkpoint + close the session DB so the -wal file doesn't linger.
     closeDb();
     // exitCode (not process.exit) so the streams flush before the process ends.
-    if (turnErrored) process.exitCode = 1;
+    if (reporter.errored) process.exitCode = 1;
 }

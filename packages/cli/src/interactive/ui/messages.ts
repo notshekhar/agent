@@ -358,6 +358,15 @@ export class AssistantMessageComponent extends Container {
         this.thinkingOverride.clear();
     }
 
+    /** Drop every per-block fold override, back to the mode's own defaults —
+     * see ChatHistory.resetFolds for why leaving navigation does this. */
+    resetFolds(): void {
+        this.thinkingExpanded = false;
+        this.thinkingOverride.clear();
+        this.textOverride.clear();
+        this.invalidate();
+    }
+
     /** Start the wall clock for the thinking block at this content index. */
     noteThinkingStart(index: number): void {
         if (!this.thinkingTimes.has(index)) this.thinkingTimes.set(index, { start: Date.now() });

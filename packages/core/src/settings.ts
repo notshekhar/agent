@@ -28,6 +28,14 @@ export interface AppSettings {
     uiLive?: boolean;
     thinkingLevel?: ThinkingLevel;
     maxSteps?: number;
+    /**
+     * How many times a turn may reopen a stream that died on a transient
+     * provider failure (529/overloaded, rate limit, dropped socket) before it
+     * reports the error. Only ever resumes between steps, so nothing already
+     * shown is repeated. Default 2; 0 disables and restores the old behaviour
+     * of ending the turn on the first stream error.
+     */
+    maxStreamResumes?: number;
     subagentMaxSteps?: number;
     /**
      * Abort a subagent when the PROVIDER goes silent for this many seconds

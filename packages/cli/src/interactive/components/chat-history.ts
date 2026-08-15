@@ -148,6 +148,30 @@ export class ChatHistory extends Container {
         return this.expanded;
     }
 
+    /**
+     * Put every fold back to the mode's default. Called on the way out of
+     * navigation.
+     *
+     * Expanding is a navigation affordance: `e`, →, and Enter exist so you can
+     * read a tool's output while stepping through the transcript. Those opens
+     * used to survive the trip back to the prompt, leaving chat mode in a
+     * shape the user never chose — groups broken open, every tool output
+     * unfolded — and chat mode has no key to put them back, since the fold
+     * chords only exist inside navigation. So leaving navigation restores the
+     * default view: grouped where the mode groups, collapsed where it folds.
+     */
+    resetFolds(): void {
+        this.markDirty();
+        // Verb groups the user opened close again; grouping is otherwise
+        // derived per render, so this set is the whole of the group state.
+        this.expandedGroups.clear();
+        // Tool/skill/compaction bodies and thinking blocks all default closed.
+        this.setToolsExpanded(false);
+        // Per-block overrides on assistant messages (thinking + response text)
+        // are not reachable through setToolsExpanded.
+        for (const c of this.assistantComponents) c.resetFolds();
+    }
+
     // ------------------------------------------------------------------
     // Navigation viewport: while nav mode is on, render() shows a window of
     // the transcript that follows the selection — loop owns the scrolling

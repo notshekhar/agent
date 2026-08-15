@@ -254,6 +254,74 @@ describe("live hierarchical navigation", () => {
         expect(text(h)).not.toContain("◈ Read 3 files");
     });
 
+    test("leaving navigation puts the folds back the way the mode wants them", () => {
+        // Expanding is a navigation affordance — `e`, → and Enter only exist
+        // inside nav. Carrying those opens back to the prompt left chat mode
+        // in a state the user never chose and had no key to undo.
+        liveOn();
+        const h = withReads(3);
+        h.selectLast();
+        h.setSelectedExpanded(true); // open the group
+        h.setSelectedExpanded(true); // open the call's output
+        expect(text(h)).toContain("body");
+
+        h.clearSelection();
+        h.resetFolds();
+
+        const out = text(h);
+        expect(out).toContain("◈ Read 3 files"); // grouped again
+        expect(out).not.toContain("body"); // output folded again
+        expect(out).not.toContain("f0.ts");
+    });
+
+    test("expand-all does not survive the trip back to the prompt either", () => {
+        liveOn();
+        const h = withReads(3);
+        h.selectLast();
+        h.toggleToolsExpanded(); // `e`
+        expect(text(h)).toContain("body");
+
+        h.resetFolds();
+        expect(text(h)).not.toContain("body");
+        // A later `e` still toggles from closed, rather than being stuck open.
+        expect(h.toggleToolsExpanded()).toBe(true);
+    });
+
+    test("normal noir gets its own default back, not live's grouping", () => {
+        // The mode decides what "default" means; resetFolds only undoes the
+        // navigation opens.
+        setActiveUiMode("noir");
+        initTheme("night");
+        const h = withReads(3);
+        h.selectLast();
+        h.setSelectedExpanded(true);
+        expect(text(h)).toContain("body");
+
+        h.resetFolds();
+        const out = text(h);
+        expect(out).not.toContain("body"); // folded
+        expect(out).not.toContain("◈ Read 3 files"); // but never grouped here
+        expect(out).toContain("f0.ts");
+    });
+
+    test("loop mode resets the same way", () => {
+        // Loop shows a short result inline, so the tell here is length: a long
+        // output is previewed until you open it, and closed again afterwards.
+        setActiveUiMode("loop");
+        initTheme("dark");
+        const h = new ChatHistory(tui, "/repo");
+        h.addToolCall("read", "c0", { path: "/repo/f0.ts" });
+        h.addToolResult("c0", Array.from({ length: 40 }, (_, i) => `line ${i}`).join("\n"));
+        const folded = text(h).split("\n").length;
+        h.selectLast();
+        h.setSelectedExpanded(true);
+        const opened = text(h).split("\n").length;
+        expect(opened).toBeGreaterThan(folded);
+
+        h.resetFolds();
+        expect(text(h).split("\n").length).toBe(folded);
+    });
+
     test("moveSelection never stops on an entry hidden in a group", () => {
         liveOn();
         const h = new ChatHistory(tui, "/repo");

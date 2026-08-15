@@ -33,6 +33,14 @@ export interface TurnEvents {
     "compact-start": { reason: string };
     "compact-end": { summary: string; cutAt: number; tokensBefore: number; tokensAfter?: number; aborted?: boolean };
     "step-usage": { usage: UsageBlock; breakdown: CostBreakdown };
+    /**
+     * The stream died on a transient provider failure and the turn is
+     * reopening it. Only ever fires between steps (the finished ones are
+     * persisted), so nothing already shown gets repeated — see the resume
+     * block in turn.ts. A turn that recovers emits no `error` at all, which is
+     * why this exists: otherwise a retry would be invisible.
+     */
+    "stream-retry": { attempt: number; max: number; reason: string; stepsDone: number };
     /** Post-turn one-line recap (AI SDK data-* part convention). Arrives after finish. */
     "data-recap": { text: string };
     /** The todo tool replaced the checklist — the complete current list. */
@@ -77,6 +85,7 @@ export const TURN_EVENT_NAMES = [
     "compact-start",
     "compact-end",
     "step-usage",
+    "stream-retry",
     "data-recap",
     "todo-update",
     "finish",

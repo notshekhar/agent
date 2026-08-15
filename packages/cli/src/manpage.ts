@@ -10,7 +10,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { COMMANDS, FLAGS } from "./completion";
+import { COMMANDS, commandsForFlag, FLAG_SPECS } from "./spec";
 
 /** roff needs a leading dot escaped, or the line is read as a request. */
 const roffEscape = (s: string): string => s.replace(/\\/g, "\\\\").replace(/^\./gm, "\\&.").replace(/-/g, "\\-");
@@ -41,13 +41,22 @@ export function manPageSource(name: string, version: string): string {
         lines.push(".TP");
         const args = c.subcommands?.length ? ` \\fI${c.subcommands.join("\\fR|\\fI")}\\fR` : "";
         lines.push(`.B ${name} ${c.name}${args}`);
-        lines.push(roffEscape(c.description));
+        // Aliases are dispatched but not listed as their own commands, so the
+        // man page is the one place that has to name them.
+        const aka = c.aliases?.length ? ` (also: ${c.aliases.join(", ")})` : "";
+        lines.push(roffEscape(c.description + aka));
     }
     lines.push(".SH OPTIONS");
-    for (const f of FLAGS) {
+    // Every flag, not just the global ones: each command accepts only its own,
+    // so the man page has to say which is which.
+    for (const f of Object.values(FLAG_SPECS)) {
         lines.push(".TP");
-        lines.push(`.B ${roffEscape(f.flag)}`);
-        lines.push(roffEscape(f.description));
+        const short = f.short ? `, \\-${f.short}` : "";
+        const value = f.takesValue ? " \\fIvalue\\fR" : "";
+        lines.push(`.B \\-\\-${roffEscape(f.name)}${short}${value}`);
+        const owners = commandsForFlag(f.name);
+        const where = owners.length ? ` [${owners.join(", ")}]` : "";
+        lines.push(roffEscape(f.description + where));
     }
     lines.push(
         ".SH FILES",
