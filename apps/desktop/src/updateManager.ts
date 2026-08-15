@@ -135,9 +135,16 @@ export class UpdateManager extends EventEmitter {
     this.emit("state", this.#state);
   }
 
-  /** Ask GitHub what the newest release is. Safe to call on a timer. */
-  async check(): Promise<UpdateState> {
-    if (!this.#state.enabled || this.#busy) return this.#state;
+  /**
+   * Ask GitHub what the newest release is. Safe to call on a timer.
+   *
+   * `checked` says whether a request actually went out. The timer ignores it,
+   * but a person who pressed a button has to be told when nothing happened —
+   * a disabled build or a check already in flight both look identical to a
+   * silent no-op otherwise.
+   */
+  async check(): Promise<{ checked: boolean; state: UpdateState }> {
+    if (!this.#state.enabled || this.#busy) return { checked: false, state: this.#state };
     this.#busy = true;
     this.#set({ status: "checking", message: null, errorContext: null, canRetry: false });
     try {
@@ -152,14 +159,16 @@ export class UpdateManager extends EventEmitter {
       if (!release) {
         this.#release = null;
         this.#set({ status: "up-to-date", availableVersion: null, checkedAt });
-        return this.#state;
+        return { checked: true, state: this.#state };
       }
       this.#release = release;
       this.#set({ status: "available", availableVersion: release.version, checkedAt });
-      return this.#state;
+      return { checked: true, state: this.#state };
     } catch (error) {
       this.#fail("check", error);
-      return this.#state;
+      // The check ran; it failed. `status: "error"` carries the reason, and
+      // reporting checked:false here would read as "nothing happened".
+      return { checked: true, state: this.#state };
     } finally {
       this.#busy = false;
     }

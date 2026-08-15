@@ -22,6 +22,7 @@ import {
   useSidebar,
 } from "../ui/sidebar";
 import { SidebarProviderUpdatePill } from "./SidebarProviderUpdatePill";
+import { SidebarCheckUpdatesItem } from "./SidebarCheckUpdatesItem";
 import { SidebarUpdatePill } from "./SidebarUpdatePill";
 
 export const SidebarChromeHeader = memo(function SidebarChromeHeader({
@@ -155,6 +156,10 @@ export const SidebarChromeFooter = memo(function SidebarChromeFooter() {
             <span>Settings</span>
           </SidebarMenuButton>
         </SidebarMenuItem>
+        {/* Last, and only in the desktop app: an occasional errand rather than
+            a destination. Unlike the rows above it navigates nowhere, so it
+            never highlights. */}
+        <SidebarCheckUpdatesItem />
       </SidebarMenu>
     </SidebarFooter>
   );

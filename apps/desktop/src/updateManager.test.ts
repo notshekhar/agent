@@ -79,7 +79,7 @@ function harness(input?: {
 describe("checking", () => {
   test("moves idle -> checking -> available and names the version", async () => {
     const h = harness({ tag: "v9.9.9", currentVersion: "1.0.0" });
-    const state = await h.manager.check();
+    const { state } = await h.manager.check();
     expect(h.states.map((s) => s.status)).toEqual(["checking", "available"]);
     expect(state.availableVersion).toBe("9.9.9");
     expect(state.checkedAt).not.toBeNull();
@@ -87,9 +87,52 @@ describe("checking", () => {
 
   test("reports up-to-date without offering anything", async () => {
     const h = harness({ tag: "v1.0.0", currentVersion: "1.0.0" });
-    const state = await h.manager.check();
+    const { state } = await h.manager.check();
     expect(state.status).toBe("up-to-date");
     expect(state.availableVersion).toBeNull();
+  });
+
+  test("a check that ran says so, whatever it found", async () => {
+    // The manual button reports its own outcome, so "did a request go out" has
+    // to be answered honestly — it used to be hardcoded true at the IPC layer.
+    expect((await harness({ tag: "v9.9.9" }).manager.check()).checked).toBe(true);
+    expect((await harness({ tag: "v1.0.0", currentVersion: "1.0.0" }).manager.check()).checked).toBe(true);
+  });
+
+  test("a build without updates reports that nothing was checked", async () => {
+    // A dev run out of the repo. Pressing the button must not look like a
+    // check that found nothing.
+    const h = harness({ enabled: false });
+    const { checked, state } = await h.manager.check();
+    expect(checked).toBe(false);
+    expect(state.status).toBe("disabled");
+  });
+
+  test("a second check while one is in flight is refused, not queued", async () => {
+    const h = harness({ tag: "v9.9.9" });
+    const [first, second] = await Promise.all([h.manager.check(), h.manager.check()]);
+    // Exactly one of them ran; the loser says so rather than reporting a
+    // result it did not produce.
+    expect([first.checked, second.checked].filter(Boolean)).toHaveLength(1);
+  });
+
+  test("a failed check still counts as having run", async () => {
+    // checked:false means "nothing happened"; a network failure is something
+    // happening, and its reason is on the state.
+    const broken = new UpdateManager({
+      currentVersion: "1.0.0",
+      platform: "linux",
+      arch: "x64",
+      execPath: "/opt/loop/Loop",
+      run: async () => undefined,
+      restart: () => {},
+      fetchImpl: (async () => {
+        throw new Error("offline");
+      }) as unknown as typeof fetch,
+    });
+    const { checked, state } = await broken.check();
+    expect(checked).toBe(true);
+    expect(state.status).toBe("error");
   });
 
   test("a failure is retryable and keeps its reason", async () => {
@@ -106,7 +149,7 @@ describe("checking", () => {
         throw new Error("offline");
       }) as unknown as typeof fetch,
     });
-    const state = await broken.check();
+    const { state } = await broken.check();
     expect(state.status).toBe("error");
     expect(state.errorContext).toBe("check");
     expect(state.message).toContain("offline");

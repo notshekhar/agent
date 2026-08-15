@@ -36,6 +36,7 @@ import {
   FolderPlusIcon,
   LinkIcon,
   MessageSquareIcon,
+  RefreshCwIcon,
   RotateCcwIcon,
   SettingsIcon,
   SquarePenIcon,
@@ -55,6 +56,8 @@ import {
 } from "react";
 import { useAtomValue } from "@effect/atom-react";
 
+import { APP_VERSION } from "../branding";
+import { useDesktopUpdateCheck } from "./useDesktopUpdateCheck";
 import { isDesktopLocalConnectionTarget } from "../connection/desktopLocal";
 import { useDesktopLocalBootstraps } from "../connection/useDesktopLocalBootstraps";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
@@ -534,6 +537,7 @@ function OpenCommandPaletteDialog(props: {
   readonly clearOpenIntent: () => void;
 }) {
   const navigate = useNavigate();
+  const updateCheck = useDesktopUpdateCheck();
   const { clearOpenIntent, openIntent, openOverlayMode, setOpen } = props;
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query);
@@ -1558,6 +1562,25 @@ function OpenCommandPaletteDialog(props: {
       await navigate({ to: "/settings" });
     },
   });
+
+  // Desktop only: `available` is false in the browser build and in a dev run
+  // out of the repo, neither of which can replace the install.
+  if (updateCheck.available) {
+    actionItems.push({
+      kind: "action",
+      value: "action:check-for-updates",
+      // "upgrade" and "version" are what people search when they want this but
+      // do not know the app calls it a check.
+      searchTerms: ["check for updates", "update", "upgrade", "new version", "version", "release"],
+      title: "Check for updates",
+      description: `Currently on ${APP_VERSION}`,
+      disabled: updateCheck.busy,
+      icon: <RefreshCwIcon className={ITEM_ICON_CLASS} />,
+      run: async () => {
+        updateCheck.run();
+      },
+    });
+  }
 
   const rootGroups = buildRootGroups({ actionItems, recentThreadItems });
   const sourceSelectionViewValue =

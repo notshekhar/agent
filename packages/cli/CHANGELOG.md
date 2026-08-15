@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.19.0] - 2026-08-15
+
+### Added
+
+- **Ask the desktop app to check for updates, from wherever you are.** The update pill only appears once there is already something to install, which is right for news but leaves no way to *ask* — until now the only ways to find out were to wait up to six hours for the automatic check or to quit and reopen. There are three ways in, and they are the same action: a **Check for updates** row at the bottom of the sidebar, a **Check for updates** entry in the command palette (found by "upgrade" or "version" too, since that is what people search for when they do not know the app calls it a check), and the button in **Settings → General → About**. Every one of them reports what happened, including finding nothing: a check that says "loop is up to date" is the whole point of pressing the button, and a control that answers only when something is wrong is indistinguishable from a broken one. An update already downloaded and waiting for a restart is reported as that, rather than as the "nothing newer" this particular check found. All three are absent in the browser build and in a development run, neither of which can replace an install.
+
+### Fixed
+
+- **The Check for Updates button in Settings did nothing at all.** It has been there for a while and it never once worked. The row reads its state through loop's own bridge, so it rendered correctly and looked live — the version, the button, the enabled state, all right — but the click handler reached for `window.desktopBridge`, the upstream global that loop's shell deliberately does not expose (exposing it would flip the renderer into upstream's desktop mode and route auth and connection setup down paths this app has never had). The handler found nothing there and returned, silently, on every press. It now uses the same bridge the rest of the update UI does.
+- **A manual check can no longer look like a no-op when it genuinely did nothing.** The main process reported every check as having run, including the two cases where no request goes out: a build that was not installed by the updater, and a check that was already in flight. The first now says so plainly instead of implying you are up to date, and the second stays quiet and lets the check already running do the reporting, rather than showing you two answers to one question.
+
 ## [0.18.16] - 2026-08-15
 
 ### Added

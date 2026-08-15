@@ -482,7 +482,10 @@ app.whenReady().then(() => {
   });
   updates.on("state", (state) => forwardToRenderer("loop:update.state", state));
   ipcMain.handle("loop:update.state", () => updates.state);
-  ipcMain.handle("loop:update.check", async () => ({ checked: true, state: await updates.check() }));
+  // `checked` comes from the manager rather than being hardcoded true: a
+  // manual check has to be able to say "nothing happened" (build without
+  // updates, or a check already running) instead of looking like a no-op.
+  ipcMain.handle("loop:update.check", async () => await updates.check());
   ipcMain.handle("loop:update.download", async () => {
     const state = await updates.download();
     return { accepted: true, completed: state.status === "downloaded", state };

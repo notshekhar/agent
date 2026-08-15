@@ -57,6 +57,8 @@ import {
   isDesktopUpdateButtonDisabled,
   resolveDesktopUpdateButtonAction,
 } from "../../components/desktopUpdate.logic";
+import { desktopUpdateBridge } from "../../components/desktopUpdateBridge";
+import { useDesktopUpdateCheck } from "../../components/useDesktopUpdateCheck";
 import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { TraitsPicker } from "../chat/TraitsPicker";
 import {
@@ -355,6 +357,7 @@ function AboutVersionTitle() {
 
 function AboutVersionSection() {
   const updateState = useDesktopUpdateState();
+  const { run: runUpdateCheck } = useDesktopUpdateCheck();
   const [isChangingUpdateChannel, setIsChangingUpdateChannel] = useState(false);
 
   const hasDesktopBridge = typeof window !== "undefined" && Boolean(window.desktopBridge);
@@ -392,7 +395,12 @@ function AboutVersionSection() {
   );
 
   const handleButtonClick = useCallback(() => {
-    const bridge = window.desktopBridge;
+    // `desktopUpdateBridge`, not `window.desktopBridge`: loop's shell hangs the
+    // update surface off `window.loop` (see desktopUpdateBridge.ts for why), so
+    // reading the upstream global found nothing and every press of this button
+    // did nothing at all, silently — the state it renders from was already
+    // coming through the right bridge, so the control looked live.
+    const bridge = desktopUpdateBridge;
     if (!bridge) return;
 
     const action = updateState ? resolveDesktopUpdateButtonAction(updateState) : "none";
@@ -430,31 +438,12 @@ function AboutVersionSection() {
       return;
     }
 
-    if (typeof bridge.checkForUpdate !== "function") return;
-    void bridge
-      .checkForUpdate()
-      .then((result) => {
-        if (!result.checked) {
-          toastManager.add(
-            stackedThreadToast({
-              type: "error",
-              title: "Could not check for updates",
-              description:
-                result.state.message ?? "Automatic updates are not available in this build.",
-            }),
-          );
-        }
-      })
-      .catch((error: unknown) => {
-        toastManager.add(
-          stackedThreadToast({
-            type: "error",
-            title: "Could not check for updates",
-            description: error instanceof Error ? error.message : "Update check failed.",
-          }),
-        );
-      });
-  }, [updateState]);
+    // The shared check, so this row, the sidebar and the palette say the same
+    // things. It reports every outcome, including "already up to date" — the
+    // old path toasted only failures, so a successful check was silent and
+    // looked like a button that did nothing.
+    runUpdateCheck();
+  }, [runUpdateCheck, updateState]);
 
   const action = updateState ? resolveDesktopUpdateButtonAction(updateState) : "none";
   const buttonTooltip = updateState ? getDesktopUpdateButtonTooltip(updateState) : null;
