@@ -211,6 +211,91 @@ describe("pinned input — following the live edge", () => {
     });
 });
 
+describe("pinned input — getting back to the live edge", () => {
+    test("jumpToLiveEdge returns a scrolled-away window to the newest line", () => {
+        const h = tallHistory();
+        h.setReserveRows(() => 8);
+        h.setPinned(true);
+        lines(h);
+        h.scrollViewportLines(-20);
+        expect(lines(h).join("\n")).not.toContain("line 39");
+        h.jumpToLiveEdge();
+        expect(lines(h).join("\n")).toContain("line 39");
+    });
+
+    test("and it stays followed afterwards", () => {
+        // Half a fix would land you at the bottom and then desert you on the
+        // next delta of the very turn you sent.
+        const h = tallHistory();
+        h.setReserveRows(() => 8);
+        h.setPinned(true);
+        lines(h);
+        h.scrollViewportLines(-20);
+        lines(h);
+        h.jumpToLiveEdge();
+        lines(h);
+        h.addSystem("the reply arriving");
+        expect(lines(h).join("\n")).toContain("the reply arriving");
+    });
+
+    test("a turn submitted from far up the transcript is not sent into the void", () => {
+        // The whole bug: send a message while scrolled back and the reply
+        // renders below the fold, so the send looks like it did nothing.
+        const turnRunnerSource = readFileSync(
+            join(import.meta.dir, "..", "src", "interactive", "turn-runner.ts"),
+            "utf8",
+        );
+        expect(turnRunnerSource).toContain("history.jumpToLiveEdge()");
+    });
+});
+
+describe("pinned input — surviving a resize", () => {
+    /** Numbered entries on screen, in order. */
+    const visibleEntries = (rendered: string[]): number[] =>
+        rendered.flatMap((l) => Array.from(l.matchAll(/entry(\d+)\b/g), (m) => Number(m[1])));
+
+    /**
+     * A transcript that genuinely REFLOWS. This matters: short rows that fit
+     * every width drift by zero on a resize whether or not anything anchors
+     * them, so a test built on those passes with the fix ripped out.
+     */
+    function wrappingHistory(): ChatHistory {
+        const h = new ChatHistory(tui, "/repo");
+        for (let i = 0; i < 40; i++) {
+            h.addUser(`entry${i} ` + "prose long enough that narrowing the terminal rewraps it ".repeat(2));
+        }
+        h.setReserveRows(() => 8);
+        h.setPinned(true);
+        return h;
+    }
+
+    test("a parked window stays on the entry it was parked on", () => {
+        const h = wrappingHistory();
+        lines(h);
+        h.scrollViewportLines(-24);
+        const before = visibleEntries(lines(h))[0];
+        expect(before).toBeDefined();
+
+        // Measured drift for this transcript with no anchoring: 5 entries at
+        // width 46, 9 at 34, 14 at 26 — the window walks away from what you
+        // were reading, further the harder you resize. Anchored, the most it
+        // moves is onto the start of the entry that was straddling the top.
+        for (const width of [46, 34, 26]) {
+            const after = visibleEntries(h.render(width).map(strip))[0];
+            expect(Math.abs(after - before)).toBeLessThanOrEqual(1);
+            h.render(70); // back to the starting width for the next step
+        }
+    });
+
+    test("a window at the live edge is still at the live edge after a resize", () => {
+        const h = tallHistory();
+        h.setReserveRows(() => 8);
+        h.setPinned(true);
+        expect(lines(h).join("\n")).toContain("line 39");
+        expect(h.render(48).map(strip).join("\n")).toContain("line 39");
+    });
+});
+
 describe("pinned input — asking the terminal for the wheel", () => {
     // This one is a source-order assertion because the failure it guards has no
     // in-process symptom: the window scrolls perfectly on any wheel report it

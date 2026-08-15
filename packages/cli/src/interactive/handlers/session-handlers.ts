@@ -30,6 +30,7 @@ type SessionHandlers = Pick<
     CommandContext,
     | "newSession"
     | "clearScreen"
+    | "pauseMouseReporting"
     | "manualCompact"
     | "showSessions"
     | "showSessionInfo"
@@ -136,6 +137,9 @@ export function createSessionHandlers(state: AppState, deps: AppDeps): SessionHa
             // Re-show workspace context + active extensions so /new matches startup.
             await showWorkspaceBanners(history, state.cwd);
             tui.requestRender();
+        },
+        pauseMouseReporting() {
+            deps.pauseMouseReporting();
         },
         clearScreen() {
             abortActiveTurn();

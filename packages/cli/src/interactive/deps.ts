@@ -47,4 +47,8 @@ export interface AppDeps {
     /** Apply the `pinnedInput` setting live — pins/unpins the prompt and
      * turns wheel reporting on/off to match. */
     applyPinnedInput: (on: boolean) => void;
+    /** /select — drop mouse reporting so the terminal can drag-select. */
+    pauseMouseReporting: () => void;
+    /** Put it back; called by the next keystroke after /select. */
+    resumeMouseReporting: () => void;
 }

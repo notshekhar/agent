@@ -108,6 +108,13 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
             return;
         }
 
+        // Sending something means you are done reading wherever you had
+        // scrolled back to, so the pinned window returns to the newest line.
+        // Without this the reply streams in below the fold and the send looks
+        // like it did nothing. Applies to queued input too — the queue panel
+        // is down at the prompt as well. No-op when nothing is scrolling.
+        history.jumpToLiveEdge();
+
         // Agent busy → queue every input for after the current turn, FIFO.
         // Everything queues uniformly: chat messages AND slash commands
         // (including /new and /clear). They mutate session/model state and would

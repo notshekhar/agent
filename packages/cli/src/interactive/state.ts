@@ -24,6 +24,9 @@ export interface AppState {
     /** The `pinnedInput` setting, live: the prompt holds the last rows and the
      * wheel scrolls the transcript without the transcript taking the keyboard. */
     pinnedInput: boolean;
+    /** /select — mouse reporting dropped so the terminal can drag-select, until
+     * the next keystroke puts it back. */
+    mouseSuspended: boolean;
     abort: AbortController;
     pendingInjection: string | null;
     lastCtrlCAt: number;

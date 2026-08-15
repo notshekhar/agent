@@ -212,6 +212,10 @@ export class ChatHistory extends Container {
     private followEnd = true;
     /** Rows the chrome below the transcript is using this frame; see setReserveRows. */
     private reserveRows: (() => number) | null = null;
+    /** Width of the last render, to notice a resize re-wrapping the transcript. */
+    private lastRenderWidth = 0;
+    /** Entry at the top of the window last render — what a resize re-anchors on. */
+    private topAnchorFIdx: number | null = null;
 
     /** True while anything is asking for the window. */
     private viewportOn(): boolean {
@@ -276,6 +280,24 @@ export class ChatHistory extends Container {
         // would look like it never happened. The render re-arms it if this
         // lands at the live edge anyway (scrolling down past the end).
         this.followEnd = false;
+    }
+
+    /**
+     * Put the window back on the newest line.
+     *
+     * Scroll position is otherwise derived from scrolling alone, and sending a
+     * message is not a scroll — so a turn submitted from 200 lines up used to
+     * render its whole reply somewhere you were not looking. A new turn is an
+     * unambiguous "done reading back there".
+     *
+     * Deliberately does NOT markDirty: nothing about the transcript's content
+     * changed, so the render cache is still good and this is a pure move of
+     * the window.
+     */
+    jumpToLiveEdge(): void {
+        this.followEnd = true;
+        this.viewportOffset = Number.MAX_SAFE_INTEGER;
+        this.pendingAnchor = false;
     }
 
     /** Jump the window to the very top/bottom (Home/End). */
@@ -496,6 +518,23 @@ export class ChatHistory extends Container {
         }
         this.lastViewport = null;
         if (!viewport) return full;
+
+        // A width change re-wraps the whole transcript, so the offset — a line
+        // index — silently comes to mean a different place, and a window that
+        // was parked on something teleports away from it. Re-find the entry
+        // that was at the top of the window and park on that instead. Only
+        // when the user is actually parked: following the live edge already
+        // lands in the right place, whatever the wrapping did.
+        const widthChanged = this.lastRenderWidth !== 0 && this.lastRenderWidth !== width;
+        this.lastRenderWidth = width;
+        if (widthChanged && !this.followEnd && this.topAnchorFIdx !== null) {
+            const r = this.lastRanges.find((x) => x.fIdx === this.topAnchorFIdx);
+            // No range means the top of the window was in a gap between
+            // entries (spacers, system lines) — nothing to anchor to, so the
+            // raw offset stands, which is what happened before this existed.
+            if (r) this.viewportOffset = r.start;
+        }
+
         const rows = this.viewportRows();
         if (full.length <= rows) {
             // Nothing to scroll: the whole transcript is on screen, so the
@@ -546,11 +585,23 @@ export class ChatHistory extends Container {
             }
         }
 
+        // The window is sliced by ARRAY INDEX, which assumes one rendered line
+        // costs one terminal row. That holds because nothing in loop's
+        // transcript emits an inline graphic: attachments render as `[image:
+        // …]` text, and the TUI's Image component (inherited from the fork) is
+        // never constructed here. If that ever changes, this slice has to stop
+        // cutting through an image's reserved rows — a kitty image is one array
+        // entry plus blank filler entries, and a slice that keeps the header
+        // but drops the fillers paints the picture straight over the prompt.
         const maxOffset = full.length - (rows - 2);
         this.viewportOffset = Math.max(0, Math.min(this.viewportOffset, maxOffset));
         // Follow is whatever the clamp just decided: resting at the bottom
         // means the user is at the live edge and wants to stay there.
         this.followEnd = this.viewportOffset >= maxOffset;
+        // Remember what is at the top of the window, so a resize can put it
+        // back there. The first entry still on screen — one whose range has
+        // not ended above the window — is what the eye reads as "where I am".
+        this.topAnchorFIdx = this.lastRanges.find((r) => r.end >= this.viewportOffset)?.fIdx ?? null;
         const hasTop = this.viewportOffset > 0;
         const inner = rows - 2;
         const hasBottom = this.viewportOffset + inner < full.length;

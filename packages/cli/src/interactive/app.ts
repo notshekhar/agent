@@ -226,6 +226,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         busy: false,
         scrollbackFocus: false,
         pinnedInput: Boolean(settingsStore.get("pinnedInput")),
+        mouseSuspended: false,
         abort: new AbortController(),
         pendingInjection: null,
         lastCtrlCAt: 0,
@@ -306,6 +307,12 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     // spinner advances on its own interval, not on render), the same property
     // the click-to-select mapper already relies on, and the transcript itself
     // is NOT re-rendered here — it is the one child this skips.
+    //
+    // Measured at ~1µs for a realistic chrome (3-line draft, todo panel, queued
+    // line): 0.006% of the TUI's 16ms frame floor. Do not "optimize" this into
+    // a cached height — the cache would be stale in exactly the case that
+    // matters, the frame where the editor grows a line, and a one-frame
+    // under-reserve is a one-frame overflow of the screen.
     history.setReserveRows(() => {
         const width = tui.terminal.columns;
         let rows = 0;
@@ -326,9 +333,40 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
      */
     const applyPinnedInput = (on: boolean): void => {
         state.pinnedInput = on;
+        state.mouseSuspended = false;
         history.setPinned(on);
         tui.terminal.write(on ? "\x1b[?1006h\x1b[?1000h" : "\x1b[?1000l\x1b[?1006l");
         tui.requestRender(true);
+    };
+
+    /**
+     * /select — hand the mouse back to the terminal for one selection.
+     *
+     * A terminal that is reporting the mouse does not treat a drag as a text
+     * selection, which is the standing cost of a pinned prompt. Rather than
+     * make people toggle the setting off and on to copy a line, reporting
+     * drops until the next keystroke: you select, you copy with the terminal's
+     * own shortcut (which sends loop nothing), and the wheel comes back the
+     * moment you type again — which is exactly when you stopped wanting it.
+     */
+    const pauseMouseReporting = (): void => {
+        if (!state.pinnedInput) {
+            history.addSystem("nothing to pause — loop only holds the mouse while pinned input is on");
+            tui.requestRender();
+            return;
+        }
+        state.mouseSuspended = true;
+        tui.terminal.write("\x1b[?1000l\x1b[?1006l");
+        statusLine.setHint("selecting text · mouse reporting paused — press any key to resume scrolling");
+        tui.requestRender();
+    };
+
+    const resumeMouseReporting = (): void => {
+        if (!state.mouseSuspended) return;
+        state.mouseSuspended = false;
+        if (state.pinnedInput) tui.terminal.write("\x1b[?1006h\x1b[?1000h");
+        statusLine.setHint(null);
+        tui.requestRender();
     };
 
     showWhatsNew(history, opts.version, Boolean(opts.sessionId));
@@ -590,6 +628,8 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         restoreConsole,
         syncTicker,
         applyPinnedInput,
+        pauseMouseReporting,
+        resumeMouseReporting,
     };
     syncTicker();
 

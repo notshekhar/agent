@@ -328,6 +328,12 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
         // below is a press-only action. (isKeyRelease excludes bracketed-paste.)
         if (isKeyRelease(data)) return undefined;
 
+        // A /select pause ends at the next keystroke — you are typing again,
+        // which is exactly when the wheel stops being in the way. The key
+        // itself is NOT consumed: resuming is a side effect of getting back to
+        // work, not a keypress you have to spend.
+        if (state.mouseSuspended) deps.resumeMouseReporting();
+
         // Selectors (e.g. /tree) own ctrl-key chords like ctrl+l/ctrl+d while
         // focused — global shortcuts that would shadow them only fire when the
         // editor has focus.
@@ -367,13 +373,28 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
             // unhandled report would otherwise land in the editor as raw
             // `[<64;20;5M` text.
             if (MOUSE_SGR_ANY.test(data)) return { consume: true };
-            // PgUp/PgDn scroll the transcript only while there is no draft to
-            // page through: with a draft in it the editor owns them
-            // (tui.editor.pageUp), and silently taking those away would be a
-            // regression for anyone composing a long message.
-            if (editorFocused && deps.getSelectorDepth() === 0 && (isPageUp(data) || isPageDown(data))) {
-                if ((editor.getText?.() ?? "") === "") {
+            // On an EMPTY prompt the transcript owns the navigation keys;
+            // the moment there is a draft they go back to the editor, which
+            // binds all four (tui.editor.pageUp, cursorLineStart/End, …) and
+            // needs them to move around a long message. An empty prompt has
+            // nothing to page through or jump within, so nothing is lost.
+            //
+            // End is the way home. Esc cannot be — it is the interrupt, and
+            // a key that aborts your turn when you meant to scroll back to it
+            // is not a key worth having.
+            if (editorFocused && deps.getSelectorDepth() === 0 && (editor.getText?.() ?? "") === "") {
+                if (isPageUp(data) || isPageDown(data)) {
                     history.scrollViewportLines(isPageUp(data) ? -history.viewportPage() : history.viewportPage());
+                    tui.requestRender();
+                    return { consume: true };
+                }
+                if (isEnd(data)) {
+                    history.jumpToLiveEdge();
+                    tui.requestRender();
+                    return { consume: true };
+                }
+                if (isHome(data)) {
+                    history.scrollViewportEdge("top");
                     tui.requestRender();
                     return { consume: true };
                 }

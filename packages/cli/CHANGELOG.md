@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.19.3] - 2026-08-16
+
+### Added
+
+- **The pinned prompt knows how to get you back to the live edge.** Three ways, because scrolling away from a running turn is the normal thing to do and there was no way home short of wheeling back the same distance you came. Sending anything returns the window to the newest line first — a message submitted from two hundred lines up used to be answered entirely below the fold, which made the send look like it had done nothing at all. `End` on an empty prompt goes there deliberately, and `Home` goes to the top; `PgUp`/`PgDn` page as before. All four belong to the transcript only while the prompt is EMPTY — the moment there is a draft the editor takes them back, because it needs them to move around a long message. `Esc` is deliberately not one of them: it is the interrupt, and a key that kills your turn when you meant to scroll back to it is not a key worth having.
+- **`/select` hands the mouse back to the terminal for one selection.** A terminal that is reporting the mouse does not treat a drag as a text selection, which is the standing cost of a pinned prompt, and the only way to copy a line out of the transcript was to turn the setting off and on again. `/select` drops mouse reporting until your next keystroke: select, copy with your terminal's own shortcut (which sends loop nothing), and the wheel is back the moment you type — which is exactly when you stopped wanting the selection.
+
+### Fixed
+
+- **Resizing no longer walks the transcript away from what you were reading.** The scroll position was a line index, and a width change re-wraps every line underneath it, so the same number silently came to mean a different place: measured on a transcript of wrapped messages, narrowing from 70 to 46 columns moved the top of the window five entries, to 34 nine entries, and to 26 fourteen — further the harder you resized. The window now remembers the entry at its top and re-finds it after the reflow, so the most it moves is onto the start of the entry that was straddling the edge. A window that was following the live edge is unaffected; it was already going to land in the right place.
+
+### Changed
+
+- **`scripts/tui-probe.py` drives the TUI in a real pty.** Every bug in the pinned prompt so far has been invisible from inside the process — a request for wheel reports wiped by a startup cleanse, a terminal left reporting after a clean quit, a layout that only pinned once the transcript was tall enough. They are properties of the byte stream between loop and the terminal and of where things land on a fixed-size screen, so they need a terminal to see. Four checks (`screen`, `modes`, `exit`, `wheel`) against a throwaway HOME, each with a verdict rather than a wall of output. It also refuses to draw the obvious wrong conclusion: a prompt sitting on the bottom rows proves nothing on its own, since a full transcript scrolls the terminal and puts it there regardless, so what it actually reports is whether the transcript is a clipped window that loop is scrolling itself.
+
 ## [0.19.2] - 2026-08-16
 
 ### Added
