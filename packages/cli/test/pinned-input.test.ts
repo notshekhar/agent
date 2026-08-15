@@ -140,6 +140,33 @@ describe("pinned input — what it must NOT take from the terminal", () => {
     });
 });
 
+describe("pinned input — toggling it in /settings", () => {
+    // Not unit-testable from inside the process: the symptom is where things
+    // land on a real screen after the selector closes. Measured in a pty on a
+    // 44-row terminal — prompt at rows 39-41 before, 27-29 with thirteen blank
+    // rows under it after — because closing a selector shrinks loop's frame and
+    // the renderer clears the rows it no longer needs in place instead of
+    // pulling the content back down. So this guards the fix's presence.
+    const source = readFileSync(
+        join(import.meta.dir, "..", "src", "interactive", "handlers", "settings-handlers.ts"),
+        "utf8",
+    );
+
+    test("toggling the setting repaints the screen on the way out", () => {
+        expect(source).toContain("repaintOnClose");
+        const toggle = source.slice(source.indexOf('if (pick.value === "pinnedInput")'));
+        expect(toggle.slice(0, 200)).toContain("repaintOnClose = true");
+    });
+
+    test("the repaint happens when the panel closes, not at the moment of the toggle", () => {
+        // Repainting during the toggle is undone by the very next render, when
+        // the panel closing shrinks the frame again — measured as no change at
+        // all against the broken behaviour.
+        const close = source.slice(source.indexOf("if (!pick) {"));
+        expect(close.slice(0, 200)).toContain("requestRender(true)");
+    });
+});
+
 describe("navigation mode still owns its window", () => {
     test("Tab's viewport still clips and still shows how much is off-screen", () => {
         const h = history(60);

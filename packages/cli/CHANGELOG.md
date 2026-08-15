@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.19.5] - 2026-08-16
+
+### Fixed
+
+- **Turning `pinnedInput` on mid-chat left the prompt stranded in the middle of the screen.** Closing any selector shrinks loop's frame, and the renderer clears the rows it no longer needs where they are rather than pulling the content back down, so the prompt was left sitting wherever the shorter frame ended with a blank gap beneath it — measured on a 44-row terminal as the prompt dropping from rows 39-41 to 27-29 with thirteen empty rows under it. Turning on a setting about where the prompt sits and watching the prompt move away from the bottom is the worst possible moment for it, so `/settings` now repaints from scratch on the way out when that setting was touched, which reprints the frame whole and scrolls its last line back onto the last row. The same gap appears after any selector closes and always has; this fixes the case where it directly contradicts what you just asked for.
+
 ## [0.19.4] - 2026-08-16
 
 ### Fixed
