@@ -34,6 +34,50 @@ export function getRowBottom(state: TimelineListMeasurementState, index: number)
   return top + Math.max(1, height);
 }
 
+/**
+ * Whether losing the live edge means the user asked to leave it.
+ *
+ * The list reports "no longer at the end" for two very different reasons, and
+ * they must not share a code path. A scroll gesture is the user reading back;
+ * an optimistic row landing, streamed text growing a row, or the composer
+ * changing height all push the end past the viewport with nobody touching the
+ * mouse. Treating the second kind as the first is what stranded the transcript
+ * after a send: follow mode was torn down one frame before the effect that
+ * would have re-pinned it ran, so it read the teardown and gave up.
+ *
+ * A gesture bumps `userScrollGeneration` and clears the follow generation, so
+ * the two disagreeing is the only honest signal that this was the user.
+ */
+export function timelineEndLossIsUserDriven(input: {
+  readonly liveFollowUserScrollGeneration: number | null;
+  readonly userScrollGeneration: number;
+}): boolean {
+  return input.liveFollowUserScrollGeneration !== input.userScrollGeneration;
+}
+
+/**
+ * Whether a pointer landed on the vertical scrollbar rather than the transcript.
+ *
+ * Dragging the scrollbar is a scroll gesture and has to opt out of follow mode,
+ * but a bare `pointerdown` on the scroll node cannot stand in for it — that
+ * fires when you click a tool row or select text in a reply, and stopping the
+ * stream because someone highlighted a word is the bug this exists to avoid.
+ * The gutter is the part of the box `clientWidth` does not cover; overlay
+ * scrollbars reserve nothing, so this correctly declines to guess there.
+ */
+export function pointerIsOnVerticalScrollbar(input: {
+  readonly clientX: number;
+  readonly right: number;
+  readonly width: number;
+  readonly clientWidth: number;
+}): boolean {
+  const gutter = input.width - input.clientWidth;
+  if (gutter <= 0) {
+    return false;
+  }
+  return input.clientX >= input.right - gutter;
+}
+
 export function getAnchoredTurnMetrics({
   state,
   anchorIndex,

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
-import { getAnchoredTurnMetrics, getRowBottom } from "./timelineScrollAnchoring";
+import {
+  getAnchoredTurnMetrics,
+  getRowBottom,
+  pointerIsOnVerticalScrollbar,
+  timelineEndLossIsUserDriven,
+} from "./timelineScrollAnchoring";
 
 function buildState({
   positions,
@@ -134,5 +139,58 @@ describe("timeline scroll anchoring", () => {
 
     expect(withoutComposer?.overflowsUsableViewport).toBe(false);
     expect(withComposer?.overflowsUsableViewport).toBe(true);
+  });
+});
+
+describe("timelineEndLossIsUserDriven", () => {
+  it("keeps following when content, not the reader, moved the end away", () => {
+    // What a send looks like: the optimistic row lands and the composer
+    // collapses to one line, both of which push the end past the viewport
+    // while the follow generation still matches.
+    expect(
+      timelineEndLossIsUserDriven({
+        liveFollowUserScrollGeneration: 3,
+        userScrollGeneration: 3,
+      }),
+    ).toBe(false);
+  });
+
+  it("hands the view back once a gesture has bumped the generation", () => {
+    expect(
+      timelineEndLossIsUserDriven({
+        liveFollowUserScrollGeneration: null,
+        userScrollGeneration: 4,
+      }),
+    ).toBe(true);
+  });
+
+  it("hands the view back when a stale follow generation is left armed", () => {
+    expect(
+      timelineEndLossIsUserDriven({
+        liveFollowUserScrollGeneration: 3,
+        userScrollGeneration: 4,
+      }),
+    ).toBe(true);
+  });
+});
+
+describe("pointerIsOnVerticalScrollbar", () => {
+  const box = { right: 800, width: 500, clientWidth: 485 };
+
+  it("counts a press inside the reserved gutter", () => {
+    expect(pointerIsOnVerticalScrollbar({ ...box, clientX: 790 })).toBe(true);
+    expect(pointerIsOnVerticalScrollbar({ ...box, clientX: 785 })).toBe(true);
+  });
+
+  it("leaves the transcript itself clickable", () => {
+    // Selecting text in a reply or opening a tool row must not stop follow.
+    expect(pointerIsOnVerticalScrollbar({ ...box, clientX: 784 })).toBe(false);
+    expect(pointerIsOnVerticalScrollbar({ ...box, clientX: 400 })).toBe(false);
+  });
+
+  it("declines to guess when overlay scrollbars reserve no gutter", () => {
+    expect(
+      pointerIsOnVerticalScrollbar({ right: 800, width: 500, clientWidth: 500, clientX: 799 }),
+    ).toBe(false);
   });
 });

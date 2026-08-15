@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.18.15] - 2026-08-15
+
+### Fixed
+
+- **Sending a message in the desktop app lands where you would expect it to.** Sent from halfway up a thread, the transcript stayed exactly where it was and the reply streamed in off-screen; sent from the bottom, it sometimes walked *up* instead — and the second one only happened when the message you had just typed ran to more than one line, which is what made it look random. Both were the same defect. The transcript treated every loss of the live edge as "the reader scrolled away" and dropped out of follow mode, but the list reports that for two unrelated reasons, and a send triggers the harmless kind three times over: the message lands, the reply streams, and the composer collapses back to one line as its draft clears — that last one moving the view by exactly the height the composer gave up. Follow mode was torn down one frame before the correction that would have re-pinned it ran, so the correction read the teardown and refused to move. Position now only ever opts *in* to following the stream: reaching the live edge by any means resumes it, and only an actual scroll gesture hands the view back. Dragging the scrollbar counts as one — clicking a tool call or selecting text in a reply still does not, which is why it was not simply reinstated.
+
 ## [0.18.14] - 2026-08-15
 
 ### Fixed

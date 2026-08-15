@@ -89,7 +89,12 @@ import {
   isLatestTurnSettled,
 } from "../session-logic";
 import { type LegendListRef } from "@legendapp/list/react";
-import { getAnchoredTurnMetrics, type TimelineScrollMode } from "./chat/timelineScrollAnchoring";
+import {
+  getAnchoredTurnMetrics,
+  pointerIsOnVerticalScrollbar,
+  timelineEndLossIsUserDriven,
+  type TimelineScrollMode,
+} from "./chat/timelineScrollAnchoring";
 import {
   buildPendingUserInputAnswers,
   derivePendingUserInputProgress,
@@ -3739,14 +3744,27 @@ function ChatViewContent(props: ChatViewProps) {
       if (!scrollNode) {
         return;
       }
-      // Only real scroll gestures hand control back. `pointerdown` used to be
-      // in here too, which meant clicking a tool row — or selecting text in the
-      // reply — silently stopped the transcript following the stream while you
-      // were still sitting at the bottom. Leaving the live edge by any other
-      // means (scrollbar, keyboard, the minimap) is caught by
-      // `onIsAtEndChange`, which the list reports from its own near-end test.
+      // Gestures are now the ONLY way out of follow mode, so every way a person
+      // can scroll this list has to be represented here. A bare `pointerdown`
+      // used to be, and it meant clicking a tool row or selecting text in a
+      // reply silently stopped the transcript following the stream — hence the
+      // hit test, which counts only the scrollbar gutter and leaves the
+      // transcript itself clickable.
       const handleManualNavigation = () => {
         cancelTimelineLiveFollowForUserNavigationRef.current();
+      };
+      const handlePointerDown = (event: PointerEvent) => {
+        const rect = scrollNode.getBoundingClientRect();
+        if (
+          pointerIsOnVerticalScrollbar({
+            clientX: event.clientX,
+            right: rect.right,
+            width: rect.width,
+            clientWidth: scrollNode.clientWidth,
+          })
+        ) {
+          handleManualNavigation();
+        }
       };
       scrollNode.addEventListener("wheel", handleManualNavigation, {
         passive: true,
@@ -3754,9 +3772,13 @@ function ChatViewContent(props: ChatViewProps) {
       scrollNode.addEventListener("touchmove", handleManualNavigation, {
         passive: true,
       });
+      scrollNode.addEventListener("pointerdown", handlePointerDown, {
+        passive: true,
+      });
       removeListeners = () => {
         scrollNode.removeEventListener("wheel", handleManualNavigation);
         scrollNode.removeEventListener("touchmove", handleManualNavigation);
+        scrollNode.removeEventListener("pointerdown", handlePointerDown);
       };
     });
 
@@ -3858,17 +3880,20 @@ function ChatViewContent(props: ChatViewProps) {
     });
   }, []);
 
-  // The list's own near-end test is the whole state machine: at the end means
-  // follow the stream, away from it means the user is reading and the view is
-  // theirs. It reports `isNearEnd` (the same 10%-of-viewport window LegendList
-  // arms `maintainScrollAtEnd` with), so a row growing mid-stream does not flip
-  // it and following never drops out under its own output.
+  // Position opts IN to following the stream; only a gesture opts out.
   //
-  // Upstream returned early here whenever live-follow was armed, because in its
-  // model a sent message is pinned near the TOP and being away from the end is
-  // the normal state. loop follows the terminal instead, and that early return
-  // was what let the view be dragged back to the live edge after the user had
-  // scrolled up.
+  // Reaching the live edge by any means — scrolling down, the minimap, the
+  // button — starts following again, so the list's own near-end test stays the
+  // way back in. Losing it is the asymmetric half: `isNearEnd` goes false both
+  // when the user scrolls up and when the content simply grew past the
+  // viewport, and only the first of those is a request. Sending a message
+  // triggers the second three times over (the optimistic row lands, the reply
+  // streams, the composer collapses back to one line as its draft clears), and
+  // when that tore follow mode down the re-pin effect one frame later read the
+  // teardown and refused to move — the transcript sat wherever the send left
+  // it. That is both halves of the reported flakiness: sent from halfway up it
+  // never came down, and sent from the bottom the composer's own collapse
+  // walked it up by the height the composer lost.
   const onIsAtEndChange = useCallback((isAtEnd: boolean) => {
     if (isAtEndRef.current === isAtEnd) return;
     isAtEndRef.current = isAtEnd;
@@ -3877,25 +3902,43 @@ function ChatViewContent(props: ChatViewProps) {
       liveFollowUserScrollGenerationRef.current = anchorUserScrollGenerationRef.current;
       showScrollDebouncer.current.cancel();
       setShowScrollToBottom(false);
-    } else {
-      timelineScrollModeRef.current = "free-scrolling";
-      liveFollowUserScrollGenerationRef.current = null;
-      showScrollDebouncer.current.maybeExecute();
+      return;
     }
+    if (
+      !timelineEndLossIsUserDriven({
+        liveFollowUserScrollGeneration: liveFollowUserScrollGenerationRef.current,
+        userScrollGeneration: anchorUserScrollGenerationRef.current,
+      })
+    ) {
+      // Content moved, not the reader. Stay armed and let the re-pin effect
+      // below close the gap; showing "jump to bottom" here would flash the
+      // button on every send.
+      return;
+    }
+    timelineScrollModeRef.current = "free-scrolling";
+    liveFollowUserScrollGenerationRef.current = null;
+    showScrollDebouncer.current.maybeExecute();
   }, []);
 
+  // Re-pin to the live edge after anything that could have moved it: a new
+  // entry, a thread switch, or the composer resizing (which reaches this
+  // through `timelineRealContentOverflowsViewport`, whose usable-viewport
+  // height is measured net of `composerOverlayHeight`). The mode ref is the
+  // only gate — it already says whether the reader handed the view back, and
+  // re-testing the generations here was the redundant guard that made a send
+  // land wherever it started.
   useEffect(() => {
     if (!activeThread?.id) {
       return;
     }
-    if (liveFollowUserScrollGenerationRef.current !== anchorUserScrollGenerationRef.current) {
+    if (timelineScrollModeRef.current === "free-scrolling") {
       return;
     }
 
     let secondFrame: number | null = null;
     const frame = requestAnimationFrame(() => {
       secondFrame = requestAnimationFrame(() => {
-        if (liveFollowUserScrollGenerationRef.current !== anchorUserScrollGenerationRef.current) {
+        if (timelineScrollModeRef.current === "free-scrolling") {
           return;
         }
         if (pendingTimelineAnchorRef.current !== null) {
