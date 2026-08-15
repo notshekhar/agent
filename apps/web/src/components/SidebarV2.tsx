@@ -138,6 +138,7 @@ import {
   type SnoozePreset,
 } from "./Sidebar.snooze";
 import { ProjectFavicon } from "./ProjectFavicon";
+import { SelfTickingLabel } from "./SelfTickingLabel";
 import { ProviderInstanceIcon } from "./chat/ProviderInstanceIcon";
 import { getTriggerDisplayModelLabel } from "./chat/providerIconUtils";
 import { deriveProviderInstanceEntries, type ProviderInstanceEntry } from "../providerInstances";
@@ -208,21 +209,16 @@ function JumpHintBadge(props: { label: string }) {
   );
 }
 
-// Self-ticking so only this span re-renders each second, not the whole row.
+// Self-ticking: the label updates its own text node, so a running thread costs
+// no React commit per second. See SelfTickingLabel.
 function WorkingDuration(props: { startedAt: string | null }) {
   const startedMs = props.startedAt !== null ? Date.parse(props.startedAt) : Number.NaN;
-  const [, setTick] = useState(0);
-  useEffect(() => {
-    if (Number.isNaN(startedMs)) return;
-    const id = window.setInterval(() => setTick((tick) => tick + 1), 1_000);
-    return () => window.clearInterval(id);
-  }, [startedMs]);
-  if (Number.isNaN(startedMs)) return null;
-  return (
-    <span className="font-mono tabular-nums">
-      {formatWorkingDurationLabel(Date.now() - startedMs)}
-    </span>
+  const render = useCallback(
+    (nowMs: number) => formatWorkingDurationLabel(nowMs - startedMs),
+    [startedMs],
   );
+  if (Number.isNaN(startedMs)) return null;
+  return <SelfTickingLabel className="font-mono tabular-nums" render={render} />;
 }
 
 function terminalProcessLabel(count: number): string {

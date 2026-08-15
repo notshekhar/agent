@@ -18,6 +18,65 @@ import * as pty from "node-pty";
 const MAX_HISTORY_CHARS = 256 * 1024;
 
 /**
+ * How far scrollback is allowed to overshoot the cap before it is compacted.
+ *
+ * See `appendHistory` — the slack is what makes trimming amortized rather than
+ * per-chunk.
+ */
+const HISTORY_COMPACT_AT = MAX_HISTORY_CHARS * 2;
+
+/**
+ * Scrollback, held as the chunks that produced it.
+ *
+ * This was a plain string that every chunk rebuilt: `history = (history +
+ * data).slice(-MAX_HISTORY_CHARS)`. That allocates two ~256KB strings per
+ * chunk, and a build or an install emits thousands of small chunks a second —
+ * hundreds of MB/s of garbage per terminal, for a buffer almost nobody reads
+ * (only `snapshotOf`, on reattach).
+ *
+ * Appending to an array instead costs a push. The trim cannot run per chunk
+ * either way: `shift()` on the tens of thousands of small chunks that fit in
+ * the cap is its own O(n) move. So the buffer overshoots to
+ * HISTORY_COMPACT_AT and collapses in one pass, which is O(buffer) but paid
+ * once per MAX_HISTORY_CHARS written — constant per chunk, amortized.
+ */
+interface HistoryBuffer {
+  chunks: string[];
+  /** Total characters across `chunks`, maintained incrementally. */
+  length: number;
+}
+
+function emptyHistory(): HistoryBuffer {
+  return { chunks: [], length: 0 };
+}
+
+function appendHistory(buffer: HistoryBuffer, data: string): void {
+  buffer.chunks.push(data);
+  buffer.length += data.length;
+  if (buffer.length <= HISTORY_COMPACT_AT) return;
+  collapseHistory(buffer);
+}
+
+/** Join to a single chunk and drop everything past the cap. */
+function collapseHistory(buffer: HistoryBuffer): string {
+  const joined = buffer.chunks.join("").slice(-MAX_HISTORY_CHARS);
+  buffer.chunks = joined === "" ? [] : [joined];
+  buffer.length = joined.length;
+  return joined;
+}
+
+/**
+ * Scrollback as one string, never longer than the cap.
+ *
+ * Collapses in place, so repeated snapshots of a terminal that has since gone
+ * quiet re-join nothing.
+ */
+function readHistory(buffer: HistoryBuffer): string {
+  if (buffer.chunks.length === 1) return buffer.chunks[0]!;
+  return collapseHistory(buffer);
+}
+
+/**
  * How long `open` waits for the renderer to report the pane's real size before
  * starting the shell anyway.
  *
@@ -90,7 +149,7 @@ interface Session {
   readonly env: Record<string, string>;
   /** Null until the shell is spawned — see SPAWN_SIZE_GRACE_MS. */
   process: PtyProcess | null;
-  history: string;
+  history: HistoryBuffer;
   status: "starting" | "running" | "exited" | "error";
   exitCode: number | null;
   exitSignal: number | null;
@@ -278,7 +337,7 @@ export class TerminalManager extends EventEmitter {
       worktreePath: input.worktreePath ?? null,
       env: shellEnv(input.env),
       process: null,
-      history: "",
+      history: emptyHistory(),
       status: "starting",
       exitCode: null,
       exitSignal: null,
@@ -335,7 +394,7 @@ export class TerminalManager extends EventEmitter {
     session.updatedAt = new Date().toISOString();
 
     child.onData((data) => {
-      session.history = (session.history + data).slice(-MAX_HISTORY_CHARS);
+      appendHistory(session.history, data);
       // Incremented with the append, so a snapshot taken at any point carries
       // the count of exactly the chunks its `history` already contains.
       session.sequence += 1;
@@ -402,7 +461,7 @@ export class TerminalManager extends EventEmitter {
     session.updatedAt = new Date().toISOString();
 
     const notice = `\r\nloop: could not start a shell in ${session.cwd}\r\n      ${reason}\r\n`;
-    session.history = (session.history + notice).slice(-MAX_HISTORY_CHARS);
+    appendHistory(session.history, notice);
     session.sequence += 1;
     this.emit("output", {
       threadId: session.threadId,
@@ -465,7 +524,7 @@ export class TerminalManager extends EventEmitter {
 
   clear(threadId: string, terminalId: string): void {
     const session = this.#sessions.get(key(threadId, terminalId));
-    if (session) session.history = "";
+    if (session) session.history = emptyHistory();
   }
 
   /** Closes one terminal, or every terminal of a thread when the id is absent
@@ -524,7 +583,7 @@ function snapshotOf(session: Session): TerminalSnapshot {
     worktreePath: session.worktreePath,
     status: session.status,
     pid: session.status === "running" ? (session.process?.pid ?? null) : null,
-    history: session.history,
+    history: readHistory(session.history),
     exitCode: session.exitCode,
     exitSignal: session.exitSignal,
     label: session.cwd.slice(session.cwd.lastIndexOf("/") + 1) || "terminal",

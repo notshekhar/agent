@@ -220,6 +220,21 @@ const stopMediaRecorder = async (recorder: MediaRecorder | null): Promise<void> 
   await stopped;
 };
 
+/**
+ * Republish the recording index.
+ *
+ * Must follow every mutation of `activeRecordings`, not just the ones that
+ * finish a startup: a parked preview guest is put to sleep unless something
+ * holds it awake, and this index is one of the two things that do (see
+ * HostedBrowserWebview). Publishing late would let a tab recorded while parked
+ * sleep through the screencast's first frame.
+ */
+const publishActiveRecordingTabIds = (): void => {
+  appAtomRegistry.set(activeBrowserRecordingTabIdsAtom, {
+    tabIds: new Set(activeRecordings.keys()),
+  });
+};
+
 const clearActiveRecording = (recording: ActiveRecording): void => {
   if (activeRecordings.get(recording.tabId) !== recording) return;
   recording.settleFirstFrameSize("cancelled");
@@ -228,9 +243,7 @@ const clearActiveRecording = (recording: ActiveRecording): void => {
     unsubscribeFrames?.();
     unsubscribeFrames = null;
   }
-  appAtomRegistry.set(activeBrowserRecordingTabIdsAtom, {
-    tabIds: new Set(activeRecordings.keys()),
-  });
+  publishActiveRecordingTabIds();
 };
 
 const cleanupFailedRecordingStart = async (
@@ -377,6 +390,9 @@ export async function startBrowserRecording(
     lifecycle: { phase: "starting" },
   };
   activeRecordings.set(tabId, recording);
+  // Before the screencast starts, so the guest is awake to produce its first
+  // frame even if this tab is parked. See publishActiveRecordingTabIds.
+  publishActiveRecordingTabIds();
   try {
     try {
       unsubscribeFrames ??= bridge.recording.onFrame(drawFrame);
@@ -487,9 +503,7 @@ export async function startBrowserRecording(
     if (recording.lifecycle.phase === "starting") {
       recording.lifecycle = { phase: "recording" };
     }
-    appAtomRegistry.set(activeBrowserRecordingTabIdsAtom, {
-      tabIds: new Set(activeRecordings.keys()),
-    });
+    publishActiveRecordingTabIds();
     return startedAt;
   } finally {
     settleStartup?.();

@@ -180,7 +180,14 @@ describe("browser recording", () => {
   it("starts recording for a visible tab", async () => {
     await startBrowserRecording("recording-tab");
 
-    expect(events).toEqual(["start-screencast", "publish:recording-tab"]);
+    // Published once on registration and again once startup settles. The first
+    // is what keeps a parked guest awake for the screencast's first frame, so
+    // it has to land before start-screencast — see the hidden-tab case below.
+    expect(events).toEqual([
+      "publish:recording-tab",
+      "start-screencast",
+      "publish:recording-tab",
+    ]);
 
     await stopBrowserRecording("recording-tab");
   });
@@ -197,7 +204,14 @@ describe("browser recording", () => {
     await startBrowserRecording("recording-tab");
 
     expect(startScreencast).toHaveBeenCalledWith("recording-tab");
-    expect(events).toEqual(["start-screencast", "publish:recording-tab"]);
+    // The publish that precedes start-screencast is what makes this case work
+    // on the desktop: a tab with `visible: false` is parked offscreen and
+    // asleep, and only the recording index wakes it up to produce frames.
+    expect(events).toEqual([
+      "publish:recording-tab",
+      "start-screencast",
+      "publish:recording-tab",
+    ]);
 
     await stopBrowserRecording("recording-tab");
   });

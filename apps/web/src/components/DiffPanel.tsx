@@ -28,6 +28,7 @@ import { openDiffFilePrimaryAction } from "../diffFileActions";
 import { useCheckpointDiff } from "~/lib/checkpointDiffState";
 import { cn } from "~/lib/utils";
 import { selectThreadDiffPanelSelection, useDiffPanelStore } from "../diffPanelStore";
+import { useDocumentVisible } from "../hooks/useDocumentVisible";
 import { useTheme } from "../hooks/useTheme";
 import {
   buildFileDiffRenderKey,
@@ -577,15 +578,24 @@ export default function DiffPanel({
   const threadRevision = activeThread?.updatedAt ?? null;
   const threadIsRunning = activeThread?.session?.status === "running";
   const workingTreeRevision = gitStatusQuery.data;
+  const documentVisible = useDocumentVisible();
+  // `documentVisible` is a revision like the others: the tree can move while the
+  // window is hidden and the poll below is not running, so coming back is a
+  // reason to re-read. Debounced with the rest rather than refreshed on the
+  // spot, so returning to the app costs one refresh and not two.
   useEffect(() => {
     if (threadRevision === null && workingTreeRevision === null) return;
     const timer = setTimeout(() => refreshSelectedPatch.current(), DIFF_REFRESH_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [threadRevision, threadIsRunning, workingTreeRevision]);
+  }, [documentVisible, threadRevision, threadIsRunning, workingTreeRevision]);
   // Only for a selection that reads the tree as it is now. A turn's checkpoint
   // diff is a pair of commits that already happened — polling it would be a
   // `git diff` every second and a half for an answer that cannot change.
-  const shouldPollWorkingTree = threadIsRunning && selectedTurn === undefined;
+  //
+  // Gated on visibility too: the poll exists to keep on-screen state current, so
+  // behind a hidden window it is a `git diff` subprocess every second and a half
+  // that nobody reads.
+  const shouldPollWorkingTree = threadIsRunning && selectedTurn === undefined && documentVisible;
   useEffect(() => {
     if (!shouldPollWorkingTree) return;
     const timer = setInterval(() => refreshSelectedPatch.current(), DIFF_REFRESH_WHILE_RUNNING_MS);

@@ -228,6 +228,35 @@ describe("TerminalManager", () => {
     spawned[0]!.emitData("two\n");
     expect(terminals.snapshot("t", "term-1")?.history).toBe("one\ntwo\n");
   });
+
+  /**
+   * Scrollback is trimmed lazily — the buffer overshoots the cap and collapses
+   * in one pass rather than on every chunk — so the cap is an invariant of the
+   * snapshot, not of the buffer. A chatty shell is the case that matters: it is
+   * exactly the one that used to rebuild a 256KB string per chunk.
+   */
+  test("scrollback stays capped at the tail however many chunks arrive", () => {
+    const { terminals, spawned } = harness();
+    open(terminals);
+    // Small chunks, far past the cap: the path a build or an install takes.
+    for (let index = 0; index < 100_000; index += 1) spawned[0]!.emitData("0123456789");
+    spawned[0]!.emitData("THE-END");
+
+    const history = terminals.snapshot("t", "term-1")!.history;
+    expect(history.length).toBe(256 * 1024);
+    expect(history.endsWith("THE-END")).toBe(true);
+  });
+
+  /** A snapshot of a terminal that has gone quiet is stable across reads. */
+  test("repeated snapshots of idle scrollback agree", () => {
+    const { terminals, spawned } = harness();
+    open(terminals);
+    for (let index = 0; index < 50_000; index += 1) spawned[0]!.emitData("chunk");
+
+    expect(terminals.snapshot("t", "term-1")!.history).toBe(
+      terminals.snapshot("t", "term-1")!.history,
+    );
+  });
 });
 
 /**

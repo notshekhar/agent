@@ -104,4 +104,52 @@ describe("desktop local topology reads", () => {
     };
     expect(reader.readSnapshot()).toBe(removedSnapshot);
   });
+
+  /**
+   * The bridge answers with fresh objects every call, so an unchanged topology
+   * still arrives as a new array. Consumers poll this on an interval and feed
+   * the result to React, so a snapshot that changes identity for no reason
+   * re-renders them every tick — see useDesktopLocalBootstraps.
+   */
+  it("holds snapshot identity while the topology is unchanged", () => {
+    const reader = createDesktopSecondaryBootstrapsReader(() => ({
+      // Fresh objects each call, as the real IPC bridge returns.
+      getLocalEnvironmentBootstraps: () => [
+        {
+          id: "wsl:Ubuntu",
+          label: "WSL: Ubuntu",
+          httpBaseUrl: "http://127.0.0.1:4000",
+          wsBaseUrl: "ws://127.0.0.1:4000",
+        },
+      ],
+    }));
+
+    expect(reader.readSnapshot()).toBe(reader.readSnapshot());
+  });
+
+  it("holds identity when there is no desktop bridge at all", () => {
+    const reader = createDesktopSecondaryBootstrapsReader(() => undefined);
+
+    expect(reader.readSnapshot()).toBe(reader.readSnapshot());
+  });
+
+  it("advances identity when the topology actually changes", () => {
+    const secondary = {
+      id: "wsl:Ubuntu",
+      label: "WSL: Ubuntu",
+      httpBaseUrl: "http://127.0.0.1:4000",
+      wsBaseUrl: "ws://127.0.0.1:4000",
+    };
+    let readBootstraps = () => [secondary];
+    const reader = createDesktopSecondaryBootstrapsReader(() => ({
+      getLocalEnvironmentBootstraps: () => readBootstraps(),
+    }));
+
+    const before = reader.readSnapshot();
+    readBootstraps = () => [{ ...secondary, label: "WSL: Ubuntu (renamed)" }];
+    const after = reader.readSnapshot();
+
+    expect(after).not.toBe(before);
+    expect(after[0]?.label).toBe("WSL: Ubuntu (renamed)");
+  });
 });

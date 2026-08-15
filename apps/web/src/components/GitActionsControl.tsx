@@ -70,6 +70,7 @@ import { Textarea } from "~/components/ui/textarea";
 import { stackedThreadToast, toastManager, type ThreadToastData } from "~/components/ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "~/components/ui/tooltip";
 import { useOpenInPreferredEditor } from "~/editorPreferences";
+import { useDocumentVisible } from "~/hooks/useDocumentVisible";
 import {
   useGitStackedAction,
   useSourceControlActionRunning,
@@ -1173,18 +1174,24 @@ export default function GitActionsControl({
       })
     : null;
 
+  // The toast's elapsed time only has to be right while someone can read it, so
+  // the tick stops with the window and catches up on return.
+  const documentVisible = useDocumentVisible();
   useEffect(() => {
-    const interval = window.setInterval(() => {
+    if (!documentVisible) return;
+    const tick = () => {
       if (!activeGitActionProgressRef.current) {
         return;
       }
       updateActiveProgressToast();
-    }, 1000);
+    };
+    tick();
+    const interval = window.setInterval(tick, 1000);
 
     return () => {
       window.clearInterval(interval);
     };
-  }, [updateActiveProgressToast]);
+  }, [documentVisible, updateActiveProgressToast]);
 
   useEffect(() => {
     if (gitCwd === null) {

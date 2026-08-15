@@ -39,6 +39,7 @@ import {
 import { resolveBrowserRecordingStopTarget } from "~/browser/browserRecordingScope";
 import { useBrowserSurfaceStore } from "~/browser/browserSurfaceStore";
 import { runBrowserViewportMutation } from "~/browser/browserViewportActions";
+import { holdPreviewAutomation } from "~/browser/previewAutomationHolds";
 import { previewRuntimeTabId } from "~/browser/previewRuntimeTabId";
 import { isElectron } from "~/env";
 import { useEnvironments } from "~/state/environments";
@@ -306,6 +307,11 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
         threadId: request.threadId,
       };
       let tabId = request.tabId ?? null;
+      // Automation reads guests that are parked offscreen, and a parked guest
+      // is asleep unless something holds it awake. Taken for the whole request
+      // because the target tab is only resolved several branches in, and
+      // released in `finally` so a failed operation cannot leave one running.
+      const releaseLiveGuests = holdPreviewAutomation(threadRef);
       try {
         let state = readThreadPreviewState(threadRef);
         const needsSessionSync = needsPreviewAutomationSessionSync(state, request.tabId);
@@ -671,6 +677,8 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
           tabId,
           cause,
         });
+      } finally {
+        releaseLiveGuests();
       }
     },
     [environmentId, listPreviews, open, registry, resize],

@@ -218,8 +218,12 @@ export const backgroundActivityReporterLayer = Layer.effectDiscard(
         window.addEventListener("focus", requestReport);
         window.addEventListener("blur", requestReport);
         window.addEventListener("online", requestReport);
-        window.addEventListener("pointermove", recordInteraction);
-        window.addEventListener("keydown", recordInteraction);
+        // All four are passive: none of them call preventDefault, and
+        // pointermove in particular fires at the pointer's full sample rate —
+        // a non-passive listener there makes the compositor wait on the main
+        // thread for a handler that only ever stamps a timestamp.
+        window.addEventListener("pointermove", recordInteraction, passiveListenerOptions);
+        window.addEventListener("keydown", recordInteraction, passiveListenerOptions);
         window.addEventListener("wheel", recordInteraction, passiveListenerOptions);
         window.addEventListener("touchstart", recordInteraction, passiveListenerOptions);
       }),

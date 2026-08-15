@@ -54,6 +54,37 @@ export interface DesktopSecondaryBootstrapsReader {
 }
 
 /**
+ * Whether two reads describe the same topology.
+ *
+ * The bridge answers every call with fresh objects over IPC, so neither the
+ * array nor its entries survive `===` even when nothing has changed. Without a
+ * value comparison the 2s poll in `useDesktopLocalBootstraps` hands React a new
+ * identity every tick and re-renders its consumers — the command palette among
+ * them — forever, for a topology that changes when a backend is added.
+ *
+ * DesktopEnvironmentBootstrap is flat, so field-wise is exact.
+ */
+const EMPTY_BOOTSTRAPS: ReadonlyArray<DesktopEnvironmentBootstrap> = [];
+
+function sameBootstrap(a: DesktopEnvironmentBootstrap, b: DesktopEnvironmentBootstrap): boolean {
+  return (
+    a.id === b.id &&
+    a.label === b.label &&
+    a.runningDistro === b.runningDistro &&
+    a.httpBaseUrl === b.httpBaseUrl &&
+    a.wsBaseUrl === b.wsBaseUrl &&
+    a.bootstrapToken === b.bootstrapToken
+  );
+}
+
+function sameBootstraps(
+  a: ReadonlyArray<DesktopEnvironmentBootstrap>,
+  b: ReadonlyArray<DesktopEnvironmentBootstrap>,
+): boolean {
+  return a.length === b.length && a.every((entry, index) => sameBootstrap(entry, b[index]!));
+}
+
+/**
  * Build a topology reader whose snapshot advances only after successful bridge
  * reads. A successful empty read is authoritative; a thrown read preserves the
  * previous snapshot so UI consumers cannot temporarily disagree with the
@@ -62,18 +93,23 @@ export interface DesktopSecondaryBootstrapsReader {
 export function createDesktopSecondaryBootstrapsReader(
   resolveBridge: () => Pick<DesktopBridge, "getLocalEnvironmentBootstraps"> | undefined,
 ): DesktopSecondaryBootstrapsReader {
-  let snapshot: ReadonlyArray<DesktopEnvironmentBootstrap> = [];
+  let snapshot: ReadonlyArray<DesktopEnvironmentBootstrap> = EMPTY_BOOTSTRAPS;
 
   const readResult = (): DesktopSecondaryBootstrapsRead => {
     const bridge = resolveBridge();
     if (bridge === undefined) {
-      snapshot = [];
+      // A shared empty, not a fresh one: on the web there is never a bridge, so
+      // this is the path every poll takes. See sameBootstraps.
+      if (snapshot.length > 0) snapshot = EMPTY_BOOTSTRAPS;
       return { _tag: "Success", bootstraps: snapshot };
     }
     try {
-      snapshot = bridge
+      const next = bridge
         .getLocalEnvironmentBootstraps()
         .filter((entry) => entry.id !== PRIMARY_LOCAL_ENVIRONMENT_ID);
+      // Hold the previous array when the topology is unchanged, so consumers
+      // polling this can compare by identity. See sameBootstraps.
+      if (!sameBootstraps(snapshot, next)) snapshot = next;
       return { _tag: "Success", bootstraps: snapshot };
     } catch (cause) {
       return { _tag: "Failure", cause };

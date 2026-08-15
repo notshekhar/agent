@@ -8,7 +8,9 @@ import { previewBridge } from "~/components/preview/previewBridge";
 import { usePreviewBridge } from "~/components/preview/usePreviewBridge";
 import { cn } from "~/lib/utils";
 
+import { useActiveBrowserRecordingTabIds } from "./browserRecording";
 import { resolveBrowserSurfacePanelRect, useBrowserSurfaceStore } from "./browserSurfaceStore";
+import { usePreviewAutomationHold } from "./previewAutomationHolds";
 import {
   browserViewportSettingKey,
   resolveBrowserViewportLayout,
@@ -231,11 +233,18 @@ export function HostedBrowserWebview(props: {
 
   if (!config) return null;
 
+  // A parked guest is put to sleep unless something is still reading it: a
+  // recording draws its frames, and automation measures tabs that are not on
+  // screen. See resolveHostedBrowserWebviewWrapperStyle.
+  const recordingTabIds = useActiveBrowserRecordingTabIds();
+  const automationHeld = usePreviewAutomationHold(threadRef);
+  const keepLive = automationHeld || recordingTabIds.has(runtimeTabId);
   const wrapperStyle = resolveHostedBrowserWebviewWrapperStyle({
     active,
     cornerRadius: presentation.cornerRadius,
     rect: lastRect,
     hiddenSize,
+    keepLive,
   });
 
   return (
