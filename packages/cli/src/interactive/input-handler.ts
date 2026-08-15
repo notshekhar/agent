@@ -158,9 +158,7 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
         // gets the mode's default view back, not whatever was left open.
         history.resetFolds();
         statusLine.setHint(null);
-        // Pinned mode wants the wheel for the whole session — only navigation's
-        // own request for it is withdrawn here.
-        if (!state.pinnedInput) tui.terminal.write("\x1b[?1000l\x1b[?1006l");
+        tui.terminal.write("\x1b[?1000l\x1b[?1006l");
         if (wheelTimer) {
             clearTimeout(wheelTimer);
             wheelTimer = null;
@@ -184,7 +182,7 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
             const page = history.viewportPage();
             const net = Math.max(-page, Math.min(page, wheelAccum * 2));
             wheelAccum = 0;
-            if (net !== 0 && (state.scrollbackFocus || state.pinnedInput)) {
+            if (net !== 0 && state.scrollbackFocus) {
                 history.scrollViewportLines(net);
                 tui.requestRender();
             }
@@ -328,12 +326,6 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
         // below is a press-only action. (isKeyRelease excludes bracketed-paste.)
         if (isKeyRelease(data)) return undefined;
 
-        // A /select pause ends at the next keystroke — you are typing again,
-        // which is exactly when the wheel stops being in the way. The key
-        // itself is NOT consumed: resuming is a side effect of getting back to
-        // work, not a keypress you have to spend.
-        if (state.mouseSuspended) deps.resumeMouseReporting();
-
         // Selectors (e.g. /tree) own ctrl-key chords like ctrl+l/ctrl+d while
         // focused — global shortcuts that would shadow them only fire when the
         // editor has focus.
@@ -357,48 +349,6 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
         } else if (state.scrollbackFocus) {
             // A selector/overlay took over — drop focus mode quietly.
             exitScrollbackFocus();
-        }
-
-        // Pinned prompt, outside navigation: the wheel scrolls the transcript
-        // window WITHOUT the transcript taking the keyboard — that is the whole
-        // difference between this and nav mode. Everything else still types.
-        if (state.pinnedInput && !state.scrollbackFocus) {
-            const wheel = countWheelScroll(data);
-            if (wheel !== 0 && deps.getSelectorDepth() === 0) {
-                queueWheel(wheel);
-                return { consume: true };
-            }
-            // Clicks, drags, and wheel events a selector owns: swallowed, not
-            // typed. Mouse reporting is on for the whole session here, so an
-            // unhandled report would otherwise land in the editor as raw
-            // `[<64;20;5M` text.
-            if (MOUSE_SGR_ANY.test(data)) return { consume: true };
-            // On an EMPTY prompt the transcript owns the navigation keys;
-            // the moment there is a draft they go back to the editor, which
-            // binds all four (tui.editor.pageUp, cursorLineStart/End, …) and
-            // needs them to move around a long message. An empty prompt has
-            // nothing to page through or jump within, so nothing is lost.
-            //
-            // End is the way home. Esc cannot be — it is the interrupt, and
-            // a key that aborts your turn when you meant to scroll back to it
-            // is not a key worth having.
-            if (editorFocused && deps.getSelectorDepth() === 0 && (editor.getText?.() ?? "") === "") {
-                if (isPageUp(data) || isPageDown(data)) {
-                    history.scrollViewportLines(isPageUp(data) ? -history.viewportPage() : history.viewportPage());
-                    tui.requestRender();
-                    return { consume: true };
-                }
-                if (isEnd(data)) {
-                    history.jumpToLiveEdge();
-                    tui.requestRender();
-                    return { consume: true };
-                }
-                if (isHome(data)) {
-                    history.scrollViewportEdge("top");
-                    tui.requestRender();
-                    return { consume: true };
-                }
-            }
         }
 
         // Drag-and-drop / paste of attachable file(s) — images/PDFs — into the

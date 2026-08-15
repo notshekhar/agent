@@ -27,14 +27,14 @@ export interface AppSettings {
      */
     uiLive?: boolean;
     /**
-     * Pin the prompt to the last rows of the terminal. The transcript stops
-     * growing the screen and becomes a window that scrolls under the prompt —
-     * mouse wheel, or PgUp/PgDn on an empty prompt — so the input never walks
-     * off the bottom during a long turn.
+     * Hold the prompt on the last rows of the terminal, from the first
+     * keystroke of a session rather than only once the transcript is tall
+     * enough to push it there.
      *
-     * Costs the terminal's own mouse behaviour: loop asks for wheel reporting
-     * while this is on, so drag-selecting text needs the terminal's bypass
-     * modifier (Shift in most, Option in iTerm2/Ghostty). Default OFF.
+     * That is all it does. It takes nothing away from the terminal: the
+     * scrollback, the wheel and drag-to-select all keep working exactly as
+     * they do with it off, because loop never asks for mouse reporting.
+     * Default OFF.
      */
     pinnedInput?: boolean;
     thinkingLevel?: ThinkingLevel;

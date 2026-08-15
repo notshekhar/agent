@@ -55,9 +55,6 @@ export interface CommandContext {
     togglePlanMode(args: string): Promise<void> | void;
     stub(name: string): void;
     clearScreen(): void;
-    /** /select — drop mouse reporting until the next keystroke, so the
-     * terminal's own drag-to-select works while the prompt is pinned. */
-    pauseMouseReporting(): void;
     /** /fork — pick a previous user message, branch it into a new session. */
     forkFromMessage(): void;
     /** /clone — duplicate the current branch into a new session. */
@@ -201,13 +198,6 @@ export async function registerBuiltins(reg: CommandRegistry, opts: { cwd?: strin
             handler: async (ctx) => {
                 ctx.clearScreen();
                 await ctx.newSession();
-            },
-        },
-        {
-            name: "select",
-            description: "Select text with the mouse — pauses mouse reporting until the next keystroke",
-            handler: (ctx) => {
-                ctx.pauseMouseReporting();
             },
         },
         {

@@ -54,20 +54,16 @@ Other notable keys (all managed via `/settings` too):
   classic boxed look). Switch live with `/ui <mode>`; each mode keeps its
   own theme (loop: `dark`/`light` on the `theme` key; other modes under
   `uiThemes`, e.g. `{ "noir": "day" }`).
-- `"pinnedInput": true` — pin the prompt to the last rows of the terminal.
-  The transcript stops growing the screen and becomes a window that scrolls
-  under the prompt. On an EMPTY prompt the transcript owns the navigation
-  keys — `PgUp`/`PgDn` to page, `Home` for the top, `End` to come back to the
-  newest line — and the moment there is a draft they go back to the editor,
-  which needs them to move around a long message. The mouse wheel works
-  whatever is in the prompt. The window follows the newest line again as soon
-  as you scroll back to the bottom, and sending a message always returns you
-  there, so a turn submitted from far up the transcript is not answered off
-  screen. `Tab` still opens the full entry navigation on top of it. The cost
-  is your terminal's own mouse behaviour — loop asks for wheel reporting while
-  this is on, so drag-selecting text needs the terminal's bypass modifier
-  (Shift in most; Option in iTerm2 and Ghostty), or `/select`, which drops
-  reporting until your next keystroke. Default off.
+- `"pinnedInput": true` — hold the prompt on the last rows of the terminal.
+  Without it the prompt sits directly under whatever the transcript has
+  printed so far, so a fresh session starts with it up near the banner and it
+  sinks to the bottom as the conversation grows; with it on, a short
+  transcript is padded so the prompt is on the bottom rows from the first
+  keystroke. That is the whole of it — it takes nothing away from the
+  terminal. Scrollback, the mouse wheel and drag-to-select all keep working
+  exactly as they do with it off, because loop never asks for mouse
+  reporting. `Tab` still opens entry navigation, which does take the wheel
+  for as long as you are in it. Default off.
 - `"subagentModel"` — default model for subagents (full `provider/model` id,
   cross-provider allowed). An agent file's own `model:` wins over it; unset =
   subagents inherit the parent's model. Invalid/unavailable picks fall back to

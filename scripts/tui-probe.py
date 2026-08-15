@@ -12,7 +12,9 @@ The pinned-prompt work shipped three bugs that every unit test passed through:
     not mouse reporting, so quitting left the shell echoing `\x1b[<64;20;5M`
     at every scroll;
   * a short transcript did not pin at all, because clipping only engaged once
-    the transcript overflowed.
+    the transcript overflowed;
+  * and the window loop was clipping turned out to be scrollback taken away
+    from the terminal — which is what killed drag-to-select.
 
 None of the three is visible from inside the process. They are properties of
 the byte stream between loop and the terminal, and of where things land on a
@@ -23,7 +25,6 @@ Usage
     python3 scripts/tui-probe.py screen     # where things land on a 24x100 screen
     python3 scripts/tui-probe.py modes      # order of every mouse-mode sequence
     python3 scripts/tui-probe.py exit       # is the terminal restored on quit?
-    python3 scripts/tui-probe.py wheel      # does a wheel report scroll the window?
 
     python3 scripts/tui-probe.py screen --no-pin      # same, setting off
     python3 scripts/tui-probe.py screen --rows 40 --cols 120
@@ -175,15 +176,20 @@ def cmd_screen(s: Session, args) -> int:
 
 
 def cmd_modes(s: Session, args) -> int:
+    """Pinning must leave the mouse alone: reporting is what costs you selection."""
     s.settle()
     s.fill(2)
     events = mode_events(s.text())
     print("mouse-mode sequences, in the order loop wrote them:")
     show_modes(events)
-    last = events[-1] if events else None
-    ok = bool(last and last.endswith("h"))
-    print(f"\nlast: {last!r} -> {'reporting ON, wheel reaches loop' if ok else 'reporting OFF, terminal keeps the wheel'}")
-    return 0 if ok else 1
+    enabled = [e for e in events if e.endswith("h")]
+    print(f"\nmodes ENABLED: {[e.encode().decode('unicode_escape') for e in enabled] or 'none'}")
+    print(
+        "the terminal keeps the mouse (selection + scrollback work)"
+        if not enabled
+        else "loop is holding the mouse — drag-select is dead while it does"
+    )
+    return 0 if not enabled else 1
 
 
 def cmd_exit(s: Session, args) -> int:
@@ -202,28 +208,7 @@ def cmd_exit(s: Session, args) -> int:
     return 0 if ok else 1
 
 
-def cmd_wheel(s: Session, args) -> int:
-    s.settle()
-    s.fill()
-    top = lambda: s.screen.display[0].strip()
-    print(f"at the live edge   : {top()!r}")
-    for _ in range(5):
-        os.write(s.fd, b"\x1b[<64;10;10M")  # SGR wheel up
-        time.sleep(0.05)
-    s.pump(1.5)
-    scrolled = top()
-    print(f"after 5 wheel-up   : {scrolled!r}")
-    for _ in range(20):
-        os.write(s.fd, b"\x1b[<65;10;10M")  # SGR wheel down
-        time.sleep(0.05)
-    s.pump(1.5)
-    print(f"after 20 wheel-down: {top()!r}")
-    leaked = "[<64;" in "".join(s.screen.display)
-    print(f"\nmouse text leaked onto the screen: {leaked}")
-    return 0 if not leaked else 1
-
-
-COMMANDS = {"screen": cmd_screen, "modes": cmd_modes, "exit": cmd_exit, "wheel": cmd_wheel}
+COMMANDS = {"screen": cmd_screen, "modes": cmd_modes, "exit": cmd_exit}
 
 
 def main() -> int:

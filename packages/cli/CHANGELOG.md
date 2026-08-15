@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.19.4] - 2026-08-16
+
+### Fixed
+
+- **A pinned prompt no longer costs you the mouse.** Turning `pinnedInput` on took text selection away: loop asked the terminal for mouse reporting so the wheel would reach it, and a terminal that is reporting the mouse does not treat a drag as a selection — so drag-to-select silently stopped working for the whole session, and the only ways back were a modifier key or `/select`. That trade was never worth making, and it turned out not to be necessary: grok's TUI has a fixed prompt, native selection and native scrolling at the same time, because it does not own the scroll at all — it prints the transcript into the terminal's real scrollback and keeps only a small live region at the bottom. loop now asks for no mouse modes whatsoever outside `Tab`'s entry navigation, which is a mode you enter and leave rather than a session-long state. Selection, the wheel and your terminal's scrollback all behave exactly as they do with the setting off.
+
+### Removed
+
+- **The transcript window, and everything built on top of it.** The window loop was clipping the transcript into was scrollback taken away from the terminal, which is what made the mouse capture necessary in the first place. It is gone, and with it the `▲/▼` clip indicators, the `PgUp`/`PgDn`/`Home`/`End` transcript scrolling, the jump-to-live-edge on send, and `/select` — every one of which existed only to give back, badly, something the terminal was already doing well. Scrolling is the terminal's scrollback again. `Tab` still opens the full entry navigation, which keeps its own window and its own keys.
+
+### Known
+
+- **`pinnedInput` does not hold the prompt down yet.** What is left of it pads a short transcript, and a real session outgrows that within the first screenful — measured at 21 rendered lines against 16 rows of space during startup alone — after which the setting has no effect and the prompt sits wherever the transcript leaves it, exactly as it does with the setting off. Holding it down for real needs the other half of grok's design, committing settled transcript lines to scrollback so the live region stays smaller than the screen; that is the next piece of work. This release is worth having on its own because it takes the mouse back.
+
 ## [0.19.3] - 2026-08-16
 
 ### Added

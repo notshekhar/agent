@@ -148,7 +148,7 @@ export class ChatHistory extends Container {
         for (const c of this.compactionComponents) c.setExpanded(expanded);
         for (const c of this.assistantComponents) c.setThinkingExpanded(expanded);
         // Expand-all reflows the whole transcript — re-anchor on the selection.
-        if (this.viewportOn()) this.pendingAnchor = true;
+        if (this.navViewport) this.pendingAnchor = true;
     }
     toggleToolsExpanded(): boolean {
         this.setToolsExpanded(!this.expanded);
@@ -180,19 +180,26 @@ export class ChatHistory extends Container {
     }
 
     // ------------------------------------------------------------------
-    // The transcript window.
+    // Two different things, deliberately kept apart.
     //
-    // Two things ask for it, and either one alone keeps it on:
+    // NAVIGATION (Tab/ctrl+e) owns a WINDOW: loop takes the scrolling off the
+    // terminal so that stepping through entries and opening folds never jumps
+    // the screen. It is a mode you enter and leave, and while you are in it
+    // loop holds the mouse.
     //
-    //  - NAVIGATION (Tab/ctrl+e), where the window follows the selection so
-    //    that stepping through entries and opening folds never jumps the
-    //    screen; and
-    //  - PINNED INPUT (the `pinnedInput` setting), where it is on for the
-    //    whole session so the prompt keeps the last rows of the terminal and
-    //    the transcript scrolls under it.
+    // PINNED INPUT (the `pinnedInput` setting) owns NOTHING. It does not clip,
+    // it does not scroll, it does not touch the mouse. All it does is pad a
+    // short transcript so the prompt sits on the last rows instead of floating
+    // under the banner — the terminal keeps its scrollback, its wheel and its
+    // text selection exactly as before.
     //
-    // Both are the same mechanism — loop owning the scrolling instead of the
-    // terminal — so they share the offset, the clamp and the render cache.
+    // It was the other way around at first: pinning owned a window too, which
+    // meant asking the terminal for mouse reporting to get the wheel, which is
+    // precisely what stops a terminal from drag-selecting text. Owning the
+    // scroll is what costs you the selection. grok's TUI does not own it
+    // either — it prints the transcript into real scrollback and keeps only a
+    // small live region at the bottom — and gets a fixed prompt, native
+    // selection and native scrolling all at once.
     // ------------------------------------------------------------------
     private navViewport = false;
     private pinned = false;
@@ -202,25 +209,12 @@ export class ChatHistory extends Container {
      * so a streaming turn growing the selected entry can't drag the window
      * to the bottom on every delta. */
     private pendingAnchor = false;
-    /**
-     * Pinned mode only: keep the window at the live edge as the turn streams.
-     * DERIVED, not commanded — every render sets it from whether the clamped
-     * offset came to rest at the bottom, so scrolling up drops follow and
-     * scrolling back down re-arms it without either scroll path having to say
-     * so. Starts armed: a session opens at its newest line.
-     */
-    private followEnd = true;
     /** Rows the chrome below the transcript is using this frame; see setReserveRows. */
     private reserveRows: (() => number) | null = null;
     /** Width of the last render, to notice a resize re-wrapping the transcript. */
     private lastRenderWidth = 0;
     /** Entry at the top of the window last render — what a resize re-anchors on. */
     private topAnchorFIdx: number | null = null;
-
-    /** True while anything is asking for the window. */
-    private viewportOn(): boolean {
-        return this.navViewport || this.pinned;
-    }
 
     setViewport(on: boolean): void {
         this.markDirty();
@@ -229,15 +223,10 @@ export class ChatHistory extends Container {
         if (on) this.viewportOffset = Number.MAX_SAFE_INTEGER; // clamp to bottom
     }
 
-    /** The `pinnedInput` setting, on or off. Turning it on jumps to the live
-     * edge — the same place a fresh session sits. */
+    /** The `pinnedInput` setting, on or off. */
     setPinned(on: boolean): void {
         this.markDirty();
         this.pinned = on;
-        if (on) {
-            this.followEnd = true;
-            this.viewportOffset = Number.MAX_SAFE_INTEGER;
-        }
     }
 
     isPinned(): boolean {
@@ -247,23 +236,45 @@ export class ChatHistory extends Container {
     /**
      * How many rows everything BELOW the transcript is taking right now.
      *
-     * The window's height is the terminal minus this, so a wrong answer is
-     * exactly the bug pinned mode exists to fix: under-reserve and the frame
-     * overflows the screen, the terminal scrolls, and the prompt the setting
-     * promised to pin walks off the bottom. It cannot be a constant — the
-     * editor grows with the draft, and the loader, the todo panel and queued
-     * messages come and go mid-turn — so the app measures the real thing.
+     * The pad is the terminal's height minus this minus the transcript, so a
+     * wrong answer puts the prompt somewhere other than the last rows. It
+     * cannot be a constant — the editor grows with the draft, and the loader,
+     * the todo panel and queued messages come and go mid-turn — so the app
+     * measures the real thing.
+     *
+     * Measured at ~1µs; see the call site in app.ts before caching it.
      */
     setReserveRows(fn: () => number): void {
         this.reserveRows = fn;
     }
 
-    /** Rows the transcript window may use (editor + status keep the rest). */
-    private viewportRows(): number {
+    /** Rows left for the transcript once the chrome has taken its share. */
+    private rowsForTranscript(): number {
         // The fallback matches the chrome's idle height, and is what nav mode
         // ran on before the measurement existed.
-        const reserved = this.reserveRows?.() ?? 8;
-        return Math.max(6, this.tui.terminal.rows - reserved);
+        return this.tui.terminal.rows - (this.reserveRows?.() ?? 8);
+    }
+
+    /** Rows the NAVIGATION window may use. */
+    private viewportRows(): number {
+        return Math.max(6, this.rowsForTranscript());
+    }
+
+    /**
+     * Hold the prompt on the last rows — the whole of what pinning does.
+     *
+     * Only ever pads. A transcript taller than the screen needs no help: the
+     * terminal has already scrolled it, which puts the prompt on the bottom
+     * rows by itself and puts everything above into real scrollback, where the
+     * wheel and the mouse can reach it. Padding a SHORT transcript is the only
+     * case the terminal gets wrong, and it is the one the setting fixes.
+     */
+    private padToBottom(full: string[]): string[] {
+        const pad = this.rowsForTranscript() - full.length;
+        if (pad <= 0) return full;
+        // Bottom-aligned: the newest line stays next to the caret, and the
+        // chat grows up out of the prompt the way every chat does.
+        return [...new Array<string>(pad).fill(""), ...full];
     }
 
     /** Page height for PgUp/PgDn (full page minus one line of continuity). */
@@ -271,40 +282,16 @@ export class ChatHistory extends Container {
         return Math.max(1, this.viewportRows() - 1);
     }
 
-    /** Manual scroll: moves the window; the selection stays where it is. */
+    /** Manual scroll (navigation only): moves the window; the selection stays. */
     scrollViewportLines(delta: number): void {
         this.viewportOffset = Math.max(0, this.viewportOffset + delta);
         this.pendingAnchor = false;
-        // Hand the offset to the user. Follow would otherwise snap the window
-        // straight back to the bottom on the very next render — the scroll
-        // would look like it never happened. The render re-arms it if this
-        // lands at the live edge anyway (scrolling down past the end).
-        this.followEnd = false;
     }
 
-    /**
-     * Put the window back on the newest line.
-     *
-     * Scroll position is otherwise derived from scrolling alone, and sending a
-     * message is not a scroll — so a turn submitted from 200 lines up used to
-     * render its whole reply somewhere you were not looking. A new turn is an
-     * unambiguous "done reading back there".
-     *
-     * Deliberately does NOT markDirty: nothing about the transcript's content
-     * changed, so the render cache is still good and this is a pure move of
-     * the window.
-     */
-    jumpToLiveEdge(): void {
-        this.followEnd = true;
-        this.viewportOffset = Number.MAX_SAFE_INTEGER;
-        this.pendingAnchor = false;
-    }
-
-    /** Jump the window to the very top/bottom (Home/End). */
+    /** Jump the window to the very top/bottom (Home/End, navigation only). */
     scrollViewportEdge(edge: "top" | "bottom"): void {
         this.viewportOffset = edge === "top" ? 0 : Number.MAX_SAFE_INTEGER;
         this.pendingAnchor = false;
-        this.followEnd = false;
     }
 
     // ------------------------------------------------------------------
@@ -507,7 +494,7 @@ export class ChatHistory extends Container {
     }
 
     override render(width: number): string[] {
-        const viewport = this.viewportOn();
+        const viewport = this.navViewport;
         let full: string[];
         if (viewport && this.fullCache && this.fullCache.width === width) {
             full = this.fullCache.lines;
@@ -517,17 +504,18 @@ export class ChatHistory extends Container {
             this.fullCache = viewport ? { width, lines: full, ranges: this.lastRanges } : null;
         }
         this.lastViewport = null;
-        if (!viewport) return full;
+        // Not navigating: the whole transcript goes out as-is and the terminal
+        // does what terminals do with it — scroll it, hold it in scrollback,
+        // let you select it. Pinning only pads.
+        if (!viewport) return this.pinned ? this.padToBottom(full) : full;
 
         // A width change re-wraps the whole transcript, so the offset — a line
         // index — silently comes to mean a different place, and a window that
         // was parked on something teleports away from it. Re-find the entry
-        // that was at the top of the window and park on that instead. Only
-        // when the user is actually parked: following the live edge already
-        // lands in the right place, whatever the wrapping did.
+        // that was at the top of the window and park on that instead.
         const widthChanged = this.lastRenderWidth !== 0 && this.lastRenderWidth !== width;
         this.lastRenderWidth = width;
-        if (widthChanged && !this.followEnd && this.topAnchorFIdx !== null) {
+        if (widthChanged && this.topAnchorFIdx !== null) {
             const r = this.lastRanges.find((x) => x.fIdx === this.topAnchorFIdx);
             // No range means the top of the window was in a gap between
             // entries (spacers, system lines) — nothing to anchor to, so the
@@ -537,37 +525,10 @@ export class ChatHistory extends Container {
 
         const rows = this.viewportRows();
         if (full.length <= rows) {
-            // Nothing to scroll: the whole transcript is on screen, so the
-            // live edge is too. Re-arm, or a stream that grew past the window
-            // after the user had scrolled up in a SHORTER one would open
-            // stuck at a stale offset.
-            this.followEnd = true;
-            // Navigation is a temporary mode: leaving the short transcript
-            // where it already is keeps Tab from shunting the whole screen
-            // around.
-            if (!this.pinned) return full;
-            // Pinned is a promise about WHERE THE PROMPT IS, and a promise
-            // that only held once the transcript got tall enough would be the
-            // most annoying half of the feature: a fresh session would start
-            // with the prompt up under the banner and it would sink to the
-            // bottom at some unannounced message count.
-            //
-            // So the window is always exactly `rows` tall and the transcript
-            // sits at the BOTTOM of it. Growing upward from the prompt is what
-            // every chat does, and it keeps the newest line next to the
-            // caret — top-aligning instead would open each turn as far from
-            // the prompt as the screen allows and walk it back down.
-            const pad = rows - full.length;
-            this.lastViewport = { offset: 0, sliceLen: full.length, lead: pad };
-            return [...new Array<string>(pad).fill(""), ...full];
-        }
-
-        // Pinned mode rides the live edge as the turn streams. An explicit
-        // anchor (a selection move in nav mode) outranks it — that is a user
-        // action about a specific entry, and following would yank the window
-        // off it on the very next delta.
-        if (this.pinned && this.followEnd && !this.pendingAnchor) {
-            this.viewportOffset = Number.MAX_SAFE_INTEGER;
+            // Short enough to show whole. Navigation is a temporary mode, so
+            // leaving it where it already is keeps Tab from shunting the screen
+            // around; pinning still holds the prompt down.
+            return this.pinned ? this.padToBottom(full) : full;
         }
 
         // The selected entry's line range is the scroll anchor — applied once
@@ -595,9 +556,6 @@ export class ChatHistory extends Container {
         // but drops the fillers paints the picture straight over the prompt.
         const maxOffset = full.length - (rows - 2);
         this.viewportOffset = Math.max(0, Math.min(this.viewportOffset, maxOffset));
-        // Follow is whatever the clamp just decided: resting at the bottom
-        // means the user is at the live edge and wants to stay there.
-        this.followEnd = this.viewportOffset >= maxOffset;
         // Remember what is at the top of the window, so a resize can put it
         // back there. The first entry still on screen — one whose range has
         // not ended above the window — is what the eye reads as "where I am".
@@ -797,9 +755,7 @@ export class ChatHistory extends Container {
         this.expandedGroups.clear();
         this.lastRanges = [];
         this.lastViewport = null;
-        // A fresh transcript (/new, /clear, a mode switch) opens at its top,
-        // which is also its live edge.
-        this.followEnd = true;
+        // A fresh transcript (/new, /clear, a mode switch) opens at its top.
         this.viewportOffset = 0;
     }
 

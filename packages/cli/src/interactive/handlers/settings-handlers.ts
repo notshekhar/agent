@@ -131,7 +131,7 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                         value: "pinnedInput",
                         label: `pinned input: ${boolSetting("pinnedInput") ? "on" : "off"}`,
                         description:
-                            "keep the prompt on the last rows; the transcript scrolls under it (wheel, or PgUp/PgDn on an empty prompt) — text selection then needs your terminal's shift/option bypass",
+                            "hold the prompt on the last rows from the first keystroke; scrollback, wheel and text selection stay the terminal's",
                     },
                     {
                         value: "maxSteps",

@@ -44,11 +44,6 @@ export interface AppDeps {
     restoreConsole: () => void;
     /** Start/stop the shared 1s ticker after clock/timer/reminder changes. */
     syncTicker: () => void;
-    /** Apply the `pinnedInput` setting live — pins/unpins the prompt and
-     * turns wheel reporting on/off to match. */
+    /** Apply the `pinnedInput` setting live. */
     applyPinnedInput: (on: boolean) => void;
-    /** /select — drop mouse reporting so the terminal can drag-select. */
-    pauseMouseReporting: () => void;
-    /** Put it back; called by the next keystroke after /select. */
-    resumeMouseReporting: () => void;
 }

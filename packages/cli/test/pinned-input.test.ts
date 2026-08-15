@@ -34,307 +34,133 @@ afterEach(() => {
     initTheme("dark");
 });
 
-/** A transcript far taller than any window we give it. */
-function tallHistory(messages = 40): ChatHistory {
+function history(messages: number): ChatHistory {
     const h = new ChatHistory(tui, "/repo");
     for (let i = 0; i < messages; i++) h.addSystem(`line ${i}`);
     return h;
 }
 
-describe("pinned input — the window", () => {
-    test("unpinned, the transcript renders in full and grows the screen", () => {
-        const h = tallHistory();
-        // This is the behaviour the setting exists to change: nothing clips it,
-        // so a long turn pushes the prompt down and off the terminal.
-        expect(lines(h).length).toBeGreaterThan(ROWS);
-    });
-
-    test("pinned, the transcript never outgrows the rows left for it", () => {
-        const h = tallHistory();
+describe("pinned input — holding the prompt down", () => {
+    test("a short transcript is padded so the frame fills the screen", () => {
+        const h = history(3);
         h.setReserveRows(() => 8);
         h.setPinned(true);
-        expect(lines(h).length).toBe(ROWS - 8);
+        // Window + chrome == the terminal, so the prompt lands on the last rows.
+        expect(lines(h).length + 8).toBe(ROWS);
     });
 
-    test("the reserve is what the chrome actually takes, not a constant", () => {
-        const h = tallHistory();
+    test("the pad tracks the chrome, which moves as the draft grows", () => {
+        const h = history(3);
         let chrome = 8;
         h.setReserveRows(() => chrome);
         h.setPinned(true);
-        expect(lines(h).length).toBe(ROWS - 8);
-        // A draft grows the editor mid-session; the window has to give those
-        // rows back, or the frame overflows and the prompt walks off screen.
+        expect(lines(h).length + chrome).toBe(ROWS);
         chrome = 14;
-        expect(lines(h).length).toBe(ROWS - 14);
+        expect(lines(h).length + chrome).toBe(ROWS);
     });
 
-    test("the frame fits the terminal for every chrome height", () => {
-        const h = tallHistory(200);
-        for (const chrome of [6, 8, 11, 15, 17]) {
-            h.setReserveRows(() => chrome);
-            h.setPinned(true);
-            // What the app actually paints: window + chrome. Anything over the
-            // terminal's rows scrolls it, which un-pins the prompt.
-            expect(lines(h).length + chrome).toBeLessThanOrEqual(ROWS);
-        }
-    });
-
-    test("an empty session pins the prompt too", () => {
-        // The whole point: the prompt sits on the same rows from the first
-        // keystroke, instead of starting under the banner and sinking to the
-        // bottom at some unannounced message count.
+    test("an empty session pins too", () => {
         const h = new ChatHistory(tui, "/repo");
         h.setReserveRows(() => 8);
         h.setPinned(true);
-        expect(lines(h).length).toBe(ROWS - 8);
+        expect(lines(h).length + 8).toBe(ROWS);
     });
 
-    test("a nearly empty session pins the prompt at the same rows as a full one", () => {
-        const short = new ChatHistory(tui, "/repo");
-        short.addSystem("only one line");
-        short.setReserveRows(() => 8);
-        short.setPinned(true);
-
-        const long = tallHistory();
-        long.setReserveRows(() => 8);
-        long.setPinned(true);
-
-        expect(lines(short).length).toBe(lines(long).length);
-    });
-
-    test("a short transcript sits at the BOTTOM of its window, next to the prompt", () => {
+    test("the transcript sits at the bottom of the pad, next to the prompt", () => {
         const h = new ChatHistory(tui, "/repo");
         h.addSystem("first thing said");
         h.setReserveRows(() => 8);
         h.setPinned(true);
         const out = lines(h);
-        // Blank above, content on the last row — the chat grows up out of the
-        // prompt rather than starting a screen away from it.
         expect(out[0]).toBe("");
         expect(out[out.length - 1]).toContain("first thing said");
     });
 
-    test("unpinned, a short transcript is still left where it is", () => {
-        // Nav mode is temporary; padding there would shunt the screen on Tab.
-        const h = new ChatHistory(tui, "/repo");
-        h.addSystem("only one line");
-        h.setReserveRows(() => 8);
-        h.setViewport(true);
-        expect(lines(h).length).toBeLessThan(ROWS - 8);
-    });
-
-    test("clicking a padded short transcript still selects the right entry", () => {
-        // The pad shifts every transcript line down the window; a click that
-        // did not account for it would select an entry rows away from the
-        // pointer (or miss into the blank and do nothing).
-        const h = new ChatHistory(tui, "/repo");
-        h.addToolCall("read", "c0", { path: "/repo/only.ts" });
-        h.addToolResult("c0", "body");
+    test("a transcript taller than the screen is handed over whole", () => {
+        // Nothing to pad, and nothing to clip: the terminal scrolls it, which
+        // is what puts everything above into real scrollback where the wheel
+        // and the mouse can reach it.
+        const h = history(60);
         h.setReserveRows(() => 8);
         h.setPinned(true);
         const out = lines(h);
-        const row = out.findIndex((l) => l.includes("only.ts"));
-        expect(row).toBeGreaterThan(0);
-        expect(h.clickAtLocalLine(row)).toBe(true);
-        expect(h.hasSelection()).toBe(true);
-        // The blank pad above is not a click target.
-        h.clearSelection();
-        expect(h.clickAtLocalLine(0)).toBe(false);
+        expect(out.length).toBeGreaterThan(ROWS);
+        expect(out.join("\n")).toContain("line 0");
+        expect(out.join("\n")).toContain("line 59");
+    });
+
+    test("unpinned, a short transcript is left exactly as it is", () => {
+        const h = history(3);
+        h.setReserveRows(() => 8);
+        expect(lines(h).length).toBeLessThan(ROWS - 8);
+    });
+
+    test("a resize re-budgets the pad", () => {
+        const h = history(3);
+        h.setReserveRows(() => 8);
+        h.setPinned(true);
+        expect(lines(h).length + 8).toBe(ROWS);
+        terminal = { rows: 40, columns: 80 };
+        expect(lines(h).length + 8).toBe(40);
     });
 });
 
-describe("pinned input — following the live edge", () => {
-    test("a pinned session opens on its newest line", () => {
-        const h = tallHistory();
-        h.setReserveRows(() => 8);
-        h.setPinned(true);
-        expect(lines(h).join("\n")).toContain("line 39");
+describe("pinned input — what it must NOT take from the terminal", () => {
+    // The first cut of this feature owned the scrolling, which meant asking
+    // for mouse reporting to get the wheel, which is exactly what stops a
+    // terminal drag-selecting text. grok's TUI does not own the scroll and
+    // keeps all three. These guard the property, not the implementation.
+    const appSource = readFileSync(join(import.meta.dir, "..", "src", "interactive", "app.ts"), "utf8");
+    const inputSource = readFileSync(join(import.meta.dir, "..", "src", "interactive", "input-handler.ts"), "utf8");
+
+    test("pinning never asks the terminal for mouse reporting", () => {
+        expect(appSource).not.toContain("?1006h");
+        expect(appSource).not.toContain("?1000h");
+        expect(appSource).not.toContain("?1002h");
     });
 
-    test("new output keeps the window at the bottom", () => {
-        const h = tallHistory();
-        h.setReserveRows(() => 8);
-        h.setPinned(true);
-        lines(h);
-        h.addSystem("the newest line");
-        expect(lines(h).join("\n")).toContain("the newest line");
+    test("only navigation mode asks for it, and gives it straight back", () => {
+        // Nav mode is a mode you enter and leave; holding the mouse for the
+        // length of a session is what was unacceptable.
+        expect(inputSource).toContain("enterScrollbackFocus");
+        const enter = inputSource.slice(inputSource.indexOf("const enterScrollbackFocus"));
+        expect(enter).toContain("?1006h");
+        const exit = inputSource.slice(inputSource.indexOf("const exitScrollbackFocus"));
+        expect(exit).toContain("?1000l");
     });
 
-    test("scrolling up stops the follow, so a streaming turn can be read", () => {
-        const h = tallHistory();
+    test("pinning does not clip the transcript into a loop-owned window", () => {
+        // A clipped window is scrollback loop has taken away from the
+        // terminal: the wheel stops reaching it and the text stops being
+        // selectable, which is the whole trade this feature refuses to make.
+        const h = history(60);
         h.setReserveRows(() => 8);
         h.setPinned(true);
-        lines(h);
-        h.scrollViewportLines(-8);
-        const parked = lines(h).join("\n");
-        expect(parked).not.toContain("line 39");
-        // The turn keeps streaming underneath — the window must not chase it.
-        h.addSystem("newer still");
-        expect(lines(h).join("\n")).not.toContain("newer still");
+        expect(lines(h).join("\n")).not.toMatch(/more lines?/);
+    });
+});
+
+describe("navigation mode still owns its window", () => {
+    test("Tab's viewport still clips and still shows how much is off-screen", () => {
+        const h = history(60);
+        h.setReserveRows(() => 8);
+        h.setViewport(true);
+        const out = lines(h);
+        expect(out.length).toBe(ROWS - 8);
+        expect(out.join("\n")).toMatch(/▲ \d+ more lines/);
     });
 
-    test("scrolling back to the bottom re-arms the follow", () => {
-        const h = tallHistory();
+    test("scrolling the nav window still works", () => {
+        const h = history(60);
         h.setReserveRows(() => 8);
-        h.setPinned(true);
-        lines(h);
-        h.scrollViewportLines(-8);
-        lines(h);
-        h.scrollViewportEdge("bottom");
-        lines(h);
-        h.addSystem("live again");
-        expect(lines(h).join("\n")).toContain("live again");
-    });
-
-    test("a window that was scrolled up, then emptied, comes back following", () => {
-        const h = tallHistory();
-        h.setReserveRows(() => 8);
-        h.setPinned(true);
+        h.setViewport(true);
         lines(h);
         h.scrollViewportLines(-10);
-        lines(h);
-        // /clear, /new, a mode switch: the transcript is replaced wholesale.
-        h.reset();
-        for (let i = 0; i < 40; i++) h.addSystem(`fresh ${i}`);
-        expect(lines(h).join("\n")).toContain("fresh 39");
+        expect(lines(h).join("\n")).toMatch(/▼ \d+ more lines/);
     });
 
-    test("scrolled away, the window says how much is below it", () => {
-        const h = tallHistory();
-        h.setReserveRows(() => 8);
-        h.setPinned(true);
-        lines(h);
-        h.scrollViewportLines(-8);
-        const out = lines(h).join("\n");
-        expect(out).toMatch(/▼ \d+ more lines/);
-        expect(out).toMatch(/▲ \d+ more lines/);
-    });
-});
-
-describe("pinned input — getting back to the live edge", () => {
-    test("jumpToLiveEdge returns a scrolled-away window to the newest line", () => {
-        const h = tallHistory();
-        h.setReserveRows(() => 8);
-        h.setPinned(true);
-        lines(h);
-        h.scrollViewportLines(-20);
-        expect(lines(h).join("\n")).not.toContain("line 39");
-        h.jumpToLiveEdge();
-        expect(lines(h).join("\n")).toContain("line 39");
-    });
-
-    test("and it stays followed afterwards", () => {
-        // Half a fix would land you at the bottom and then desert you on the
-        // next delta of the very turn you sent.
-        const h = tallHistory();
-        h.setReserveRows(() => 8);
-        h.setPinned(true);
-        lines(h);
-        h.scrollViewportLines(-20);
-        lines(h);
-        h.jumpToLiveEdge();
-        lines(h);
-        h.addSystem("the reply arriving");
-        expect(lines(h).join("\n")).toContain("the reply arriving");
-    });
-
-    test("a turn submitted from far up the transcript is not sent into the void", () => {
-        // The whole bug: send a message while scrolled back and the reply
-        // renders below the fold, so the send looks like it did nothing.
-        const turnRunnerSource = readFileSync(
-            join(import.meta.dir, "..", "src", "interactive", "turn-runner.ts"),
-            "utf8",
-        );
-        expect(turnRunnerSource).toContain("history.jumpToLiveEdge()");
-    });
-});
-
-describe("pinned input — surviving a resize", () => {
-    /** Numbered entries on screen, in order. */
-    const visibleEntries = (rendered: string[]): number[] =>
-        rendered.flatMap((l) => Array.from(l.matchAll(/entry(\d+)\b/g), (m) => Number(m[1])));
-
-    /**
-     * A transcript that genuinely REFLOWS. This matters: short rows that fit
-     * every width drift by zero on a resize whether or not anything anchors
-     * them, so a test built on those passes with the fix ripped out.
-     */
-    function wrappingHistory(): ChatHistory {
-        const h = new ChatHistory(tui, "/repo");
-        for (let i = 0; i < 40; i++) {
-            h.addUser(`entry${i} ` + "prose long enough that narrowing the terminal rewraps it ".repeat(2));
-        }
-        h.setReserveRows(() => 8);
-        h.setPinned(true);
-        return h;
-    }
-
-    test("a parked window stays on the entry it was parked on", () => {
-        const h = wrappingHistory();
-        lines(h);
-        h.scrollViewportLines(-24);
-        const before = visibleEntries(lines(h))[0];
-        expect(before).toBeDefined();
-
-        // Measured drift for this transcript with no anchoring: 5 entries at
-        // width 46, 9 at 34, 14 at 26 — the window walks away from what you
-        // were reading, further the harder you resize. Anchored, the most it
-        // moves is onto the start of the entry that was straddling the top.
-        for (const width of [46, 34, 26]) {
-            const after = visibleEntries(h.render(width).map(strip))[0];
-            expect(Math.abs(after - before)).toBeLessThanOrEqual(1);
-            h.render(70); // back to the starting width for the next step
-        }
-    });
-
-    test("a window at the live edge is still at the live edge after a resize", () => {
-        const h = tallHistory();
-        h.setReserveRows(() => 8);
-        h.setPinned(true);
-        expect(lines(h).join("\n")).toContain("line 39");
-        expect(h.render(48).map(strip).join("\n")).toContain("line 39");
-    });
-});
-
-describe("pinned input — asking the terminal for the wheel", () => {
-    // This one is a source-order assertion because the failure it guards has no
-    // in-process symptom: the window scrolls perfectly on any wheel report it
-    // is given, and every test above still passes, while the real terminal
-    // silently keeps the wheel and the feature does nothing.
-    //
-    // terminal.start() opens with a cleanse (`?1000l ?1006l`) that clears modes
-    // a SIGKILLed predecessor left on. A request for wheel reports made before
-    // start() is inside what that cleanse wipes. The canvas wash sits here for
-    // the same reason — see the comment beside it.
-    const appSource = readFileSync(join(import.meta.dir, "..", "src", "interactive", "app.ts"), "utf8");
-
-    test("the wheel is requested after the terminal starts, not before", () => {
-        const start = appSource.indexOf("tui.start()");
-        const request = appSource.indexOf("applyPinnedInput(true)");
-        expect(start).toBeGreaterThan(-1);
-        expect(request).toBeGreaterThan(-1);
-        expect(request).toBeGreaterThan(start);
-    });
-
-    test("turning it off withdraws both mouse modes", () => {
-        // Left on, the terminal keeps reporting drags instead of selecting text.
-        expect(appSource).toContain("\\x1b[?1000l\\x1b[?1006l");
-    });
-});
-
-describe("pinned input — living alongside nav mode", () => {
-    test("leaving navigation does not unpin", () => {
-        const h = tallHistory();
-        h.setReserveRows(() => 8);
-        h.setPinned(true);
-        h.setViewport(true); // Tab into navigation
-        h.setViewport(false); // Esc back out
-        expect(h.isPinned()).toBe(true);
-        expect(lines(h).length).toBe(ROWS - 8);
-    });
-
-    test("unpinned, leaving navigation still gives the full transcript back", () => {
-        const h = tallHistory();
+    test("leaving navigation gives the whole transcript back", () => {
+        const h = history(60);
         h.setReserveRows(() => 8);
         h.setViewport(true);
         expect(lines(h).length).toBe(ROWS - 8);
@@ -342,12 +168,11 @@ describe("pinned input — living alongside nav mode", () => {
         expect(lines(h).length).toBeGreaterThan(ROWS);
     });
 
-    test("a resized terminal re-budgets the window", () => {
-        const h = tallHistory();
+    test("pinned and navigating at once still fills the screen exactly", () => {
+        const h = history(60);
         h.setReserveRows(() => 8);
         h.setPinned(true);
-        expect(lines(h).length).toBe(ROWS - 8);
-        terminal = { rows: 40, columns: 80 };
-        expect(lines(h).length).toBe(40 - 8);
+        h.setViewport(true);
+        expect(lines(h).length + 8).toBe(ROWS);
     });
 });
