@@ -673,7 +673,12 @@ describe("TUI differential rendering", () => {
         tui.requestRender();
         await terminal.waitForRender();
 
-        assert.ok(tui.fullRedraws > initialRedraws, "Shrink should trigger a full redraw");
+        // A shrink used to be answered with a full redraw, which clears the
+        // screen AND the scrollback (ESC[3J) to reposition content it already
+        // had in memory. The visible result below is identical either way, so
+        // what is asserted now is the stronger property: the same viewport,
+        // without destroying the terminal's history to get it.
+        assert.strictEqual(tui.fullRedraws, initialRedraws, "Shrink must not clear the scrollback");
         assert.deepStrictEqual(terminal.getViewport(), ["Line 2", "Line 3", "Line 4", "Line 5", "Line 6"]);
 
         tui.stop();
@@ -739,7 +744,9 @@ describe("TUI differential rendering", () => {
         tui.requestRender();
         await terminal.waitForRender();
 
-        assert.ok(tui.fullRedraws > redrawsBeforeSwitch, "Branch switch should trigger a full redraw");
+        // Same as above: what matters is that no stale content survives and the
+        // viewport is exact, not that the scrollback was thrown away to get there.
+        assert.strictEqual(tui.fullRedraws, redrawsBeforeSwitch, "Branch switch must not clear the scrollback");
 
         const viewport = terminal.getViewport();
         for (let i = 0; i < 10; i++) {

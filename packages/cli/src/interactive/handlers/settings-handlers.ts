@@ -120,15 +120,6 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
             // the picker on the row the user just acted on (toggles, value edits)
             // instead of snapping back to the top.
             let lastIndex = 0;
-            // Closing a selector leaves loop's frame shorter than it was, and
-            // the renderer clears the rows it no longer needs in place rather
-            // than pulling the content back down — so the prompt is left
-            // mid-screen with a blank gap under it. Harmless while the
-            // transcript is growing, and very obvious right after you have
-            // changed a setting about where the prompt sits. Repaint from
-            // scratch on the way out: the frame is reprinted whole, which
-            // scrolls it so its last line lands on the last row.
-            let repaintOnClose = false;
             while (true) {
                 const items: SelectItem[] = [
                     { value: "uiMode", label: `uiMode: ${activeUiMode().id}${isLiveVariant() ? " · live" : ""}` },
@@ -257,10 +248,7 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                 const pick = await searchOnce(items, "Settings (type to filter, Esc to close)", {
                     initialIndex: lastIndex,
                 });
-                if (!pick) {
-                    if (repaintOnClose) tui.requestRender(true);
-                    return;
-                }
+                if (!pick) return;
                 lastIndex = Math.max(
                     0,
                     items.findIndex((i) => i.value === pick.value),
@@ -327,10 +315,7 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                     // Pinning takes effect on the spot: it moves the prompt and
                     // changes what the wheel does, so waiting for a relaunch
                     // would read as the toggle doing nothing.
-                    if (pick.value === "pinnedInput") {
-                        deps.applyPinnedInput(next);
-                        repaintOnClose = true;
-                    }
+                    if (pick.value === "pinnedInput") deps.applyPinnedInput(next);
                     tui.requestRender();
                     continue;
                 }

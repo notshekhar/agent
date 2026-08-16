@@ -1575,6 +1575,46 @@ export class TUI extends Container {
             return;
         }
 
+        // The frame got shorter and there is content above it that can fill the
+        // rows it gave up. Repaint the visible window instead of clearing them.
+        //
+        // Clearing is what strands the prompt. A frame that shrinks — a menu
+        // closing, a panel going away — ends higher than it did, and the rows
+        // below it get blanked where they are, so the prompt is left in the
+        // middle of the screen with a gap beneath it and the conversation stuck
+        // where it was. The content that belongs in those rows is not lost: it
+        // is in `newLines`, in memory, the same array being rendered. Painting
+        // the window from it puts the frame's last line back on the last row
+        // and pulls the conversation down behind it.
+        //
+        // This is what the alternative — clearing the screen and the scrollback
+        // and redrawing everything — was buying, minus the part where the
+        // terminal's history is destroyed to get it.
+        if (newLines.length < this.previousLines.length && newLines.length > height && this.overlayStack.length === 0) {
+            const top = newLines.length - height;
+            let buffer = "\x1b[?2026h";
+            // Up to the first visible row, wherever the cursor happens to be.
+            const upFromCursor = hardwareCursorRow - prevViewportTop;
+            if (upFromCursor > 0) buffer += `\x1b[${upFromCursor}A`;
+            buffer += "\r";
+            for (let i = 0; i < height; i++) {
+                if (i > 0) buffer += "\r\n";
+                buffer += "\x1b[2K" + (newLines[top + i] ?? "");
+            }
+            buffer += "\x1b[?2026l";
+            this.terminal.write(buffer);
+            this.cursorRow = newLines.length - 1;
+            this.hardwareCursorRow = this.cursorRow;
+            this.previousViewportTop = top;
+            this.maxLinesRendered = Math.max(this.maxLinesRendered, newLines.length);
+            this.positionHardwareCursor(cursorPos, newLines.length);
+            this.previousLines = newLines;
+            this.previousKittyImageIds = this.collectKittyImageIds(newLines);
+            this.previousWidth = width;
+            this.previousHeight = height;
+            return;
+        }
+
         // All changes are in deleted lines (nothing to render, just clear)
         if (firstChanged >= newLines.length) {
             if (this.previousLines.length > newLines.length) {

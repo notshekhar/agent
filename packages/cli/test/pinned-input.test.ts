@@ -140,30 +140,32 @@ describe("pinned input — what it must NOT take from the terminal", () => {
     });
 });
 
-describe("pinned input — toggling it in /settings", () => {
-    // Not unit-testable from inside the process: the symptom is where things
-    // land on a real screen after the selector closes. Measured in a pty on a
-    // 44-row terminal — prompt at rows 39-41 before, 27-29 with thirteen blank
-    // rows under it after — because closing a selector shrinks loop's frame and
-    // the renderer clears the rows it no longer needs in place instead of
-    // pulling the content back down. So this guards the fix's presence.
-    const source = readFileSync(
+describe("a frame that shrinks pulls its content back down", () => {
+    // The general defect behind every version of this bug: a shrinking frame
+    // (a menu closing, a panel going away) had its trailing rows cleared where
+    // they were, leaving the prompt mid-screen with a gap beneath it. The lines
+    // that belong in those rows were never lost — they are in the same array
+    // being rendered — so the renderer repaints the visible window from them
+    // instead, which needs no per-command patch and clears nothing.
+    const settings = readFileSync(
         join(import.meta.dir, "..", "src", "interactive", "handlers", "settings-handlers.ts"),
         "utf8",
     );
+    const tuiSource = readFileSync(join(import.meta.dir, "..", "..", "tui", "src", "tui.ts"), "utf8");
 
-    test("toggling the setting repaints the screen on the way out", () => {
-        expect(source).toContain("repaintOnClose");
-        const toggle = source.slice(source.indexOf('if (pick.value === "pinnedInput")'));
-        expect(toggle.slice(0, 200)).toContain("repaintOnClose = true");
+    test("no command patches the layout on its way out any more", () => {
+        // v0.19.5 fixed /settings alone by repainting on close, which cleared
+        // the scrollback to do it (measured: two ESC[3J per toggle).
+        expect(settings).not.toContain("repaintOnClose");
     });
 
-    test("the repaint happens when the panel closes, not at the moment of the toggle", () => {
-        // Repainting during the toggle is undone by the very next render, when
-        // the panel closing shrinks the frame again — measured as no change at
-        // all against the broken behaviour.
-        const close = source.slice(source.indexOf("if (!pick) {"));
-        expect(close.slice(0, 200)).toContain("requestRender(true)");
+    test("the fix lives in the renderer, so every selector gets it", () => {
+        expect(tuiSource).toContain("newLines.length < this.previousLines.length");
+    });
+
+    test("and it does not reach for the scrollback-clearing redraw", () => {
+        const shrink = tuiSource.slice(tuiSource.indexOf("newLines.length < this.previousLines.length"));
+        expect(shrink.slice(0, 1400)).not.toContain("fullRender(true)");
     });
 });
 
