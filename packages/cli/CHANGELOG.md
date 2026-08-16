@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.19.6] - 2026-08-16
+
+### Fixed
+
+- **Closing a menu leaves the prompt where it was, in every mode.** Open `/model`, `/agents`, `/tree` or anything else with a panel, press Esc, and the prompt used to be somewhere other than where you left it — sitting in the middle of the screen with a blank band beneath it, and the conversation stranded higher up. It got worse the more menus you opened: measured on a 44-row terminal, three panels in a row walked the prompt from row 39 to 37 to 34 to 27. The cause was one line of renderer behaviour rather than anything to do with any particular command: a frame that gets shorter had its trailing rows cleared where they were, instead of the content being pulled back down. Those lines were never lost — they are in the same array being rendered — so the renderer now repaints the visible window from them with the frame's last line back on the last row. That is exactly what clearing the screen and the scrollback and redrawing everything was buying, without destroying the terminal's history to get it. Being a renderer fix it needs no per-command patch, so the `/settings`-only repaint added in v0.19.5 — which cost two `ESC[3J` and your scrollback each time you toggled `pinnedInput` — is gone.
+- **The same fix reaches unpinned sessions**, where the prompt has always crept up the screen after a panel closed and nobody had a setting to turn on to avoid it.
+
+### Known
+
+- **Opening a menu still scrolls the conversation up.** A region anchored to the bottom of the screen has to push the rows above it out of the way to grow, and a terminal cannot pull them back afterwards; ratatui's inline viewport — grok's — does the same `scroll_up` for the same reason. What changed here is the other half: closing the menu now brings the view back down instead of leaving it stranded.
+
 ## [0.19.5] - 2026-08-16
 
 ### Fixed
