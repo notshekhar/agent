@@ -26,7 +26,7 @@ import type { ChatHistory } from "./components/chat-history";
 import type { AppDeps } from "./deps";
 import type { AppState } from "./state";
 import { checkForUpdate } from "../commands";
-import { setWelcomeUpdateNotice } from "./welcome";
+import { addStartupNotice, resetStartupNotices, setWelcomeUpdateNotice } from "./welcome";
 import { getNewEntries, loadChangelogEntries } from "../changelog";
 import { dim, warn } from "./ui/text";
 
@@ -69,25 +69,36 @@ export function startUpdateCheck(version: string | undefined): void {
     });
 }
 
-/** Workspace context + project skills summary lines. */
+/**
+ * Workspace context + project skills + active extensions: the status block that
+ * belongs directly under the masthead.
+ *
+ * Every line goes through addStartupNotice, which both prints it and remembers
+ * it, so a transcript rebuilt later (`/ui`, `/theme`) puts the same block back
+ * under the banner instead of dropping it. Callers must run this BEFORE
+ * replaying a session's transcript — it is awaited, and a resumed session that
+ * replays first ends up with its startup block printed underneath the whole
+ * conversation.
+ */
 export async function showWorkspaceBanners(history: ChatHistory, cwd: string): Promise<void> {
+    resetStartupNotices();
     if ((settingsStore.get("workspaceContext") as boolean) !== false) {
         const ws = loadWorkspaceContext(cwd);
         if (ws.files.length > 0) {
-            history.addSystem(dim(`workspace context (${ws.files.length}):`));
+            addStartupNotice(history, dim(`workspace context (${ws.files.length}):`));
             for (const f of ws.files) {
-                history.addSystem(dim(`  • ${f.replace(process.env.HOME ?? "", "~")}`));
+                addStartupNotice(history, dim(`  • ${f.replace(process.env.HOME ?? "", "~")}`));
             }
         } else {
-            history.addSystem(dim("workspace context: none (AGENTS.md, CLAUDE.md not found)"));
+            addStartupNotice(history, dim("workspace context: none (AGENTS.md, CLAUDE.md not found)"));
         }
     }
     if ((settingsStore.get("skills") as boolean) !== false) {
         const sk = await loadProjectSkills(cwd);
         if (sk.skills.length > 0) {
-            history.addSystem(dim(`skills (${sk.skills.length}):`));
+            addStartupNotice(history, dim(`skills (${sk.skills.length}):`));
             for (const s of sk.skills) {
-                history.addSystem(dim(`  • ${s.name} — ${s.description.slice(0, 80)}`));
+                addStartupNotice(history, dim(`  • ${s.name} — ${s.description.slice(0, 80)}`));
             }
         }
     }
@@ -98,7 +109,7 @@ export async function showWorkspaceBanners(history: ChatHistory, cwd: string): P
         const MAX = 8;
         const shown = exts.slice(0, MAX).join(" · ");
         const extra = exts.length > MAX ? ` · +${exts.length - MAX} more` : "";
-        history.addSystem(dim(`extensions: ${shown}${extra}`));
+        addStartupNotice(history, dim(`extensions: ${shown}${extra}`));
     }
 }
 
@@ -151,10 +162,13 @@ export async function runStartupTrustAndHooks(state: AppState, deps: AppDeps): P
             (n, [, groups]) => n + groups!.reduce((m, g) => m + (g.hooks?.length ?? 0), 0),
             0,
         );
-        history.addHook(`hooks (${total}):`);
+        // Into the header's status block, not the end of the transcript: this
+        // runs after the trust prompt, which on a resumed session is long after
+        // the conversation is on screen.
+        addStartupNotice(history, `hooks (${total}):`, "hook");
         for (const [ev, groups] of hookEvents) {
             const cmds = groups!.flatMap((g) => g.hooks ?? []).map((h) => shortCmd(h.command));
-            history.addSystem(dim(`    • ${ev}: ${cmds.join(", ")}`));
+            addStartupNotice(history, dim(`    • ${ev}: ${cmds.join(", ")}`));
         }
         tui.requestRender();
     }
@@ -198,9 +212,11 @@ export function startMcpServers(state: AppState, deps: AppDeps): void {
         const summary = servers
             .map((s) => (s.status === "ready" ? `${s.name} (${s.toolCount})` : `${s.name}: ${s.status}`))
             .join(", ");
-        history.addHook(`MCP: ${summary}`);
+        // Same block as the rest of the startup status, however late the
+        // servers take to connect.
+        addStartupNotice(history, `MCP: ${summary}`, "hook");
         for (const s of servers) {
-            if (s.status === "error" && s.error) history.addSystem(dim(`    • ${s.name}: ${s.error}`));
+            if (s.status === "error" && s.error) addStartupNotice(history, dim(`    • ${s.name}: ${s.error}`));
         }
         tui.requestRender();
     });

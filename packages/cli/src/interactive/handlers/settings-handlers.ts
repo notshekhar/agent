@@ -27,7 +27,7 @@ import { initTheme, initUiModeAndTheme, theme } from "../ui/theme";
 import { activeUiMode, getUiMode, isLiveVariant, listUiModes, setLiveVariant } from "../ui/ui-mode";
 import { applyCanvasWash } from "../ui/canvas-wash";
 import { renderSessionBranch } from "../replay";
-import { showWelcomeBanner } from "../welcome";
+import { replayStartupNotices, showWelcomeBanner } from "../welcome";
 import { currentBashAllow, currentBashDeny, runBashAllowManager, runBashDenyManager } from "./bashdeny-handlers";
 import { runPermissionsManager } from "./permission-handlers";
 import { gatewaysStatusLabel, runGatewaysManager } from "./gateway-handlers";
@@ -91,6 +91,9 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
         // re-rendering the old tree leaves a hybrid of both modes.
         history.reset();
         showWelcomeBanner(history, state, deps);
+        // The header's status block belongs with the header it was collected
+        // for — without this the rebuild dropped it on the floor.
+        replayStartupNotices(history);
         if (state.session) renderSessionBranch(state.session, history, state.modelId, deps.todoPanel);
         tui.invalidate();
         history.addSystem(`ui mode → ${id}`);
@@ -443,6 +446,7 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                 if (activeUiMode().id !== prevMode) {
                     history.reset();
                     showWelcomeBanner(history, state, deps);
+                    replayStartupNotices(history);
                     if (state.session) renderSessionBranch(state.session, history, state.modelId, deps.todoPanel);
                 }
 

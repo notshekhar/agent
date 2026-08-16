@@ -307,18 +307,31 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     // the click-to-select mapper already relies on, and the transcript itself
     // is NOT re-rendered here — it is the one child this skips.
     //
-    // Measured at ~1µs for a realistic chrome (3-line draft, todo panel, queued
-    // line): 0.006% of the TUI's 16ms frame floor. Do not "optimize" this into
-    // a cached height — the cache would be stale in exactly the case that
-    // matters, the frame where the editor grows a line, and a one-frame
-    // under-reserve is a one-frame overflow of the screen.
+    // Do not "optimize" this into a cached height — a height cached ACROSS
+    // frames is stale in exactly the case that matters, the frame where the
+    // editor grows a line, and a one-frame under-reserve is a one-frame
+    // overflow of the screen.
+    //
+    // Memoizing WITHIN a single frame is a different thing, and safe: the
+    // answer cannot change while one frame is being composed. Worth doing
+    // because the measurement is only ~1µs on an empty draft — the editor has
+    // no render cache of its own and re-lays out the whole draft on every call
+    // (measured 0.05ms at 400 chars, 0.31ms at 4k, 1.2ms at 20k) — and a
+    // pinned frame asks twice, once here and once when the chrome is really
+    // rendered. The memo is dropped the moment the render pass ends, so
+    // anything asking BETWEEN frames (PgUp sizing its page) still measures the
+    // chrome as it is right then.
+    let reserve: { frame: number; rows: number } | null = null;
     history.setReserveRows(() => {
+        const rendering = tui.isRendering();
+        if (rendering && reserve?.frame === tui.renderFrameId) return reserve.rows;
         const width = tui.terminal.columns;
         let rows = 0;
         for (const child of root.children) {
             if ((child as unknown) === (history as unknown)) continue;
             rows += child.render(width).length;
         }
+        reserve = rendering ? { frame: tui.renderFrameId, rows } : null;
         return rows;
     });
 
@@ -599,12 +612,21 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     syncTicker();
 
     showWelcomeBanner(history, state, deps);
-    // A session opened via --session replays its transcript like /resume does
-    // — reopening a conversation without its history looked like data loss.
-    // After the banner: it's a history child, and the transcript goes below it.
-    if (initialSession) renderSessionBranch(initialSession, history, state.modelId, todoPanel);
+    // The startup block (workspace context, skills, extensions, the no-model
+    // hint) goes in BEFORE the transcript, not after it.
+    //
+    // Both of these are awaited, and both used to run after the replay below,
+    // which put the header's own status lines underneath the entire resumed
+    // conversation — `loop --session <id>` opened on a screen whose last lines
+    // were "workspace context: none" and "extensions: …" instead of the end of
+    // the chat. Nothing is painted until tui.start() further down, so paying
+    // for these two awaits here costs the first frame nothing.
     await showWorkspaceBanners(history, state.cwd);
     if (!state.modelId) await showNoModelGuidance(history, tui);
+    // A session opened via --session replays its transcript like /resume does
+    // — reopening a conversation without its history looked like data loss.
+    // After the banner and its status block: the conversation goes below both.
+    if (initialSession) renderSessionBranch(initialSession, history, state.modelId, todoPanel);
 
     const ctx = createCommandContext(state, deps);
     tui.addInputListener(createInputHandler(state, deps, ctx));

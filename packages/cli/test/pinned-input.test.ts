@@ -164,8 +164,16 @@ describe("a frame that shrinks pulls its content back down", () => {
     });
 
     test("and it does not reach for the scrollback-clearing redraw", () => {
+        // The shrink branch hands off to the shared window repaint...
         const shrink = tuiSource.slice(tuiSource.indexOf("newLines.length < this.previousLines.length"));
-        expect(shrink.slice(0, 1400)).not.toContain("fullRender(true)");
+        expect(shrink.slice(0, 400)).toContain("this.repaintVisibleWindow(");
+        expect(shrink.slice(0, 400)).not.toContain("fullRender(true)");
+        // ...and that repaint clears rows, never the screen or the scrollback.
+        const repaint = tuiSource.slice(tuiSource.indexOf("private repaintVisibleWindow("));
+        const body = repaint.slice(0, repaint.indexOf("\n    }"));
+        expect(body).not.toContain("fullRender");
+        expect(body).not.toContain("\\x1b[3J");
+        expect(body).not.toContain("\\x1b[2J");
     });
 });
 

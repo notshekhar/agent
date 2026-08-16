@@ -104,6 +104,8 @@ export class ChatHistory extends Container {
     /** Line ranges per foldable within the last full render (click targets
      * and the scroll anchor). Rebuilt on every render. */
     private lastRanges: Array<{ fIdx: number; start: number; end: number }> = [];
+    /** The startup status block's own container — see openStartupBlock. */
+    private startupBlock: Container | null = null;
     /** Full-transcript render cache, trusted only while the nav viewport is
      * on. Scrolling re-renders NOTHING — it slices these lines. Every content
      * mutation (deltas, tool updates, folds, selection) calls markDirty(). */
@@ -749,6 +751,9 @@ export class ChatHistory extends Container {
         this.assistantTurn = null;
         this.foldables = [];
         this.selectedFoldable = null;
+        // clear() dropped the container; a new one is opened by whoever rebuilds
+        // the header, and until then startup lines append as they always did.
+        this.startupBlock = null;
         // Holds component references from the transcript being discarded (/new,
         // /clear) — they can never match a new one, so keeping them is pure
         // retention of the old tree.
@@ -942,6 +947,34 @@ export class ChatHistory extends Container {
     addSystem(text: string): void {
         this.markDirty();
         this.addChild(new Text(dim(text), 1, 0));
+    }
+
+    /**
+     * Open the region that holds the startup status block — everything the
+     * header says about this session: workspace context, skills, extensions,
+     * hooks, MCP servers.
+     *
+     * It exists because those lines do not all arrive at once. The hooks list
+     * cannot be written until the trust prompt is answered, and MCP servers
+     * report when they connect, both of them long after the transcript of a
+     * resumed conversation is on screen. Appending them then put them at the
+     * bottom, under the whole conversation, which is not where the block they
+     * belong to is. Holding a container open means a line that arrives late
+     * still lands with its own kind.
+     */
+    openStartupBlock(): void {
+        this.markDirty();
+        this.startupBlock = new Container();
+        this.addChild(this.startupBlock);
+    }
+
+    /** Add a line to the startup block; falls back to the end of the
+     * transcript if no block is open (nothing is worse than losing it). */
+    addStartupLine(text: string, kind: "system" | "hook" = "system"): void {
+        this.markDirty();
+        const line = new Text(kind === "hook" ? theme.fg("hookAccent", text) : dim(text), 1, 0);
+        if (this.startupBlock) this.startupBlock.addChild(line);
+        else this.addChild(line);
     }
 
     /** Abort landed while tool calls were still pending — freeze them as

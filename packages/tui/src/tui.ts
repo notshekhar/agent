@@ -326,6 +326,8 @@ export class TUI extends Container {
     private maxLinesRendered = 0; // Track terminal's working area (max lines ever rendered)
     private previousViewportTop = 0; // Track previous viewport top for resize-aware cursor moves
     private fullRedrawCount = 0;
+    private frameId = 0;
+    private renderingFrame = false;
     private stopped = false;
     // Guards a one-shot recovery redraw after a render throws, so a persistently
     // failing render can't spin in a tight requestRender→throw loop.
@@ -356,6 +358,24 @@ export class TUI extends Container {
 
     get fullRedraws(): number {
         return this.fullRedrawCount;
+    }
+
+    /**
+     * Identity of the frame being composed, for components that get asked the
+     * same question twice while building one.
+     *
+     * Only useful together with {@link isRendering}: a value memoized against
+     * a frame id must be recomputed the moment the render pass is over, or it
+     * is just a stale cache wearing a number. See the reserve-rows measurement
+     * in the CLI for the one caller this exists for.
+     */
+    get renderFrameId(): number {
+        return this.frameId;
+    }
+
+    /** True only while a frame is being composed. */
+    isRendering(): boolean {
+        return this.renderingFrame;
     }
 
     getShowHardwareCursor(): boolean {
@@ -1346,6 +1366,73 @@ export class TUI extends Container {
         return this.deleteKittyImages(ids);
     }
 
+    /**
+     * The frame grew or shrank above the visible window, and what the terminal
+     * is actually showing is unchanged — only the line indices moved. Returns
+     * that shift, or null when the window's content really did change.
+     *
+     * This is the common shape of a late startup notice (an MCP summary, a
+     * hooks list) landing under the banner while the conversation below it is
+     * long enough to have pushed the banner off the top of the screen: every
+     * visible row still holds exactly what it held before.
+     *
+     * Only claimed when BOTH frames fill the screen. A frame shorter than the
+     * terminal leaves rows loop never painted — whatever the shell left there —
+     * and comparing those against blanks would call a window unchanged that
+     * loop cannot actually vouch for.
+     */
+    private unchangedWindowShift(newLines: string[], height: number, prevViewportTop: number): number | null {
+        if (newLines.length < height || this.previousLines.length < height) return null;
+        const newTop = newLines.length - height;
+        const shift = newTop - prevViewportTop;
+        if (shift === 0) return null;
+        for (let i = 0; i < height; i++) {
+            if (newLines[newTop + i] !== this.previousLines[prevViewportTop + i]) return null;
+        }
+        return shift;
+    }
+
+    /**
+     * Repaint the rows the terminal is showing, from the frame in memory.
+     *
+     * The alternative — clearing the screen and the scrollback and drawing
+     * everything again — buys the same correct screen at the price of the
+     * user's terminal history, which is never a trade worth making. The lines
+     * that belong on screen are already in `newLines`; painting them where
+     * they go is the whole job. Whatever is in the scrollback stays as it was
+     * printed: it cannot be rewritten, only destroyed, so it is left alone.
+     */
+    private repaintVisibleWindow(
+        newLines: string[],
+        width: number,
+        height: number,
+        prevViewportTop: number,
+        hardwareCursorRow: number,
+        cursorPos: { row: number; col: number } | null,
+    ): void {
+        const top = Math.max(0, newLines.length - height);
+        let buffer = "\x1b[?2026h";
+        // Up to the first visible row, wherever the cursor happens to be.
+        const upFromCursor = hardwareCursorRow - prevViewportTop;
+        if (upFromCursor > 0) buffer += `\x1b[${upFromCursor}A`;
+        buffer += "\r";
+        for (let i = 0; i < height; i++) {
+            if (i > 0) buffer += "\r\n";
+            buffer += "\x1b[2K" + (newLines[top + i] ?? "");
+        }
+        buffer += "\x1b[?2026l";
+        this.terminal.write(buffer);
+        this.cursorRow = Math.max(0, newLines.length - 1);
+        this.hardwareCursorRow = this.cursorRow;
+        this.previousViewportTop = top;
+        this.maxLinesRendered = Math.max(this.maxLinesRendered, newLines.length);
+        this.positionHardwareCursor(cursorPos, newLines.length);
+        this.previousLines = newLines;
+        this.previousKittyImageIds = this.collectKittyImageIds(newLines);
+        this.previousWidth = width;
+        this.previousHeight = height;
+    }
+
     /** Splice overlay content into a base line at a specific column. Single-pass optimized. */
     private compositeLineAt(
         baseLine: string,
@@ -1442,7 +1529,14 @@ export class TUI extends Container {
         };
 
         // Render all components to get new lines
-        let newLines = this.render(width);
+        this.frameId++;
+        this.renderingFrame = true;
+        let newLines: string[];
+        try {
+            newLines = this.render(width);
+        } finally {
+            this.renderingFrame = false;
+        }
 
         // Composite overlays into the rendered lines (before differential compare)
         if (this.overlayStack.length > 0) {
@@ -1591,27 +1685,7 @@ export class TUI extends Container {
         // and redrawing everything — was buying, minus the part where the
         // terminal's history is destroyed to get it.
         if (newLines.length < this.previousLines.length && newLines.length > height && this.overlayStack.length === 0) {
-            const top = newLines.length - height;
-            let buffer = "\x1b[?2026h";
-            // Up to the first visible row, wherever the cursor happens to be.
-            const upFromCursor = hardwareCursorRow - prevViewportTop;
-            if (upFromCursor > 0) buffer += `\x1b[${upFromCursor}A`;
-            buffer += "\r";
-            for (let i = 0; i < height; i++) {
-                if (i > 0) buffer += "\r\n";
-                buffer += "\x1b[2K" + (newLines[top + i] ?? "");
-            }
-            buffer += "\x1b[?2026l";
-            this.terminal.write(buffer);
-            this.cursorRow = newLines.length - 1;
-            this.hardwareCursorRow = this.cursorRow;
-            this.previousViewportTop = top;
-            this.maxLinesRendered = Math.max(this.maxLinesRendered, newLines.length);
-            this.positionHardwareCursor(cursorPos, newLines.length);
-            this.previousLines = newLines;
-            this.previousKittyImageIds = this.collectKittyImageIds(newLines);
-            this.previousWidth = width;
-            this.previousHeight = height;
+            this.repaintVisibleWindow(newLines, width, height, prevViewportTop, hardwareCursorRow, cursorPos);
             return;
         }
 
@@ -1664,9 +1738,44 @@ export class TUI extends Container {
             return;
         }
 
-        // Differential rendering can only touch what was actually visible.
-        // If the first changed line is above the previous viewport, we need a full redraw.
+        // Differential rendering can only touch what was actually visible, so a
+        // change above the window cannot be patched in place. It does not
+        // follow that the screen has to be thrown away.
+        //
+        // Two cases, and only the third falls back to the redraw that costs the
+        // scrollback:
+        //
+        //  1. The window's content is untouched — something was inserted above
+        //     it (a late MCP or hooks line landing under the banner while a
+        //     long conversation holds the screen). Every visible row still says
+        //     what it said, so the right amount of output is NONE: only loop's
+        //     own line bookkeeping has to move.
+        //  2. The window's content did change — repaint those rows from the
+        //     frame in memory, same as a shrinking frame does.
+        //  3. Kitty images in play: they are addressed in rows the plain
+        //     repaint does not account for, so those keep the full redraw.
         if (firstChanged < prevViewportTop) {
+            const shift = this.unchangedWindowShift(newLines, height, prevViewportTop);
+            if (shift !== null) {
+                this.cursorRow = Math.max(0, newLines.length - 1);
+                this.hardwareCursorRow = Math.max(
+                    newLines.length - height,
+                    Math.min(newLines.length - 1, hardwareCursorRow + shift),
+                );
+                this.previousViewportTop = prevViewportTop + shift;
+                this.maxLinesRendered = Math.max(this.maxLinesRendered, newLines.length);
+                this.positionHardwareCursor(cursorPos, newLines.length);
+                this.previousLines = newLines;
+                this.previousKittyImageIds = this.collectKittyImageIds(newLines);
+                this.previousWidth = width;
+                this.previousHeight = height;
+                return;
+            }
+            const hasImages = this.previousKittyImageIds.size > 0 || newLines.some((l) => isImageLine(l));
+            if (newLines.length >= height && this.overlayStack.length === 0 && !hasImages) {
+                this.repaintVisibleWindow(newLines, width, height, prevViewportTop, hardwareCursorRow, cursorPos);
+                return;
+            }
             logRedraw(`firstChanged < viewportTop (${firstChanged} < ${prevViewportTop})`);
             fullRender(true);
             return;

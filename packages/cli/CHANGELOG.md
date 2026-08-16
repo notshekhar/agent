@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.19.7] - 2026-08-16
+
+### Fixed
+
+- **A long answer no longer slows the whole UI down while it is being written.** Every token re-parsed the entire message from the top, so a frame cost 4.4ms at 8k characters, 9.5ms at 20k and 27ms at 50k — past roughly 30k the renderer could no longer fit a frame in its budget and typing went stiff, and the spinner's own 80ms tick kept paying that price even between tokens. The markdown renderer now keeps a settled head while a message streams: everything up to the last blank line whose block cannot change any more is kept as rendered lines, and only the tail is parsed again. Measured on paragraph-shaped answers, the same frames are 0.034ms at 8k and 0.045ms at 50k — the cost stops growing with the message. The head only ever advances to a boundary nothing later can reach back through (a list is never crossed, because "- a" and "- b" separated by a blank line are one list, not two), and the finished message is always rendered once, whole, so what you end up reading is the same text it always was.
+- **A finished thinking block stopped being re-rendered on every token of the answer below it.** Each delta rebuilt every block of the message, which meant re-parsing text that could no longer change: with a 20k-character thinking block above the reply, a single frame cost 5.8ms doing nothing but that. Blocks are now carried across deltas — 0.022ms for the same frame.
+- **`loop --session <id>` put the header's own status lines under the whole conversation.** Workspace context, project skills and active extensions are collected with an await, and that await happened after the transcript was replayed, so resuming a chat printed "workspace context: …" and "extensions: …" below the last thing you had said instead of under the masthead. They are collected before the replay now. The same block also survives `/ui` and `/theme`, which rebuild the transcript from the session and used to drop it entirely.
+- **The hooks and MCP summaries join that block too, however late they arrive.** Neither can be written at startup — the hooks list waits on the trust prompt, MCP servers report when they connect — so both used to land at the bottom, under the conversation. The startup block stays open for them. On a conversation long enough to have pushed the masthead off the screen they join it up there, which is where the rest of it is; `ctrl+e` shows them in place.
+- **Inserting a line above the visible screen no longer destroys your scrollback.** Any change above the window was answered with a full redraw, which clears the screen _and_ the terminal's history, so the fix above would have cost a scrollback wipe per late notice. Two cases now come first: when the visible rows are unchanged — which is what inserting something above them means — nothing is written at all, since only loop's own line bookkeeping moved; and when they did change, the window is repainted from the frame in memory, the same way a shrinking frame has been handled since v0.19.6. Only Kitty images still take the redraw.
+
+### Changed
+
+- **`pinnedInput` measures the chrome under the transcript once per frame instead of twice.** The measurement is not free at every size — the editor re-lays out the whole draft each time it is asked, 0.31ms on a 4k-character draft — and a pinned frame asked for it twice. It is memoized within a single frame and dropped the moment that frame ends, so the height is still measured fresh on the frame where the editor grows a line.
+
 ## [0.19.6] - 2026-08-16
 
 ### Fixed

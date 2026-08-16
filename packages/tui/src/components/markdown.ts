@@ -53,6 +53,47 @@ markdownParser.setOptions({
 });
 
 /**
+ * Block types that a following blank line SEALS: once one of these is closed
+ * by a blank line, no amount of text arriving after it can change how it
+ * lexed. That is what makes it safe to freeze the render of everything up to
+ * that point while the rest of the document is still streaming in.
+ *
+ * `list` is missing on purpose. A blank line does not end a list —
+ * "- a\n\n- b" lexes as ONE loose list, not two — so freezing across a
+ * trailing list would re-lex "- b" as a fresh list and renumber an ordered
+ * one from 1. Indented (unfenced) code has the same property, and `html` and
+ * `def` are left out for the same class of reason.
+ */
+const SEALED_BLOCK_TYPES = new Set(["paragraph", "heading", "hr", "blockquote", "table"]);
+
+/** A fenced code block whose closing fence has already arrived — sealed, unlike
+ * an indented code block, which a later indented line extends. */
+function isClosedFencedCode(token: Token): boolean {
+    if (token.type !== "code") return false;
+    const marker = /^(`{3,}|~{3,})/.exec(token.raw)?.[1];
+    if (!marker) return false; // indented code block
+    const lastLine = token.raw.trimEnd().split("\n").pop() ?? "";
+    return token.raw.trimEnd().length > marker.length && lastLine.startsWith(marker[0].repeat(marker.length));
+}
+
+/**
+ * The last token that may be frozen, or -1 for none.
+ *
+ * Only blank-line boundaries qualify (a `space` token), and only when the
+ * block in front of the blank line is sealed. The final two tokens are never
+ * frozen: the last one is still growing, and a token's rendering is handed the
+ * NEXT token's type, so the second-to-last one's output is not settled either.
+ */
+function freezePoint(tokens: readonly Token[]): number {
+    for (let i = tokens.length - 3; i >= 1; i--) {
+        if (tokens[i].type !== "space") continue;
+        const prev = tokens[i - 1];
+        if (SEALED_BLOCK_TYPES.has(prev.type) || isClosedFencedCode(prev)) return i;
+    }
+    return -1;
+}
+
+/**
  * Default text styling for markdown content.
  * Applied to all text unless overridden by markdown formatting.
  */
@@ -120,6 +161,19 @@ export class Markdown implements Component {
     private cachedText?: string;
     private cachedWidth?: number;
     private cachedLines?: string[];
+    /** Streaming mode: the text is still being appended to (see setStreaming). */
+    private streaming = false;
+    /**
+     * The settled head of a streaming document: `src` renders to exactly
+     * `lines`, and nothing arriving after it can change that (see
+     * freezePoint). While it holds, a delta only re-lexes the tail.
+     *
+     * Without it, every token re-lexed the whole message: measured 23.8ms for
+     * a 50k-char response, 15.8ms of it inside the lexer, on every delta AND
+     * on every 80ms loader tick — past ~30k chars a single frame no longer fit
+     * in the render budget.
+     */
+    private stable?: { width: number; src: string; lines: string[] };
 
     constructor(
         text: string,
@@ -139,13 +193,34 @@ export class Markdown implements Component {
 
     setText(text: string): void {
         this.text = text;
-        this.invalidate();
+        this.cachedText = undefined;
+        this.cachedWidth = undefined;
+        this.cachedLines = undefined;
+    }
+
+    /**
+     * Whether this text is still streaming in.
+     *
+     * On (and only on) the way in does the incremental head get built, so a
+     * static document renders exactly as it always did. On the way OUT the
+     * head is thrown away and the finished text is rendered once, whole: that
+     * final pass is authoritative, and it is what covers the one thing
+     * incremental lexing cannot see — a link reference definition
+     * (`[foo]: url`) arriving after the `[foo]` that uses it, which is only
+     * resolvable when the lexer sees the whole document.
+     */
+    setStreaming(streaming: boolean): void {
+        if (this.streaming === streaming) return;
+        this.streaming = streaming;
+        this.stable = undefined;
+        if (!streaming) this.invalidate();
     }
 
     invalidate(): void {
         this.cachedText = undefined;
         this.cachedWidth = undefined;
         this.cachedLines = undefined;
+        this.stable = undefined;
     }
 
     render(width: number): string[] {
@@ -170,57 +245,54 @@ export class Markdown implements Component {
         // Replace tabs with 3 spaces for consistent rendering
         const normalizedText = this.text.replace(/\t/g, "   ");
 
+        // Streaming: everything up to the settled head was rendered on an
+        // earlier delta and cannot have changed, so only the tail is lexed.
+        const head =
+            this.stable && this.stable.width === width && normalizedText.startsWith(this.stable.src)
+                ? this.stable
+                : undefined;
+        const tailText = head ? normalizedText.slice(head.src.length) : normalizedText;
+
         // Parse markdown to HTML-like tokens
-        const tokens = markdownParser.lexer(normalizedText);
+        const tokens = markdownParser.lexer(tailText);
         trimPartialClosingFences(tokens);
 
-        // Convert tokens to styled terminal output
-        const renderedLines: string[] = [];
+        const leftMargin = " ".repeat(this.paddingX);
+        const rightMargin = " ".repeat(this.paddingX);
+        const bgFn = this.defaultTextStyle?.bgColor;
+        // Convert tokens to styled terminal output, wrapping and adding
+        // margins as we go so each token's span of finished lines is known —
+        // that span is what the streaming head is cut from.
+        const tailLines: string[] = [];
+        const tokenEnds: number[] = [];
 
         for (let i = 0; i < tokens.length; i++) {
             const token = tokens[i];
             const nextToken = tokens[i + 1];
             const tokenLines = this.renderToken(token, contentWidth, nextToken?.type);
             for (const tokenLine of tokenLines) {
-                renderedLines.push(tokenLine);
-            }
-        }
-
-        // Wrap lines (NO padding, NO background yet)
-        const wrappedLines: string[] = [];
-        for (const line of renderedLines) {
-            if (isImageLine(line)) {
-                wrappedLines.push(line);
-            } else {
-                for (const wrappedLine of wrapTextWithAnsi(line, contentWidth)) {
-                    wrappedLines.push(wrappedLine);
+                if (isImageLine(tokenLine)) {
+                    tailLines.push(tokenLine);
+                    continue;
+                }
+                for (const wrappedLine of wrapTextWithAnsi(tokenLine, contentWidth)) {
+                    const lineWithMargins = leftMargin + wrappedLine + rightMargin;
+                    if (bgFn) {
+                        tailLines.push(applyBackgroundToLine(lineWithMargins, width, bgFn));
+                    } else {
+                        // No background - just pad to width
+                        const visibleLen = visibleWidth(lineWithMargins);
+                        const paddingNeeded = Math.max(0, width - visibleLen);
+                        tailLines.push(lineWithMargins + " ".repeat(paddingNeeded));
+                    }
                 }
             }
+            tokenEnds.push(tailLines.length);
         }
 
-        // Add margins and background to each wrapped line
-        const leftMargin = " ".repeat(this.paddingX);
-        const rightMargin = " ".repeat(this.paddingX);
-        const bgFn = this.defaultTextStyle?.bgColor;
-        const contentLines: string[] = [];
+        if (this.streaming) this.advanceStable(head, tokens, tokenEnds, tailLines, tailText, width);
 
-        for (const line of wrappedLines) {
-            if (isImageLine(line)) {
-                contentLines.push(line);
-                continue;
-            }
-
-            const lineWithMargins = leftMargin + line + rightMargin;
-
-            if (bgFn) {
-                contentLines.push(applyBackgroundToLine(lineWithMargins, width, bgFn));
-            } else {
-                // No background - just pad to width
-                const visibleLen = visibleWidth(lineWithMargins);
-                const paddingNeeded = Math.max(0, width - visibleLen);
-                contentLines.push(lineWithMargins + " ".repeat(paddingNeeded));
-            }
-        }
+        const contentLines = head ? head.lines.concat(tailLines) : tailLines;
 
         // Add top/bottom padding (empty lines)
         const emptyLine = " ".repeat(width);
@@ -239,6 +311,40 @@ export class Markdown implements Component {
         this.cachedLines = result;
 
         return result.length > 0 ? result : [""];
+    }
+
+    /**
+     * Push the settled head forward over whatever this render just sealed.
+     *
+     * The frozen source is rebuilt from the tokens' own `raw` and checked back
+     * against the text before it is trusted: if marked's raws ever stop
+     * reconstructing the source exactly, the head is dropped and the next
+     * render lexes the whole document, which is only the old cost — never a
+     * wrong frame.
+     */
+    private advanceStable(
+        head: { width: number; src: string; lines: string[] } | undefined,
+        tokens: readonly Token[],
+        tokenEnds: readonly number[],
+        tailLines: readonly string[],
+        tailText: string,
+        width: number,
+    ): void {
+        const last = freezePoint(tokens);
+        if (last < 0) return;
+
+        let frozenSrc = "";
+        for (let i = 0; i <= last; i++) frozenSrc += tokens[i].raw;
+        if (!tailText.startsWith(frozenSrc)) {
+            this.stable = undefined;
+            return;
+        }
+
+        this.stable = {
+            width,
+            src: (head?.src ?? "") + frozenSrc,
+            lines: (head?.lines ?? []).concat(tailLines.slice(0, tokenEnds[last])),
+        };
     }
 
     /**

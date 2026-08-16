@@ -14,6 +14,46 @@ let activeBanner: WelcomeBanner | null = null;
 // Remembered so a banner recreated on /new or /clear keeps the notice, and so a
 // notice that arrives (network) before the banner exists still lands on it.
 let updateNotice: string | undefined;
+/**
+ * The startup status lines (workspace context, project skills, extensions).
+ *
+ * Remembered for the same reason the update notice is: they belong WITH the
+ * masthead, and every path that rebuilds the transcript — a resumed session
+ * replaying it, `/ui` and `/theme` reconstructing every component — has to be
+ * able to put them back in that place. Held as text rather than as components
+ * because a rebuild is exactly the moment the old components are being thrown
+ * away.
+ */
+let startupNotices: Array<{ text: string; kind: "system" | "hook" }> = [];
+
+/**
+ * Record and show a startup status line, in the block under the masthead.
+ *
+ * Two different problems, one mechanism. Lines that arrive LATE (the hooks
+ * list, which waits on the trust prompt; MCP servers, which report when they
+ * connect) go into the block's own container rather than the end of the
+ * transcript, so they join their own kind instead of trailing the
+ * conversation. And every line is remembered, so a transcript rebuilt later
+ * (`/ui`, `/theme`) can put the whole block back where it belongs.
+ */
+export function addStartupNotice(history: ChatHistory, text: string, kind: "system" | "hook" = "system"): void {
+    startupNotices.push({ text, kind });
+    history.addStartupLine(text, kind);
+}
+
+/** Drop the recorded lines — the caller is about to collect them afresh. */
+export function resetStartupNotices(): void {
+    startupNotices = [];
+}
+
+/**
+ * Re-emit the recorded startup lines. Called by the rebuild paths right after
+ * the banner, so the block under the masthead survives a mode or theme switch
+ * that reconstructs the whole transcript.
+ */
+export function replayStartupNotices(history: ChatHistory): void {
+    for (const line of startupNotices) history.addStartupLine(line.text, line.kind);
+}
 
 /**
  * Set the "update available" line shown under the welcome masthead. Routed here
@@ -71,5 +111,9 @@ export function showWelcomeBanner(history: ChatHistory, state: AppState, deps: A
     activeBanner = banner;
     if (updateNotice) banner.setUpdateNotice(updateNotice);
     history.addChild(banner);
+    // Directly under the masthead, and kept open: this is where every startup
+    // status line goes, including the ones that only arrive once the trust
+    // prompt is answered or an MCP server finishes connecting.
+    history.openStartupBlock();
     deps.tui.requestRender();
 }

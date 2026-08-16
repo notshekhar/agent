@@ -197,11 +197,21 @@ class ThinkingBlock implements Component, TrackedBlock {
         });
     }
 
+    /** Grow this block in place. The instance surviving the delta is the whole
+     * point: it is what lets the markdown keep its settled head instead of
+     * re-lexing the block from the top on every token. */
+    setText(text: string): void {
+        if (text === this.text) return;
+        this.text = text;
+        this.md.setText(text);
+    }
+
     invalidate(): void {
         this.md.invalidate();
     }
 
     private renderInner(width: number): string[] {
+        this.md.setStreaming(this.state().streaming);
         const override = uiRenderers().thinking;
         if (override) {
             const lines = override({ text: this.text, ...this.state() }, { width, theme });
@@ -226,11 +236,18 @@ class ResponseTextBlock implements Component, TrackedBlock {
 
     constructor(
         readonly contentIndex: number,
-        text: string,
+        private text: string,
         private state: () => { expanded: boolean; selected: boolean; createdAt: number; streaming: boolean },
         markdownTheme: MarkdownTheme,
     ) {
         this.md = new Markdown(text, 1, 0, markdownTheme);
+    }
+
+    /** Grow this block in place — see ThinkingBlock.setText. */
+    setText(text: string): void {
+        if (text === this.text) return;
+        this.text = text;
+        this.md.setText(text);
     }
 
     invalidate(): void {
@@ -238,8 +255,9 @@ class ResponseTextBlock implements Component, TrackedBlock {
     }
 
     private renderInner(width: number): string[] {
-        let lines = this.md.render(width);
         const { expanded, createdAt, streaming } = this.state();
+        this.md.setStreaming(streaming);
+        let lines = this.md.render(width);
         if (uiStyle().userMessage.timestamp && !streaming && lines.length > 0) {
             lines[0] = appendTimestamp(lines[0], createdAt, width);
         }
@@ -287,6 +305,9 @@ export class AssistantMessageComponent extends Container {
     private thinkingTimes = new Map<number, { start: number; end?: number }>();
     /** Message time for the response timestamp (replay passes the real one). */
     private createdAt = Date.now();
+    /** Live block components by content index, carried across deltas — see
+     * updateContent. */
+    private blocks = new Map<number, ResponseTextBlock | ThinkingBlock>();
 
     setCreatedAt(ts: number): void {
         this.createdAt = ts;
@@ -417,9 +438,24 @@ export class AssistantMessageComponent extends Container {
         };
     }
 
+    /** Is this the block the stream is currently writing into? Read through
+     * `lastMessage` rather than a captured message, so a reused block's state
+     * getter always answers about the CURRENT turn. */
+    private isLiveBlock(index: number): boolean {
+        return !this.done && index === (this.lastMessage?.content.length ?? 0) - 1;
+    }
+
     updateContent(message: AssistantMessageLike): void {
         this.lastMessage = message;
         this.contentContainer.clear();
+        // Block components are carried over by content index instead of being
+        // rebuilt. A rebuild meant a fresh Markdown per block per delta, so
+        // every FINISHED block above the cursor — a long thinking block above
+        // the answer, most of all — was re-lexed on every token: measured
+        // 5.8ms a frame with a 20k-char thinking block, all of it redoing text
+        // that can no longer change.
+        const previous = this.blocks;
+        this.blocks = new Map();
 
         // Block-gap modes: every block renders its own leading blank, so the
         // container-level spacers here would double every gap.
@@ -433,37 +469,47 @@ export class AssistantMessageComponent extends Container {
             const content = message.content[i];
             if (content.type === "text" && content.text.trim()) {
                 const index = i;
-                this.contentContainer.addChild(
-                    new ResponseTextBlock(
-                        index,
-                        content.text.trim(),
-                        () => ({
-                            expanded: this.textOverride.get(index) ?? true,
-                            selected: this.selectedText === index,
-                            createdAt: this.createdAt,
-                            streaming: !this.done && index === message.content.length - 1,
-                        }),
-                        this.markdownTheme,
-                    ),
-                );
+                const cached = previous.get(index);
+                const block =
+                    cached instanceof ResponseTextBlock
+                        ? cached
+                        : new ResponseTextBlock(
+                              index,
+                              content.text.trim(),
+                              () => ({
+                                  expanded: this.textOverride.get(index) ?? true,
+                                  selected: this.selectedText === index,
+                                  createdAt: this.createdAt,
+                                  streaming: this.isLiveBlock(index),
+                              }),
+                              this.markdownTheme,
+                          );
+                block.setText(content.text.trim());
+                this.blocks.set(index, block);
+                this.contentContainer.addChild(block);
             } else if (content.type === "thinking" && content.thinking.trim()) {
                 const index = i;
-                this.contentContainer.addChild(
-                    new ThinkingBlock(
-                        index,
-                        content.thinking.trim(),
-                        () => {
-                            const time = this.thinkingTimes.get(index);
-                            return {
-                                streaming: !this.done && index === message.content.length - 1,
-                                expanded: this.thinkingOverride.get(index) ?? this.thinkingExpanded,
-                                selected: this.selectedThinking === index,
-                                durationMs: time?.end !== undefined ? time.end - time.start : undefined,
-                            };
-                        },
-                        this.markdownTheme,
-                    ),
-                );
+                const cached = previous.get(index);
+                const block =
+                    cached instanceof ThinkingBlock
+                        ? cached
+                        : new ThinkingBlock(
+                              index,
+                              content.thinking.trim(),
+                              () => {
+                                  const time = this.thinkingTimes.get(index);
+                                  return {
+                                      streaming: this.isLiveBlock(index),
+                                      expanded: this.thinkingOverride.get(index) ?? this.thinkingExpanded,
+                                      selected: this.selectedThinking === index,
+                                      durationMs: time?.end !== undefined ? time.end - time.start : undefined,
+                                  };
+                              },
+                              this.markdownTheme,
+                          );
+                block.setText(content.thinking.trim());
+                this.blocks.set(index, block);
+                this.contentContainer.addChild(block);
                 const hasVisibleContentAfter = message.content
                     .slice(i + 1)
                     .some((c) => (c.type === "text" && c.text.trim()) || (c.type === "thinking" && c.thinking.trim()));
