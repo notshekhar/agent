@@ -1,8 +1,13 @@
 # Configuring {{name}}
 
-How to add models, custom providers, hooks, MCP servers, and custom agents.
-Read the relevant section in full before editing anything, then make the edit,
-then tell the user to **hard-reload** (see below) so it takes effect.
+How to add models, custom providers, datasources, hooks, MCP servers, and
+custom agents. Read the relevant section in full before editing anything, then
+make the edit, then tell the user to **hard-reload** (see below) so it takes
+effect.
+
+You can do all of this yourself with the normal read/edit/write tools — none of
+it needs the user to walk an interactive panel. The panels (`/model`,
+`/datasource`, `/settings`, `/login`) are conveniences over the same files.
 
 ## Where config lives
 
@@ -10,6 +15,7 @@ then tell the user to **hard-reload** (see below) so it takes effect.
 | ------------------------------------------------------------ | ----------------------------- |
 | Global settings (default model, hooks, MCP servers, toggles) | `~/{{dir}}/settings.json`     |
 | Auth + custom providers (API keys, OAuth creds, gateways)    | `~/{{dir}}/auth.json`         |
+| Datasources (database connections for the `sql` tool)        | `~/{{dir}}/datasources.json`  |
 | Custom agents                                                | `~/{{dir}}/agents/<name>.md`  |
 | Project settings / hooks (override global)                   | `<cwd>/{{dir}}/settings.json` |
 | Project MCP servers (override global)                        | `<cwd>/{{dir}}/mcp.json`      |
@@ -98,7 +104,8 @@ Other notable keys (all managed via `/settings` too):
 Config is read into memory at startup. After you edit any file above, the change
 does **not** apply to the running session. Tell the user to either:
 
-- run **`/reload`** (re-reads settings, theme, commands, agents, hooks, models), or
+- run **`/reload`** (re-reads settings.json, auth.json, datasources.json, theme,
+  commands, agents, hooks, MCP servers, models), or
 - **quit and restart** {{name}}.
 
 End every config task by telling the user which one to do.
@@ -203,6 +210,82 @@ clientId, clientSecret?, scopes? }`.
 
 Select the model with `/model` (it appears as `custom:bifrost/claude-opus-4-8`)
 or pin it: `"defaultModel": "custom:bifrost/claude-opus-4-8"`.
+
+---
+
+## Add a datasource (database connection)
+
+Datasources are the saved connections the `sql` tool queries — read-only SQL
+against Postgres, MySQL or Redshift. Every connection has an id (the
+`connectionId` you pass to `sql`) and lives in `~/{{dir}}/datasources.json`
+under `connections`, keyed by that id.
+
+**Write this file yourself.** It is plain JSON like every other config file:
+read it, edit or write it, done. `/datasource` opens an interactive panel over
+the same file, but it is not the only way in — if the user asks you to add a
+connection, add it. Only send them to the panel for the one thing you cannot do
+(testing the connection, see below) or when they'd rather type the password
+somewhere you won't see it.
+
+Shape (`DataSourceConfig`):
+
+```json
+{
+    "connections": {
+        "analytics": {
+            "type": "postgres",
+            "host": "db.internal.example.com",
+            "port": 5432,
+            "database": "analytics",
+            "user": "readonly",
+            "password": "${env:ANALYTICS_DB_PASSWORD}",
+            "ssl": true
+        }
+    }
+}
+```
+
+- The id (`"analytics"` above) must start alphanumeric, then `[a-z0-9_-]`, ≤32
+  chars. Reusing an existing id overwrites that connection. Max 50 saved.
+- `type` — `"postgres"`, `"mysql"`, or `"redshift"`. Required.
+- `host`, `database`, `user` — required, non-empty.
+- `port` — required, positive number. Defaults by type if the user didn't say:
+  postgres `5432`, mysql `3306`, redshift `5439`.
+- `password` — optional (omit for trust/socket/IAM auth). Stored **as written**,
+  so prefer a `${env:VAR}` placeholder: it is expanded from the environment at
+  connect time, exactly like MCP config, and keeps the secret off disk. Only
+  write a literal password when the user hands you one and wants it saved.
+- `ssl` — optional TLS toggle. Set `true` for redshift and any remote database;
+  `false`/omitted is fine for localhost.
+
+Never invent host/database/user values or guess at a password. Ask for what the
+user hasn't given you — a connection with a wrong field looks identical to a
+working one until it fails.
+
+**After writing the file, tell the user to run `/reload`** (or restart), then
+they can ask for a query. `/reload` re-reads `datasources.json`, so the `sql`
+tool sees the new connection — its tool description lists the available
+connection ids, and that list is built per turn from this file.
+
+**Testing the connection is the user's step, not yours.** There is no tool that
+dials a database; `sql` only runs queries against an already-saved connection.
+Either point them at `/datasource` → pick the connection → **test** (it reports
+the real handshake result), or — once they've reloaded — just run a cheap
+`sql` query like `select 1` and read the error if it fails.
+
+What the `sql` tool will and won't do, so you set expectations correctly:
+
+- Read-only, two layers. A static check rejects insert, update, delete, merge,
+  drop, alter, create, truncate, grant, revoke, call, copy, lock (and file
+  read/write functions) anywhere in the statement, and only allows a leading
+  `select`, `with`, `explain`, `show`, `describe`, `values` or `table`. Then the
+  query runs inside a rolled-back `READ ONLY` transaction, so the engine itself
+  refuses writes. Don't offer to mutate data through it.
+- One statement per call. Discover schema through `information_schema` (or the
+  dialect's catalog) before querying, and put a `LIMIT` on exploratory queries.
+- The tool is in the default toolset. Restricted custom agents need `sql` named
+  in their `tools:` frontmatter — the built-in `data-analyst` and `plan` agents
+  already have it.
 
 ---
 

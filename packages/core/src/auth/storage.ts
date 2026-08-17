@@ -124,6 +124,20 @@ export const datasourcesStore = new CachedStore(
     { configPath: join(CONFIG_DIR, "datasources.json") },
 );
 
+/**
+ * Drop every cached config file so the next read comes from disk. This is what
+ * a hard reload (`/reload`, `config.reload`) means for the JSON config layer:
+ * all three stores are hand-editable — by the user or by the agent, which the
+ * internal docs actively tell it to do for custom providers and datasources —
+ * so refreshing only settings.json left those edits invisible until a restart.
+ * Add any new CachedStore here.
+ */
+export function refreshConfigStores(): void {
+    settingsStore.refresh();
+    authStore.refresh();
+    datasourcesStore.refresh();
+}
+
 // getProjectModel/setProjectModel/getProjectProviderModel moved to
 // sessions/projects.ts (the projects table); the auth barrel re-exports them
 // so the public surface is unchanged.

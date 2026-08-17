@@ -11,6 +11,7 @@
  */
 import { tool } from "ai";
 import { z } from "zod";
+import { PRODUCT_NAME } from "../brand";
 import { runReadOnlyQuery } from "../datasources/client";
 import { listDatasources } from "../datasources/config";
 
@@ -18,17 +19,18 @@ export interface SqlToolContext {
     abortSignal?: AbortSignal;
 }
 
+/** How to get a connection when there is none — the agent can write one itself. */
+const NO_CONNECTIONS = `No datasources are configured yet. You can add one yourself: read ${PRODUCT_NAME}://docs/config.md ("Add a datasource") for the file location and JSON shape, write the connection, then ask the user to run /reload. (/datasource is the interactive equivalent, and is where the user tests a connection.)`;
+
 function knownConnections(): string {
     const ids = listDatasources().map((d) => d.id);
-    return ids.length ? ids.join(", ") : "(none configured — add one with /datasource)";
+    return ids.length ? ids.join(", ") : `(none configured — see ${PRODUCT_NAME}://docs/config.md to add one)`;
 }
 
 /** Enumerate configured connections (id · type · host/db) for the tool description. */
 function connectionCatalog(): string {
     const sources = listDatasources();
-    if (sources.length === 0) {
-        return "No datasources are configured yet — tell the user to add one with /datasource.";
-    }
+    if (sources.length === 0) return NO_CONNECTIONS;
     const lines = sources.map(({ id, config }) => `  - ${id} (${config.type} · ${config.host}/${config.database})`);
     return `Available connectionId values:\n${lines.join("\n")}`;
 }
@@ -52,7 +54,7 @@ export function createSqlTool(ctx: SqlToolContext) {
             "discover tables and columns before querying; add a LIMIT to exploratory queries.\n\n" +
             connectionCatalog(),
         inputSchema: z.object({
-            connectionId: z.string().describe("Id of a datasource configured via /datasource (see the list above)"),
+            connectionId: z.string().describe("Id of a saved datasource (see the list in the description above)"),
             query: z.string().describe("A single read-only SQL statement"),
         }),
         execute: async ({ connectionId, query }, options) => {

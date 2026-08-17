@@ -58,6 +58,7 @@ import {
     loginApiKey,
     logout,
     parseCustomProviderId,
+    refreshConfigStores,
     settingsStore,
 } from "../auth";
 import {
@@ -85,7 +86,7 @@ import {
     listDatasources,
     saveDatasource,
 } from "../datasources/config";
-import { closePool, testConnection } from "../datasources/client";
+import { closeAllPools, closePool, testConnection } from "../datasources/client";
 import {
     addProjectServer,
     getMcpManager,
@@ -1182,7 +1183,15 @@ export class RpcServer {
                 // Deliberately NOT here: the session's own model/agent choice.
                 // A reload refreshes what the app knows, it does not re-decide
                 // what an open conversation is running.
-                settingsStore.refresh();
+                //
+                // All three JSON stores, not just settings: auth.json (custom
+                // providers) and datasources.json are hand-editable too, and the
+                // internal docs tell the agent to write them and then ask for a
+                // reload.
+                refreshConfigStores();
+                // Datasource pools are keyed by connectionId, so an edited
+                // host/password would keep dialing the old one until restart.
+                await closeAllPools();
 
                 const reloadCwd = String(params.cwd ?? process.cwd());
 

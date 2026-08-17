@@ -64,7 +64,7 @@ export function createReadTool(ctx: ReadToolContext) {
 - \`${PRODUCT_NAME}://fetch/<url>\` (or a bare http(s):// URL) → fetches the page and returns it as readable text (HTML stripped).
 - \`${PRODUCT_NAME}://docs\` → lists ${PRODUCT_NAME}'s internal docs. \`${PRODUCT_NAME}://docs/<name>.md\` reads one (e.g. \`${PRODUCT_NAME}://docs/config.md\`).
 
-IMPORTANT: when the user asks to add or change a model, custom provider, hook, MCP server, or custom agent, FIRST read \`${PRODUCT_NAME}://docs/config.md\` for the exact file locations and JSON shapes, then make the change. After editing any ${PRODUCT_NAME} config, tell the user to hard-reload with /reload or by restarting ${PRODUCT_NAME} — config changes don't apply to the running session until then.`,
+IMPORTANT: when the user asks to add or change a model, custom provider, datasource (database connection for the \`sql\` tool), hook, MCP server, permission rule, or custom agent, FIRST read \`${PRODUCT_NAME}://docs/config.md\` for the exact file locations and JSON shapes, then make the change yourself with edit/write. ${PRODUCT_NAME}'s config is plain JSON and markdown files that you can edit — do NOT tell the user to go configure it by hand in a slash-command panel, and do not claim you are unable to. After editing any ${PRODUCT_NAME} config, tell the user to hard-reload with /reload or by restarting ${PRODUCT_NAME} — config changes don't apply to the running session until then.`,
         inputSchema: z.object({
             path: z
                 .string()

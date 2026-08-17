@@ -11,11 +11,13 @@ import {
     agentExists,
     bustCatalogCache,
     canonicalProjectDir,
+    closeAllPools,
     getCatalog,
     getMcpManager,
     getExtensionHost,
     getProjectBashAllow,
     PRODUCT_NAME,
+    refreshConfigStores,
     registerBuiltins,
     settingsStore,
     type CommandContext,
@@ -432,10 +434,15 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
             showWorking("Reloading");
             tui.requestRender();
             try {
-                // Drop the cached settings.json so every getSetting below (theme,
-                // hooks, mcp gating, mcpServers) reads the on-disk values. Without
-                // this the "hard reload" silently served stale cached config.
-                settingsStore.refresh();
+                // Drop the cached config files so every read below (theme, hooks,
+                // mcp gating, mcpServers, custom providers, datasources) sees the
+                // on-disk values. Without this the "hard reload" silently served
+                // stale cached config.
+                refreshConfigStores();
+                // Datasource pools are cached per connectionId, so an edited
+                // host/password would keep dialing the old one. Drop them; the
+                // next sql query reconnects from the fresh config.
+                await closeAllPools();
 
                 // UI mode + theme (settings may have changed on disk). A mode
                 // change needs the transcript rebuilt — construction-time
@@ -483,7 +490,7 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
 
                 tui.invalidate();
                 history.addSystem(
-                    `reloaded — settings, theme, commands, agents, hooks config, models (${available}/${Object.keys(cat).length} available)`,
+                    `reloaded — settings, auth, datasources, theme, commands, agents, hooks config, models (${available}/${Object.keys(cat).length} available)`,
                 );
             } catch (err) {
                 history.addError(`reload failed: ${err instanceof Error ? err.message : String(err)}`);
