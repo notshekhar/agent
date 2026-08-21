@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.11] - 2026-08-21
+
+### Fixed
+
+- **`loop upgrade` looked like it hung.** It printed `Install method: binary` and then nothing: no progress bar, no download, for long enough that the only thing to do was kill it. The installer was drawing its bar out of `curl --trace-ascii`, which makes curl write a hex-and-ascii transcript of every byte of the 27 MB tarball into a pipe, and then asks bash to parse the hundred-odd megabytes that come out one line at a time. Measured in a real terminal: 82 seconds for a download that takes 3, sitting at `0%` for the first chunk of it. It reads the size up front and watches the file grow instead — 82s to 3s, on the one path every upgrade takes. (Piping the installer's output hid this completely, which is why it survived a release: the fancy bar only runs on a terminal.)
+- **loop opened two entries per launch in cmux.** `SessionStart` fires when loop boots, but loop has no session until you send the first prompt — so that one row was filed against the pane and everything afterwards against the session, leaving a near-empty second workstream beside the real one every time. Events from before the session exists are held and replayed into it now, so a launch is one entry: session start, your prompt, the tools, the turn ending.
+
 ## [0.19.10] - 2026-08-21
 
 ### Added
