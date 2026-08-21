@@ -78,7 +78,7 @@ import { createWorkingIndicator } from "./working-indicator";
 import { createAgentStatusBus } from "./agent-status";
 import { basename } from "node:path";
 import { attachCmuxReporter, setCmuxReporter } from "./cmux-reporter";
-import { setTerminalTitle } from "./session-title";
+import { attachTerminalTitle } from "./session-title";
 import { attachHerdrReporter } from "./herdr-reporter";
 import { createTicker } from "./ticker";
 import { registerAppKeybindings } from "./app-keybindings";
@@ -414,7 +414,11 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     // either beats the stale shell command a terminal shows otherwise, which
     // is what cmux was rendering on loop's pane card.
     const titleDeps = { tui } as unknown as AppDeps;
-    setTerminalTitle(titleDeps, state.session?.getName() || basename(state.cwd) || PRODUCT_NAME);
+    const stopTerminalTitle = attachTerminalTitle(
+        agentStatus,
+        titleDeps,
+        state.session?.getName() || basename(state.cwd) || PRODUCT_NAME,
+    );
 
     // Notification hook on agent-driven waits (Claude Code parity): when a
     // prompt opens mid-turn, external watchers get the "needs attention"
@@ -654,6 +658,9 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         // Give the terminal its own background back (OSC 111; no-op unwashed).
         resetCanvasWash();
         printResumeHint(state.session?.id);
+        // Put the tab back to a plain name: whatever spinner frame was showing
+        // would otherwise be the last thing this terminal was told.
+        stopTerminalTitle();
         // Tear down MCP transports (stdio subprocesses, sockets) on the way out.
         void getMcpManager().close();
         // Gateway daemons are separate processes, but not immortal ones: stop

@@ -16,6 +16,7 @@ import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { hookBus, type HookPayload } from "@notshekhar/loop-core";
 import { createAgentStatusBus } from "../src/interactive/agent-status";
+import { attachTerminalTitle, setTabName } from "../src/interactive/session-title";
 import { attachCmuxReporter, type CmuxReporter, type CmuxSessionRef } from "../src/interactive/cmux-reporter";
 
 const tick = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -490,5 +491,69 @@ describe("cmux reporter", () => {
         hookBus.emit("event", hook("SessionStart"));
         expect(await reporter.requestApproval({ kind: "bash", toolName: "bash", body: "ls" })).toBeNull();
         await reporter.release(); // resolves despite no server
+    });
+});
+
+describe("terminal title", () => {
+    /** A TUI stand-in that just records what the tab was told. */
+    const fakeDeps = () => {
+        const titles: string[] = [];
+        return { deps: { tui: { setTitle: (t: string) => titles.push(t) } } as never, titles };
+    };
+
+    test("the tab carries the session's name and what loop is doing", async () => {
+        const { deps, titles } = fakeDeps();
+        const bus = createAgentStatusBus(10);
+        const stop = attachTerminalTitle(bus, deps, "Fix the pty test");
+        // Idle is the name alone: an idle pane should read as itself.
+        expect(titles).toEqual(["Fix the pty test"]);
+
+        bus.setWorking();
+        await tick(60);
+        // Spinning: same name, a frame in front, and it actually animates.
+        expect(titles.at(-1)).toMatch(/^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] Fix the pty test$/);
+        const frames = new Set(titles.filter((t) => t.endsWith("Fix the pty test")).map((t) => t[0]));
+        expect(frames.size).toBeGreaterThan(1);
+
+        const close = bus.modalOpened("bash approval");
+        await tick(30);
+        expect(titles.at(-1)).toBe("◆ Fix the pty test");
+
+        close();
+        bus.setIdle();
+        await tick(60);
+        expect(titles.at(-1)).toBe("Fix the pty test");
+
+        // Nothing keeps painting once it is stopped.
+        stop();
+        const settled = titles.length;
+        await tick(60);
+        expect(titles.length).toBe(settled);
+        expect(titles.at(-1)).toBe("Fix the pty test");
+    });
+
+    test("exiting mid-turn leaves a plain name, not a spinner frame", async () => {
+        const { deps, titles } = fakeDeps();
+        const bus = createAgentStatusBus(10);
+        const stop = attachTerminalTitle(bus, deps, "Fix the pty test");
+        bus.setWorking();
+        await tick(40);
+        expect(titles.at(-1)).not.toBe("Fix the pty test"); // spinning
+        stop();
+        expect(titles.at(-1)).toBe("Fix the pty test");
+    });
+
+    test("renaming keeps the state glyph that is showing", async () => {
+        const { deps, titles } = fakeDeps();
+        const bus = createAgentStatusBus(10);
+        const stop = attachTerminalTitle(bus, deps, "loop");
+        bus.setWorking();
+        await tick(40);
+        // The title arrives from the model mid-turn; the spinner must survive it.
+        setTabName(deps, "Add cmux status reporting");
+        await tick(60);
+        expect(titles.at(-1)).toMatch(/^[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] Add cmux status reporting$/);
+        stop();
+        expect(titles.at(-1)).toBe("Add cmux status reporting");
     });
 });

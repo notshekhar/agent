@@ -15,9 +15,23 @@
  * never overwritten.
  */
 import { generateSessionTitle } from "@notshekhar/loop-core";
+import type { AgentStatusBus } from "./agent-status";
 import type { AppDeps } from "./deps";
 import type { AppState } from "./state";
 import { traceEvent } from "./debug-log";
+
+/**
+ * The tab also says what loop is DOING, because a title alone cannot: a row
+ * of panes all reading "Fix the pty test" tells you nothing about which one
+ * is still thinking and which is waiting on you. Braille spinner while a turn
+ * runs (loop's own frames, the ones the working indicator uses), a filled
+ * marker when a prompt needs you, nothing at all when idle — an idle pane
+ * should read as its name, not as a status.
+ */
+const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+const BLOCKED_GLYPH = "◆";
+/** Slower than the on-screen spinner: this repaints someone else's chrome. */
+const SPIN_INTERVAL_MS = 250;
 
 /** Sessions already titled in this process — one attempt each, ever. */
 const attempted = new Set<string>();
@@ -29,6 +43,76 @@ export function setTerminalTitle(deps: AppDeps, title: string): void {
     } catch {
         // A terminal that refuses a title is not a reason to fail a turn.
     }
+}
+
+/**
+ * The tab title is two independent halves — the session's name, and the state
+ * glyph in front of it — written by two different things (the titler, and the
+ * status bus). They live here so either can change without erasing the other:
+ * a title arriving mid-turn must not blank the spinner for a frame.
+ */
+let currentTitle = "";
+let currentPrefix = "";
+let paintTab: (() => void) | undefined;
+
+/**
+ * Keep the terminal's tab showing this pane's name AND its state, the way
+ * Claude Code's does. Returns a stop function; the caller stops it on exit so
+ * the last thing written is a plain, un-spinning title rather than whichever
+ * animation frame happened to be showing.
+ */
+export function attachTerminalTitle(bus: AgentStatusBus, deps: AppDeps, initialTitle: string): () => void {
+    currentTitle = initialTitle;
+    currentPrefix = "";
+    let frame = 0;
+    let timer: ReturnType<typeof setInterval> | undefined;
+
+    const repaint = (): void => {
+        setTerminalTitle(deps, currentPrefix ? `${currentPrefix} ${currentTitle}` : currentTitle);
+    };
+    paintTab = repaint;
+
+    const paint = (prefix: string): void => {
+        currentPrefix = prefix;
+        repaint();
+    };
+
+    const stopSpin = (): void => {
+        if (!timer) return;
+        clearInterval(timer);
+        timer = undefined;
+    };
+
+    const apply = (status: "idle" | "working" | "blocked"): void => {
+        if (status === "working") {
+            if (timer) return; // already spinning — don't restart the animation
+            paint(SPINNER[frame]);
+            timer = setInterval(() => {
+                frame = (frame + 1) % SPINNER.length;
+                paint(SPINNER[frame]);
+            }, SPIN_INTERVAL_MS);
+            timer.unref?.();
+            return;
+        }
+        stopSpin();
+        paint(status === "blocked" ? BLOCKED_GLYPH : "");
+    };
+
+    bus.on((e) => apply(e.status));
+    apply(bus.current().status);
+
+    return () => {
+        stopSpin();
+        paint("");
+        paintTab = undefined;
+    };
+}
+
+/** Rename the tab, keeping whatever state glyph is currently showing. */
+export function setTabName(deps: AppDeps, name: string): void {
+    currentTitle = name;
+    if (paintTab) paintTab();
+    else setTerminalTitle(deps, name);
 }
 
 /**
@@ -63,7 +147,7 @@ export async function maybeTitleSession(
         // the model was thinking — check again before writing.
         if (state.session?.id !== session.id || session.getName()) return;
         await session.setName(title);
-        setTerminalTitle(deps, title);
+        setTabName(deps, title);
         traceEvent("session-title", title);
     } catch {
         // Best-effort by design: an unnamed session is a cosmetic loss.
