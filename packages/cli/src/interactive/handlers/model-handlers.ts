@@ -103,15 +103,38 @@ export function createModelHandlers(state: AppState, deps: AppDeps): ModelHandle
             while (true) {
                 const cat = await getCatalog();
                 const custom = new Set(listCustomModelIds());
+                const describe = (m: (typeof cat)[string]) =>
+                    `${m.name}  ·  ctx ${m.contextWindow.toLocaleString()}  ·  $${m.cost.input}/$${m.cost.output}`;
+
+                // Scoped models first, whichever provider they belong to.
+                //
+                // The picker is scoped to the active provider, which is right
+                // for browsing but wrong for the handful you actually work
+                // with: those are the ones already named in `scopedModels`, and
+                // until now the only way to reach one was Ctrl+P cycling. So
+                // they go at the top, keeping their full id (they are not all
+                // under `active`, and the bare name would be ambiguous), and
+                // picking one switches the provider with it.
+                const scoped = (getSetting("scopedModels") ?? [])
+                    .map((id) => cat[id])
+                    .filter((m): m is NonNullable<typeof m> => Boolean(m?.available));
+                const scopedItems: SelectItem[] = scoped.map((m) => ({
+                    value: m.id,
+                    label: `★ ${m.id}`,
+                    description: describe(m),
+                }));
+
+                const scopedIds = new Set(scoped.map((m) => m.id));
                 const modelItems: SelectItem[] = Object.values(cat)
-                    .filter((m) => m.provider === active && m.available)
+                    .filter((m) => m.provider === active && m.available && !scopedIds.has(m.id))
                     .sort((a, b) => a.id.localeCompare(b.id))
                     .map((m) => ({
                         value: m.id,
                         label: m.id.slice(active.length + 1) + (custom.has(m.id) ? "  (custom)" : ""),
-                        description: `${m.name}  ·  ctx ${m.contextWindow.toLocaleString()}  ·  $${m.cost.input}/$${m.cost.output}`,
+                        description: describe(m),
                     }));
                 const items: SelectItem[] = [
+                    ...scopedItems,
                     { value: ADD, label: "+ add model…", description: `register a model id under ${active}` },
                     ...modelItems,
                 ];
@@ -154,6 +177,13 @@ export function createModelHandlers(state: AppState, deps: AppDeps): ModelHandle
                         tui.requestRender();
                         continue;
                     }
+                }
+                // A scoped pick can belong to another provider — follow it, or
+                // the status line and the next turn disagree about who is
+                // serving the model.
+                const picked = cat[pick.value];
+                if (picked && picked.provider !== active) {
+                    setActiveProvider(picked.provider as ProviderId);
                 }
                 applyModel(pick.value);
                 return;

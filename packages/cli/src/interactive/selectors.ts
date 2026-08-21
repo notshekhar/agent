@@ -1,4 +1,13 @@
-import { Container, Editor, type EditorTheme, SelectList, type SelectItem, Text, TUI } from "@notshekhar/loop-tui";
+import {
+    Container,
+    Editor,
+    type EditorTheme,
+    fuzzyFilter,
+    SelectList,
+    type SelectItem,
+    Text,
+    TUI,
+} from "@notshekhar/loop-tui";
 import { DynamicBorder } from "./ui/messages";
 import { getSelectListTheme } from "./ui/theme";
 import { isEsc } from "./keys";
@@ -27,19 +36,37 @@ type TuiWithInput = TUI & {
     addInputListener?: (cb: (d: string) => { consume: boolean } | undefined) => () => void;
 };
 
-/** Default search predicate: case-insensitive substring over value + label + description. */
-function matchItem(item: SelectItem, query: string): boolean {
+/**
+ * Search the list the way the thing you are looking for is actually spelled.
+ *
+ * A plain substring test cannot find a model. Ids carry their own punctuation —
+ * `custom:pronto-gpt/openai/gpt-5.6-sol` — so "gpt5sol" matches nothing, and
+ * typing the two words you remember, "openai sol", matches nothing either
+ * because a space appears nowhere in the id. Both read as the search being
+ * broken rather than the query being wrong.
+ *
+ * The editor's completion menu has always used fuzzy matching for exactly this
+ * (`fuzzyFilter`): tokens split on whitespace and slashes, every token has to
+ * match somewhere as a subsequence, and results come back ranked — word-boundary
+ * and consecutive hits first, so `sol` puts `gpt-5.6-sol` above something that
+ * merely contains those letters. The pickers use it now too.
+ *
+ * Descriptions stay on a substring test and come after the ranked matches.
+ * Fuzzy over a long sentence matches nearly everything, which would bury the
+ * ranking under noise in menus like /settings where descriptions are prose.
+ */
+function filterItems(items: SelectItem[], query: string): SelectItem[] {
+    if (!query.trim()) return items;
+    const ranked = fuzzyFilter(items, query, (item) => `${item.label} ${item.value}`);
+    const seen = new Set(ranked);
     const q = query.toLowerCase();
-    return (
-        item.value.toLowerCase().includes(q) ||
-        item.label.toLowerCase().includes(q) ||
-        (item.description ?? "").toLowerCase().includes(q)
-    );
+    const byDescription = items.filter((item) => !seen.has(item) && (item.description ?? "").toLowerCase().includes(q));
+    return [...ranked, ...byDescription];
 }
 
 /**
  * Like selectOnce, but with a live type-to-filter search box above the list.
- * Printable keys build the query (substring match across value/label/
+ * Printable keys build the query (fuzzy across value/label, substring across
  * description), arrows navigate the filtered set, Enter selects, Esc cancels.
  * For long lists (e.g. an OpenRouter model picker).
  */
@@ -89,7 +116,7 @@ export function searchSelectOnce(
 
         let query = "";
         const applyQuery = () => {
-            list.setItems(query ? items.filter((i) => matchItem(i, query)) : items);
+            list.setItems(filterItems(items, query));
             renderHeader(query);
             host.tui.requestRender();
         };
@@ -193,12 +220,9 @@ export function toggleSelectOnce(
         wrapper.addChild(list);
         wrapper.addChild(new DynamicBorder());
         wrapper.addChild(
-            new Text(dim(" type to filter · ↑↓ navigate · Enter/Space toggle · done confirms · Esc cancel"), 0, 0),
+            new Text(dim(" type to filter · ↑↓ navigate · Enter toggles · done confirms · Esc cancel"), 0, 0),
         );
         const close = host.showSelector(wrapper, list);
-
-        let current: SelectItem = items[0];
-        list.onSelectionChange = (item) => (current = item);
 
         let done = false;
         const finish = (v: string[] | null) => {
@@ -233,31 +257,28 @@ export function toggleSelectOnce(
 
         let query = "";
         const applyQuery = () => {
-            const visible = query
-                ? valueItems.filter((i) => i.value.toLowerCase().includes(query.toLowerCase()))
-                : valueItems;
+            const visible = query.trim() ? fuzzyFilter(valueItems, query, (i) => i.value) : valueItems;
             list.setItems([items[0], ...visible]);
-            // setItems resets the cursor to 0 without firing onSelectionChange —
-            // re-sync so Space can't toggle a stale entry.
-            current = items[0];
             renderHeader(query);
             host.tui.requestRender();
         };
 
-        // Space toggles the highlighted entry; backspace edits the query;
-        // other printable chars filter. Arrows/Enter/Esc fall through to the list.
+        // Every printable character builds the query, space included; Enter
+        // toggles the highlighted entry.
+        //
+        // Space used to be the toggle key, which meant it could never reach the
+        // query — and with a fuzzy filter the space is how you separate the two
+        // words you actually remember ("openai sol"). A list you cannot type a
+        // space into reads as a search that is broken. Enter was always a
+        // toggle as well, so nothing is lost by letting it be the only one.
         const onInput = (data: string): { consume: boolean } | undefined => {
-            if (data === " ") {
-                toggle(current);
-                return { consume: true };
-            }
             if (data === "\x7f" || data === "\b") {
                 if (!query) return undefined;
                 query = query.slice(0, -1);
                 applyQuery();
                 return { consume: true };
             }
-            if (data.length === 1 && data > " " && data !== "\x7f") {
+            if (data.length === 1 && data >= " " && data !== "\x7f") {
                 query += data;
                 applyQuery();
                 return { consume: true };
