@@ -40,7 +40,7 @@ function emptyStream() {
                 controller.enqueue({ type: "text-end", id: "t0" });
                 controller.enqueue({
                     type: "finish",
-                    finishReason: "stop",
+                    finishReason: { unified: "stop", raw: "end_turn" },
                     usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
                 });
                 controller.close();

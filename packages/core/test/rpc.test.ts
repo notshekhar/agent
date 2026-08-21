@@ -32,7 +32,11 @@ function textTurn(text: string) {
         { type: "text-start", id: "t0" },
         ...text.split("").map((c) => ({ type: "text-delta", id: "t0", delta: c })),
         { type: "text-end", id: "t0" },
-        { type: "finish", finishReason: "stop", usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 } },
+        {
+            type: "finish",
+            finishReason: { unified: "stop", raw: "end_turn" },
+            usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+        },
     ]);
 }
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

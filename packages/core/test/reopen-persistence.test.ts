@@ -53,6 +53,11 @@ describe("turns survive being reopened from disk", () => {
 
         // Step 1 calls a tool; step 2 writes the final answer. Before the fix,
         // step 2's messages were sliced away and never persisted.
+        //
+        // `finishReason` is the provider-level shape ({unified, raw}), not the
+        // string the SDK hands back to callers. ai@7.0.70 started refusing to
+        // run tools after a call whose finish reason it cannot read, so a mock
+        // still sending the old string silently loses its second step.
         const FINAL = "FINAL ANSWER: the detailed multi-paragraph explanation";
         let call = 0;
         const model = new MockLanguageModelV3({
@@ -63,7 +68,7 @@ describe("turns survive being reopened from disk", () => {
                         { type: "tool-call", toolCallId: "c1", toolName: "ls", input: JSON.stringify({}) },
                         {
                             type: "finish",
-                            finishReason: "tool-calls",
+                            finishReason: { unified: "tool-calls", raw: "tool_use" },
                             usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
                         },
                     ]);
@@ -74,7 +79,7 @@ describe("turns survive being reopened from disk", () => {
                     { type: "text-end", id: "t1" },
                     {
                         type: "finish",
-                        finishReason: "stop",
+                        finishReason: { unified: "stop", raw: "end_turn" },
                         usage: { inputTokens: 20, outputTokens: 30, totalTokens: 50 },
                     },
                 ]);
@@ -122,7 +127,7 @@ describe("turns survive being reopened from disk", () => {
                     { type: "text-end", id: "t0" },
                     {
                         type: "finish",
-                        finishReason: "stop",
+                        finishReason: { unified: "stop", raw: "end_turn" },
                         usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
                     },
                 ]),

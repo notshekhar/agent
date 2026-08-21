@@ -43,7 +43,7 @@ const textParts = (id: string, text: string): Part[] => [
 
 const FINISH: Part = {
     type: "finish",
-    finishReason: "stop",
+    finishReason: { unified: "stop", raw: "end_turn" },
     usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
 };
 
