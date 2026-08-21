@@ -7,6 +7,15 @@
  * a final review screen shows every answer with a Submit row — nothing is
  * sent to the model until the user submits. Registered via setAskUserBridge
  * in app.ts — interactive mode only.
+ *
+ * Inside cmux the whole ask also goes out as one Feed question card, so it can
+ * be answered from the sidebar instead of the terminal. The two answer paths
+ * race: a cmux answer aborts the on-screen flow (which closes its selector and
+ * returns nothing), and answering here withdraws the card. cmux's card has no
+ * review step and returns one choice per question, so it is the fast path, not
+ * a replacement — anything richer (notes, multiple picks, free text) is still
+ * the TUI's, and picking "Other" there is why a returned label that matches no
+ * option is kept as a custom answer rather than dropped.
  */
 import {
     Container,
@@ -18,6 +27,7 @@ import {
     Text,
 } from "@notshekhar/loop-tui";
 import type { AskAnswer, AskQuestion, AskUserBridge } from "@notshekhar/loop-core";
+import { cmux } from "./cmux-reporter";
 import { isEsc, isLeft, isRight } from "./keys";
 import type { SelectorHost } from "./selectors";
 import { DynamicBorder } from "./ui/messages";
@@ -471,10 +481,22 @@ export function createAskUserBridge(deps: AskUserDeps): AskUserBridge {
     // there is only one showSelector slot.
     let chain: Promise<unknown> = Promise.resolve();
 
+    /** cmux answers with one label per question, in order. A label that
+     * matches an option is that option; anything else is what the user typed
+     * into cmux, which is exactly loop's "Other". */
+    const fromSelections = (questions: AskQuestion[], selections: string[]): AskAnswer[] =>
+        questions.map((q, i) => {
+            // One question, several selections: a multi-select answered whole.
+            const picked = questions.length === 1 ? selections : selections.slice(i, i + 1);
+            const answers = picked.filter((v) => typeof v === "string" && v.length > 0);
+            if (answers.length === 0) return { answers: [], declined: true };
+            const known = answers.filter((a) => q.options.some((o) => o.label === a));
+            return { answers, custom: known.length === 0 ? true : undefined };
+        });
+
     return {
         ask(questions, opts) {
-            const run = async (): Promise<AskAnswer[]> => {
-                const signal = opts?.signal;
+            const run = async (signal: AbortSignal | undefined): Promise<AskAnswer[]> => {
                 const n = questions.length;
                 const answers: (AskAnswer | null)[] = Array.from({ length: n }, () => null);
                 // UI state per question, kept across ←/→ so a revisited
@@ -558,7 +580,56 @@ export function createAskUserBridge(deps: AskUserDeps): AskUserBridge {
                 }
                 return answers.map((a) => a ?? { answers: [], declined: true });
             };
-            const p = chain.then(run, run);
+            // The on-screen flow, plus cmux's card when there is a cmux to
+            // show it in. Whichever answers first ends the other; the local
+            // flow is always awaited on the way out so the selector slot is
+            // free before the next queued ask() starts.
+            const raced = async (): Promise<AskAnswer[]> => {
+                const bridge = cmux();
+                if (!bridge.active) return await run(opts?.signal);
+
+                const local = new AbortController();
+                const remote = new AbortController();
+                const cancelBoth = () => {
+                    local.abort();
+                    remote.abort();
+                };
+                opts?.signal?.addEventListener("abort", cancelBoth);
+                if (opts?.signal?.aborted) cancelBoth();
+
+                const localAnswers = run(local.signal);
+                const remoteAnswers = new Promise<AskAnswer[]>((resolve) => {
+                    void bridge
+                        .requestQuestions(
+                            questions.map((q) => ({
+                                header: q.header,
+                                question: q.question,
+                                multiSelect: q.multiSelect === true,
+                                options: q.options.map((o) => ({ label: o.label, description: o.description })),
+                            })),
+                            remote.signal,
+                        )
+                        // No answer from cmux is not an answer: leave this
+                        // promise pending so only the TUI can settle the race.
+                        .then((selections) => {
+                            if (selections) resolve(fromSelections(questions, selections));
+                        })
+                        .catch(() => {});
+                });
+
+                try {
+                    const answers = await Promise.race([localAnswers, remoteAnswers]);
+                    cancelBoth();
+                    // Aborting the local flow closes whatever it had on screen;
+                    // its (declined) answers are dropped for cmux's.
+                    await localAnswers.catch(() => {});
+                    return answers;
+                } finally {
+                    opts?.signal?.removeEventListener("abort", cancelBoth);
+                }
+            };
+
+            const p = chain.then(raced, raced);
             chain = p.catch(() => {});
             return p;
         },

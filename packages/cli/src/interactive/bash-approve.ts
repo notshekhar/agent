@@ -4,13 +4,38 @@
  * plus a deny / allow-once / always-allow menu using the same building blocks
  * as selectors.ts. Registered via setBashApprovalBridge in app.ts —
  * interactive mode only, so print mode / RPC never prompt.
+ *
+ * Inside cmux the same prompt is also pushed to its Feed, so it can be
+ * answered from the sidebar or the notification's buttons without coming back
+ * to the terminal. The two answers race: the first one wins and closes the
+ * other, because they answer the same question — the menu on screen is never
+ * taken away by a remote decision that hasn't been made.
  */
 import { Container, SelectList, type SelectItem, Text } from "@notshekhar/loop-tui";
 import type { BashApprovalBridge, BashApprovalDecision, BashApprovalRequest } from "@notshekhar/loop-core";
+import { cmux, type CmuxPermissionMode } from "./cmux-reporter";
 import type { SelectorHost } from "./selectors";
 import { DynamicBorder } from "./ui/messages";
 import { getSelectListTheme } from "./ui/theme";
 import { accent, dim, warnTitle } from "./ui/text";
+
+/**
+ * cmux's permission modes in loop's terms. "always"/"all"/"bypass" all mean
+ * stop asking — which loop can only honour as a persisted rule when there are
+ * patterns to persist; without them the honest reading is "yes, this time".
+ */
+function fromCmuxMode(mode: CmuxPermissionMode, canPersist: boolean): BashApprovalDecision {
+    switch (mode) {
+        case "deny":
+            return "deny";
+        case "always":
+        case "all":
+        case "bypass":
+            return canPersist ? "always" : "once";
+        default:
+            return "once";
+    }
+}
 
 /** Keep the prompt compact: at most this many command lines, each capped. */
 const MAX_COMMAND_LINES = 6;
@@ -97,17 +122,48 @@ export function createBashApprovalBridge(host: SelectorHost): BashApprovalBridge
                       : "bash approval";
             const close = host.showSelector(wrapper, list, statusLabel);
             let done = false;
+            // Withdraws the cmux card the moment the TUI answers.
+            const remote = new AbortController();
             const onAbort = () => finish("deny");
             const finish = (v: BashApprovalDecision) => {
                 if (done) return;
                 done = true;
                 signal?.removeEventListener("abort", onAbort);
+                remote.abort();
                 close();
                 resolve(v);
             };
             signal?.addEventListener("abort", onAbort);
             list.onSelect = (item) => finish(item.value as BashApprovalDecision);
             list.onCancel = () => finish("deny");
+
+            // cmux Feed card for the same prompt (no-op outside cmux). An
+            // exit-plan approval goes as a plan card, which is the one cmux
+            // renders with the plan text and its own approve/refine choices.
+            const canPersist = items.some((i) => i.value === "always");
+            void cmux()
+                .requestApproval(
+                    {
+                        kind,
+                        toolName: kind === "bash" ? "bash" : kind === "path" ? "file" : "exit_plan_mode",
+                        body: req.command,
+                        title: req.title,
+                        patterns: req.patterns,
+                    },
+                    remote.signal,
+                )
+                .then((decision) => {
+                    if (!decision || done) return;
+                    if (decision.kind === "permission") {
+                        finish(fromCmuxMode(decision.mode, canPersist));
+                        return;
+                    }
+                    // Plan card: every approving mode means "build it"; deny
+                    // and ultraplan (which loop has no equivalent for) both
+                    // mean keep planning, so the agent hears a refusal.
+                    finish(decision.mode === "deny" || decision.mode === "ultraplan" ? "deny" : "once");
+                })
+                .catch(() => {});
         });
 
     // Serialize concurrent confirm() calls (parallel bash tool calls in one

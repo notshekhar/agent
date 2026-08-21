@@ -1141,7 +1141,18 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
         const stopHooks = await runHooks(
             "Stop",
             undefined,
-            { session_id: session.id, transcript_path: session.path, stop_hook_active: hookDepth > 0 },
+            {
+                session_id: session.id,
+                transcript_path: session.path,
+                stop_hook_active: hookDepth > 0,
+                // Beyond Claude Code's payload: what the agent actually said.
+                // Every "the turn is done" watcher wants to show it (cmux's
+                // completion notification is one), and reading it back out of
+                // the transcript to find that out is absurd when the turn is
+                // holding the text right here. Capped — this rides a stdin
+                // pipe to every configured Stop hook.
+                last_assistant_message: assistantText.trim().slice(0, 4_000) || undefined,
+            },
             cwd,
         );
         for (const m of stopHooks.messages) emitter.emit("hook-message", m);

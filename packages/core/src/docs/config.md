@@ -50,6 +50,21 @@ Other notable keys (all managed via `/settings` too):
   env herdr injects): the pane's sidebar entry shows `loop` with live
   working / blocked (waiting on a prompt) / idle state and the session id,
   via herdr's socket API. Outside herdr this does nothing at all.
+- `"cmux": false` — disables the [cmux](https://cmux.com) integration. Default
+  on, and only ever active inside a cmux pane (detected via the env cmux
+  injects). Inside one, every lifecycle event loop already emits as a hook —
+  session start/end, prompts, tool calls, todo lists, turn completion — is
+  mirrored into cmux's Feed sidebar over its socket, and the prompts that stop
+  the agent (bash / file-access / plan approvals and the ask tool's questions)
+  are pushed as actionable cards: answer one in cmux's sidebar or from its
+  notification buttons and the on-screen prompt closes with that answer.
+  Whichever side answers first wins; nothing is ever waited on, so a cmux that
+  is gone or slow costs the turn nothing. loop also registers a resume command
+  (`loop --session <id>`) with the pane, which cmux offers when it restores
+  that terminal. Two limits are cmux's, not loop's: its Feed labels rows from
+  an allowlist of agents it knows, so loop's land under the default `claude`
+  label (its event stream keeps `_source: "loop"`), and the per-tab agent
+  lifecycle dot is only written for agents on that list.
 - `"skills": false` — disables skills. Default on (gated by project trust):
   skills are SKILL.md folders under `~/{{dir}}/agent/skills/` (global) and
   `<cwd>/{{dir}}/skills/` (project); the agent loads one via the `skill`

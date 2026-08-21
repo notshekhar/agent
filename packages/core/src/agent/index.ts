@@ -85,6 +85,7 @@ export {
     removePiUserHook,
     HOOK_EVENTS,
     type HookEvent,
+    type HookPayload,
     type HooksConfig,
     type HookOutcome,
     type HookSourceEntry,

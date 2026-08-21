@@ -57,8 +57,11 @@ export interface HookCommand {
 /**
  * Observable hook activity: emits "start" ({event, command, statusMessage?})
  * and "end" ({event, command, code, timedOut, durationMs}) for every hook
- * command. Lets UIs show progress and future integrations subscribe without
- * touching the dispatch path.
+ * command, plus "event" (the full HookPayload) for every dispatched lifecycle
+ * event — configured hooks or not. Lets UIs show progress and in-process
+ * agent-state watchers (the cmux reporter) subscribe without touching the
+ * dispatch path, and without asking the user to install hook commands that
+ * shell out to report state we already have.
  */
 export const hookBus = new EventEmitter();
 
@@ -620,10 +623,19 @@ export async function runHooks(
 ): Promise<HookOutcome> {
     const outcome: HookOutcome = { block: false, messages: [], terminalSequences: [] };
     try {
+        const fullPayload: HookPayload = { ...payload, cwd, hook_event_name: event };
+        // Watchers first, and unconditionally: an in-process consumer wants
+        // every event, and the common case (no hook commands configured for
+        // it) returns below. A watcher that throws is its own problem — it
+        // must not surface as a hook system error on the agent's turn.
+        if (hookBus.listenerCount("event") > 0) {
+            try {
+                hookBus.emit("event", fullPayload);
+            } catch {}
+        }
+
         const groups = loadHooksConfig(cwd)[event];
         if (!groups?.length) return outcome;
-
-        const fullPayload: HookPayload = { ...payload, cwd, hook_event_name: event };
 
         const fireAndForget: HookCommand[] = [];
         const sync: HookCommand[] = [];

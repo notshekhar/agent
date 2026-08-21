@@ -1,0 +1,369 @@
+/**
+ * cmux reporter (cmux-reporter.ts) against a real unix socket standing in for
+ * cmux, asserting the exact `feed.push` frames cmux would receive for a
+ * scripted turn and the decisions it can push back.
+ *
+ * The frames are the contract — they were read off a live cmux, so a test
+ * that only checked "something was sent" would not have caught any of the
+ * three things that actually mattered: a card only parks when it carries a
+ * request id, cmux keys its reply by that id, and telemetry must never wait.
+ * The env gate and the dead-socket path are here for the same reason they are
+ * in the herdr test: outside cmux, or with cmux gone, this must be inert.
+ */
+import { afterEach, describe, expect, test } from "bun:test";
+import { join } from "node:path";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { hookBus, type HookPayload } from "@notshekhar/loop-core";
+import { attachCmuxReporter, type CmuxReporter } from "../src/interactive/cmux-reporter";
+
+const tick = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Poll instead of sleeping: the resume binding is a subprocess, and how long
+ * a fork takes is not something a test should be asserting on. */
+async function until<T>(read: () => T | undefined, deadlineMs = 5_000): Promise<T> {
+    const end = Date.now() + deadlineMs;
+    for (;;) {
+        const value = read();
+        if (value !== undefined) return value;
+        if (Date.now() > end) throw new Error("timed out waiting for the cmux CLI to be called");
+        await tick(25);
+    }
+}
+
+/** The recorded argv, once the fake cmux binary has written the line we want. */
+const argvOnce = (log: string, marker: string) =>
+    until(() => {
+        if (!existsSync(log)) return undefined;
+        const lines = readFileSync(log, "utf8").trim().split("\n");
+        return lines.includes(marker) ? lines : undefined;
+    });
+
+type Frame = { id: string; method: string; params: { event: Record<string, unknown>; wait_timeout_seconds: number } };
+
+/**
+ * Line-delimited JSON-RPC server that behaves the way cmux does: a push with
+ * `_opencode_request_id` parks (no reply until the test answers it), anything
+ * else is acked as telemetry straight away.
+ */
+function fakeCmux(socketPath: string) {
+    const frames: Frame[] = [];
+    const parked = new Map<string, { write: (s: string) => void; id: string }>();
+    const server = Bun.listen({
+        unix: socketPath,
+        socket: {
+            data(socket, data) {
+                for (const line of data.toString().split("\n")) {
+                    if (!line.trim()) continue;
+                    const frame = JSON.parse(line) as Frame;
+                    frames.push(frame);
+                    const requestId = frame.params.event._opencode_request_id as string | undefined;
+                    if (requestId) {
+                        parked.set(requestId, { write: (s) => socket.write(s), id: frame.id });
+                        continue;
+                    }
+                    socket.write(`${JSON.stringify({ id: frame.id, ok: true, result: { status: "acknowledged" } })}\n`);
+                }
+            },
+        },
+    });
+    return {
+        frames,
+        events: () => frames.map((f) => f.params.event),
+        /** Answer a parked card the way a click in cmux's sidebar would. */
+        resolve(requestId: string, decision: Record<string, unknown>) {
+            const waiter = parked.get(requestId);
+            if (!waiter) throw new Error(`no parked card for ${requestId}`);
+            parked.delete(requestId);
+            waiter.write(`${JSON.stringify({ id: waiter.id, ok: true, result: { status: "resolved", decision } })}\n`);
+        },
+        parkedIds: () => [...parked.keys()],
+        stop: () => server.stop(true),
+    };
+}
+
+const cmuxEnv = (socketPath: string): NodeJS.ProcessEnv => ({
+    CMUX_SOCKET_PATH: socketPath,
+    CMUX_SURFACE_ID: "surface-1",
+    CMUX_WORKSPACE_ID: "workspace-1",
+});
+
+/** What runHooks pushes onto the bus for one event. */
+const hook = (name: string, extra: Record<string, unknown> = {}): HookPayload =>
+    ({ cwd: () => "/repo", hook_event_name: name, session_id: "s1", ...extra }) as HookPayload;
+
+describe("cmux reporter", () => {
+    let dir: string | undefined;
+    let stopServer: (() => void) | undefined;
+    let reporter: CmuxReporter | undefined;
+
+    afterEach(async () => {
+        // Release first: it unsubscribes from the process-wide hook bus, which
+        // would otherwise leak this test's listener into the next one.
+        await reporter?.release();
+        reporter = undefined;
+        stopServer?.();
+        stopServer = undefined;
+        if (dir) rmSync(dir, { recursive: true, force: true });
+        dir = undefined;
+    });
+
+    function start(server: ReturnType<typeof fakeCmux>, socketPath: string): CmuxReporter {
+        reporter = attachCmuxReporter({
+            getSession: () => ({ id: "abc123", path: "/tmp/abc123.jsonl" }),
+            cwd: () => "/repo",
+            env: cmuxEnv(socketPath),
+            bindResume: false, // no shelling out to the cmux CLI in tests
+            decisionWaitSeconds: 2,
+            connectTimeoutMs: 100,
+        });
+        expect(reporter.active).toBe(true);
+        return reporter;
+    }
+
+    test("forwards loop's hook events as feed telemetry", async () => {
+        dir = mkdtempSync(join(tmpdir(), "cmux-test-"));
+        const socketPath = join(dir, "cmux.sock");
+        const server = fakeCmux(socketPath);
+        stopServer = server.stop;
+        start(server, socketPath);
+
+        hookBus.emit("event", hook("SessionStart"));
+        hookBus.emit("event", hook("UserPromptSubmit", { prompt: "ship the cmux bridge" }));
+        hookBus.emit("event", hook("PreToolUse", { tool_name: "bash", tool_input: { command: "bun test" } }));
+        hookBus.emit("event", hook("PostToolUse", { tool_name: "bash", tool_output: "12 pass" }));
+        hookBus.emit("event", hook("Stop", { last_assistant_message: "done", stop_hook_active: false }));
+        await tick(120);
+
+        const events = server.events();
+        expect(events.map((e) => e.hook_event_name)).toEqual([
+            "SessionStart",
+            "UserPromptSubmit",
+            "PreToolUse",
+            "PostToolUse",
+            "Stop",
+        ]);
+        // Every frame carries the pane and the session, under loop's own name.
+        for (const e of events) {
+            expect(e._source).toBe("loop");
+            expect(e.session_id).toBe("loop-abc123");
+            expect(e.surface_id).toBe("surface-1");
+            expect(e.workspace_id).toBe("workspace-1");
+        }
+        // Telemetry never asks cmux to park.
+        expect(server.frames.every((f) => f.params.wait_timeout_seconds === 0)).toBe(true);
+        expect(events[1].tool_input).toEqual({ prompt: "ship the cmux bridge" });
+        expect(events[2].tool_input).toEqual({ command: "bun test" });
+        expect(events[3].tool_result).toBe("12 pass");
+        expect(events[4].last_assistant_message).toBe("done");
+        // The prompt rides along as context, so a card seen on a phone says
+        // what it is for.
+        expect(events[2].context).toEqual({ lastUserMessage: "ship the cmux bridge" });
+    });
+
+    test("the todo list also goes out as cmux's TodoWrite", async () => {
+        dir = mkdtempSync(join(tmpdir(), "cmux-test-"));
+        const socketPath = join(dir, "cmux.sock");
+        const server = fakeCmux(socketPath);
+        stopServer = server.stop;
+        start(server, socketPath);
+
+        const todos = [{ content: "wire the bridge", status: "in_progress" }];
+        hookBus.emit("event", hook("PostToolUse", { tool_name: "todo", tool_input: { todos } }));
+        await tick(120);
+
+        const events = server.events();
+        expect(events.map((e) => e.hook_event_name)).toEqual(["PostToolUse", "TodoWrite"]);
+        expect(events[1].tool_input).toEqual({ todos });
+    });
+
+    test("an approval parks until cmux answers, and the answer comes back", async () => {
+        dir = mkdtempSync(join(tmpdir(), "cmux-test-"));
+        const socketPath = join(dir, "cmux.sock");
+        const server = fakeCmux(socketPath);
+        stopServer = server.stop;
+        const r = start(server, socketPath);
+
+        const pending = r.requestApproval({
+            kind: "bash",
+            toolName: "bash",
+            body: "rm -rf build",
+            patterns: ["rm:*"],
+        });
+        await tick(50);
+
+        const [id] = server.parkedIds();
+        expect(id).toBeDefined();
+        const card = server.events()[0];
+        expect(card.hook_event_name).toBe("PermissionRequest");
+        expect(card.tool_name).toBe("bash");
+        expect(card.tool_input).toMatchObject({ command: "rm -rf build", patterns: ["rm:*"] });
+        expect(server.frames[0].params.wait_timeout_seconds).toBe(2);
+
+        server.resolve(id!, { kind: "permission", mode: "always" });
+        expect(await pending).toEqual({ kind: "permission", mode: "always" });
+    });
+
+    test("a plan approval is an ExitPlanMode card", async () => {
+        dir = mkdtempSync(join(tmpdir(), "cmux-test-"));
+        const socketPath = join(dir, "cmux.sock");
+        const server = fakeCmux(socketPath);
+        stopServer = server.stop;
+        const r = start(server, socketPath);
+
+        const pending = r.requestApproval({ kind: "exit-plan", toolName: "exit_plan_mode", body: "# Plan\n- one" });
+        await tick(50);
+        const card = server.events()[0];
+        expect(card.hook_event_name).toBe("ExitPlanMode");
+        expect(card.tool_input).toEqual({ plan: "# Plan\n- one" });
+
+        server.resolve(server.parkedIds()[0]!, { kind: "exit_plan", mode: "manual" });
+        expect(await pending).toEqual({ kind: "exit_plan", mode: "manual" });
+    });
+
+    test("questions go as one card and come back as selections", async () => {
+        dir = mkdtempSync(join(tmpdir(), "cmux-test-"));
+        const socketPath = join(dir, "cmux.sock");
+        const server = fakeCmux(socketPath);
+        stopServer = server.stop;
+        const r = start(server, socketPath);
+
+        const pending = r.requestQuestions([
+            { header: "Scope", question: "How far?", options: [{ label: "Small" }, { label: "Big" }] },
+        ]);
+        await tick(50);
+        const card = server.events()[0];
+        expect(card.hook_event_name).toBe("AskUserQuestion");
+        expect(card.tool_input).toEqual({
+            questions: [
+                {
+                    id: "q0",
+                    header: "Scope",
+                    question: "How far?",
+                    multiSelect: false,
+                    options: [
+                        { id: "opt0", label: "Small", description: undefined },
+                        { id: "opt1", label: "Big", description: undefined },
+                    ],
+                },
+            ],
+        });
+
+        server.resolve(server.parkedIds()[0]!, { kind: "question", selections: ["Big"] });
+        expect(await pending).toEqual(["Big"]);
+    });
+
+    test("the TUI answering first withdraws the card", async () => {
+        dir = mkdtempSync(join(tmpdir(), "cmux-test-"));
+        const socketPath = join(dir, "cmux.sock");
+        const server = fakeCmux(socketPath);
+        stopServer = server.stop;
+        const r = start(server, socketPath);
+
+        const abort = new AbortController();
+        const pending = r.requestApproval({ kind: "bash", toolName: "bash", body: "ls" }, abort.signal);
+        await tick(50);
+        abort.abort(); // the on-screen menu was answered
+        expect(await pending).toBeNull();
+    });
+
+    test("nobody answers: the card times out and the prompt stays the TUI's", async () => {
+        dir = mkdtempSync(join(tmpdir(), "cmux-test-"));
+        const socketPath = join(dir, "cmux.sock");
+        const server = fakeCmux(socketPath);
+        stopServer = server.stop;
+        reporter = attachCmuxReporter({
+            getSession: () => ({ id: "abc123", path: null }),
+            cwd: () => "/repo",
+            env: cmuxEnv(socketPath),
+            bindResume: false,
+            decisionWaitSeconds: 0.05,
+            connectTimeoutMs: 10,
+        });
+        expect(await reporter.requestApproval({ kind: "bash", toolName: "bash", body: "ls" })).toBeNull();
+    });
+
+    test("registers a resume command for the live session", async () => {
+        dir = mkdtempSync(join(tmpdir(), "cmux-test-"));
+        const socketPath = join(dir, "cmux.sock");
+        const server = fakeCmux(socketPath);
+        stopServer = server.stop;
+        // A cmux CLI that only records how it was called.
+        const log = join(dir, "argv.log");
+        const bin = join(dir, "cmux");
+        writeFileSync(bin, `#!/bin/sh\nprintf '%s\\n' "$@" >> ${log}\n`);
+        chmodSync(bin, 0o755);
+
+        reporter = attachCmuxReporter({
+            getSession: () => ({ id: "abc123", path: null }),
+            cwd: () => "/repo",
+            env: { ...cmuxEnv(socketPath), CMUX_BUNDLED_CLI_PATH: bin },
+            decisionWaitSeconds: 1,
+        });
+
+        const argv = await argvOnce(log, "set");
+        expect(argv.slice(0, 4)).toEqual(["--json", "surface", "resume", "set"]);
+        expect(argv).toContain("--checkpoint-id");
+        expect(argv[argv.indexOf("--checkpoint-id") + 1]).toBe("abc123");
+        expect(argv.slice(argv.indexOf("--workspace"), argv.indexOf("--workspace") + 4)).toEqual([
+            "--workspace",
+            "workspace-1",
+            "--surface",
+            "surface-1",
+        ]);
+        // The command cmux would run to bring this session back.
+        const argvTail = argv.slice(argv.indexOf("--") + 1);
+        expect(argvTail).toContain("--session");
+        expect(argvTail[argvTail.indexOf("--session") + 1]).toBe("abc123");
+
+        // Exiting drops the binding: the session is not coming back.
+        await reporter.release();
+        reporter = undefined;
+        const after = await argvOnce(log, "clear");
+        expect(after.slice(after.indexOf("clear") - 3, after.indexOf("clear") + 1)).toEqual([
+            "--json",
+            "surface",
+            "resume",
+            "clear",
+        ]);
+    });
+
+    test("inert outside cmux: no socket traffic, no subscription", () => {
+        const before = hookBus.listenerCount("event");
+        const inert = attachCmuxReporter({ getSession: () => null, cwd: () => "/repo", env: {} });
+        expect(inert.active).toBe(false);
+        expect(hookBus.listenerCount("event")).toBe(before);
+
+        // A socket path alone is not a cmux pane — the surface id is.
+        expect(
+            attachCmuxReporter({ getSession: () => null, cwd: () => "/repo", env: { CMUX_SOCKET_PATH: "/tmp/x.sock" } })
+                .active,
+        ).toBe(false);
+        // Setting opt-out wins even inside cmux.
+        expect(
+            attachCmuxReporter({
+                getSession: () => null,
+                cwd: () => "/repo",
+                disabled: true,
+                env: cmuxEnv("/tmp/x.sock"),
+            }).active,
+        ).toBe(false);
+    });
+
+    test("dead socket: telemetry and decisions resolve without throwing", async () => {
+        dir = mkdtempSync(join(tmpdir(), "cmux-test-"));
+        const socketPath = join(dir, "gone.sock"); // never listened on
+        reporter = attachCmuxReporter({
+            getSession: () => ({ id: "abc123", path: null }),
+            cwd: () => "/repo",
+            env: cmuxEnv(socketPath),
+            bindResume: false,
+            decisionWaitSeconds: 1,
+            connectTimeoutMs: 20,
+        });
+        expect(reporter.active).toBe(true);
+        hookBus.emit("event", hook("SessionStart"));
+        expect(await reporter.requestApproval({ kind: "bash", toolName: "bash", body: "ls" })).toBeNull();
+        await reporter.release(); // resolves despite no server
+    });
+});

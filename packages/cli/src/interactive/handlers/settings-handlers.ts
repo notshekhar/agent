@@ -72,6 +72,7 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
         mcp: true,
         bashApprove: false,
         herdr: true,
+        cmux: true,
         pinnedInput: false,
     };
     const boolSetting = (key: string): boolean =>
@@ -222,6 +223,12 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                         label: `herdr reporting: ${boolSetting("herdr") ? "on" : "off"}`,
                         description:
                             "report working/blocked/idle to herdr panes (no-op outside herdr; applies next launch)",
+                    },
+                    {
+                        value: "cmux",
+                        label: `cmux integration: ${boolSetting("cmux") ? "on" : "off"}`,
+                        description:
+                            "mirror activity into cmux's Feed and let it answer approvals (no-op outside cmux; applies next launch)",
                     },
                     {
                         value: "bashDeny",

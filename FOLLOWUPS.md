@@ -155,3 +155,42 @@ again.
 the header also carries commit/push, and whether a scope should persist across
 sessions at all — reopening the panel to a half-remembered comparison is what
 made the old one confusing.
+
+---
+
+## 5. Two halves of the cmux integration need a change on cmux's side
+
+**Where:** `packages/cli/src/interactive/cmux-reporter.ts`.
+
+**What happens today.** Inside a cmux pane loop mirrors its lifecycle events
+into cmux's Feed and gets its approvals answered there — all of it over public
+socket verbs, with nothing to install. Two things it cannot reach:
+
+- **Feed rows are labelled `claude`.** `feed.push` honours the event's
+  `_source` in cmux's event stream (`cmux events --category feed` shows
+  `source: "loop"`), but the Feed *store* maps the source through a closed
+  allowlist — `pi`, `amp`, `cursor`, `gemini`, `copilot`, `codebuddy`,
+  `factory`, `qoder`, `hermes-agent` and the rest — and anything else falls
+  back to `claude`. Measured by pushing one frame per candidate name and
+  reading back `~/.cmuxterm/workstream.jsonl`.
+- **The per-tab agent lifecycle dot stays empty**, and with it hibernation and
+  automatic session restore. That state lives in
+  `~/.cmuxterm/<agent>-hook-sessions.json`, written only by
+  `cmux hooks <agent> <event>`, which answers `Unknown hooks target: loop`.
+  loop registers a resume command with the surface instead
+  (`cmux surface resume set --kind loop`), which cmux keeps for manual restore
+  and will auto-run once the user approves it — the public path, and by design
+  not the same thing.
+
+**Why it was left.** Both are one entry in an allowlist in a closed-source Swift
+app; nothing on loop's side can fix either. The integration was built to be
+worth having without them, and the parts that need cmux are the cosmetic label
+and the lifecycle dot, not the Feed cards or the decisions coming back.
+
+**Where to start.** `docs/cmux-upstream.md` in this repo is a ready-to-file
+issue for `manaflow-ai/cmux`: register `loop` as a natively-integrated agent
+(no installer — like Campfire, the bridge ships in the agent), add it to the
+feed source enum, and accept `cmux hooks loop <event>` with
+`loop --session <id>` as the resume command. If it lands, the only loop-side
+change is to stop sending `_source` through the generic path and start calling
+`cmux hooks loop …`; the payloads are already the ones cmux expects.

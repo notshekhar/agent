@@ -76,6 +76,7 @@ import { createTurnRunner } from "./turn-runner";
 import { createStatusLineRefresher } from "./status-line-refresh";
 import { createWorkingIndicator } from "./working-indicator";
 import { createAgentStatusBus } from "./agent-status";
+import { attachCmuxReporter, setCmuxReporter } from "./cmux-reporter";
 import { attachHerdrReporter } from "./herdr-reporter";
 import { createTicker } from "./ticker";
 import { registerAppKeybindings } from "./app-keybindings";
@@ -394,6 +395,18 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         disabled: getSetting("herdr") === false,
     });
 
+    // cmux integration (inert outside a cmux pane). Unlike herdr's this one
+    // does not read the status bus: cmux speaks lifecycle EVENTS, and loop
+    // already emits every one of them as a hook — including the Notification
+    // the bus fires below. It is registered globally because the approval and
+    // ask bridges, built further down, ask for it at prompt time.
+    const cmuxReporter = attachCmuxReporter({
+        getSession: () => (state.session ? { id: state.session.id, path: state.session.path } : null),
+        cwd: () => state.cwd,
+        disabled: getSetting("cmux") === false,
+    });
+    setCmuxReporter(cmuxReporter);
+
     // Notification hook on agent-driven waits (Claude Code parity): when a
     // prompt opens mid-turn, external watchers get the "needs attention"
     // signal — same event the PreToolUse-denial path in core fires. Gated on
@@ -642,9 +655,10 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         void getExtensionHost().close();
         // Close any open datasource connection pools.
         void closeAllPools();
-        // SessionEnd hooks + herdr release: give them a moment, then exit
+        // SessionEnd hooks + herdr/cmux release: give them a moment, then exit
         // regardless. Release hands the pane back to herdr's own detection so
-        // the sidebar doesn't keep showing a stale loop state.
+        // the sidebar doesn't keep showing a stale loop state, and drops the
+        // cmux resume binding for a session that is not coming back.
         void Promise.race([
             Promise.allSettled([
                 runHooks(
@@ -654,6 +668,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
                     state.cwd,
                 ),
                 herdr.release(),
+                cmuxReporter.release(),
             ]),
             new Promise((r) => setTimeout(r, 3_000)),
         ]).finally(() => {

@@ -105,6 +105,12 @@ export interface AppSettings {
      * API when running inside a herdr pane. Only ever does anything under
      * herdr (HERDR_ENV). Default ON; set false to disable reporting. */
     herdr?: boolean;
+
+    /** Mirror lifecycle events into cmux's Feed — and let cmux answer loop's
+     * approval and ask prompts — when running inside a cmux pane. Only ever
+     * does anything under cmux (CMUX_SURFACE_ID). Default ON; set false to
+     * disable both the reporting and the remote answering. */
+    cmux?: boolean;
     skills?: boolean;
     agent?: string;
     /** User-defined command aliases: name → expansion ("/model gpt …"). Managed via /alias. */
