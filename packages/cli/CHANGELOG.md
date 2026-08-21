@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.19.14] - 2026-08-21
+
+### Added
+
+- **The tab shows what loop is doing, not just what it is called.** A spinner runs in the terminal title while a turn is going — loop's own braille frames, the ones the working indicator uses — with a filled diamond while a prompt is waiting on you, and nothing at all when it is idle. In cmux, tmux or any tab bar, a row of loop panes now tells you which one is thinking and which one needs you without opening any of them.
+
 ## [0.19.13] - 2026-08-21
 
 ### Added
