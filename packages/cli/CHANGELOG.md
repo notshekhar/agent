@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.19.10] - 2026-08-21
+
+### Added
+
+- **cmux knows what loop is doing, and can answer it.** Run loop inside [cmux](https://cmux.com) and it was just a shell process: the Feed sidebar stayed empty and cmux's approval cards — the ones you can answer from a notification without going back to the terminal — never appeared, because they only exist for agents that report themselves. loop reports itself now. Every lifecycle event it already emits as a hook (session start and end, your prompt, each tool call and its result, the todo list, the end of a turn with what the agent said) is mirrored into cmux's Feed over its socket, and the prompts that stop the agent — bash, file-access and plan approvals, and the ask tool's questions — go out as actionable cards. Answer one in cmux and the menu on screen closes with that answer; answer it on screen and the card is withdrawn. Whichever side is faster wins, so the terminal is never waiting on a decision that was already made somewhere else, and cmux being slow, gone, or not running costs a turn nothing at all. loop also registers `loop --session <id>` with the pane, so cmux can offer to bring the session back when it restores that terminal. On by default inside cmux, `"cmux": false` to turn it off, and completely inert everywhere else.
+
+### Changed
+
+- **The AI SDK moved up a patch line** (`ai` 7.0.73, every `@ai-sdk/*` provider to latest), which is what these binaries are compiled against. Nothing in loop changed with it — the upgrade is done every release so the diffs stay small enough to read, and this one paid for itself: 7.0.70 stopped running tools after a model call whose finish reason it cannot parse, which caught five test mocks still sending the pre-v3 shape.
+
 ## [0.19.9] - 2026-08-21
 
 ### Fixed
