@@ -32,18 +32,26 @@
  * timeout — a dead or restarted cmux must never add latency to a turn — and
  * rides a queue so events reach the Feed in the order they happened.
  *
- * Two things cmux cannot do for loop yet, both needing a change on their side
- * (see docs/agent-hooks.md upstream): its feed `source` is a closed enum, so
- * loop's rows are stored under the default `claude` label even though the
- * events stream keeps `_source: "loop"`; and the per-tab agent lifecycle dot
- * is written only by `cmux hooks <agent> <event>`, which rejects unknown
- * agents. Everything else here works against stock cmux.
+ * The Feed is only half of it. What you actually SEE in cmux — the agent
+ * status chip in the sidebar, and the notification when a turn finishes — is
+ * driven by a different, older channel: line-delimited V1 commands on the same
+ * socket, `set_status` / `notify_target`, each line prefixed with the
+ * capability cmux exports into its own panes. That channel is not enum-gated,
+ * so loop appears there under its own name. The states, icons and colours
+ * below are the ones cmux's built-in agent hooks use, so a loop pane reads
+ * identically to a Claude Code pane.
+ *
+ * One thing still needs a change on cmux's side (docs/cmux-upstream.md): its
+ * feed `source` is a closed enum, so Feed ROWS are stored under the default
+ * `claude` label even though the events stream keeps `_source: "loop"`. The
+ * status chip, the notifications and the cards themselves are unaffected.
  */
 import { spawn } from "node:child_process";
 import { createConnection } from "node:net";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { hookBus, type HookPayload } from "@notshekhar/loop-core";
+import type { AgentStatusBus, AgentStatusEvent } from "./agent-status";
 
 /** How loop names itself to cmux. */
 const SOURCE = "loop";
@@ -59,6 +67,23 @@ const ACK_TIMEOUT_MS = 500;
 const MAX_FIELD_BYTES = 8_000;
 /** Backlog cap: cmux being slow must not become loop's memory leak. */
 const MAX_QUEUED = 64;
+
+/** The key our status entry lives under in the pane's sidebar. */
+const STATUS_KEY = SOURCE;
+/** Prefix that authenticates a V1 line, using the capability cmux exports. */
+const CAPABILITY_PREFIX = "_cmux_capability_v1";
+
+/**
+ * How each agent state looks in the sidebar. Same SF Symbols and colours as
+ * cmux's own agent hooks, so loop sits beside Claude Code without looking
+ * like a different species. `priority` floats a waiting agent to the top,
+ * which is what makes "this one needs you" findable across many panes.
+ */
+const STATUS_STYLE: Record<AgentStatusEvent["status"], { icon: string; color: string; priority?: number }> = {
+    working: { icon: "bolt.fill", color: "#4C8DFF" },
+    blocked: { icon: "bell.fill", color: "#4C8DFF", priority: 100 },
+    idle: { icon: "pause.circle.fill", color: "#8E8E93" },
+};
 
 export type CmuxPermissionMode = "once" | "always" | "all" | "bypass" | "deny";
 
@@ -169,7 +194,7 @@ function bounded(value: unknown, maxBytes = MAX_FIELD_BYTES): unknown {
     return { truncated: true, bytes: json.length, preview: `${json.slice(0, 1_000)}…` };
 }
 
-export function attachCmuxReporter(opts: CmuxReporterOptions): CmuxReporter {
+export function attachCmuxReporter(bus: AgentStatusBus | null, opts: CmuxReporterOptions): CmuxReporter {
     const env = opts.env ?? process.env;
     const surfaceId = env.CMUX_SURFACE_ID;
     const workspaceId = env.CMUX_WORKSPACE_ID;
@@ -257,6 +282,66 @@ export function attachCmuxReporter(opts: CmuxReporterOptions): CmuxReporter {
         });
     }
 
+    /**
+     * One V1 command: a single line on the same socket, carrying the pane
+     * capability cmux exported into this process. Fire-and-forget — the reply
+     * is "OK" or an "ERROR: …" string nobody can act on mid-turn, and a status
+     * update must never be something a turn waits for.
+     */
+    let released = false;
+    const capability = env.CMUX_SOCKET_CAPABILITY;
+    function v1(command: string): void {
+        const line = capability ? `${CAPABILITY_PREFIX} ${capability} ${command}` : command;
+        const socket = createConnection(socketPath!);
+        const done = (): void => {
+            socket.destroy();
+        };
+        socket.on("error", done);
+        socket.on("data", done);
+        socket.on("connect", () => socket.write(`${line}\n`));
+        const timer = setTimeout(done, connectTimeoutMs);
+        timer.unref?.();
+    }
+
+    /** Which pane the command is about. cmux calls a workspace a tab here. */
+    const paneTarget = `--tab=${workspaceId ?? ""}${surfaceId ? ` --panel=${surfaceId}` : ""}`;
+
+    /**
+     * Safe on both wires: the V1 socket is line-delimited and notify's payload
+     * is |-delimited, so a newline or a pipe would truncate the command. `--`
+     * would be read as the start of a flag.
+     */
+    function wireText(value: string, max: number): string {
+        const flat = value.replace(/\s+/g, " ").replace(/\|/g, "/").replace(/--/g, "—").trim();
+        return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
+    }
+
+    /** The chip in the pane's sidebar: what loop is doing, right now. */
+    function reportStatus(e: AgentStatusEvent): void {
+        if (released) return;
+        const style = STATUS_STYLE[e.status];
+        const label =
+            e.status === "blocked"
+                ? wireText(e.label ?? "needs input", 60)
+                : e.status === "working"
+                  ? "Working"
+                  : "Idle";
+        const priority = style.priority ? ` --priority=${style.priority}` : "";
+        v1(`set_status ${STATUS_KEY} ${label} --icon=${style.icon} --color=${style.color}${priority} ${paneTarget}`);
+    }
+
+    /**
+     * A native cmux notification, in the same categories its own agents use —
+     * so the user's Settings > Notifications switches (turn complete, needs
+     * permission) govern loop's exactly as they govern Claude Code's.
+     */
+    function notify(category: "turn-complete" | "needs-permission", body: string, opts_: { pending: boolean }): void {
+        if (released || !workspaceId || !surfaceId) return;
+        const subtitle = wireText(opts.cwd().split("/").pop() ?? "", 40);
+        const meta = `c=${category};p=${opts_.pending ? 1 : 0};a=${SOURCE}`;
+        v1(`notify_target ${workspaceId} ${surfaceId} ${SOURCE}|${subtitle}|${wireText(body, 240)}|${meta}`);
+    }
+
     // Telemetry queue: one connection in flight, order preserved. Bounded, so
     // a cmux that stops accepting connections costs a few dropped rows in its
     // own sidebar rather than growing this process.
@@ -330,10 +415,15 @@ export function attachCmuxReporter(opts: CmuxReporterOptions): CmuxReporter {
             case "Stop": {
                 // What the agent said, straight off the Stop payload: cmux
                 // titles its turn-complete notification with it.
-                if (typeof payload.last_assistant_message === "string") {
-                    event.last_assistant_message = bounded(payload.last_assistant_message, 2_000);
-                }
+                const said = typeof payload.last_assistant_message === "string" ? payload.last_assistant_message : "";
+                if (said) event.last_assistant_message = bounded(said, 2_000);
                 event.stop_hook_active = payload.stop_hook_active === true;
+                // The turn ended — the notification the user is waiting for
+                // when they have looked away. A stop-hook continuation is not
+                // the end of anything, so it stays quiet.
+                if (payload.stop_hook_active !== true) {
+                    notify("turn-complete", said || "Turn finished", { pending: false });
+                }
                 break;
             }
             case "SessionEnd": {
@@ -481,9 +571,23 @@ export function attachCmuxReporter(opts: CmuxReporterOptions): CmuxReporter {
     hookBus.on("event", onHookEvent);
     bindSession();
 
-    // ---- actionable cards --------------------------------------------------
+    // The visible half: the sidebar chip follows the same working / blocked /
+    // idle bus the herdr reporter reads, and a prompt the agent is stuck on
+    // also raises a notification — the two things a cmux user expects to see
+    // without looking at the terminal.
+    if (bus) {
+        bus.on((e) => {
+            reportStatus(e);
+            if (e.status === "blocked") {
+                notify("needs-permission", e.label ?? "waiting for you", { pending: true });
+            }
+        });
+        // Announce presence right away: the pane shows loop from launch
+        // instead of staying blank until the first transition.
+        reportStatus(bus.current());
+    }
 
-    let released = false;
+    // ---- actionable cards --------------------------------------------------
 
     async function requestDecision(
         event: Record<string, unknown>,
@@ -548,6 +652,8 @@ export function attachCmuxReporter(opts: CmuxReporterOptions): CmuxReporter {
             if (released) return Promise.resolve();
             released = true;
             hookBus.off("event", onHookEvent);
+            // Leave no stale chip behind: the pane is a plain terminal again.
+            v1(`clear_status ${STATUS_KEY} ${paneTarget}`);
             const id = boundSessionId;
             if (id) {
                 runCmux([

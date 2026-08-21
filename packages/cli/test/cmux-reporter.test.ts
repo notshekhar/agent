@@ -15,6 +15,7 @@ import { join } from "node:path";
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { hookBus, type HookPayload } from "@notshekhar/loop-core";
+import { createAgentStatusBus } from "../src/interactive/agent-status";
 import { attachCmuxReporter, type CmuxReporter, type CmuxSessionRef } from "../src/interactive/cmux-reporter";
 
 const tick = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -48,6 +49,8 @@ type Frame = { id: string; method: string; params: { event: Record<string, unkno
  */
 function fakeCmux(socketPath: string) {
     const frames: Frame[] = [];
+    /** The line-delimited V1 commands (set_status, notify_target, …). */
+    const commands: string[] = [];
     const parked = new Map<string, { write: (s: string) => void; id: string }>();
     const server = Bun.listen({
         unix: socketPath,
@@ -55,6 +58,13 @@ function fakeCmux(socketPath: string) {
             data(socket, data) {
                 for (const line of data.toString().split("\n")) {
                     if (!line.trim()) continue;
+                    // Two protocols share this socket: JSON feed frames, and
+                    // plain V1 command lines carrying the pane capability.
+                    if (!line.startsWith("{")) {
+                        commands.push(line);
+                        socket.write("OK\n");
+                        continue;
+                    }
                     const frame = JSON.parse(line) as Frame;
                     frames.push(frame);
                     const requestId = frame.params.event._opencode_request_id as string | undefined;
@@ -69,6 +79,9 @@ function fakeCmux(socketPath: string) {
     });
     return {
         frames,
+        commands,
+        /** V1 commands with the capability prefix stripped, for readability. */
+        v1: () => commands.map((c) => c.replace(/^_cmux_capability_v1 \S+ /, "")),
         events: () => frames.map((f) => f.params.event),
         /** Answer a parked card the way a click in cmux's sidebar would. */
         resolve(requestId: string, decision: Record<string, unknown>) {
@@ -109,7 +122,7 @@ describe("cmux reporter", () => {
     });
 
     function start(server: ReturnType<typeof fakeCmux>, socketPath: string): CmuxReporter {
-        reporter = attachCmuxReporter({
+        reporter = attachCmuxReporter(null, {
             getSession: () => ({ id: "abc123", path: "/tmp/abc123.jsonl" }),
             cwd: () => "/repo",
             env: cmuxEnv(socketPath),
@@ -169,7 +182,7 @@ describe("cmux reporter", () => {
 
         // loop has no session until the first turn — SessionStart fires before it.
         let session: CmuxSessionRef | null = null;
-        reporter = attachCmuxReporter({
+        reporter = attachCmuxReporter(null, {
             getSession: () => session,
             cwd: () => "/repo",
             env: cmuxEnv(socketPath),
@@ -188,6 +201,88 @@ describe("cmux reporter", () => {
         expect(events.map((e) => e.hook_event_name)).toEqual(["SessionStart", "UserPromptSubmit"]);
         // One workstream for the launch, the session's own.
         expect(new Set(events.map((e) => e.session_id))).toEqual(new Set(["loop-abc123"]));
+    });
+
+    test("the sidebar chip and the notifications follow the agent's state", async () => {
+        dir = mkdtempSync(join(tmpdir(), "cmux-test-"));
+        const socketPath = join(dir, "cmux.sock");
+        const server = fakeCmux(socketPath);
+        stopServer = server.stop;
+
+        const bus = createAgentStatusBus(10);
+        reporter = attachCmuxReporter(bus, {
+            getSession: () => ({ id: "abc123", path: null }),
+            cwd: () => "/repo/widgets",
+            env: cmuxEnv(socketPath),
+            bindResume: false,
+        });
+
+        bus.setWorking();
+        const closeModal = bus.modalOpened("bash approval");
+        await tick(60);
+        closeModal();
+        bus.setIdle();
+        await tick(80);
+
+        const v1 = server.v1();
+        // Launch announce, then working, then blocked (floated to the top of
+        // the sidebar), then idle once the settle window passes.
+        expect(v1[0]).toBe(
+            "set_status loop Idle --icon=pause.circle.fill --color=#8E8E93 --tab=workspace-1 --panel=surface-1",
+        );
+        expect(v1).toContain(
+            "set_status loop Working --icon=bolt.fill --color=#4C8DFF --tab=workspace-1 --panel=surface-1",
+        );
+        expect(v1).toContain(
+            "set_status loop bash approval --icon=bell.fill --color=#4C8DFF --priority=100 --tab=workspace-1 --panel=surface-1",
+        );
+        // A prompt the agent is stuck on also rings, in cmux's own category so
+        // the user's notification settings govern it.
+        expect(v1).toContain(
+            "notify_target workspace-1 surface-1 loop|widgets|bash approval|c=needs-permission;p=1;a=loop",
+        );
+
+        // The end of a turn is the notification people actually wait for.
+        hookBus.emit("event", hook("Stop", { last_assistant_message: "shipped it" }));
+        await tick(80);
+        expect(server.v1()).toContain(
+            "notify_target workspace-1 surface-1 loop|widgets|shipped it|c=turn-complete;p=0;a=loop",
+        );
+
+        // Nothing of ours is left in the sidebar after loop exits. The V1
+        // channel is fire-and-forget, so wait for the line rather than for a
+        // promise that never described its delivery.
+        await reporter.release();
+        reporter = undefined;
+        const cleared = await until(() =>
+            server.v1().includes("clear_status loop --tab=workspace-1 --panel=surface-1") ? true : undefined,
+        );
+        expect(cleared).toBe(true);
+    });
+
+    test("a multi-line answer cannot break the wire", async () => {
+        dir = mkdtempSync(join(tmpdir(), "cmux-test-"));
+        const socketPath = join(dir, "cmux.sock");
+        const server = fakeCmux(socketPath);
+        stopServer = server.stop;
+        const bus = createAgentStatusBus(10);
+        reporter = attachCmuxReporter(bus, {
+            getSession: () => ({ id: "abc123", path: null }),
+            cwd: () => "/repo",
+            env: cmuxEnv(socketPath),
+            bindResume: false,
+        });
+
+        // Newlines end a V1 command and `|` ends a notification field: an
+        // assistant reply carrying either would truncate or forge the rest.
+        hookBus.emit("event", hook("Stop", { last_assistant_message: "line one\nline two | still body\n--flag" }));
+        await tick(80);
+
+        const notif = server.v1().find((c) => c.startsWith("notify_target"));
+        expect(notif).toBeDefined();
+        expect(notif!.split("\n")).toHaveLength(1);
+        expect(notif).toContain("line one line two / still body —flag");
+        expect(notif!.split("|")).toHaveLength(4); // title, subtitle, body, meta
     });
 
     test("the todo list also goes out as cmux's TodoWrite", async () => {
@@ -301,7 +396,7 @@ describe("cmux reporter", () => {
         const socketPath = join(dir, "cmux.sock");
         const server = fakeCmux(socketPath);
         stopServer = server.stop;
-        reporter = attachCmuxReporter({
+        reporter = attachCmuxReporter(null, {
             getSession: () => ({ id: "abc123", path: null }),
             cwd: () => "/repo",
             env: cmuxEnv(socketPath),
@@ -323,7 +418,7 @@ describe("cmux reporter", () => {
         writeFileSync(bin, `#!/bin/sh\nprintf '%s\\n' "$@" >> ${log}\n`);
         chmodSync(bin, 0o755);
 
-        reporter = attachCmuxReporter({
+        reporter = attachCmuxReporter(null, {
             getSession: () => ({ id: "abc123", path: null }),
             cwd: () => "/repo",
             env: { ...cmuxEnv(socketPath), CMUX_BUNDLED_CLI_PATH: bin },
@@ -359,18 +454,21 @@ describe("cmux reporter", () => {
 
     test("inert outside cmux: no socket traffic, no subscription", () => {
         const before = hookBus.listenerCount("event");
-        const inert = attachCmuxReporter({ getSession: () => null, cwd: () => "/repo", env: {} });
+        const inert = attachCmuxReporter(null, { getSession: () => null, cwd: () => "/repo", env: {} });
         expect(inert.active).toBe(false);
         expect(hookBus.listenerCount("event")).toBe(before);
 
         // A socket path alone is not a cmux pane — the surface id is.
         expect(
-            attachCmuxReporter({ getSession: () => null, cwd: () => "/repo", env: { CMUX_SOCKET_PATH: "/tmp/x.sock" } })
-                .active,
+            attachCmuxReporter(null, {
+                getSession: () => null,
+                cwd: () => "/repo",
+                env: { CMUX_SOCKET_PATH: "/tmp/x.sock" },
+            }).active,
         ).toBe(false);
         // Setting opt-out wins even inside cmux.
         expect(
-            attachCmuxReporter({
+            attachCmuxReporter(null, {
                 getSession: () => null,
                 cwd: () => "/repo",
                 disabled: true,
@@ -382,7 +480,7 @@ describe("cmux reporter", () => {
     test("dead socket: telemetry and decisions resolve without throwing", async () => {
         dir = mkdtempSync(join(tmpdir(), "cmux-test-"));
         const socketPath = join(dir, "gone.sock"); // never listened on
-        reporter = attachCmuxReporter({
+        reporter = attachCmuxReporter(null, {
             getSession: () => ({ id: "abc123", path: null }),
             cwd: () => "/repo",
             env: cmuxEnv(socketPath),

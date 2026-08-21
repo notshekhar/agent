@@ -400,7 +400,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     // already emits every one of them as a hook — including the Notification
     // the bus fires below. It is registered globally because the approval and
     // ask bridges, built further down, ask for it at prompt time.
-    const cmuxReporter = attachCmuxReporter({
+    const cmuxReporter = attachCmuxReporter(agentStatus, {
         getSession: () => (state.session ? { id: state.session.id, path: state.session.path } : null),
         cwd: () => state.cwd,
         disabled: getSetting("cmux") === false,
