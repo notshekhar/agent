@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.19.13] - 2026-08-21
+
+### Added
+
+- **Sessions name themselves.** A session was a ULID and a folder, which is fine while you are looking at it and useless the moment you are not — in a terminal tab, in cmux's sidebar, in a notification on your phone. Now the first turn earns it a title: one short call to the model you already have selected, asked for six words starting with a verb and naming the thing being worked on ("Add loop awareness to cmux terminal"). It becomes the session's name — the same one `/name` sets — and the terminal's title, which is where cmux, tmux and every tab bar read it from. Generated once from the opening exchange, because that is what a session is about and a name that keeps changing is worse than one slightly stale, and never over a name you set yourself. Billed to the cost ledger as `session-title`.
+
+### Fixed
+
+- **loop's terminal tab said whatever your shell last put there.** `setTitle` had been sitting in the TUI unused since it was written, so a loop pane in cmux rendered as `p dev` next to a Claude Code pane describing its actual task. loop names its tab now: the session's title once it has one, the folder before that.
+- **cmux notifications ended in `|c=turn-complete;p=0;a=loop`.** That trailing field is cmux's own gating metadata, and it only counts as metadata when it parses as the exact grammar the running build knows — anything else is deliberately folded back into the body, so you read it. Current cmux accepts an `;a=<agent>` tail; shipped builds do not.
+
 ## [0.19.12] - 2026-08-21
 
 ### Added
