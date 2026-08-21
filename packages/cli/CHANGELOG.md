@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.19.15] - 2026-08-22
+
+### Fixed
+
+- **The installed binary was killed on launch, on some Macs.** `loop` printed nothing and the shell said `killed`; the installer's own smoke test failed with an empty error, because a process that dies of SIGKILL has nothing to say. `bun build --compile` appends the JavaScript payload after the Mach-O has been ad-hoc signed, so every binary loop has ever shipped carried a signature that does not describe its own bytes — `codesign -v` on a fresh build says so outright. Most Macs only hash the pages they map and never notice, which is why this survived every release and every CI smoke test; a Mac that does check kills it at exec. The macOS binaries are re-signed after compilation now, and the build verifies the signature rather than trusting it, so a bad one fails the build instead of shipping. Already have a killed install? `codesign --force --sign - ~/.loop-bin/loop` fixes it in place, and so does re-running the installer.
+- **The installer said "✓ Up to date" about a binary that could not run.** It read the version out of `package.json` next to the binary and never asked the binary anything — so once an install was broken, every subsequent run cheerfully reported nothing was wrong and exited, which is a dead end with no way out but deleting `~/.loop-bin` by hand. Being up to date is now a claim about the binary: the installer runs it. One that does not run gets its quarantine cleared and its signature rebuilt, and if that fails it is reinstalled. A fresh install that turns out not to run on this machine is rolled back to the one it replaced, so an upgrade can no longer leave you with no working `loop` at all.
+- **`/new` and `/clear` left the old session's title on the terminal tab.** The tab kept advertising work that had been thrown away — in cmux, a pane card describing a session that no longer exists. A title belongs to a session and cannot outlive one: `/new` and `/clear` hand the tab back its standing name now, `/name` renames it, and `/resume` moves it to the session that is actually live.
+
+### Changed
+
+- **An untitled session's tab says `Loop Agent`.** It used to say the folder's name, which the status line and your prompt are already telling you; the one thing a tab can say that nothing else does is which agent this pane is. Same rule Claude Code follows — a fixed product name as the floor, the session's own title the moment it earns one.
+
 ## [0.19.14] - 2026-08-21
 
 ### Added
