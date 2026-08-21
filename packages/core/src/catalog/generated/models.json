@@ -161,6 +161,26 @@
     ],
     "available": true
   },
+  "xai/grok-imagine-image-2.0": {
+    "id": "xai/grok-imagine-image-2.0",
+    "provider": "xai",
+    "name": "Grok Imagine Image 2.0",
+    "contextWindow": 8000,
+    "maxOutput": 0,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "available": true
+  },
   "xai/grok-imagine-image": {
     "id": "xai/grok-imagine-image",
     "provider": "xai",
@@ -2198,6 +2218,42 @@
     ],
     "available": true
   },
+  "openrouter/tencent/hy-mt2-30b-a3b": {
+    "id": "openrouter/tencent/hy-mt2-30b-a3b",
+    "provider": "openrouter",
+    "name": "Hy-MT2-30B-A3B",
+    "contextWindow": 8192,
+    "maxOutput": 4096,
+    "cost": {
+      "input": 0.074,
+      "output": 0.295,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "openrouter/tencent/hy-mt2-1.8b": {
+    "id": "openrouter/tencent/hy-mt2-1.8b",
+    "provider": "openrouter",
+    "name": "Hy-MT2-1.8B",
+    "contextWindow": 8192,
+    "maxOutput": 4096,
+    "cost": {
+      "input": 0.044,
+      "output": 0.177,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
   "openrouter/tencent/hy3-preview": {
     "id": "openrouter/tencent/hy3-preview",
     "provider": "openrouter",
@@ -2375,11 +2431,11 @@
     "provider": "openrouter",
     "name": "Nemotron 3 Nano 30B A3B",
     "contextWindow": 262144,
-    "maxOutput": 228000,
+    "maxOutput": 262144,
     "cost": {
       "input": 0.05,
       "output": 0.2,
-      "cacheRead": 0.025,
+      "cacheRead": 0.03,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -2410,12 +2466,12 @@
     "id": "openrouter/nvidia/nemotron-3.5-lightning",
     "provider": "openrouter",
     "name": "Nemotron 3.5 Lightning 30B A3B",
-    "contextWindow": 1000000,
-    "maxOutput": 262144,
+    "contextWindow": 262144,
+    "maxOutput": 131072,
     "cost": {
-      "input": 0.1,
-      "output": 0.25,
-      "cacheRead": 0.05,
+      "input": 0.08,
+      "output": 0.2,
+      "cacheRead": 0.04,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -2581,10 +2637,10 @@
     "contextWindow": 1050000,
     "maxOutput": 128000,
     "cost": {
-      "input": 5,
-      "output": 30,
-      "cacheRead": 0.5,
-      "cacheWrite": 6.25
+      "input": 2.5,
+      "output": 15,
+      "cacheRead": 0.25,
+      "cacheWrite": 3.125
     },
     "reasoning": true,
     "modalities": [
@@ -2747,9 +2803,9 @@
     "contextWindow": 204800,
     "maxOutput": 131072,
     "cost": {
-      "input": 0.55,
-      "output": 2.2,
-      "cacheRead": 0.11,
+      "input": 0.5,
+      "output": 2,
+      "cacheRead": 0.1,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -2815,6 +2871,24 @@
     ],
     "available": true
   },
+  "openrouter/z-ai/glm-5.2:free": {
+    "id": "openrouter/z-ai/glm-5.2:free",
+    "provider": "openrouter",
+    "name": "GLM 5.2 (free)",
+    "contextWindow": 256000,
+    "maxOutput": 256000,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
   "openrouter/z-ai/glm-5": {
     "id": "openrouter/z-ai/glm-5",
     "provider": "openrouter",
@@ -2851,16 +2925,34 @@
     ],
     "available": true
   },
+  "openrouter/z-ai/glm-5.3": {
+    "id": "openrouter/z-ai/glm-5.3",
+    "provider": "openrouter",
+    "name": "GLM-5.3",
+    "contextWindow": 1048576,
+    "maxOutput": 131072,
+    "cost": {
+      "input": 1.4,
+      "output": 4.4,
+      "cacheRead": 0.26,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
   "openrouter/z-ai/glm-5.2": {
     "id": "openrouter/z-ai/glm-5.2",
     "provider": "openrouter",
     "name": "GLM-5.2",
     "contextWindow": 1048576,
-    "maxOutput": 128000,
+    "maxOutput": 131072,
     "cost": {
-      "input": 0.308,
-      "output": 0.968,
-      "cacheRead": 0.0572,
+      "input": 0.966,
+      "output": 3.036,
+      "cacheRead": 0.1932,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -2969,8 +3061,8 @@
     "maxOutput": 32768,
     "cost": {
       "input": 0.27,
-      "output": 0.95,
-      "cacheRead": 0.13,
+      "output": 1,
+      "cacheRead": 0.135,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -3004,9 +3096,9 @@
     "contextWindow": 1048576,
     "maxOutput": 384000,
     "cost": {
-      "input": 0.06146,
-      "output": 0.12292,
-      "cacheRead": 0.012292,
+      "input": 0.0826,
+      "output": 0.1652,
+      "cacheRead": 0.01652,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -3022,9 +3114,9 @@
     "contextWindow": 1048576,
     "maxOutput": 384000,
     "cost": {
-      "input": 0.435,
-      "output": 0.87,
-      "cacheRead": 0.003625,
+      "input": 1.188,
+      "output": 3.564,
+      "cacheRead": 0.0396,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -3040,9 +3132,9 @@
     "contextWindow": 1048576,
     "maxOutput": 393216,
     "cost": {
-      "input": 1.168,
-      "output": 2.336,
-      "cacheRead": 0.09855,
+      "input": 1.6,
+      "output": 3.2,
+      "cacheRead": 0.135,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -3128,11 +3220,11 @@
     "provider": "openrouter",
     "name": "DeepSeek V3 0324",
     "contextWindow": 163840,
-    "maxOutput": 65536,
+    "maxOutput": 163840,
     "cost": {
-      "input": 0.27,
-      "output": 1.12,
-      "cacheRead": 0.135,
+      "input": 0.25,
+      "output": 1,
+      "cacheRead": 0,
       "cacheWrite": 0
     },
     "reasoning": false,
@@ -3181,7 +3273,7 @@
     "id": "openrouter/deepseek/deepseek-v4-flash-0731",
     "provider": "openrouter",
     "name": "DeepSeek V4 Flash 0731",
-    "contextWindow": 1048576,
+    "contextWindow": 1310720,
     "maxOutput": 393216,
     "cost": {
       "input": 0.14,
@@ -3276,11 +3368,11 @@
     "provider": "openrouter",
     "name": "Gemma 4 26B A4B IT",
     "contextWindow": 262144,
-    "maxOutput": 262144,
+    "maxOutput": 16384,
     "cost": {
-      "input": 0.12,
-      "output": 0.4,
-      "cacheRead": 0.05,
+      "input": 0.07,
+      "output": 0.34,
+      "cacheRead": 0,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -3356,7 +3448,7 @@
     "provider": "openrouter",
     "name": "Nano Banana 2 Lite",
     "contextWindow": 65536,
-    "maxOutput": 66000,
+    "maxOutput": 65536,
     "cost": {
       "input": 0.25,
       "output": 1.5,
@@ -3870,8 +3962,8 @@
     "contextWindow": 131072,
     "maxOutput": 131072,
     "cost": {
-      "input": 0.35,
-      "output": 1.5,
+      "input": 0.3,
+      "output": 1.1,
       "cacheRead": 0.04,
       "cacheWrite": 0
     },
@@ -4407,24 +4499,6 @@
     ],
     "available": true
   },
-  "openrouter/ai21/jamba-large-1.7": {
-    "id": "openrouter/ai21/jamba-large-1.7",
-    "provider": "openrouter",
-    "name": "Jamba Large 1.7",
-    "contextWindow": 256000,
-    "maxOutput": 4096,
-    "cost": {
-      "input": 2,
-      "output": 8,
-      "cacheRead": 0,
-      "cacheWrite": 0
-    },
-    "reasoning": false,
-    "modalities": [
-      "text"
-    ],
-    "available": true
-  },
   "openrouter/moonshotai/kimi-k2.7-code": {
     "id": "openrouter/moonshotai/kimi-k2.7-code",
     "provider": "openrouter",
@@ -4432,9 +4506,9 @@
     "contextWindow": 262144,
     "maxOutput": 262144,
     "cost": {
-      "input": 0.71,
-      "output": 3.5,
-      "cacheRead": 0.15,
+      "input": 0.67,
+      "output": 3.4,
+      "cacheRead": 0.17,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -4489,9 +4563,9 @@
     "contextWindow": 262144,
     "maxOutput": 262144,
     "cost": {
-      "input": 0.57,
-      "output": 2.85,
-      "cacheRead": 0.095,
+      "input": 0.45,
+      "output": 2.25,
+      "cacheRead": 0.07,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -4544,9 +4618,9 @@
     "contextWindow": 262144,
     "maxOutput": 262144,
     "cost": {
-      "input": 0.5415,
-      "output": 2.28,
-      "cacheRead": 0.0912,
+      "input": 0.95,
+      "output": 4,
+      "cacheRead": 0.16,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -5283,10 +5357,10 @@
     "contextWindow": 1050000,
     "maxOutput": 128000,
     "cost": {
-      "input": 5,
-      "output": 30,
-      "cacheRead": 0.5,
-      "cacheWrite": 6.25
+      "input": 2.5,
+      "output": 15,
+      "cacheRead": 0.25,
+      "cacheWrite": 3.125
     },
     "reasoning": true,
     "modalities": [
@@ -5442,10 +5516,10 @@
     "contextWindow": 1050000,
     "maxOutput": 128000,
     "cost": {
-      "input": 0.1,
-      "output": 0.6,
-      "cacheRead": 0.01,
-      "cacheWrite": 0.125
+      "input": 0.2,
+      "output": 1.2,
+      "cacheRead": 0.02,
+      "cacheWrite": 0.25
     },
     "reasoning": true,
     "modalities": [
@@ -5480,10 +5554,10 @@
     "contextWindow": 1050000,
     "maxOutput": 128000,
     "cost": {
-      "input": 0.1,
-      "output": 0.6,
-      "cacheRead": 0.01,
-      "cacheWrite": 0.125
+      "input": 0.2,
+      "output": 1.2,
+      "cacheRead": 0.02,
+      "cacheWrite": 0.25
     },
     "reasoning": true,
     "modalities": [
@@ -5855,10 +5929,10 @@
     "contextWindow": 1050000,
     "maxOutput": 128000,
     "cost": {
-      "input": 1,
-      "output": 6,
-      "cacheRead": 0.1,
-      "cacheWrite": 1.25
+      "input": 2,
+      "output": 12,
+      "cacheRead": 0.2,
+      "cacheWrite": 2.5
     },
     "reasoning": true,
     "modalities": [
@@ -5893,10 +5967,10 @@
     "contextWindow": 1050000,
     "maxOutput": 128000,
     "cost": {
-      "input": 1,
-      "output": 6,
-      "cacheRead": 0.1,
-      "cacheWrite": 1.25
+      "input": 2,
+      "output": 12,
+      "cacheRead": 0.2,
+      "cacheWrite": 2.5
     },
     "reasoning": true,
     "modalities": [
@@ -5992,10 +6066,10 @@
     "contextWindow": 1050000,
     "maxOutput": 128000,
     "cost": {
-      "input": 5,
-      "output": 30,
-      "cacheRead": 0.5,
-      "cacheWrite": 6.25
+      "input": 2.5,
+      "output": 15,
+      "cacheRead": 0.25,
+      "cacheWrite": 3.125
     },
     "reasoning": true,
     "modalities": [
@@ -6334,9 +6408,9 @@
     "contextWindow": 128000,
     "maxOutput": 128000,
     "cost": {
-      "input": 0.25,
-      "output": 0.75,
-      "cacheRead": 0,
+      "input": 0.8,
+      "output": 1,
+      "cacheRead": 0.4,
       "cacheWrite": 0
     },
     "reasoning": false,
@@ -6518,11 +6592,11 @@
     "provider": "openrouter",
     "name": "Qwen3.5 35B-A3B",
     "contextWindow": 262144,
-    "maxOutput": 65536,
+    "maxOutput": 262144,
     "cost": {
-      "input": 0.225,
-      "output": 1.8,
-      "cacheRead": 0.225,
+      "input": 0.25,
+      "output": 1.25,
+      "cacheRead": 0.25,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -6965,7 +7039,7 @@
     "contextWindow": 262144,
     "maxOutput": 262144,
     "cost": {
-      "input": 0.15,
+      "input": 0.14,
       "output": 1,
       "cacheRead": 0.05,
       "cacheWrite": 0
@@ -6983,11 +7057,11 @@
     "provider": "openrouter",
     "name": "Qwen3.6 27B",
     "contextWindow": 262144,
-    "maxOutput": 65536,
+    "maxOutput": 262144,
     "cost": {
-      "input": 0.3,
-      "output": 2,
-      "cacheRead": 0.03,
+      "input": 0.6,
+      "output": 3.6,
+      "cacheRead": 0.12,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -7003,11 +7077,11 @@
     "provider": "openrouter",
     "name": "Qwen3-Next 80B-A3B Instruct",
     "contextWindow": 262144,
-    "maxOutput": 262144,
+    "maxOutput": 16384,
     "cost": {
-      "input": 0.1,
+      "input": 0.09,
       "output": 1.1,
-      "cacheRead": 0.07,
+      "cacheRead": 0,
       "cacheWrite": 0
     },
     "reasoning": false,
@@ -7020,12 +7094,12 @@
     "id": "openrouter/qwen/qwen3.8-27b",
     "provider": "openrouter",
     "name": "Qwen3.8 27B",
-    "contextWindow": 262144,
+    "contextWindow": 1000000,
     "maxOutput": 131072,
     "cost": {
       "input": 0.45,
       "output": 3.2,
-      "cacheRead": 0,
+      "cacheRead": 0.05,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -7138,10 +7212,10 @@
     "provider": "openrouter",
     "name": "Qwen3.5 122B-A10B",
     "contextWindow": 262144,
-    "maxOutput": 81920,
+    "maxOutput": 65536,
     "cost": {
-      "input": 0.29,
-      "output": 2.4,
+      "input": 0.26,
+      "output": 2.08,
       "cacheRead": 0,
       "cacheWrite": 0
     },
@@ -7197,9 +7271,9 @@
     "contextWindow": 262144,
     "maxOutput": 32768,
     "cost": {
-      "input": 0.26,
-      "output": 1.04,
-      "cacheRead": 0,
+      "input": 0.21,
+      "output": 1.9,
+      "cacheRead": 0.1,
       "cacheWrite": 0
     },
     "reasoning": false,
@@ -7288,7 +7362,7 @@
     "id": "openrouter/liquid/lfm-2.5-2.6b:free",
     "provider": "openrouter",
     "name": "LFM2.5-2.6B (free)",
-    "contextWindow": 128000,
+    "contextWindow": 65536,
     "maxOutput": 8192,
     "cost": {
       "input": 0,
@@ -7602,11 +7676,31 @@
     ],
     "available": true
   },
+  "openrouter/stealth/ox-alpha": {
+    "id": "openrouter/stealth/ox-alpha",
+    "provider": "openrouter",
+    "name": "Ox Alpha",
+    "contextWindow": 1048576,
+    "maxOutput": 131072,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image",
+      "video"
+    ],
+    "available": true
+  },
   "openrouter/thinkingmachines/inkling-small": {
     "id": "openrouter/thinkingmachines/inkling-small",
     "provider": "openrouter",
     "name": "Inkling Small",
-    "contextWindow": 524288,
+    "contextWindow": 1048576,
     "maxOutput": 262144,
     "cost": {
       "input": 0.45,
@@ -7664,12 +7758,12 @@
     "id": "openrouter/~deepseek/deepseek-v4-flash-latest",
     "provider": "openrouter",
     "name": "DeepSeek V4 Flash Latest",
-    "contextWindow": 1048576,
-    "maxOutput": 384000,
+    "contextWindow": 1310720,
+    "maxOutput": 262144,
     "cost": {
-      "input": 0.06706,
-      "output": 0.13412,
-      "cacheRead": 0.013412,
+      "input": 0.065,
+      "output": 0.14,
+      "cacheRead": 0.014,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -7971,6 +8065,24 @@
       "text",
       "image",
       "pdf"
+    ],
+    "available": true
+  },
+  "openrouter/mistralai/ministral-8b": {
+    "id": "openrouter/mistralai/ministral-8b",
+    "provider": "openrouter",
+    "name": "Ministral 8B",
+    "contextWindow": 128000,
+    "maxOutput": 128000,
+    "cost": {
+      "input": 0.11,
+      "output": 0.11,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text"
     ],
     "available": true
   },
@@ -8392,6 +8504,24 @@
     ],
     "available": true
   },
+  "openrouter/~z-ai/glm-latest": {
+    "id": "openrouter/~z-ai/glm-latest",
+    "provider": "openrouter",
+    "name": "GLM Latest",
+    "contextWindow": 1048576,
+    "maxOutput": 131072,
+    "cost": {
+      "input": 1.4,
+      "output": 4.4,
+      "cacheRead": 0.26,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
   "openrouter/nex-agi/nex-n2-mini": {
     "id": "openrouter/nex-agi/nex-n2-mini",
     "provider": "openrouter",
@@ -8562,10 +8692,10 @@
     "provider": "openrouter",
     "name": "MoonshotAI Kimi Latest",
     "contextWindow": 1048576,
-    "maxOutput": 1048576,
+    "maxOutput": 974842,
     "cost": {
-      "input": 2.8,
-      "output": 14,
+      "input": 2.6,
+      "output": 13,
       "cacheRead": 0.29,
       "cacheWrite": 0
     },
@@ -8712,7 +8842,7 @@
     "contextWindow": 1000000,
     "maxOutput": 40000,
     "cost": {
-      "input": 0.4,
+      "input": 0.55,
       "output": 2.2,
       "cacheRead": 0,
       "cacheWrite": 0
@@ -8802,11 +8932,11 @@
     "provider": "openrouter",
     "name": "MiniMax-M2.5",
     "contextWindow": 204800,
-    "maxOutput": 196608,
+    "maxOutput": 32768,
     "cost": {
-      "input": 0.22,
-      "output": 0.9,
-      "cacheRead": 0.05,
+      "input": 0.27,
+      "output": 0.95,
+      "cacheRead": 0.03,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -9819,24 +9949,6 @@
     ],
     "available": true
   },
-  "cerebras/zai-glm-4.7": {
-    "id": "cerebras/zai-glm-4.7",
-    "provider": "cerebras",
-    "name": "Z.AI GLM-4.7",
-    "contextWindow": 131072,
-    "maxOutput": 40960,
-    "cost": {
-      "input": 2.25,
-      "output": 2.75,
-      "cacheRead": 2.25,
-      "cacheWrite": 0
-    },
-    "reasoning": true,
-    "modalities": [
-      "text"
-    ],
-    "available": true
-  },
   "cerebras/gpt-oss-120b": {
     "id": "cerebras/gpt-oss-120b",
     "provider": "cerebras",
@@ -9874,16 +9986,70 @@
     ],
     "available": true
   },
+  "vercel/tencent/hy-mt2-plus": {
+    "id": "vercel/tencent/hy-mt2-plus",
+    "provider": "vercel",
+    "name": "Tencent Hy-MT2-Plus",
+    "contextWindow": 8000,
+    "maxOutput": 4000,
+    "cost": {
+      "input": 0.074,
+      "output": 0.295,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "vercel/tencent/hy-mt2-pro": {
+    "id": "vercel/tencent/hy-mt2-pro",
+    "provider": "vercel",
+    "name": "Tencent Hy-MT2-Pro",
+    "contextWindow": 8000,
+    "maxOutput": 4000,
+    "cost": {
+      "input": 0.074,
+      "output": 0.295,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "vercel/tencent/hy-mt2-lite": {
+    "id": "vercel/tencent/hy-mt2-lite",
+    "provider": "vercel",
+    "name": "Tencent Hy-MT2-Lite",
+    "contextWindow": 8000,
+    "maxOutput": 4000,
+    "cost": {
+      "input": 0.044,
+      "output": 0.177,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
   "vercel/tencent/hy3": {
     "id": "vercel/tencent/hy3",
     "provider": "vercel",
     "name": "Hy3",
-    "contextWindow": 262144,
-    "maxOutput": 262144,
+    "contextWindow": 256000,
+    "maxOutput": 128000,
     "cost": {
-      "input": 0.14,
-      "output": 0.58,
-      "cacheRead": 0.035,
+      "input": 0.132,
+      "output": 0.528,
+      "cacheRead": 0.033,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -9939,6 +10105,24 @@
       "input": 0.15,
       "output": 0.65,
       "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "vercel/nvidia/nemotron-3.5-lightning": {
+    "id": "vercel/nvidia/nemotron-3.5-lightning",
+    "provider": "vercel",
+    "name": "Nemotron 3.5 Lightning 30B",
+    "contextWindow": 262144,
+    "maxOutput": 131072,
+    "cost": {
+      "input": 0.05,
+      "output": 0.2,
+      "cacheRead": 0.01,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -10008,9 +10192,9 @@
     "contextWindow": 1000000,
     "maxOutput": 384000,
     "cost": {
-      "input": 0.2,
-      "output": 0.4,
-      "cacheRead": 0.04,
+      "input": 0.13,
+      "output": 0.26,
+      "cacheRead": 0.028,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -10116,9 +10300,9 @@
     "contextWindow": 1000000,
     "maxOutput": 384000,
     "cost": {
-      "input": 0.2,
-      "output": 0.4,
-      "cacheRead": 0.04,
+      "input": 0.13,
+      "output": 0.26,
+      "cacheRead": 0.028,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -10404,9 +10588,9 @@
     "contextWindow": 1000000,
     "maxOutput": 64000,
     "cost": {
-      "input": 1.5,
-      "output": 7.5,
-      "cacheRead": 0.15,
+      "input": 0.75,
+      "output": 3.75,
+      "cacheRead": 0.075,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -11545,26 +11729,6 @@
     ],
     "available": true
   },
-  "vercel/zai/glm-4.6v-flash": {
-    "id": "vercel/zai/glm-4.6v-flash",
-    "provider": "vercel",
-    "name": "GLM-4.6V-Flash",
-    "contextWindow": 128000,
-    "maxOutput": 24000,
-    "cost": {
-      "input": 0,
-      "output": 0,
-      "cacheRead": 0,
-      "cacheWrite": 0
-    },
-    "reasoning": true,
-    "modalities": [
-      "text",
-      "image",
-      "pdf"
-    ],
-    "available": true
-  },
   "vercel/zai/glm-4.7-flashx": {
     "id": "vercel/zai/glm-4.7-flashx",
     "provider": "vercel",
@@ -11619,16 +11783,16 @@
     ],
     "available": true
   },
-  "vercel/zai/glm-5.2": {
-    "id": "vercel/zai/glm-5.2",
+  "vercel/zai/glm-5.3": {
+    "id": "vercel/zai/glm-5.3",
     "provider": "vercel",
-    "name": "GLM 5.2",
+    "name": "GLM 5.3",
     "contextWindow": 1000000,
-    "maxOutput": 128000,
+    "maxOutput": 12800,
     "cost": {
-      "input": 1.1,
-      "output": 3.851,
-      "cacheRead": 0.275,
+      "input": 1.4,
+      "output": 4.4,
+      "cacheRead": 0.26,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -11637,23 +11801,21 @@
     ],
     "available": true
   },
-  "vercel/zai/glm-4.6v": {
-    "id": "vercel/zai/glm-4.6v",
+  "vercel/zai/glm-5.2": {
+    "id": "vercel/zai/glm-5.2",
     "provider": "vercel",
-    "name": "GLM-4.6V",
-    "contextWindow": 128000,
-    "maxOutput": 24000,
+    "name": "GLM 5.2",
+    "contextWindow": 1000000,
+    "maxOutput": 128000,
     "cost": {
-      "input": 0.3,
-      "output": 0.9,
-      "cacheRead": 0.05,
+      "input": 0.8,
+      "output": 2.55,
+      "cacheRead": 0.16,
       "cacheWrite": 0
     },
     "reasoning": true,
     "modalities": [
-      "text",
-      "image",
-      "pdf"
+      "text"
     ],
     "available": true
   },
@@ -11767,6 +11929,26 @@
     ],
     "available": true
   },
+  "vercel/openai/gpt-4o-mini-fast": {
+    "id": "vercel/openai/gpt-4o-mini-fast",
+    "provider": "vercel",
+    "name": "GPT-4o mini (Fast)",
+    "contextWindow": 128000,
+    "maxOutput": 16384,
+    "cost": {
+      "input": 0.25,
+      "output": 1,
+      "cacheRead": 0.125,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "available": true
+  },
   "vercel/openai/gpt-5.1-thinking": {
     "id": "vercel/openai/gpt-5.1-thinking",
     "provider": "vercel",
@@ -11777,6 +11959,26 @@
       "input": 1.25,
       "output": 10,
       "cacheRead": 0.125,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "available": true
+  },
+  "vercel/openai/gpt-5.1-thinking-fast": {
+    "id": "vercel/openai/gpt-5.1-thinking-fast",
+    "provider": "vercel",
+    "name": "GPT 5.1 Thinking (Fast)",
+    "contextWindow": 400000,
+    "maxOutput": 128000,
+    "cost": {
+      "input": 2.5,
+      "output": 20,
+      "cacheRead": 0.25,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -11805,6 +12007,26 @@
     ],
     "available": true
   },
+  "vercel/openai/gpt-5.6-luna-fast": {
+    "id": "vercel/openai/gpt-5.6-luna-fast",
+    "provider": "vercel",
+    "name": "GPT 5.6 Luna (Fast)",
+    "contextWindow": 1050000,
+    "maxOutput": 128000,
+    "cost": {
+      "input": 0.4,
+      "output": 2.4,
+      "cacheRead": 0.04,
+      "cacheWrite": 0.25
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "available": true
+  },
   "vercel/openai/gpt-5.5-pro": {
     "id": "vercel/openai/gpt-5.5-pro",
     "provider": "vercel",
@@ -11825,6 +12047,86 @@
     ],
     "available": true
   },
+  "vercel/openai/gpt-5.4-fast": {
+    "id": "vercel/openai/gpt-5.4-fast",
+    "provider": "vercel",
+    "name": "GPT 5.4 (Fast)",
+    "contextWindow": 1050000,
+    "maxOutput": 128000,
+    "cost": {
+      "input": 5,
+      "output": 30,
+      "cacheRead": 0.5,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "available": true
+  },
+  "vercel/openai/o4-mini-fast": {
+    "id": "vercel/openai/o4-mini-fast",
+    "provider": "vercel",
+    "name": "o4-mini (Fast)",
+    "contextWindow": 200000,
+    "maxOutput": 100000,
+    "cost": {
+      "input": 2,
+      "output": 8,
+      "cacheRead": 0.5,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "available": true
+  },
+  "vercel/openai/gpt-5.5-fast": {
+    "id": "vercel/openai/gpt-5.5-fast",
+    "provider": "vercel",
+    "name": "GPT 5.5 (Fast)",
+    "contextWindow": 1000000,
+    "maxOutput": 128000,
+    "cost": {
+      "input": 12.5,
+      "output": 75,
+      "cacheRead": 1.25,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "available": true
+  },
+  "vercel/openai/gpt-5.3-codex-fast": {
+    "id": "vercel/openai/gpt-5.3-codex-fast",
+    "provider": "vercel",
+    "name": "GPT 5.3 Codex (Fast)",
+    "contextWindow": 400000,
+    "maxOutput": 128000,
+    "cost": {
+      "input": 3.5,
+      "output": 28,
+      "cacheRead": 0.35,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "available": true
+  },
   "vercel/openai/gpt-5.6-sol": {
     "id": "vercel/openai/gpt-5.6-sol",
     "provider": "vercel",
@@ -11832,10 +12134,10 @@
     "contextWindow": 1050000,
     "maxOutput": 128000,
     "cost": {
-      "input": 5,
-      "output": 30,
-      "cacheRead": 0.5,
-      "cacheWrite": 6.25
+      "input": 2.5,
+      "output": 15,
+      "cacheRead": 0.25,
+      "cacheWrite": 3.125
     },
     "reasoning": true,
     "modalities": [
@@ -11965,6 +12267,26 @@
     ],
     "available": true
   },
+  "vercel/openai/gpt-4o-fast": {
+    "id": "vercel/openai/gpt-4o-fast",
+    "provider": "vercel",
+    "name": "GPT-4o (Fast)",
+    "contextWindow": 128000,
+    "maxOutput": 16384,
+    "cost": {
+      "input": 4.25,
+      "output": 17,
+      "cacheRead": 2.125,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "available": true
+  },
   "vercel/openai/gpt-5.3-codex": {
     "id": "vercel/openai/gpt-5.3-codex",
     "provider": "vercel",
@@ -12013,6 +12335,26 @@
       "input": 1.75,
       "output": 14,
       "cacheRead": 0.175,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "available": true
+  },
+  "vercel/openai/gpt-5-fast": {
+    "id": "vercel/openai/gpt-5-fast",
+    "provider": "vercel",
+    "name": "GPT-5 (Fast)",
+    "contextWindow": 400000,
+    "maxOutput": 128000,
+    "cost": {
+      "input": 2.5,
+      "output": 20,
+      "cacheRead": 0.25,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -12083,6 +12425,26 @@
     ],
     "available": true
   },
+  "vercel/openai/gpt-4.1-mini-fast": {
+    "id": "vercel/openai/gpt-4.1-mini-fast",
+    "provider": "vercel",
+    "name": "GPT-4.1 mini (Fast)",
+    "contextWindow": 1047576,
+    "maxOutput": 32768,
+    "cost": {
+      "input": 0.7,
+      "output": 2.8,
+      "cacheRead": 0.175,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "available": true
+  },
   "vercel/openai/gpt-5.2-codex": {
     "id": "vercel/openai/gpt-5.2-codex",
     "provider": "vercel",
@@ -12093,6 +12455,86 @@
       "input": 1.75,
       "output": 14,
       "cacheRead": 0.175,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "available": true
+  },
+  "vercel/openai/gpt-5.2-fast": {
+    "id": "vercel/openai/gpt-5.2-fast",
+    "provider": "vercel",
+    "name": "GPT 5.2 (Fast)",
+    "contextWindow": 400000,
+    "maxOutput": 128000,
+    "cost": {
+      "input": 3.5,
+      "output": 28,
+      "cacheRead": 0.35,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "available": true
+  },
+  "vercel/openai/gpt-5-mini-fast": {
+    "id": "vercel/openai/gpt-5-mini-fast",
+    "provider": "vercel",
+    "name": "GPT-5 mini (Fast)",
+    "contextWindow": 400000,
+    "maxOutput": 128000,
+    "cost": {
+      "input": 0.45,
+      "output": 3.6,
+      "cacheRead": 0.045,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "available": true
+  },
+  "vercel/openai/gpt-5.6-sol-fast": {
+    "id": "vercel/openai/gpt-5.6-sol-fast",
+    "provider": "vercel",
+    "name": "GPT 5.6 Sol (Fast)",
+    "contextWindow": 1050000,
+    "maxOutput": 128000,
+    "cost": {
+      "input": 5,
+      "output": 30,
+      "cacheRead": 0.5,
+      "cacheWrite": 3.125
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "available": true
+  },
+  "vercel/openai/gpt-5.4-mini-fast": {
+    "id": "vercel/openai/gpt-5.4-mini-fast",
+    "provider": "vercel",
+    "name": "GPT 5.4 Mini (Fast)",
+    "contextWindow": 400000,
+    "maxOutput": 128000,
+    "cost": {
+      "input": 1.5,
+      "output": 9,
+      "cacheRead": 0.15,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -12114,6 +12556,26 @@
       "output": 12,
       "cacheRead": 0.2,
       "cacheWrite": 2.5
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "available": true
+  },
+  "vercel/openai/o3-fast": {
+    "id": "vercel/openai/o3-fast",
+    "provider": "vercel",
+    "name": "o3 (Fast)",
+    "contextWindow": 200000,
+    "maxOutput": 100000,
+    "cost": {
+      "input": 3.5,
+      "output": 14,
+      "cacheRead": 0.875,
+      "cacheWrite": 0
     },
     "reasoning": true,
     "modalities": [
@@ -12221,6 +12683,26 @@
     ],
     "available": true
   },
+  "vercel/openai/gpt-4.1-fast": {
+    "id": "vercel/openai/gpt-4.1-fast",
+    "provider": "vercel",
+    "name": "GPT-4.1 (Fast)",
+    "contextWindow": 1047576,
+    "maxOutput": 32768,
+    "cost": {
+      "input": 3.5,
+      "output": 14,
+      "cacheRead": 0.875,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "available": true
+  },
   "vercel/openai/gpt-oss-safeguard-20b": {
     "id": "vercel/openai/gpt-oss-safeguard-20b",
     "provider": "vercel",
@@ -12236,6 +12718,26 @@
     "reasoning": true,
     "modalities": [
       "text"
+    ],
+    "available": true
+  },
+  "vercel/openai/gpt-5.6-terra-fast": {
+    "id": "vercel/openai/gpt-5.6-terra-fast",
+    "provider": "vercel",
+    "name": "GPT 5.6 Terra (Fast)",
+    "contextWindow": 1050000,
+    "maxOutput": 128000,
+    "cost": {
+      "input": 4,
+      "output": 24,
+      "cacheRead": 0.4,
+      "cacheWrite": 2.5
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image",
+      "pdf"
     ],
     "available": true
   },
@@ -12270,6 +12772,26 @@
       "cacheWrite": 0
     },
     "reasoning": true,
+    "modalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "available": true
+  },
+  "vercel/openai/gpt-4.1-nano-fast": {
+    "id": "vercel/openai/gpt-4.1-nano-fast",
+    "provider": "vercel",
+    "name": "GPT-4.1 nano (Fast)",
+    "contextWindow": 1047576,
+    "maxOutput": 32768,
+    "cost": {
+      "input": 0.2,
+      "output": 0.8,
+      "cacheRead": 0.05,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
     "modalities": [
       "text",
       "image",
@@ -12529,318 +13051,6 @@
     ],
     "available": true
   },
-  "vercel/xai/grok-4.20-reasoning": {
-    "id": "vercel/xai/grok-4.20-reasoning",
-    "provider": "vercel",
-    "name": "Grok 4.20 Reasoning",
-    "contextWindow": 2000000,
-    "maxOutput": 2000000,
-    "cost": {
-      "input": 1.25,
-      "output": 2.5,
-      "cacheRead": 0.2,
-      "cacheWrite": 0
-    },
-    "reasoning": true,
-    "modalities": [
-      "text",
-      "image",
-      "pdf"
-    ],
-    "available": true
-  },
-  "vercel/xai/grok-4.20-multi-agent-beta": {
-    "id": "vercel/xai/grok-4.20-multi-agent-beta",
-    "provider": "vercel",
-    "name": "Grok 4.20 Multi Agent Beta",
-    "contextWindow": 2000000,
-    "maxOutput": 2000000,
-    "cost": {
-      "input": 1.25,
-      "output": 2.5,
-      "cacheRead": 0.2,
-      "cacheWrite": 0
-    },
-    "reasoning": true,
-    "modalities": [
-      "text",
-      "image",
-      "pdf"
-    ],
-    "available": true
-  },
-  "vercel/xai/grok-4.1-fast-reasoning": {
-    "id": "vercel/xai/grok-4.1-fast-reasoning",
-    "provider": "vercel",
-    "name": "Grok 4.1 Fast Reasoning",
-    "contextWindow": 1000000,
-    "maxOutput": 1000000,
-    "cost": {
-      "input": 0.2,
-      "output": 0.5,
-      "cacheRead": 0.05,
-      "cacheWrite": 0
-    },
-    "reasoning": true,
-    "modalities": [
-      "text",
-      "image",
-      "pdf"
-    ],
-    "available": true
-  },
-  "vercel/xai/grok-4.6": {
-    "id": "vercel/xai/grok-4.6",
-    "provider": "vercel",
-    "name": "Grok 4.6",
-    "contextWindow": 500000,
-    "maxOutput": 500000,
-    "cost": {
-      "input": 2,
-      "output": 6,
-      "cacheRead": 0.5,
-      "cacheWrite": 0
-    },
-    "reasoning": true,
-    "modalities": [
-      "text",
-      "image"
-    ],
-    "available": true
-  },
-  "vercel/xai/grok-4.5": {
-    "id": "vercel/xai/grok-4.5",
-    "provider": "vercel",
-    "name": "Grok 4.5",
-    "contextWindow": 500000,
-    "maxOutput": 500000,
-    "cost": {
-      "input": 2,
-      "output": 6,
-      "cacheRead": 0.3,
-      "cacheWrite": 0
-    },
-    "reasoning": true,
-    "modalities": [
-      "text",
-      "image",
-      "pdf"
-    ],
-    "available": true
-  },
-  "vercel/xai/grok-4.20-reasoning-beta": {
-    "id": "vercel/xai/grok-4.20-reasoning-beta",
-    "provider": "vercel",
-    "name": "Grok 4.20 Beta Reasoning",
-    "contextWindow": 2000000,
-    "maxOutput": 2000000,
-    "cost": {
-      "input": 1.25,
-      "output": 2.5,
-      "cacheRead": 0.2,
-      "cacheWrite": 0
-    },
-    "reasoning": true,
-    "modalities": [
-      "text",
-      "image",
-      "pdf"
-    ],
-    "available": true
-  },
-  "vercel/xai/grok-4.20-non-reasoning-beta": {
-    "id": "vercel/xai/grok-4.20-non-reasoning-beta",
-    "provider": "vercel",
-    "name": "Grok 4.20 Beta Non-Reasoning",
-    "contextWindow": 2000000,
-    "maxOutput": 2000000,
-    "cost": {
-      "input": 1.25,
-      "output": 2.5,
-      "cacheRead": 0.4,
-      "cacheWrite": 0
-    },
-    "reasoning": false,
-    "modalities": [
-      "text",
-      "image",
-      "pdf"
-    ],
-    "available": true
-  },
-  "vercel/xai/grok-voice-think-fast-1.0": {
-    "id": "vercel/xai/grok-voice-think-fast-1.0",
-    "provider": "vercel",
-    "name": "Grok Voice Think Fast 1.0",
-    "contextWindow": 0,
-    "maxOutput": 0,
-    "cost": {
-      "input": 0,
-      "output": 0,
-      "cacheRead": 0,
-      "cacheWrite": 0
-    },
-    "reasoning": false,
-    "modalities": [
-      "text",
-      "audio"
-    ],
-    "available": true
-  },
-  "vercel/xai/grok-4.20-non-reasoning": {
-    "id": "vercel/xai/grok-4.20-non-reasoning",
-    "provider": "vercel",
-    "name": "Grok 4.20 Non-Reasoning",
-    "contextWindow": 2000000,
-    "maxOutput": 2000000,
-    "cost": {
-      "input": 1.25,
-      "output": 2.5,
-      "cacheRead": 0.2,
-      "cacheWrite": 0
-    },
-    "reasoning": false,
-    "modalities": [
-      "text",
-      "image",
-      "pdf"
-    ],
-    "available": true
-  },
-  "vercel/xai/grok-stt": {
-    "id": "vercel/xai/grok-stt",
-    "provider": "vercel",
-    "name": "Grok STT",
-    "contextWindow": 0,
-    "maxOutput": 0,
-    "cost": {
-      "input": 0,
-      "output": 0,
-      "cacheRead": 0,
-      "cacheWrite": 0
-    },
-    "reasoning": false,
-    "modalities": [
-      "audio"
-    ],
-    "available": true
-  },
-  "vercel/xai/grok-4.1-fast-non-reasoning": {
-    "id": "vercel/xai/grok-4.1-fast-non-reasoning",
-    "provider": "vercel",
-    "name": "Grok 4.1 Fast Non-Reasoning",
-    "contextWindow": 1000000,
-    "maxOutput": 1000000,
-    "cost": {
-      "input": 0.2,
-      "output": 0.5,
-      "cacheRead": 0.05,
-      "cacheWrite": 0
-    },
-    "reasoning": false,
-    "modalities": [
-      "text",
-      "image",
-      "pdf"
-    ],
-    "available": true
-  },
-  "vercel/xai/grok-imagine-image": {
-    "id": "vercel/xai/grok-imagine-image",
-    "provider": "vercel",
-    "name": "Grok Imagine Image",
-    "contextWindow": 0,
-    "maxOutput": 0,
-    "cost": {
-      "input": 0,
-      "output": 0,
-      "cacheRead": 0,
-      "cacheWrite": 0
-    },
-    "reasoning": false,
-    "modalities": [
-      "text"
-    ],
-    "available": true
-  },
-  "vercel/xai/grok-4.20-multi-agent": {
-    "id": "vercel/xai/grok-4.20-multi-agent",
-    "provider": "vercel",
-    "name": "Grok 4.20 Multi-Agent",
-    "contextWindow": 2000000,
-    "maxOutput": 2000000,
-    "cost": {
-      "input": 1.25,
-      "output": 2.5,
-      "cacheRead": 0.2,
-      "cacheWrite": 0
-    },
-    "reasoning": true,
-    "modalities": [
-      "text",
-      "image",
-      "pdf"
-    ],
-    "available": true
-  },
-  "vercel/xai/grok-voice-think-fast-2.0": {
-    "id": "vercel/xai/grok-voice-think-fast-2.0",
-    "provider": "vercel",
-    "name": "Grok Voice Think Fast 2.0",
-    "contextWindow": 0,
-    "maxOutput": 0,
-    "cost": {
-      "input": 0,
-      "output": 0,
-      "cacheRead": 0,
-      "cacheWrite": 0
-    },
-    "reasoning": false,
-    "modalities": [
-      "text",
-      "audio"
-    ],
-    "available": true
-  },
-  "vercel/xai/grok-build-0.1": {
-    "id": "vercel/xai/grok-build-0.1",
-    "provider": "vercel",
-    "name": "Grok Build 0.1",
-    "contextWindow": 256000,
-    "maxOutput": 256000,
-    "cost": {
-      "input": 1,
-      "output": 2,
-      "cacheRead": 0.2,
-      "cacheWrite": 0
-    },
-    "reasoning": true,
-    "modalities": [
-      "text",
-      "image"
-    ],
-    "available": true
-  },
-  "vercel/xai/grok-4.3": {
-    "id": "vercel/xai/grok-4.3",
-    "provider": "vercel",
-    "name": "Grok 4.3",
-    "contextWindow": 1000000,
-    "maxOutput": 1000000,
-    "cost": {
-      "input": 1.25,
-      "output": 2.5,
-      "cacheRead": 0.2,
-      "cacheWrite": 0
-    },
-    "reasoning": true,
-    "modalities": [
-      "text",
-      "image",
-      "pdf"
-    ],
-    "available": true
-  },
   "vercel/stepfun/step-3.5-flash": {
     "id": "vercel/stepfun/step-3.5-flash",
     "provider": "vercel",
@@ -12894,8 +13104,7 @@
     "reasoning": true,
     "modalities": [
       "text",
-      "image",
-      "pdf"
+      "image"
     ],
     "available": true
   },
@@ -13347,6 +13556,26 @@
     ],
     "available": true
   },
+  "vercel/alibaba/qwen3.8-27b": {
+    "id": "vercel/alibaba/qwen3.8-27b",
+    "provider": "vercel",
+    "name": "Qwen3.8 27B",
+    "contextWindow": 1000000,
+    "maxOutput": 131072,
+    "cost": {
+      "input": 0.55,
+      "output": 3.3,
+      "cacheRead": 0.11,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "available": true
+  },
   "vercel/alibaba/qwen3.6-plus": {
     "id": "vercel/alibaba/qwen3.6-plus",
     "provider": "vercel",
@@ -13413,12 +13642,13 @@
     "cost": {
       "input": 2,
       "output": 6,
-      "cacheRead": 0.25,
+      "cacheRead": 0.2,
       "cacheWrite": 0
     },
     "reasoning": true,
     "modalities": [
-      "text"
+      "text",
+      "image"
     ],
     "available": true
   },
@@ -13458,6 +13688,300 @@
     "modalities": [
       "text",
       "image"
+    ],
+    "available": true
+  },
+  "vercel/spacexai/grok-4.20-reasoning": {
+    "id": "vercel/spacexai/grok-4.20-reasoning",
+    "provider": "vercel",
+    "name": "Grok 4.20 Reasoning",
+    "contextWindow": 2000000,
+    "maxOutput": 2000000,
+    "cost": {
+      "input": 1.25,
+      "output": 2.5,
+      "cacheRead": 0.2,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "available": true
+  },
+  "vercel/spacexai/grok-4.20-multi-agent-beta": {
+    "id": "vercel/spacexai/grok-4.20-multi-agent-beta",
+    "provider": "vercel",
+    "name": "Grok 4.20 Multi Agent Beta",
+    "contextWindow": 2000000,
+    "maxOutput": 2000000,
+    "cost": {
+      "input": 1.25,
+      "output": 2.5,
+      "cacheRead": 0.2,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "available": true
+  },
+  "vercel/spacexai/grok-4.1-fast-reasoning": {
+    "id": "vercel/spacexai/grok-4.1-fast-reasoning",
+    "provider": "vercel",
+    "name": "Grok 4.1 Fast Reasoning",
+    "contextWindow": 1000000,
+    "maxOutput": 1000000,
+    "cost": {
+      "input": 0.2,
+      "output": 0.5,
+      "cacheRead": 0.05,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "available": true
+  },
+  "vercel/spacexai/grok-4.6": {
+    "id": "vercel/spacexai/grok-4.6",
+    "provider": "vercel",
+    "name": "Grok 4.6",
+    "contextWindow": 500000,
+    "maxOutput": 500000,
+    "cost": {
+      "input": 2,
+      "output": 6,
+      "cacheRead": 0.5,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image"
+    ],
+    "available": true
+  },
+  "vercel/spacexai/grok-4.5": {
+    "id": "vercel/spacexai/grok-4.5",
+    "provider": "vercel",
+    "name": "Grok 4.5",
+    "contextWindow": 500000,
+    "maxOutput": 500000,
+    "cost": {
+      "input": 2,
+      "output": 6,
+      "cacheRead": 0.3,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "available": true
+  },
+  "vercel/spacexai/grok-4.20-reasoning-beta": {
+    "id": "vercel/spacexai/grok-4.20-reasoning-beta",
+    "provider": "vercel",
+    "name": "Grok 4.20 Beta Reasoning",
+    "contextWindow": 2000000,
+    "maxOutput": 2000000,
+    "cost": {
+      "input": 1.25,
+      "output": 2.5,
+      "cacheRead": 0.2,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "available": true
+  },
+  "vercel/spacexai/grok-4.20-non-reasoning-beta": {
+    "id": "vercel/spacexai/grok-4.20-non-reasoning-beta",
+    "provider": "vercel",
+    "name": "Grok 4.20 Beta Non-Reasoning",
+    "contextWindow": 2000000,
+    "maxOutput": 2000000,
+    "cost": {
+      "input": 1.25,
+      "output": 2.5,
+      "cacheRead": 0.4,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "available": true
+  },
+  "vercel/spacexai/grok-voice-think-fast-1.0": {
+    "id": "vercel/spacexai/grok-voice-think-fast-1.0",
+    "provider": "vercel",
+    "name": "Grok Voice Think Fast 1.0",
+    "contextWindow": 0,
+    "maxOutput": 0,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text",
+      "audio"
+    ],
+    "available": true
+  },
+  "vercel/spacexai/grok-4.20-non-reasoning": {
+    "id": "vercel/spacexai/grok-4.20-non-reasoning",
+    "provider": "vercel",
+    "name": "Grok 4.20 Non-Reasoning",
+    "contextWindow": 2000000,
+    "maxOutput": 2000000,
+    "cost": {
+      "input": 1.25,
+      "output": 2.5,
+      "cacheRead": 0.2,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "available": true
+  },
+  "vercel/spacexai/grok-stt": {
+    "id": "vercel/spacexai/grok-stt",
+    "provider": "vercel",
+    "name": "Grok STT",
+    "contextWindow": 0,
+    "maxOutput": 0,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "audio"
+    ],
+    "available": true
+  },
+  "vercel/spacexai/grok-4.1-fast-non-reasoning": {
+    "id": "vercel/spacexai/grok-4.1-fast-non-reasoning",
+    "provider": "vercel",
+    "name": "Grok 4.1 Fast Non-Reasoning",
+    "contextWindow": 1000000,
+    "maxOutput": 1000000,
+    "cost": {
+      "input": 0.2,
+      "output": 0.5,
+      "cacheRead": 0.05,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "available": true
+  },
+  "vercel/spacexai/grok-4.20-multi-agent": {
+    "id": "vercel/spacexai/grok-4.20-multi-agent",
+    "provider": "vercel",
+    "name": "Grok 4.20 Multi-Agent",
+    "contextWindow": 2000000,
+    "maxOutput": 2000000,
+    "cost": {
+      "input": 1.25,
+      "output": 2.5,
+      "cacheRead": 0.2,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "available": true
+  },
+  "vercel/spacexai/grok-voice-think-fast-2.0": {
+    "id": "vercel/spacexai/grok-voice-think-fast-2.0",
+    "provider": "vercel",
+    "name": "Grok Voice Think Fast 2.0",
+    "contextWindow": 0,
+    "maxOutput": 0,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text",
+      "audio"
+    ],
+    "available": true
+  },
+  "vercel/spacexai/grok-build-0.1": {
+    "id": "vercel/spacexai/grok-build-0.1",
+    "provider": "vercel",
+    "name": "Grok Build 0.1",
+    "contextWindow": 256000,
+    "maxOutput": 256000,
+    "cost": {
+      "input": 1,
+      "output": 2,
+      "cacheRead": 0.2,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image"
+    ],
+    "available": true
+  },
+  "vercel/spacexai/grok-4.3": {
+    "id": "vercel/spacexai/grok-4.3",
+    "provider": "vercel",
+    "name": "Grok 4.3",
+    "contextWindow": 1000000,
+    "maxOutput": 1000000,
+    "cost": {
+      "input": 1.25,
+      "output": 2.5,
+      "cacheRead": 0.2,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image",
+      "pdf"
     ],
     "available": true
   },

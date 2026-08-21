@@ -1,5 +1,34 @@
 # Changelog
 
+## [0.19.9] - 2026-08-21
+
+### Fixed
+
+- **Your conversation could be printed into the scrollback twice.** Scrolling back replayed whole stretches of the chat, in order, as if the session had happened again. v0.19.6 taught the renderer to repaint the visible window from the frame in memory when that frame got shorter, and it filled the rows a shrinking frame gave up with lines from above the top of the screen — but a line that has scrolled off is committed: the terminal cannot be made to move it, only to print it a second time under the copy already in the history. A turn full of collapsing tool groups asked for a few more each time. The repaint now stops at the last committed row and never reaches above it.
+- **Typing `/` or `@` and deleting it again left a gap in the chat.** The completion list was appended to the editor, so it made the whole frame taller for as long as it was open; a frame that reaches the bottom of the screen pays for that by scrolling, and those rows cannot come back when the list closes. One keystroke was enough to leave a band behind. The list is painted over the transcript now and costs the frame no height at all — measured in a pty, `/` typed and deleted went from six rows scrolled off plus a band to zero and none, with the screen byte-identical to before it was typed.
+- **Opening a menu no longer costs you rows off the top of the screen.** Same cause: a selector swapped in for the editor made the frame taller than the terminal, pushing the top of the conversation into the scrollback for as long as the menu was open. Selectors are painted over the frame too, anchored to the bottom of the frame rather than the bottom of the screen so a short transcript keeps the menu on the prompt.
+- **Turning `pinnedInput` off and on again left the prompt in the middle of the screen.** The setting looked broken; pinning was on the whole time. The menu it is toggled from was itself inline in the frame, so opening it pushed twelve rows off a thirty-row screen, and when it closed the frame shrank by that much and took the prompt up with it. With menus no longer changing the frame's height, toggling it scrolls nothing at all.
+- **The scoped-models panel would not accept a space, and could not find a model by name.** Space was bound to toggling the highlighted row, so it could never reach the search box — and the search was a plain substring test, which cannot match a model id anyway: `custom:pronto-gpt/openai/gpt-5.6-sol` has punctuation where you would type a space, so "openai sol" found nothing and "gpt5sol" found nothing. Both read as the search being broken rather than the query being wrong. Every printable character builds the query now, space included, and Enter is the toggle (it always was, as well as space).
+- **Every picker searches the way the editor's completion menu always has.** `/model`, `/provider`, `/settings`, `/scoped-models` and the rest share one filter: tokens split on whitespace and slashes, each matching as a subsequence, ranked so word-boundary and consecutive hits come first — "claude sonnet" and "gpt5sol" both land on the model you meant, and `sol` puts `gpt-5.6-sol` above anything that merely contains those letters. Descriptions keep their substring match and sort after the ranked results, so prose in `/settings` cannot bury the ranking.
+- **A rebuilt transcript tells the renderer it is a new frame.** `/new`, `/clear`, `/ui` and `/theme` throw the transcript away and build another one, which shares no lines with it — so diffing the two by index compares unrelated rows, and the renderer can conclude the top of the screen is fine as it is and leave the previous conversation sitting there under a fresh prompt. It cannot be detected from the renderer's side either, because a line inserted ABOVE the window (a late MCP notice) looks exactly the same and must not clear the screen. `ChatHistory.reset()` says which one it did.
+
+### Added
+
+- **Screen tests.** The renderer's bugs are all correct frames drawn in the wrong place, which no unit test can see, so there is now a suite that runs loop in a real pty and asserts on the terminal: `bun run test:screens`, or `LOOP_E2E=1 bun test`. Boot, a growing transcript, the completion list, menus, the `pinnedInput` toggle, `/new`, `/clear` and resize — checking both the screen and the scrollback, in pinned and unpinned modes. It is validated by failing on the previous release: six of its thirty checks catch bugs fixed above. Each run gets its own HOME, only ever signals the process it started, and answers loop's terminal probes (CPR, device attributes, cell size, background colour) so it exercises the real path instead of the timeout fallback.
+
+### Added
+
+- **Scoped models are pickable from `/model`, not just cycleable with Ctrl+P.** The models named in `scopedModels` are the handful you actually work with, and the only way to reach one was to cycle. They sit at the top of the picker now, marked with a star and carrying their full id — the list is otherwise scoped to the active provider, and these are not all under it. Choosing one that belongs elsewhere switches the provider with it, so the status line and the next turn agree about who is serving the model.
+- **`exit_plan_mode`: the agent can ask its way back out of plan mode.** Plan mode was a one-way door for the agent — it could flip the gate on itself with `enter_plan_mode`, but only you could lift it, through the plan tool's implement/talk follow-up, which ends the turn and hands the plan to a fresh agent. Everything the planning agent had just worked out went with it. The new tool closes the loop: the agent presents its finished plan, you approve, the gate lifts mid-turn and the same agent implements it immediately with its investigation intact. Gated on the same approval bridge as entering, and only offered to unrestricted agents in an interactive session while plan mode is on — a restricted agent has no edit or write tools, so lifting the gate would buy it nothing. Its plan renders as full markdown and never folds into a tool group, the same as `plan`.
+
+### Changed
+
+- **The completion list opens above the prompt**, with a rule across the top. Below it was where the editor's own bottom border separated it from the chat; above the prompt is where the room is now that it is not allowed to make any.
+
+### Known
+
+- A tool group collapsing to its summary row still moves the prompt up a few rows until the next output arrives. That one is not a bug with a fix: the rows it gives up can only be filled from above the top of the screen, and those are committed. Blank rows, a duplicated conversation, or a prompt that moves — a terminal offers no fourth option.
+
 ## [0.19.7] - 2026-08-16
 
 ### Fixed
