@@ -278,9 +278,9 @@ export function attachCmuxReporter(opts: CmuxReporterOptions): CmuxReporter {
 
     /** cmux groups a pane's rows by session_id and expects the source's own
      * prefix on it (claude-<uuid>, opencode-<id>); ours reads loop-<uuid>. */
-    const sessionId = (): string => {
+    const sessionId = (): string | undefined => {
         const s = opts.getSession();
-        return s ? `${SOURCE}-${s.id}` : `${SOURCE}-${surfaceId}`;
+        return s ? `${SOURCE}-${s.id}` : undefined;
     };
 
     /** What the user last asked for — cmux shows it as the card's context, so
@@ -289,7 +289,7 @@ export function attachCmuxReporter(opts: CmuxReporterOptions): CmuxReporter {
 
     function baseEvent(): Record<string, unknown> {
         const event: Record<string, unknown> = {
-            session_id: sessionId(),
+            session_id: sessionId() ?? `${SOURCE}-${surfaceId}`,
             _source: SOURCE,
             _ppid: process.pid,
             cwd: opts.cwd(),
@@ -364,12 +364,34 @@ export function attachCmuxReporter(opts: CmuxReporterOptions): CmuxReporter {
         }
     }
 
+    /**
+     * Events that happened before this launch had a session to file them
+     * under. loop creates its session on the first turn, but SessionStart
+     * fires at boot — reporting that against the pane id would open a second,
+     * near-empty workstream in cmux beside the real one, every launch. They
+     * wait here instead and are replayed the moment a session exists, so a
+     * launch is one workstream, the way it is for an agent whose session id
+     * exists from the start. Bounded: a launch that never starts a turn has
+     * nothing worth showing, and drops them at exit.
+     */
+    const pending: HookPayload[] = [];
+    const MAX_PENDING = 32;
+
     const onHookEvent = (payload: HookPayload): void => {
         try {
             // Every event is also a chance to notice the session changed
             // (/new, /resume, a fork) — which is when cmux's resume binding
             // has to be rewritten to point at the session that is live now.
             bindSession();
+            if (sessionId() === undefined) {
+                if (pending.length < MAX_PENDING) pending.push(payload);
+                return;
+            }
+            // A session appeared: everything held back belongs to it.
+            if (pending.length > 0) {
+                const held = pending.splice(0, pending.length);
+                for (const p of held) forward(p);
+            }
             forward(payload);
         } catch {
             // A watcher that throws must not reach the agent's turn.

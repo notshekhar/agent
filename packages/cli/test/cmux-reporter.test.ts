@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { hookBus, type HookPayload } from "@notshekhar/loop-core";
-import { attachCmuxReporter, type CmuxReporter } from "../src/interactive/cmux-reporter";
+import { attachCmuxReporter, type CmuxReporter, type CmuxSessionRef } from "../src/interactive/cmux-reporter";
 
 const tick = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -159,6 +159,35 @@ describe("cmux reporter", () => {
         // The prompt rides along as context, so a card seen on a phone says
         // what it is for.
         expect(events[2].context).toEqual({ lastUserMessage: "ship the cmux bridge" });
+    });
+
+    test("events before the first session are replayed into it, not beside it", async () => {
+        dir = mkdtempSync(join(tmpdir(), "cmux-test-"));
+        const socketPath = join(dir, "cmux.sock");
+        const server = fakeCmux(socketPath);
+        stopServer = server.stop;
+
+        // loop has no session until the first turn — SessionStart fires before it.
+        let session: CmuxSessionRef | null = null;
+        reporter = attachCmuxReporter({
+            getSession: () => session,
+            cwd: () => "/repo",
+            env: cmuxEnv(socketPath),
+            bindResume: false,
+        });
+
+        hookBus.emit("event", hook("SessionStart"));
+        await tick(80);
+        expect(server.events()).toHaveLength(0); // held, not filed under the pane
+
+        session = { id: "abc123", path: null };
+        hookBus.emit("event", hook("UserPromptSubmit", { prompt: "go" }));
+        await tick(120);
+
+        const events = server.events();
+        expect(events.map((e) => e.hook_event_name)).toEqual(["SessionStart", "UserPromptSubmit"]);
+        // One workstream for the launch, the session's own.
+        expect(new Set(events.map((e) => e.session_id))).toEqual(new Set(["loop-abc123"]));
     });
 
     test("the todo list also goes out as cmux's TodoWrite", async () => {
