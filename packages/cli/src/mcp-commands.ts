@@ -21,7 +21,7 @@ import {
     CONFIG_DIR_NAME,
     PRODUCT_NAME,
 } from "@notshekhar/loop-core";
-import { buildAddConfig, McpUsageError, type McpScope } from "./mcp-add-parse";
+import { buildAddConfig, firstPositional, positionals, scopeFlag, McpUsageError, type McpScope } from "./mcp-add-parse";
 import { openBrowser } from "./open-browser";
 
 /** One-line target summary for list/get output. */
@@ -40,19 +40,6 @@ function allServers(cwd: string): Array<{ name: string; cfg: McpServerConfig; sc
     for (const [name, cfg] of Object.entries(getGlobalServers())) out.push({ name, cfg, scope: "user" });
     for (const [name, cfg] of Object.entries(getProjectServers(cwd))) out.push({ name, cfg, scope: "project" });
     return out;
-}
-
-function firstPositional(args: string[]): string | undefined {
-    return args.find((a) => !a.startsWith("-"));
-}
-
-/** Parse an optional `--scope user|project` out of a simple subcommand's args. */
-function scopeFlag(args: string[]): McpScope | undefined {
-    const i = args.findIndex((a) => a === "--scope" || a === "-s");
-    if (i >= 0 && args[i + 1]) return args[i + 1] === "project" || args[i + 1] === "local" ? "project" : "user";
-    const eq = args.find((a) => a.startsWith("--scope="));
-    if (eq) return eq.slice("--scope=".length) === "project" ? "project" : "user";
-    return undefined;
 }
 
 function cmdAdd(args: string[]): void {
@@ -106,7 +93,10 @@ function cmdRemove(args: string[]): void {
     if (!removed) {
         throw new McpUsageError(`no MCP server named "${name}"${wanted ? ` in scope ${wanted}` : ""}`);
     }
-    clearMcpAuth(name); // forget any stored OAuth session
+    // Only forget the OAuth session once nothing of that name is configured
+    // anywhere: removing the project copy of a server that also exists in user
+    // scope must not sign the surviving one out.
+    if (!loadMcpServers(cwd)[name]) clearMcpAuth(name);
     console.log(`Removed MCP server "${name}" [scope: ${removed}]`);
 }
 
@@ -137,7 +127,7 @@ async function cmdLogin(args: string[]): Promise<void> {
 }
 
 function cmdAddJson(args: string[]): void {
-    const positional = args.filter((a) => !a.startsWith("-"));
+    const positional = positionals(args);
     const name = positional[0];
     const json = positional[1];
     if (!name || !json)

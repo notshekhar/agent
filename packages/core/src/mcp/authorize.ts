@@ -6,7 +6,7 @@
 import { CONFIG_DIR_NAME } from "../brand";
 import { auth } from "@ai-sdk/mcp";
 import { isHttpServer, type McpServerConfig } from "./config";
-import { clearMcpAuth, oauthClientOptions, McpOAuthProvider } from "./oauth";
+import { clearMcpAuth, oauthClientOptions, readMcpAuth, restoreMcpAuth, McpOAuthProvider } from "./oauth";
 import { startCallbackServer } from "../auth/oauth-callback";
 
 const LOGIN_TIMEOUT_MS = 180_000;
@@ -34,19 +34,30 @@ export async function authorizeServer(
 
     const opts = oauthClientOptions(cfg);
     const callback = await startCallbackServer();
+    // Start clean: a dynamically-registered client is bound to the redirect URI
+    // it was created with. Re-registering against this run's live callback URI
+    // avoids a redirect_uri mismatch if a stale client (e.g. from a background
+    // connect) was registered on a different port. A pre-configured clientId
+    // isn't stored here, so this never drops it.
+    //
+    // But keep what was there. "Re-authorize" is offered on servers that are
+    // working — an expired session looks identical to a live one until a call
+    // fails — and wiping first meant a login the user cancelled, or that timed
+    // out, or that hit a flaky network, signed them OUT of a session that was
+    // fine. The old session goes back if this attempt doesn't finish.
+    const previous = readMcpAuth(name);
+    let authorized = false;
     try {
-        // Start clean: a dynamically-registered client is bound to the redirect
-        // URI it was created with. Re-registering against this run's live
-        // callback URI avoids a redirect_uri mismatch if a stale client (e.g.
-        // from a background connect) was registered on a different port. A
-        // pre-configured clientId isn't stored here, so this never drops it.
         clearMcpAuth(name);
         const provider = new McpOAuthProvider(name, callback.redirectUri, (url) => openUrl(url.toString()), opts);
 
         // First pass: no auth code yet → provider.redirectToAuthorization fires,
         // the browser opens, and auth() returns "REDIRECT".
         const first = await runAuth(() => auth(provider, { serverUrl: cfg.url, resourceMetadataUrl }), !opts.clientId);
-        if (first === "AUTHORIZED") return; // already had a valid session
+        if (first === "AUTHORIZED") {
+            authorized = true;
+            return; // already had a valid session
+        }
 
         const { code, state } = await callback.waitForCode(LOGIN_TIMEOUT_MS);
 
@@ -64,8 +75,13 @@ export async function authorizeServer(
         if (result !== "AUTHORIZED") {
             throw new Error("authorization did not complete");
         }
+        authorized = true;
     } finally {
         callback.close();
+        // Nothing was gained, so give back what was there. Only a session that
+        // actually existed is restored — a first-time login that fails leaves
+        // the server exactly as unauthorized as it was.
+        if (!authorized && previous) restoreMcpAuth(name, previous);
     }
 }
 

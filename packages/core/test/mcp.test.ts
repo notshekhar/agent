@@ -160,8 +160,7 @@ function makeProjectWith(servers: Record<string, McpServerConfig>): string {
  */
 describe("the MCP login flow", () => {
     test("starts for a configured server the manager has never connected", async () => {
-        const { startMcpLogin, cancelMcpLogin, resetMcpLogins, listMcpServers } =
-            await import("../src/rpc/mcp-flows");
+        const { startMcpLogin, cancelMcpLogin, resetMcpLogins, listMcpServers } = await import("../src/rpc/mcp-flows");
         const { getMcpManager } = await import("../src/mcp/manager");
         resetMcpLogins();
         const root = makeProjectWith({ unconnected: { type: "http", url: "http://127.0.0.1:9/mcp" } });
@@ -184,5 +183,54 @@ describe("the MCP login flow", () => {
         resetMcpLogins();
         const root = makeProjectWith({});
         expect(() => startMcpLogin("nosuchserver", root)).toThrow(/unknown MCP server/);
+    });
+});
+
+/**
+ * What the /mcp panel and any GUI client read. The tool list used to be
+ * matched against the RAW server name with `includes`, so a server whose name
+ * carried a dash showed none of its tools, and a server whose name was a
+ * suffix of another's showed the other's too.
+ */
+describe("listMcpServers", () => {
+    test("attributes tools by the namespaced prefix, not the raw name", async () => {
+        const { listMcpServers } = await import("../src/rpc/mcp-flows");
+        const { getMcpManager } = await import("../src/mcp/manager");
+        const saved = getSetting("mcpServers");
+        setSetting("mcpServers", {});
+        const root = makeProjectWith({ "my-fs": stdioConfig, fs: stdioConfig, myfs: stdioConfig });
+        try {
+            await getMcpManager().init(root);
+            const byName = Object.fromEntries(listMcpServers(root).servers.map((s) => [s.name, s]));
+            // A dash in the name is sanitized in the tool key; the row must
+            // still find its own tools.
+            expect(byName["my-fs"].tools).toEqual(["mcp__my_fs__echo", "mcp__my_fs__structured"]);
+            // And "fs" must not claim "myfs"'s tools.
+            expect(byName.fs.tools).toEqual(["mcp__fs__echo", "mcp__fs__structured"]);
+            expect(byName.myfs.tools).toEqual(["mcp__myfs__echo", "mcp__myfs__structured"]);
+        } finally {
+            await getMcpManager().close();
+            setSetting("mcpServers", saved as Record<string, McpServerConfig> | undefined);
+        }
+    });
+});
+
+describe("parseServerConfig", () => {
+    test("refuses headers/env that aren't flat string maps", async () => {
+        const { parseServerConfig } = await import("../src/rpc/mcp-flows");
+        expect(() => parseServerConfig({ type: "http", url: "https://x.dev/mcp", headers: { a: { b: 1 } } })).toThrow(
+            /headers\.a must be a string/,
+        );
+        expect(() => parseServerConfig({ command: "npx", env: { TOKEN: 5 } })).toThrow(/env\.TOKEN must be a string/);
+        expect(() => parseServerConfig({ command: "npx", env: ["TOKEN=1"] })).toThrow(/env must be an object/);
+    });
+
+    test("keeps a valid map", () => {
+        expect(
+            require("../src/rpc/mcp-flows").parseServerConfig({
+                command: "npx",
+                env: { TOKEN: "${env:GH_TOKEN}" },
+            }),
+        ).toEqual({ type: "stdio", command: "npx", env: { TOKEN: "${env:GH_TOKEN}" } });
     });
 });

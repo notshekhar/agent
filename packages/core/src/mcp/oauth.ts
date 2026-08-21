@@ -58,7 +58,7 @@ function mcpAuthStore(): Configstore {
 }
 
 /** Everything we persist for one server's OAuth session. */
-interface StoredAuth {
+export interface StoredAuth {
     clientInformation?: OAuthClientInformation;
     tokens?: OAuthTokens;
     codeVerifier?: string;
@@ -114,6 +114,24 @@ export function isOAuthServer(server: string, cfg: McpServerConfig, needsAuth = 
 /** Forget a server's OAuth session entirely (used on /mcp delete or re-auth). */
 export function clearMcpAuth(server: string): void {
     mcpAuthStore().delete(server);
+}
+
+/**
+ * The whole stored session, so a caller can put it back.
+ *
+ * Only the login flow needs this: it clears the session before starting (a
+ * dynamically-registered client is bound to the redirect URI it registered
+ * with) and must be able to undo that when the login doesn't complete.
+ * Returns undefined when there was nothing stored.
+ */
+export function readMcpAuth(server: string): StoredAuth | undefined {
+    const stored = mcpAuthStore().get(server) as StoredAuth | undefined;
+    return stored && Object.keys(stored).length > 0 ? stored : undefined;
+}
+
+/** Put a session read by `readMcpAuth` back, replacing whatever is there now. */
+export function restoreMcpAuth(server: string, auth: StoredAuth): void {
+    mcpAuthStore().set(server, auth);
 }
 
 /**

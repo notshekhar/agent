@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildAddConfig, McpUsageError } from "../src/mcp-add-parse";
+import { buildAddConfig, McpUsageError, firstPositional, positionals, scopeFlag } from "../src/mcp-add-parse";
 
 describe("buildAddConfig — http/sse", () => {
     test("http server with a URL (the claude-code-docs example)", () => {
@@ -148,5 +148,44 @@ describe("buildAddConfig — general validation", () => {
 
     test("rejects an invalid --scope", () => {
         expect(() => buildAddConfig(["-t", "http", "x", "https://y", "-s", "galaxy"])).toThrow(/invalid --scope/);
+    });
+});
+
+/**
+ * The server name in the simple subcommands (`get`, `remove`, `enable`,
+ * `disable`, `add-json`). A flag's VALUE is not a flag, which is what made
+ * `loop mcp remove --scope project api` try to remove a server called
+ * "project" — while the same command with the flag written after the name
+ * worked fine.
+ */
+describe("positional arguments", () => {
+    test("skips the value of a --scope flag that comes first", () => {
+        expect(firstPositional(["--scope", "project", "api"])).toBe("api");
+        expect(firstPositional(["-s", "user", "api"])).toBe("api");
+    });
+
+    test("still finds a name written before the flag", () => {
+        expect(firstPositional(["api", "--scope", "project"])).toBe("api");
+    });
+
+    test("ignores --scope=value forms", () => {
+        expect(firstPositional(["--scope=project", "api"])).toBe("api");
+    });
+
+    test("has no name to give when there isn't one", () => {
+        expect(firstPositional(["--scope", "project"])).toBeUndefined();
+        expect(firstPositional([])).toBeUndefined();
+    });
+
+    test("add-json keeps name and JSON in order whichever side the flag is on", () => {
+        const json = '{"command":"npx"}';
+        expect(positionals(["--scope", "project", "api", json])).toEqual(["api", json]);
+        expect(positionals(["api", json, "--scope", "project"])).toEqual(["api", json]);
+    });
+
+    test("an unknown scope is refused rather than silently meaning user", () => {
+        expect(() => scopeFlag(["--scope", "wherever", "api"])).toThrow(/invalid --scope/);
+        expect(scopeFlag(["--scope", "local", "api"])).toBe("project");
+        expect(scopeFlag(["api"])).toBeUndefined();
     });
 });

@@ -61,6 +61,67 @@ function normalize(head: string[]): string[] {
     return out;
 }
 
+/** Flags in the simple subcommands that swallow the next argument as a value. */
+export const VALUE_FLAGS = new Set(["--scope", "-s"]);
+
+/**
+ * The first real argument — the server name.
+ *
+ * It has to walk the list rather than take the first token that isn't a flag,
+ * because a flag's VALUE isn't a flag either: `mcp remove --scope project api`
+ * used to resolve to "project" and fail with `no MCP server named "project"`,
+ * while the same command with the flag after the name worked. Positional-looking
+ * values that belong to a flag are skipped.
+ */
+export function firstPositional(args: string[]): string | undefined {
+    for (let i = 0; i < args.length; i++) {
+        const arg = args[i];
+        if (arg === "--") return args[i + 1];
+        if (VALUE_FLAGS.has(arg)) {
+            i++; // its value, not the name
+            continue;
+        }
+        if (arg.startsWith("-")) continue; // --scope=project and friends
+        return arg;
+    }
+    return undefined;
+}
+
+/** Parse an optional `--scope user|project` out of a simple subcommand's args. */
+export function scopeFlag(args: string[]): McpScope | undefined {
+    const i = args.findIndex((a) => a === "--scope" || a === "-s");
+    if (i >= 0 && args[i + 1]) return asSimpleScope(args[i + 1]);
+    const eq = args.find((a) => a.startsWith("--scope="));
+    if (eq) return asSimpleScope(eq.slice("--scope=".length));
+    return undefined;
+}
+
+/** Same vocabulary `mcp add` accepts, and the same refusal for anything else. */
+export function asSimpleScope(raw: string): McpScope {
+    if (raw === "user" || raw === "global") return "user";
+    if (raw === "project" || raw === "local") return "project";
+    throw new McpUsageError(`invalid --scope "${raw}" (use "user" or "project")`);
+}
+
+/** Every non-flag argument, with flag values skipped (see firstPositional). */
+export function positionals(args: string[]): string[] {
+    const out: string[] = [];
+    for (let i = 0; i < args.length; i++) {
+        const arg = args[i];
+        if (arg === "--") {
+            out.push(...args.slice(i + 1));
+            break;
+        }
+        if (VALUE_FLAGS.has(arg)) {
+            i++;
+            continue;
+        }
+        if (arg.startsWith("-")) continue;
+        out.push(arg);
+    }
+    return out;
+}
+
 /**
  * Parse the arguments after `mcp add` into a concrete server config + scope.
  * `args` excludes the `add` subcommand itself.

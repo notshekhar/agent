@@ -5,6 +5,10 @@
  * for the AI SDK MCP client to connect and call one tool.
  */
 import { createInterface } from "node:readline";
+import { writeFileSync } from "node:fs";
+
+// Opt-in: tests that need to kill this server mid-session read the pid here.
+if (process.env.MOCK_MCP_PIDFILE) writeFileSync(process.env.MOCK_MCP_PIDFILE, String(process.pid));
 
 const rl = createInterface({ input: process.stdin });
 

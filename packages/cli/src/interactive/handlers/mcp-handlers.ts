@@ -9,12 +9,18 @@ import {
     hasStoredTokens,
     isGlobalServer,
     isOAuthServer,
+    isMcpEnabled,
+    isServerEnabled,
+    isTrusted,
+    loadMcpServers,
+    setServerEnabled,
     type CommandContext,
     type McpServerConfig,
     type ServerSnapshot,
     CONFIG_DIR_NAME,
 } from "@notshekhar/loop-core";
 import { openBrowser } from "../../open-browser";
+import { dim } from "../ui/text";
 import type { AppDeps } from "../deps";
 import type { AppState } from "../state";
 
@@ -32,11 +38,14 @@ const STATUS_LABEL: Record<ServerSnapshot["status"], string> = {
     "needs-auth": "needs authorization",
 };
 
-export function createMcpHandlers(_state: AppState, deps: AppDeps): McpHandlers {
+export function createMcpHandlers(state: AppState, deps: AppDeps): McpHandlers {
     const { tui, history, selectOnce, searchOnce, promptOnce } = deps;
 
     /** Prompt for a new server's config and connect it. Esc at any field aborts. */
     async function addServerFlow(): Promise<void> {
+        // The flow ends in a connect, so it asks the same question first.
+        // `loop mcp add` still writes config here without connecting anything.
+        if (!mayConnect()) return;
         const name = (await promptOnce("MCP server name (e.g. filesystem)")).trim();
         if (!name) return;
 
@@ -70,6 +79,14 @@ export function createMcpHandlers(_state: AppState, deps: AppDeps): McpHandlers 
         if (!command) return undefined;
         const argsRaw = (await promptOnce("args (space-separated, optional)")).trim();
         const args = argsRaw ? argsRaw.split(/\s+/) : undefined;
+        // A stdio child inherits only HOME/LOGNAME/PATH/SHELL/TERM/USER, so a
+        // server that reads a token straight out of the environment gets
+        // nothing and looks broken for no visible reason.
+        history.addSystem(
+            dim(
+                `note: stdio servers inherit only HOME, PATH, SHELL, TERM and USER — declare anything else as "env" in ~/${CONFIG_DIR_NAME}/settings.json (\${env:VAR} is resolved at connect time)`,
+            ),
+        );
         // env/headers with secrets go in ~/.loop/settings.json as ${env:VAR}.
         return { type: "stdio", command, ...(args ? { args } : {}) };
     }
@@ -104,23 +121,86 @@ export function createMcpHandlers(_state: AppState, deps: AppDeps): McpHandlers 
         };
     }
 
+    /**
+     * Every configured server, whether or not this process has connected it.
+     *
+     * The panel used to list only what the manager held, which is nothing at
+     * all in an untrusted project (auto-connect is trust-gated) or when a
+     * server was added to settings.json by hand after launch — so `/mcp` showed
+     * an empty list while `loop mcp list` showed the servers, and there was no
+     * way in to reconnect or authorize them.
+     */
+    function panelRows(): Array<{ snapshot: ServerSnapshot; connected: boolean }> {
+        const manager = getMcpManager();
+        const live = new Map(manager.listServers().map((s) => [s.name, s]));
+        const rows: Array<{ snapshot: ServerSnapshot; connected: boolean }> = [];
+        for (const [name, config] of Object.entries(loadMcpServers(state.cwd))) {
+            const snapshot = live.get(name);
+            live.delete(name);
+            rows.push(
+                snapshot
+                    ? { snapshot, connected: true }
+                    : {
+                          snapshot: {
+                              name,
+                              config,
+                              toolCount: 0,
+                              status: isServerEnabled(config) ? "error" : "disabled",
+                          },
+                          connected: false,
+                      },
+            );
+        }
+        // Anything connected but no longer in the config (removed from the file
+        // mid-session) still deserves a row while its connection is alive.
+        for (const snapshot of live.values()) rows.push({ snapshot, connected: true });
+        return rows;
+    }
+
     function detail(s: ServerSnapshot): string {
         if (s.status === "ready") return `${s.toolCount} tools`;
         if (s.status === "error" && s.error) return s.error;
         return STATUS_LABEL[s.status];
     }
 
+    /**
+     * Connecting a server runs someone else's code — a stdio server is a
+     * subprocess spawned from this project's config. The panel now lists
+     * servers it has never connected (that is the point: an untrusted project
+     * used to show an empty list), so every action that would actually bring
+     * one up has to ask the same question startup does before auto-connecting.
+     */
+    function mayConnect(): boolean {
+        if (!isMcpEnabled()) {
+            history.addSystem('MCP is off — set "mcp": true in settings.json to use servers');
+            tui.requestRender();
+            return false;
+        }
+        if (!isTrusted(state.cwd)) {
+            history.addError(`this project is not trusted — run /trust before connecting MCP servers here`);
+            tui.requestRender();
+            return false;
+        }
+        return true;
+    }
+
     async function reconnect(name: string | undefined): Promise<void> {
+        if (!mayConnect()) return;
         history.addSystem(name ? `reconnecting ${name}…` : "reconnecting all MCP servers…");
         tui.requestRender();
         await getMcpManager().reconnect(name || undefined);
     }
 
-    async function authorize(name: string): Promise<void> {
+    async function authorize(name: string, config?: McpServerConfig): Promise<void> {
+        if (!mayConnect()) return;
         history.addSystem(`Opening browser to authorize ${name}… complete the login, then return here.`);
         tui.requestRender();
         try {
-            await getMcpManager().authorize(name, (url) => openBrowser(url));
+            // The config travels with the row: a server this process never
+            // connected (untrusted project, hand-edited settings) is exactly
+            // the one you most need to be able to sign in to, and the manager
+            // has nothing on file for it.
+            await getMcpManager().authorize(name, (url) => openBrowser(url), config);
             history.addSystem(`${name} authorized and connected.`);
         } catch (err) {
             history.addError(`authorization failed for ${name}: ${err instanceof Error ? err.message : String(err)}`);
@@ -141,9 +221,7 @@ export function createMcpHandlers(_state: AppState, deps: AppDeps): McpHandlers 
             items.push({
                 value: "authorize",
                 label: again ? "re-authorize" : "authorize",
-                description: again
-                    ? "sign in again — replaces the current session"
-                    : "run the OAuth browser login",
+                description: again ? "sign in again — replaces the current session" : "run the OAuth browser login",
             });
         }
         items.push({ value: "reconnect", label: "reconnect", description: "retry the connection" });
@@ -164,10 +242,25 @@ export function createMcpHandlers(_state: AppState, deps: AppDeps): McpHandlers 
         if (!pick) return;
 
         const manager = getMcpManager();
-        if (pick.value === "authorize") return authorize(s.name);
+        if (pick.value === "authorize") return authorize(s.name, s.config);
         if (pick.value === "reconnect") return reconnect(s.name);
         if (pick.value === "enable" || pick.value === "disable") {
-            await manager.setEnabled(s.name, pick.value === "enable");
+            const enabled = pick.value === "enable";
+            if (enabled && !mayConnect()) return;
+            // setEnabled only knows servers this process connected; for one it
+            // has never seen, flip the setting and connect it directly.
+            if (!(await manager.setEnabled(s.name, enabled))) {
+                if (setServerEnabled(s.name, enabled)) {
+                    if (enabled) await manager.adopt(s.name, { ...s.config, enabled: true });
+                    else await manager.forget(s.name);
+                } else {
+                    history.addError(
+                        `${s.name} is not a global server — edit ${CONFIG_DIR_NAME}/mcp.json to change it`,
+                    );
+                    tui.requestRender();
+                    return;
+                }
+            }
             history.addSystem(`${s.name} ${pick.value}d`);
             tui.requestRender();
             return;
@@ -189,7 +282,7 @@ export function createMcpHandlers(_state: AppState, deps: AppDeps): McpHandlers 
                 await reconnect(name || undefined);
                 const after = manager
                     .listServers()
-                    .map((s) => `  ${s.name}: ${STATUS_LABEL[s.status]}`)
+                    .map((s) => `  ${s.name}: ${STATUS_LABEL[s.status]}${s.error ? ` (${s.error})` : ""}`)
                     .join("\n");
                 history.addSystem(after ? `MCP servers:\n${after}` : "No MCP servers configured.");
                 tui.requestRender();
@@ -202,13 +295,13 @@ export function createMcpHandlers(_state: AppState, deps: AppDeps): McpHandlers 
             // instead of snapping to the top after every action.
             let lastIndex = 0;
             while (true) {
-                const servers = manager.listServers();
+                const rows = panelRows();
                 const items: SelectItem[] = [
                     { value: ADD_SERVER, label: "+ add server", description: "configure and connect a new MCP server" },
-                    ...servers.map((s) => ({
-                        value: s.name,
-                        label: `${s.name} — ${STATUS_LABEL[s.status]}`,
-                        description: detail(s),
+                    ...rows.map(({ snapshot, connected }) => ({
+                        value: snapshot.name,
+                        label: `${snapshot.name} — ${connected ? STATUS_LABEL[snapshot.status] : "not connected"}`,
+                        description: connected ? detail(snapshot) : "configured; reconnect to bring it up",
                     })),
                 ];
                 const pick = await searchOnce(items, "MCP servers (type to filter, Esc to close)", {
@@ -223,7 +316,7 @@ export function createMcpHandlers(_state: AppState, deps: AppDeps): McpHandlers 
                     await addServerFlow();
                     continue;
                 }
-                const server = manager.getServer(pick.value);
+                const server = rows.find((r) => r.snapshot.name === pick.value)?.snapshot;
                 if (server) await serverActions(server);
             }
         },

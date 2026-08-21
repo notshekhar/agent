@@ -18,6 +18,7 @@ import { randomBytes } from "node:crypto";
 import {
     getGlobalServers,
     getMcpManager,
+    serverPrefix,
     getProjectServers,
     hasStoredTokens,
     isGlobalServer,
@@ -95,6 +96,7 @@ export function listMcpServers(cwd: string): McpListResult {
     const manager = getMcpManager();
     const live = new Map(manager.listServers().map((snapshot) => [snapshot.name, snapshot]));
     const globals = getGlobalServers();
+    const projectServers = getProjectServers(cwd);
     const configured = loadMcpServers(cwd);
     const toolNames = Object.keys(manager.getTools());
 
@@ -102,11 +104,19 @@ export function listMcpServers(cwd: string): McpListResult {
         const snapshot = live.get(name);
         const enabled = isServerEnabled(config);
         const oauth = isOAuthServer(name, config, snapshot?.status === "needs-auth");
-        const prefix = `${name}__`;
-        const tools = toolNames.filter((tool) => tool.includes(prefix));
+        // The namespaced prefix, not the raw name: tool keys are built by
+        // serverPrefix(), which sanitizes the name into the tool-name charset.
+        // Matching on the raw name showed NO tools for any server whose name
+        // had a dash or a dot in it, and `includes` let a server whose name is
+        // a suffix of another's ("fs" vs "myfs") claim the other's tools.
+        const prefix = serverPrefix(name);
+        const tools = toolNames.filter((tool) => tool.startsWith(prefix));
         return {
             name,
-            scope: name in globals && isGlobalServer(name) ? "global" : "project",
+            // Project wins on a name collision — loadMcpServers() resolves it
+            // that way, so the row must describe the entry actually in force,
+            // not the shadowed global one a client would then try to edit.
+            scope: name in projectServers ? "project" : name in globals && isGlobalServer(name) ? "global" : "project",
             transport: transportOf(config),
             status: snapshot?.status ?? (enabled ? "connecting" : "disabled"),
             enabled,
@@ -126,6 +136,24 @@ export function listMcpServers(cwd: string): McpListResult {
         projectConfigPath: projectServersPath(cwd),
         connected: live.size > 0,
     };
+}
+
+/**
+ * `headers` / `env` must be flat string maps: they are handed to the transport
+ * and run through ${env:VAR} substitution, which is string work. A nested
+ * object used to be written to settings.json unchallenged and then failed at
+ * connect time with "value.replace is not a function", which says nothing
+ * about the config that caused it.
+ */
+function stringMap(value: unknown, field: string): Record<string, string> | undefined {
+    if (value === undefined || value === null) return undefined;
+    if (typeof value !== "object" || Array.isArray(value)) throw new Error(`${field} must be an object`);
+    const out: Record<string, string> = {};
+    for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+        if (typeof entry !== "string") throw new Error(`${field}.${key} must be a string`);
+        out[key] = entry;
+    }
+    return Object.keys(out).length > 0 ? out : undefined;
 }
 
 /**
@@ -149,17 +177,15 @@ export function parseServerConfig(input: unknown): McpServerConfig {
         } catch {
             throw new Error(`not a valid url: ${url}`);
         }
-        const headers = raw.headers as Record<string, string> | undefined;
+        const headers = stringMap(raw.headers, "headers");
         const scopes = Array.isArray(raw.scopes) ? raw.scopes.map(String) : undefined;
         return {
             type,
             url,
             ...(raw.auth === "oauth" ? { auth: "oauth" as const } : {}),
-            ...(headers && Object.keys(headers).length > 0 ? { headers } : {}),
+            ...(headers ? { headers } : {}),
             ...(typeof raw.clientId === "string" && raw.clientId ? { clientId: raw.clientId } : {}),
-            ...(typeof raw.clientSecret === "string" && raw.clientSecret
-                ? { clientSecret: raw.clientSecret }
-                : {}),
+            ...(typeof raw.clientSecret === "string" && raw.clientSecret ? { clientSecret: raw.clientSecret } : {}),
             ...(scopes && scopes.length > 0 ? { scopes } : {}),
             ...enabled,
         };
@@ -169,12 +195,12 @@ export function parseServerConfig(input: unknown): McpServerConfig {
     const command = String(raw.command ?? "").trim();
     if (!command) throw new Error("a stdio server needs a command");
     const args = Array.isArray(raw.args) ? raw.args.map(String) : undefined;
-    const env = raw.env as Record<string, string> | undefined;
+    const env = stringMap(raw.env, "env");
     return {
         type: "stdio",
         command,
         ...(args && args.length > 0 ? { args } : {}),
-        ...(env && Object.keys(env).length > 0 ? { env } : {}),
+        ...(env ? { env } : {}),
         ...enabled,
     };
 }
