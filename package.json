@@ -55,7 +55,9 @@
         "format": "prettier --write .",
         "format:check": "prettier --check .",
         "//test": "Scoped: a bare `bun test` also collects apps/web, whose suite is vitest-only and hangs the process under bun. The web app has its own `test` script.",
-        "test": "bun test packages apps/desktop && bun run --filter @loop/web test"
+        "test": "bun test packages apps/desktop && bun run --filter @loop/web test",
+        "//test:screens": "Runs loop in a real pty and asserts on the screen — the only tests that catch a correct frame drawn in the wrong place. Needs python3 + pyte.",
+        "test:screens": "python3 packages/cli/test/e2e/run.py"
     },
     "devDependencies": {
         "@types/bun": "latest",

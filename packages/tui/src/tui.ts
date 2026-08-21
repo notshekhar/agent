@@ -201,8 +201,15 @@ export interface OverlayOptions {
     col?: SizeValue;
 
     // === Margin from terminal edges ===
-    /** Margin from terminal edges. Number applies to all sides. */
-    margin?: OverlayMargin | number;
+    /**
+     * Margin from terminal edges. Number applies to all sides.
+     *
+     * A function is called every render, for an overlay whose place in the
+     * frame moves — one held above a component that grows, say. Fixed margins
+     * are resolved once at layout time, which is a frame behind anything that
+     * changes shape while the overlay is up.
+     */
+    margin?: OverlayMargin | number | (() => OverlayMargin | number);
 
     // === Visibility ===
     /**
@@ -323,6 +330,8 @@ export class TUI extends Container {
     private hardwareCursorRow = 0; // Actual terminal cursor row (may differ due to IME positioning)
     private showHardwareCursor = brandEnv("HARDWARE_CURSOR") === "1";
     private clearOnShrink = brandEnv("CLEAR_ON_SHRINK") === "1"; // Clear empty rows when content shrinks (default: off)
+    private frameReset = false; // The next frame is a new one, not a continuation (see resetFrame)
+    private contentHeight = 0; // Rows the components rendered, before overlay padding (see getContentHeight)
     private maxLinesRendered = 0; // Track terminal's working area (max lines ever rendered)
     private previousViewportTop = 0; // Track previous viewport top for resize-aware cursor moves
     private fullRedrawCount = 0;
@@ -402,6 +411,44 @@ export class TUI extends Container {
      */
     setClearOnShrink(enabled: boolean): void {
         this.clearOnShrink = enabled;
+    }
+
+    /**
+     * Rows the components rendered last frame, before any overlay padding.
+     *
+     * What it answers is where the frame ENDS on the screen, which is what
+     * anything anchored to the bottom of the frame — a menu that has to sit on
+     * the prompt — actually needs. A frame at least as tall as the terminal
+     * ends on the last row; a shorter one ends that many rows above it, and an
+     * overlay aimed at the screen's bottom would come adrift from the prompt
+     * and float below it.
+     *
+     * Deliberately not `previousLines.length`: compositing pads the frame out
+     * to the full height, so once an overlay is up that number is always the
+     * terminal's height and this distinction disappears exactly when it is
+     * being relied on.
+     */
+    getContentHeight(): number {
+        return this.contentHeight;
+    }
+
+    /**
+     * The next frame is a NEW frame, not a continuation of this one.
+     *
+     * The renderer's whole model is that frame line i is at a known place on
+     * the screen, and it keeps that true by diffing this frame against the
+     * last one BY INDEX. That only means anything while the two frames are the
+     * same conversation with more added. Rebuild the transcript — /new, /clear,
+     * a mode switch, a resumed session — and index 0 of the new frame has
+     * nothing to do with index 0 of the old one, so the diff compares
+     * unrelated lines, concludes the top of the screen is unchanged, and
+     * leaves the previous conversation sitting there under a new prompt.
+     *
+     * Callers that rebuild the transcript say so here, and the next render
+     * starts from a clean screen instead of guessing.
+     */
+    resetFrame(): void {
+        this.frameReset = true;
     }
 
     setFocus(component: Component | null): void {
@@ -1095,10 +1142,11 @@ export class TUI extends Container {
         const opt = options ?? {};
 
         // Parse margin (clamp to non-negative)
+        const marginValue = typeof opt.margin === "function" ? opt.margin() : opt.margin;
         const margin =
-            typeof opt.margin === "number"
-                ? { top: opt.margin, right: opt.margin, bottom: opt.margin, left: opt.margin }
-                : (opt.margin ?? {});
+            typeof marginValue === "number"
+                ? { top: marginValue, right: marginValue, bottom: marginValue, left: marginValue }
+                : (marginValue ?? {});
         const marginTop = Math.max(0, margin.top ?? 0);
         const marginRight = Math.max(0, margin.right ?? 0);
         const marginBottom = Math.max(0, margin.bottom ?? 0);
@@ -1222,14 +1270,19 @@ export class TUI extends Container {
 
     /** Composite all overlays into content lines (sorted by focusOrder, higher = on top). */
     private compositeOverlays(lines: string[], termWidth: number, termHeight: number): string[] {
-        if (this.overlayStack.length === 0) return lines;
+        const visibleEntries = this.overlayStack.filter((e) => this.isOverlayVisible(e));
+        // Nothing to composite. Returning the frame untouched matters as much
+        // as the compositing does: the pad-to-terminal-height below is a real
+        // change of shape, and an overlay that is only SOMETIMES visible (one
+        // gated on a `visible` predicate, held open across a whole session)
+        // must cost the frame nothing on the frames it is not showing.
+        if (visibleEntries.length === 0) return lines;
         const result = [...lines];
 
         // Pre-render all visible overlays and calculate positions
         const rendered: { overlayLines: string[]; row: number; col: number; w: number }[] = [];
         let minLinesNeeded = result.length;
 
-        const visibleEntries = this.overlayStack.filter((e) => this.isOverlayVisible(e));
         visibleEntries.sort((a, b) => a.focusOrder - b.focusOrder);
         for (const entry of visibleEntries) {
             const { component, options } = entry;
@@ -1401,6 +1454,21 @@ export class TUI extends Container {
      * that belong on screen are already in `newLines`; painting them where
      * they go is the whole job. Whatever is in the scrollback stays as it was
      * printed: it cannot be rewritten, only destroyed, so it is left alone.
+     *
+     * Left alone means exactly that, and it is the one rule this repaint has
+     * to keep: a row that has scrolled off the top is COMMITTED. It cannot be
+     * taken back, so painting the frame from a line above the window does not
+     * move that content down — it prints a second copy of it under the copy
+     * already in the history. A frame that shrinks by k asks for exactly that,
+     * k lines of it, and a turn full of collapsing blocks asks over and over,
+     * which is how a conversation ends up in the scrollback twice. So the
+     * window starts at the committed floor at the earliest, and the rows the
+     * frame gave up are cleared rather than filled from above it.
+     *
+     * Returns false when the frame cannot be shown from the floor down: the
+     * change itself is above it, or the frame no longer reaches it at all. The
+     * only way to paint those is to touch committed rows, so the caller falls
+     * back to the redraw instead.
      */
     private repaintVisibleWindow(
         newLines: string[],
@@ -1409,8 +1477,17 @@ export class TUI extends Container {
         prevViewportTop: number,
         hardwareCursorRow: number,
         cursorPos: { row: number; col: number } | null,
-    ): void {
-        const top = Math.max(0, newLines.length - height);
+        firstChanged: number,
+    ): boolean {
+        const top = Math.max(prevViewportTop, Math.max(0, newLines.length - height));
+        const lastRow = newLines.length - 1;
+        if (lastRow < top) return false;
+        // Rows the frame is too short to fill from the floor. While there are
+        // none the window is bottom-anchored and every visible row is real
+        // content, whatever changed above it. Once there are, anything that
+        // changed above the floor has nowhere to be drawn — that one needs the
+        // redraw.
+        if (top + height > newLines.length && firstChanged < top) return false;
         let buffer = "\x1b[?2026h";
         // Up to the first visible row, wherever the cursor happens to be.
         const upFromCursor = hardwareCursorRow - prevViewportTop;
@@ -1420,10 +1497,16 @@ export class TUI extends Container {
             if (i > 0) buffer += "\r\n";
             buffer += "\x1b[2K" + (newLines[top + i] ?? "");
         }
+        // The paint ends on the window's last row, which is past the frame's
+        // last line whenever the frame no longer fills the window. Come back
+        // up to it, so the row the renderer thinks it is on is the row it is
+        // on.
+        const overshoot = top + height - 1 - lastRow;
+        if (overshoot > 0) buffer += `\x1b[${overshoot}A`;
         buffer += "\x1b[?2026l";
         this.terminal.write(buffer);
-        this.cursorRow = Math.max(0, newLines.length - 1);
-        this.hardwareCursorRow = this.cursorRow;
+        this.cursorRow = lastRow;
+        this.hardwareCursorRow = lastRow;
         this.previousViewportTop = top;
         this.maxLinesRendered = Math.max(this.maxLinesRendered, newLines.length);
         this.positionHardwareCursor(cursorPos, newLines.length);
@@ -1431,6 +1514,7 @@ export class TUI extends Container {
         this.previousKittyImageIds = this.collectKittyImageIds(newLines);
         this.previousWidth = width;
         this.previousHeight = height;
+        return true;
     }
 
     /** Splice overlay content into a base line at a specific column. Single-pass optimized. */
@@ -1538,8 +1622,13 @@ export class TUI extends Container {
             this.renderingFrame = false;
         }
 
+        // Before compositing: overlays pad the frame out to the terminal's
+        // height, and where the frame really ends is what an overlay anchored
+        // to it needs to know.
+        this.contentHeight = newLines.length;
+
         // Composite overlays into the rendered lines (before differential compare)
-        if (this.overlayStack.length > 0) {
+        if (this.hasOverlay()) {
             newLines = this.compositeOverlays(newLines, width, height);
         }
 
@@ -1600,6 +1689,24 @@ export class TUI extends Container {
             fs.appendFileSync(logPath, msg);
         };
 
+        // A frame that is not a continuation of the last one cannot be diffed
+        // against it: the same index means different things in the two frames.
+        //
+        // This is a signal, not something to detect. A rebuilt transcript and a
+        // line inserted above the window look identical from here — every index
+        // after the change moved — but they want opposite treatment: the first
+        // has to clear the screen, the second must NOT (that is what costs the
+        // terminal's scrollback, and is handled below without touching it).
+        // Only the caller knows which one it did.
+        if (this.frameReset) {
+            this.frameReset = false;
+            if (this.previousLines.length > 0) {
+                logRedraw("frame reset");
+                fullRender(true);
+                return;
+            }
+        }
+
         // First render - just output everything without clearing (assumes clean screen)
         if (this.previousLines.length === 0 && !widthChanged && !heightChanged) {
             logRedraw("first render");
@@ -1626,7 +1733,7 @@ export class TUI extends Container {
         // Content shrunk below the working area and no overlays - re-render to clear empty rows
         // (overlays need the padding, so only do this when no overlays are active)
         // Configurable via setClearOnShrink() or LOOP_CLEAR_ON_SHRINK=0 env var
-        if (this.clearOnShrink && newLines.length < this.maxLinesRendered && this.overlayStack.length === 0) {
+        if (this.clearOnShrink && newLines.length < this.maxLinesRendered && !this.hasOverlay()) {
             logRedraw(`clearOnShrink (maxLinesRendered=${this.maxLinesRendered})`);
             fullRender(true);
             return;
@@ -1669,24 +1776,35 @@ export class TUI extends Container {
             return;
         }
 
-        // The frame got shorter and there is content above it that can fill the
-        // rows it gave up. Repaint the visible window instead of clearing them.
+        // A frame that shrinks — a menu closing, a tool group collapsing, the
+        // editor going back to one line — ends higher than it did, and the rows
+        // it gave up have to be dealt with. Repainting the window from the
+        // frame in memory deals with them without clearing the screen and the
+        // scrollback, which is what the alternative costs.
         //
-        // Clearing is what strands the prompt. A frame that shrinks — a menu
-        // closing, a panel going away — ends higher than it did, and the rows
-        // below it get blanked where they are, so the prompt is left in the
-        // middle of the screen with a gap beneath it and the conversation stuck
-        // where it was. The content that belongs in those rows is not lost: it
-        // is in `newLines`, in memory, the same array being rendered. Painting
-        // the window from it puts the frame's last line back on the last row
-        // and pulls the conversation down behind it.
-        //
-        // This is what the alternative — clearing the screen and the scrollback
-        // and redrawing everything — was buying, minus the part where the
-        // terminal's history is destroyed to get it.
-        if (newLines.length < this.previousLines.length && newLines.length > height && this.overlayStack.length === 0) {
-            this.repaintVisibleWindow(newLines, width, height, prevViewportTop, hardwareCursorRow, cursorPos);
-            return;
+        // What it must not do is fill those rows from above the fold. The
+        // window can only be pulled back down to the frame's last line by
+        // printing lines that have already scrolled off, and a line that has
+        // scrolled off is committed: printing it again does not move it, it
+        // makes a second copy under the first. Every collapse in a turn asks
+        // for a few more, which is how a conversation ends up in the scrollback
+        // twice. So the repaint stops at the committed floor and the rows below
+        // the frame's end are cleared — the prompt sits that many rows higher
+        // until the next append fills them, and the history stays true.
+        if (newLines.length < this.previousLines.length && newLines.length > height && !this.hasOverlay()) {
+            if (
+                this.repaintVisibleWindow(
+                    newLines,
+                    width,
+                    height,
+                    prevViewportTop,
+                    hardwareCursorRow,
+                    cursorPos,
+                    firstChanged,
+                )
+            ) {
+                return;
+            }
         }
 
         // All changes are in deleted lines (nothing to render, just clear)
@@ -1772,8 +1890,20 @@ export class TUI extends Container {
                 return;
             }
             const hasImages = this.previousKittyImageIds.size > 0 || newLines.some((l) => isImageLine(l));
-            if (newLines.length >= height && this.overlayStack.length === 0 && !hasImages) {
-                this.repaintVisibleWindow(newLines, width, height, prevViewportTop, hardwareCursorRow, cursorPos);
+            if (
+                newLines.length >= height &&
+                !this.hasOverlay() &&
+                !hasImages &&
+                this.repaintVisibleWindow(
+                    newLines,
+                    width,
+                    height,
+                    prevViewportTop,
+                    hardwareCursorRow,
+                    cursorPos,
+                    firstChanged,
+                )
+            ) {
                 return;
             }
             logRedraw(`firstChanged < viewportTop (${firstChanged} < ${prevViewportTop})`);

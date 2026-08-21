@@ -291,6 +291,8 @@ export class Editor implements Component, Focusable {
     private autocompleteTriggerPattern = buildTriggerPattern(this.autocompleteTriggerCharacters);
     private autocompleteDebouncePattern = buildDebouncePattern(this.autocompleteTriggerCharacters);
     private autocompleteList?: SelectList;
+    /** Someone else draws the completion list; see setPopupHosted. */
+    private popupHosted = false;
     private autocompleteState: "regular" | "force" | null = null;
     private autocompletePrefix: string = "";
     private autocompleteMaxVisible: number = 5;
@@ -614,17 +616,55 @@ export class Editor implements Component, Focusable {
             result.push(horizontal.repeat(width));
         }
 
-        // Add autocomplete list if active
-        if (this.autocompleteState && this.autocompleteList) {
-            const autocompleteResult = this.autocompleteList.render(contentWidth);
-            for (const line of autocompleteResult) {
-                const lineWidth = visibleWidth(line);
-                const linePadding = " ".repeat(Math.max(0, contentWidth - lineWidth));
-                result.push(`${leftPadding}${line}${linePadding}${rightPadding}`);
-            }
+        // Add autocomplete list if active — unless someone else is drawing it.
+        if (!this.popupHosted) {
+            result.push(...this.renderAutocompletePopup(width));
         }
 
         return result;
+    }
+
+    /**
+     * The completion list's rows, for a host that draws them itself.
+     *
+     * Appended to the editor's own output, the list makes the editor — and so
+     * the whole frame — taller for as long as it is open, and a frame that
+     * fills the screen pays for that by scrolling: the rows at the top go into
+     * the scrollback, where they are committed and cannot be taken back. One
+     * `/` typed and deleted is enough to leave a blank band behind. A host
+     * that paints these rows OVER the frame costs it no height at all.
+     *
+     * Empty when the list is not up, so a host can keep asking every frame.
+     */
+    renderAutocompletePopup(width: number): string[] {
+        if (!this.autocompleteState || !this.autocompleteList) return [];
+        const maxPadding = Math.max(0, Math.floor((width - 1) / 2));
+        const paddingX = Math.min(this.paddingX, maxPadding);
+        const contentWidth = Math.max(1, width - paddingX * 2);
+        const leftPadding = " ".repeat(paddingX);
+        const rightPadding = leftPadding;
+        // A rule across the top, in the editor's own border style — but only
+        // when a host is drawing these rows. Appended below the editor the
+        // list needs none: the editor's bottom border is already the line
+        // between them, and a second rule under it just doubles it up. A host
+        // paints the list ABOVE the editor, straight onto the conversation,
+        // where it has no edge of its own.
+        const rows: string[] = this.popupHosted ? [this.borderColor("─".repeat(width))] : [];
+        for (const line of this.autocompleteList.render(contentWidth)) {
+            const linePadding = " ".repeat(Math.max(0, contentWidth - visibleWidth(line)));
+            rows.push(`${leftPadding}${line}${linePadding}${rightPadding}`);
+        }
+        return rows;
+    }
+
+    /**
+     * Hand the completion list to a host that will draw it (see
+     * renderAutocompletePopup). The editor stops appending it to its own
+     * output; everything else about it — the keys, the filtering, applying a
+     * completion — is unchanged.
+     */
+    setPopupHosted(hosted: boolean): void {
+        this.popupHosted = hosted;
     }
 
     handleInput(data: string): void {

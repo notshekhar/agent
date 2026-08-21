@@ -740,6 +740,13 @@ export class ChatHistory extends Container {
 
     reset(): void {
         this.markDirty();
+        // The transcript that follows shares nothing with the one being
+        // dropped, so the renderer must not diff them against each other: line
+        // 0 of the new one is not line 0 of the old one. Without this, /new
+        // leaves the previous conversation on screen with a fresh prompt under
+        // it, because the diff compares unrelated lines and concludes the top
+        // of the screen is fine as it is.
+        this.tui.resetFrame();
         this.clear();
         this.liveMsg = null;
         this.liveComponent = null;

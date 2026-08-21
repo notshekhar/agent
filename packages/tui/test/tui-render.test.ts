@@ -673,12 +673,13 @@ describe("TUI differential rendering", () => {
         tui.requestRender();
         await terminal.waitForRender();
 
-        // A shrink used to be answered with a full redraw, which clears the
-        // screen AND the scrollback (ESC[3J) to reposition content it already
-        // had in memory. The visible result below is identical either way, so
-        // what is asserted now is the stronger property: the same viewport,
-        // without destroying the terminal's history to get it.
-        assert.strictEqual(tui.fullRedraws, initialRedraws, "Shrink must not clear the scrollback");
+        // A shrink is normally repainted from the frame in memory, without
+        // clearing anything. Not this one: 12 lines down to 7 on a 5-row
+        // terminal leaves the whole frame ABOVE the window, so there is nothing
+        // left to paint there that is not already committed to the scrollback.
+        // Reprinting committed rows is what put a second copy of the
+        // conversation in the user's history, so this case takes the redraw.
+        assert.ok(tui.fullRedraws > initialRedraws, "Shrink past the committed floor needs the redraw");
         assert.deepStrictEqual(terminal.getViewport(), ["Line 2", "Line 3", "Line 4", "Line 5", "Line 6"]);
 
         tui.stop();
@@ -744,9 +745,10 @@ describe("TUI differential rendering", () => {
         tui.requestRender();
         await terminal.waitForRender();
 
-        // Same as above: what matters is that no stale content survives and the
-        // viewport is exact, not that the scrollback was thrown away to get there.
-        assert.strictEqual(tui.fullRedraws, redrawsBeforeSwitch, "Branch switch must not clear the scrollback");
+        // Same as above. Here the chat itself gets shorter, so what changed is
+        // above the window's committed floor — the repaint cannot draw it
+        // without printing over history it does not own, and takes the redraw.
+        assert.ok(tui.fullRedraws > redrawsBeforeSwitch, "A change above the committed floor needs the redraw");
 
         const viewport = terminal.getViewport();
         for (let i = 0; i < 10; i++) {

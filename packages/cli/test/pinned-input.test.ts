@@ -163,6 +163,23 @@ describe("a frame that shrinks pulls its content back down", () => {
         expect(tuiSource).toContain("newLines.length < this.previousLines.length");
     });
 
+    test("a rebuilt transcript tells the renderer, instead of being detected", () => {
+        // /new, /clear, a mode switch: the new transcript shares no lines with
+        // the old one, so diffing them by index compares unrelated rows and
+        // concludes the top of the screen is fine — leaving the previous
+        // conversation sitting there under a fresh prompt. It cannot be
+        // detected either, because a line INSERTED above the window looks
+        // identical from the renderer's side and must NOT clear the screen.
+        // Only the caller knows which it did.
+        const chatHistory = readFileSync(
+            join(import.meta.dir, "..", "src", "interactive", "components", "chat-history.ts"),
+            "utf8",
+        );
+        const reset = chatHistory.slice(chatHistory.indexOf("    reset(): void {"));
+        expect(reset.slice(0, 700)).toContain("this.tui.resetFrame()");
+        expect(tuiSource).toContain("resetFrame(): void {");
+    });
+
     test("and it does not reach for the scrollback-clearing redraw", () => {
         // The shrink branch hands off to the shared window repaint...
         const shrink = tuiSource.slice(tuiSource.indexOf("newLines.length < this.previousLines.length"));

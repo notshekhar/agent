@@ -60,6 +60,7 @@ import { ChatHistory } from "./components/chat-history";
 import { renderSessionBranch } from "./replay";
 import { StatusLine } from "./components/status-line";
 import { TodoPanel } from "./components/todo-panel";
+import { SelectorOverlay } from "./components/selector-overlay";
 import {
     selectOnce as selectOnceShared,
     searchSelectOnce as searchSelectOnceShared,
@@ -414,6 +415,65 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         });
     });
 
+    /**
+     * Rows between the bottom of the frame and the bottom of the SCREEN.
+     *
+     * A frame at least as tall as the terminal ends on the last row and this is
+     * zero. A shorter one — a fresh session, a short transcript with pinning
+     * off — ends higher, and an overlay aimed at the screen's last row would
+     * come adrift from the prompt and float underneath it. Overlays add this to
+     * their bottom margin so they land on the frame instead of on the screen.
+     */
+    const rowsBelowFrame = (): number => Math.max(0, tui.terminal.rows - tui.getContentHeight());
+
+    /** Rows of the frame that sit BELOW the editor: the status line, the spacer. */
+    const rowsBelowEditor = (): number => {
+        const width = tui.terminal.columns;
+        let rows = 0;
+        let seenEditor = false;
+        for (const child of root.children) {
+            if ((child as unknown) === (editorContainer as unknown)) {
+                seenEditor = true;
+                continue;
+            }
+            if (seenEditor) rows += child.render(width).length;
+        }
+        return rows;
+    };
+
+    // The completion list (`/`, `@`) is painted over the transcript instead of
+    // being appended to the editor, for the reason every overlay here exists:
+    // appended, it makes the frame taller for as long as it is open, the
+    // terminal scrolls to fit it, and the rows that scrolled off cannot come
+    // back when it closes — one `/` typed and deleted leaves a band behind.
+    // Drawn over the frame it costs no height, so nothing scrolls either way.
+    //
+    // It sits directly above the editor rather than below it, which is where
+    // the room is once it is no longer allowed to make any.
+    //
+    // Held open for the whole session and gated on `visible`: the list comes
+    // and goes on nearly every keystroke, and an overlay that is registered
+    // but not visible costs the frame nothing.
+    editor.setPopupHosted(true);
+    tui.showOverlay(
+        {
+            render: (width: number) => editor.renderAutocompletePopup(width),
+            invalidate: () => {},
+        },
+        {
+            width: "100%",
+            maxHeight: "100%",
+            anchor: "bottom-left",
+            margin: () => ({
+                bottom: rowsBelowFrame() + rowsBelowEditor() + editorContainer.render(tui.terminal.columns).length,
+            }),
+            visible: () => editor.isShowingAutocomplete(),
+            // The editor keeps the keys: the list is driven through it, the
+            // same as when it drew the rows itself.
+            nonCapturing: true,
+        },
+    );
+
     // Open-selector count — timer/reminder prompts wait until the slot is free.
     let selectorDepth = 0;
     function showSelector(component: Container, focusable: Container | SelectList, label?: string): () => void {
@@ -422,16 +482,41 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         // waits (labeled: ask tool, approvals) count as blocked for watchers.
         // User-opened menus (/settings, pickers) are not the agent waiting.
         const modalClosed = label ? agentStatus.modalOpened(label) : undefined;
-        editorContainer.clear();
-        editorContainer.addChild(component);
+
+        // Swapping the selector in for the editor makes the frame taller, and a
+        // frame that reaches the bottom of the screen answers that by
+        // scrolling — which commits the rows at the top to the terminal's
+        // scrollback, where they cannot be taken back. Closing the selector
+        // shortens the frame again, those rows cannot come home, and the prompt
+        // is left that much higher. Toggling pinned input in /settings is the
+        // sharpest version: the menu itself pushed twelve rows off, so the
+        // setting looked like it did nothing.
+        //
+        // Painted OVER the frame, a selector costs it no rows at all — nothing
+        // scrolls going in, so there is nothing to give back coming out. It is
+        // anchored to the bottom of the FRAME (rowsBelowFrame), not the bottom
+        // of the screen, so a short transcript keeps the menu on the prompt
+        // instead of leaving it floating at the bottom of the terminal.
+        const overlay = tui.showOverlay(
+            new SelectorOverlay(component, () => editorContainer.render(tui.terminal.columns).length),
+            {
+                width: "100%",
+                // Never taller than the room it has: an overlay the frame must
+                // grow for is a scroll again.
+                maxHeight: "100%",
+                anchor: "bottom-left",
+                margin: () => ({ bottom: rowsBelowFrame() + rowsBelowEditor() }),
+                // Focus goes to the inner list, not the wrapper.
+                nonCapturing: true,
+            },
+        );
         tui.setFocus(focusable as never);
         tui.invalidate();
         tui.requestRender();
         return () => {
             selectorDepth--;
             modalClosed?.();
-            editorContainer.clear();
-            editorContainer.addChild(editor);
+            overlay.hide();
             tui.setFocus(editor);
             tui.invalidate();
             tui.requestRender();
