@@ -21,6 +21,7 @@ import {
 import type { AppDeps } from "../deps";
 import type { AppState } from "../state";
 import { renderSessionBranch } from "../replay";
+import { defaultTabName, setTabName } from "../session-title";
 import { copyToClipboard } from "../clipboard";
 import { showWelcomeBanner } from "../welcome";
 import { showWorkspaceBanners } from "../startup";
@@ -56,6 +57,9 @@ export async function resumeSessionById(state: AppState, deps: AppDeps, idOrPath
             statusLine.setModel(state.modelId);
         }
         statusLine.setSession(state.session.id);
+        // The tab follows the session that is live now — the resumed one's own
+        // name if it has one, and the standing name if it never earned one.
+        setTabName(deps, state.session.getName() || defaultTabName());
         // Restore cost/usage/ctx from the resumed transcript.
         state.latestContextTokens = tracker.seedFromSession(state.session).ctxTokens;
         refreshStatusLine();
@@ -120,6 +124,11 @@ export function createSessionHandlers(state: AppState, deps: AppDeps): SessionHa
             abortActiveTurn();
             state.session = null;
             statusLine.setSession("unsaved");
+            // The tab named the session that just went away. Hand it back its
+            // standing name — otherwise a fresh session sits under the last
+            // one's title until it earns its own, which in cmux is a pane card
+            // advertising work that no longer exists.
+            setTabName(deps, defaultTabName());
             // Plan mode is keyed to the old session id — clear the UI flag so
             // the fresh session doesn't look gated.
             state.planModeViaCycle = false;
@@ -274,6 +283,10 @@ export function createSessionHandlers(state: AppState, deps: AppDeps): SessionHa
                 if (!next) return;
             }
             await state.session.setName(next);
+            // A name the user chose outranks the generated one everywhere the
+            // session is shown, the tab included (Claude Code's /rename does
+            // the same).
+            setTabName(deps, next);
             history.addSystem(`session name → ${next}`);
             tui.requestRender();
         },

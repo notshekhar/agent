@@ -395,11 +395,23 @@ install_from_release() {
   fi
   if [ "$FORCE" != "1" ] && [ -n "$installed" ]; then
     if ! ver_gt "${latest#v}" "${installed#v}"; then
-      bold "✓ Up to date (installed $installed, latest $latest)"
-      dim "  LOOP_FORCE=1 to reinstall"
-      exit 0
+      # "Up to date" is a claim about the binary, not about package.json. An
+      # install whose binary does not run is not up to date — it is broken, and
+      # exiting 0 here is what left a user re-running the installer three times
+      # and being told nothing was wrong while `loop` was still being killed.
+      if binary_runs "$LOOP_HOME/loop"; then
+        bold "✓ Up to date (installed $installed, latest $latest)"
+        dim "  LOOP_FORCE=1 to reinstall"
+        exit 0
+      fi
+      if repair_macos_binary; then
+        bold "✓ Up to date (installed $installed, latest $latest) — repaired"
+        exit 0
+      fi
+      dim "  installed $installed does not run — reinstalling $latest"
+    else
+      dim "  update: $installed → $latest"
     fi
-    dim "  update: $installed → $latest"
   else
     dim "  installing $latest"
   fi
@@ -465,17 +477,37 @@ install_from_release() {
 }
 
 # ── Atomic swap install dir ───────────────────────────────────────────────
+# The previous install is kept as $LOOP_BACKUP until the smoke test passes, so
+# a binary that turns out not to run on this machine can be rolled back instead
+# of leaving the user with no working `loop` at all (and, worse, a package.json
+# that makes the next installer run say "✓ Up to date" about a corpse).
+LOOP_BACKUP=""
 swap_into_place() {
   local src="$1"
   bold "▶ Installing to $LOOP_HOME"
   mkdir -p "$(dirname "$LOOP_HOME")"
-  local backup=""
+  LOOP_BACKUP=""
   if [ -e "$LOOP_HOME" ]; then
-    backup="${LOOP_HOME}.old.$$"
-    mv "$LOOP_HOME" "$backup"
+    LOOP_BACKUP="${LOOP_HOME}.old.$$"
+    mv "$LOOP_HOME" "$LOOP_BACKUP"
   fi
   mv "$src" "$LOOP_HOME"
-  [ -n "$backup" ] && rm -rf "$backup" 2>/dev/null || true
+}
+
+# Drop the kept-back copy of the previous install (the install stuck).
+commit_install() {
+  [ -n "$LOOP_BACKUP" ] && rm -rf "$LOOP_BACKUP" 2>/dev/null || true
+  LOOP_BACKUP=""
+}
+
+# Put the previous install back, exactly as it was.
+rollback_install() {
+  [ -n "$LOOP_BACKUP" ] || return 1
+  [ -e "$LOOP_BACKUP" ] || return 1
+  rm -rf "$LOOP_HOME" 2>/dev/null || true
+  mv "$LOOP_BACKUP" "$LOOP_HOME" || return 1
+  LOOP_BACKUP=""
+  return 0
 }
 
 # ── Kill stale binaries + symlink fresh ones ──────────────────────────────
@@ -593,15 +625,54 @@ strip_lp_alias() {
   done
 }
 
+# Does this binary actually run? Used both after an install and BEFORE one, to
+# decide whether an "already up to date" install is worth keeping.
+binary_runs() {
+  [ -x "$1" ] || return 1
+  "$1" --version >/dev/null 2>&1
+}
+
+# macOS only, and only after a failed run: give the binary back a signature it
+# can be executed with.
+#
+# `bun build --compile` appends the JS payload after the Mach-O was ad-hoc
+# signed, so the signature no longer describes the file. Most Macs never look;
+# the ones that do SIGKILL it on exec, and the shell prints a bare `killed`
+# with no output — indistinguishable from a corrupt download. Signing it here
+# rewrites the signature over the bytes actually on disk. (Releases from
+# v0.19.15 on are signed at build time; this stays for older tags, source
+# builds on odd hosts, and anything Gatekeeper touched on the way in.)
+repair_macos_binary() {
+  [ "$(uname -s)" = "Darwin" ] || return 1
+  local bin="$LOOP_HOME/loop"
+  [ -f "$bin" ] || return 1
+  dim "  binary was killed on launch — clearing quarantine and re-signing"
+  command -v xattr    >/dev/null 2>&1 && xattr -cr "$bin" 2>/dev/null || true
+  command -v codesign >/dev/null 2>&1 || return 1
+  codesign --force --sign - "$bin" >/dev/null 2>&1 || return 1
+  binary_runs "$bin"
+}
+
 # The binary must actually run on this machine (catches libc/arch surprises
 # immediately instead of on first use).
 smoke_test() {
   local v
   if ! v="$("$LOOP_HOME/loop" --version 2>&1)"; then
-    err "installed binary failed to run: $v"
+    # One repair attempt before giving up — see repair_macos_binary.
+    if repair_macos_binary; then
+      v="$("$LOOP_HOME/loop" --version 2>&1)"
+      dim "  re-signed: loop v$v"
+      commit_install
+      return 0
+    fi
+    err "installed binary failed to run${v:+: $v}"
+    if rollback_install; then
+      err "  rolled back to the previous install — your existing loop still works"
+    fi
     err "  try LOOP_FROM_SOURCE=1 to build for this machine"
     exit 1
   fi
+  commit_install
   dim "  verified: loop v$v"
   # Drop the man page on the user manpath so `man loop` just works. Best
   # effort: a read-only HOME or an unusual manpath must never fail an install.

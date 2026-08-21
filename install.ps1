@@ -153,11 +153,27 @@ if (-not $Force -and $installed) {
     $latestSemver    = [version]($latest.TrimStart("v"))
     $installedSemver = [version]($installed.TrimStart("v"))
     if ($latestSemver -le $installedSemver) {
-        Bold "✓ Up to date (installed $installed, latest $latest)"
-        Dim  "  Set `$env:LOOP_FORCE = '1' to reinstall."
-        exit 0
+        # "Up to date" is a claim about the binary, not about package.json. An
+        # install whose binary does not run is broken, not current, and saying
+        # otherwise leaves the user re-running the installer while `loop` keeps
+        # failing. Reinstall instead.
+        $installedExe = Join-Path $LoopHome "loop.exe"
+        $runs = $false
+        if (Test-Path $installedExe) {
+            try {
+                & $installedExe --version > $null 2>&1
+                $runs = ($LASTEXITCODE -eq 0)
+            } catch {}
+        }
+        if ($runs) {
+            Bold "✓ Up to date (installed $installed, latest $latest)"
+            Dim  "  Set `$env:LOOP_FORCE = '1' to reinstall."
+            exit 0
+        }
+        Dim "  installed $installed does not run — reinstalling $latest"
+    } else {
+        Dim "  update: $installed → $latest"
     }
-    Dim "  update: $installed → $latest"
 } else {
     Dim "  installing $latest"
 }

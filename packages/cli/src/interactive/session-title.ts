@@ -14,7 +14,7 @@
  * worse than one that is slightly stale. A name the user set with `/name` is
  * never overwritten.
  */
-import { generateSessionTitle } from "@notshekhar/loop-core";
+import { PRODUCT_TITLE, generateSessionTitle } from "@notshekhar/loop-core";
 import type { AgentStatusBus } from "./agent-status";
 import type { AppDeps } from "./deps";
 import type { AppState } from "./state";
@@ -35,6 +35,22 @@ const SPIN_INTERVAL_MS = 250;
 
 /** Sessions already titled in this process — one attempt each, ever. */
 const attempted = new Set<string>();
+
+/**
+ * What the tab reads when the live session has no name of its own: at launch,
+ * and again the moment /new or /clear throws the old session away. The title
+ * belongs to a SESSION, so it cannot outlive one — a tab still advertising
+ * "Fix the pty test" over an empty session is worse than no title at all,
+ * because the thing it names is gone.
+ *
+ * A constant rather than the folder name, which is what Claude Code does
+ * (`renamed ?? topic ?? … ?? "Claude Code"`): the folder is already on screen
+ * and in the status line, while the one thing the tab can say that nothing
+ * else does is WHICH AGENT this pane is.
+ */
+export function defaultTabName(): string {
+    return PRODUCT_TITLE;
+}
 
 /** OSC 0 is the tab's name in every terminal worth the word, cmux included. */
 export function setTerminalTitle(deps: AppDeps, title: string): void {

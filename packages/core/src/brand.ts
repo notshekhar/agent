@@ -14,6 +14,15 @@ import { join } from "node:path";
 /** Binary + display name. Keep it a single lowercase token. */
 export const PRODUCT_NAME = "loop";
 
+/**
+ * How the product names itself where something OTHER than the terminal shows
+ * it: a tab title, a cmux pane card, a notification. A session that has earned
+ * a title uses that instead — this is the standing name, the one an untitled
+ * session falls back to (Claude Code's equivalent is the constant "Claude
+ * Code"). Derived so a rename carries it.
+ */
+export const PRODUCT_TITLE = `${PRODUCT_NAME.charAt(0).toUpperCase()}${PRODUCT_NAME.slice(1)} Agent`;
+
 /** Name of the config dir: ~/<CONFIG_DIR_NAME> globally, <cwd>/<CONFIG_DIR_NAME> per project. */
 export const CONFIG_DIR_NAME = `.${PRODUCT_NAME}`;
 

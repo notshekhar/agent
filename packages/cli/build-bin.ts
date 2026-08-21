@@ -94,6 +94,35 @@ if (!result.success) {
     process.exit(1);
 }
 
+// ── Re-sign the macOS binaries (ad-hoc) ───────────────────────────────────
+// `bun build --compile` leaves a Mach-O whose ad-hoc signature does NOT match
+// the file it is attached to — `codesign -v` on a freshly built binary says
+// "code or signature have been modified", because the JS payload is appended
+// after the CodeDirectory was computed. Whether that is fatal is up to the
+// machine: most Macs only hash the pages they map and never notice, but on a
+// machine that does check, the kernel SIGKILLs it on exec and the shell prints
+// a bare `killed` with no output at all — which is exactly what the installer's
+// own smoke test hit on a user's Mac after 0.19.13 → 0.19.14.
+//
+// Re-signing ad-hoc rewrites the signature over the real bytes, so the binary
+// verifies and runs everywhere. Only meaningful on darwin targets, and only
+// possible on a macOS host (codesign ships with the OS) — the CI matrix builds
+// both darwin targets on macos-14, so both get signed. Anywhere else this is a
+// warning, not a failure: an unsigned build is what we shipped until now.
+if (shortTarget.startsWith("darwin")) {
+    if (process.platform !== "darwin") {
+        console.warn(`⚠ ${shortTarget} built on ${process.platform}: cannot codesign — signature will be invalid`);
+    } else {
+        console.log(`▶ codesign --sign - ${binPath}`);
+        // --force replaces bun's stale ad-hoc signature rather than refusing.
+        await $`codesign --force --sign - ${binPath}`.quiet();
+        // Verify rather than trust: a signature that doesn't check out here is
+        // the bug this step exists to prevent, and it must not reach a release.
+        await $`codesign --verify --strict ${binPath}`.quiet();
+        console.log(`  signature verified`);
+    }
+}
+
 // Ship package.json alongside the binary — version metadata for installers.
 copyFileSync(join(import.meta.dir, "package.json"), pkgJsonPath);
 
