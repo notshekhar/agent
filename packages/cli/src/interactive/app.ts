@@ -76,7 +76,9 @@ import { createTurnRunner } from "./turn-runner";
 import { createStatusLineRefresher } from "./status-line-refresh";
 import { createWorkingIndicator } from "./working-indicator";
 import { createAgentStatusBus } from "./agent-status";
+import { basename } from "node:path";
 import { attachCmuxReporter, setCmuxReporter } from "./cmux-reporter";
+import { setTerminalTitle } from "./session-title";
 import { attachHerdrReporter } from "./herdr-reporter";
 import { createTicker } from "./ticker";
 import { registerAppKeybindings } from "./app-keybindings";
@@ -406,6 +408,13 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         disabled: getSetting("cmux") === false,
     });
     setCmuxReporter(cmuxReporter);
+
+    // Name the tab immediately. A resumed session carries its own title; a
+    // fresh one borrows the folder's name until its first turn earns one —
+    // either beats the stale shell command a terminal shows otherwise, which
+    // is what cmux was rendering on loop's pane card.
+    const titleDeps = { tui } as unknown as AppDeps;
+    setTerminalTitle(titleDeps, state.session?.getName() || basename(state.cwd) || PRODUCT_NAME);
 
     // Notification hook on agent-driven waits (Claude Code parity): when a
     // prompt opens mid-turn, external watchers get the "needs attention"

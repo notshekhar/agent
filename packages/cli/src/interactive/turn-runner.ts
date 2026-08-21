@@ -20,6 +20,7 @@ import { wireTurnEmitter } from "./turn-emitter";
 import { traceEvent } from "./debug-log";
 import { uiStyle } from "./ui/ui-mode";
 import { goalModeEngine } from "./goal-mode";
+import { maybeTitleSession } from "./session-title";
 import { dim, warn } from "./ui/text";
 
 /**
@@ -277,6 +278,10 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
             // verified, or pauses — may resubmit through onSubmit. No-op when
             // no goal is active or user input is queued.
             goalModeEngine(state, deps).afterTurn(assistantText, turnSignal.aborted);
+            // Name the session from its opening exchange, once. Detached: the
+            // prompt is already free and a title is never worth making anyone
+            // wait for.
+            void maybeTitleSession(state, deps, { userInput: text, assistantText, aborted: turnSignal.aborted });
             // Drain the next queued input (FIFO), whatever its type. Each fresh
             // turn/command re-reads state.
             drainNext();

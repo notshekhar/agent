@@ -338,7 +338,14 @@ export function attachCmuxReporter(bus: AgentStatusBus | null, opts: CmuxReporte
     function notify(category: "turn-complete" | "needs-permission", body: string, opts_: { pending: boolean }): void {
         if (released || !workspaceId || !surfaceId) return;
         const subtitle = wireText(opts.cwd().split("/").pop() ?? "", 40);
-        const meta = `c=${category};p=${opts_.pending ? 1 : 0};a=${SOURCE}`;
+        // EXACTLY `c=<category>;p=<0|1>`, and nothing else. cmux only treats
+        // the 4th field as metadata when it parses as that whole grammar —
+        // anything it cannot parse is folded back into the BODY, where the
+        // user reads it as "…what are we building?|c=turn-complete;p=0".
+        // Newer cmux accepts an `;a=<agent>` tail; shipped builds do not, and
+        // the tail is only a hint for their notification hooks, so it is not
+        // worth showing punctuation to everyone on an older build.
+        const meta = `c=${category};p=${opts_.pending ? 1 : 0}`;
         v1(`notify_target ${workspaceId} ${surfaceId} ${SOURCE}|${subtitle}|${wireText(body, 240)}|${meta}`);
     }
 

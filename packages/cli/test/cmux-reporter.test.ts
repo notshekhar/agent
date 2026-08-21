@@ -238,15 +238,13 @@ describe("cmux reporter", () => {
         );
         // A prompt the agent is stuck on also rings, in cmux's own category so
         // the user's notification settings govern it.
-        expect(v1).toContain(
-            "notify_target workspace-1 surface-1 loop|widgets|bash approval|c=needs-permission;p=1;a=loop",
-        );
+        expect(v1).toContain("notify_target workspace-1 surface-1 loop|widgets|bash approval|c=needs-permission;p=1");
 
         // The end of a turn is the notification people actually wait for.
         hookBus.emit("event", hook("Stop", { last_assistant_message: "shipped it" }));
         await tick(80);
         expect(server.v1()).toContain(
-            "notify_target workspace-1 surface-1 loop|widgets|shipped it|c=turn-complete;p=0;a=loop",
+            "notify_target workspace-1 surface-1 loop|widgets|shipped it|c=turn-complete;p=0",
         );
 
         // Nothing of ours is left in the sidebar after loop exits. The V1

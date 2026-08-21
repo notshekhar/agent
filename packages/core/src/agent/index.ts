@@ -76,6 +76,7 @@ export {
 export { loadWorkspaceContext, watchWorkspaceContext, listMemoryFiles, type MemoryFileCandidate } from "./context";
 export { loadMemoryContext, memoryDir, type MemoryContext } from "./memory";
 export { loadProjectSkills, type Skill } from "./skills";
+export { generateSessionTitle, cleanTitle } from "./session-title";
 export {
     runHooks,
     loadHooksConfig,

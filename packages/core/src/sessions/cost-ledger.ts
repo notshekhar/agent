@@ -27,6 +27,8 @@ export type LedgerSource =
     | "goal-parse"
     | "goal-planner"
     | "goal-verifier"
+    // One short call per session, naming what it is about.
+    | "session-title"
     // Auto-generated commit messages. Sessionless — the desktop app's commit
     // dialog asks for one directly, so these rows carry a cwd but no
     // sessionPub, unlike every source above.

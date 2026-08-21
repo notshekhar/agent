@@ -745,6 +745,14 @@ export class TUI extends Container {
         this.requestRender();
     }
 
+    /**
+     * Name this terminal's tab (OSC 0). One passthrough rather than letting
+     * callers write escape sequences at stdout behind the renderer's back.
+     */
+    setTitle(title: string): void {
+        this.terminal.setTitle(title);
+    }
+
     addInputListener(listener: InputListener): () => void {
         this.inputListeners.add(listener);
         return () => {
