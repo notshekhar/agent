@@ -155,7 +155,16 @@ const BUILTIN: Record<string, VerbGroupKindId> = {
   ask: "ask",
   plan: "plan",
   enter_plan_mode: "plan",
+  exit_plan_mode: "plan",
 };
+
+/**
+ * The two tools whose INPUT is the deliverable — a plan document the user has
+ * to read before deciding. Neither ever folds into a count.
+ */
+export function isPlanSurface(toolName: string): boolean {
+  return toolName === "plan" || toolName === "exit_plan_mode";
+}
 
 /** MCP tools arrive namespaced as `server__tool`. */
 function isMcpToolName(toolName: string): boolean {
@@ -229,15 +238,16 @@ export interface GroupableTool {
  *
  * A RUNNING call never groups: it is the one row worth watching mid-turn, and
  * "Reading 3 files" would not say which. It joins the header once it lands.
- * `plan` never joins either — it is an approval surface that must stay
- * readable, and the timeline routes it to its own card anyway.
+ * The plan surfaces (`plan`, `exit_plan_mode`) never join either — they are
+ * approval surfaces that must stay readable, and the timeline routes them to
+ * their own card anyway.
  *
  * The last gate is the KIND. Every kind folds — reads, commands, edits,
  * third-party calls — except the surfaces the user has to act on (`ask`,
  * `plan`), which a count would hide.
  */
 export function isGroupableTool(tool: GroupableTool): boolean {
-  return !tool.isPartial && tool.name !== "plan" && foldsEagerly(tool.name);
+  return !tool.isPartial && !isPlanSurface(tool.name) && foldsEagerly(tool.name);
 }
 
 export type ToolRun<T> =

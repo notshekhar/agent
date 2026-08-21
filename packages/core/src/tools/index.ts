@@ -124,9 +124,16 @@ export {
     planDeliveredThisStep,
 } from "./plan";
 // Plan mode: session-level read-only gate (edit/write reject, bash sandboxed
-// read-only) + the approval-gated enter_plan_mode tool that flips it on.
+// read-only) + the approval-gated enter_plan_mode / exit_plan_mode pair that
+// flips it on and back off without ending the turn.
 export { formatPlanModeRefusal, isPlanModeActive, setPlanMode } from "./utils/plan-mode";
 export { createEnterPlanModeTool, ENTER_PLAN_MODE_TOOL_NAME, type EnterPlanModeContext } from "./enter-plan-mode";
+export {
+    createExitPlanModeTool,
+    EXIT_PLAN_MODE_TOOL_NAME,
+    planHeadline,
+    type ExitPlanModeContext,
+} from "./exit-plan-mode";
 // todo tool: conditionally attached in runTurn (todos setting, default OFF),
 // after the task tool so subagents never inherit it. Works in print mode.
 export {

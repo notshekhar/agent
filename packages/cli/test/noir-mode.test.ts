@@ -661,12 +661,16 @@ describe("noir mode rendering", () => {
         expect(t.raw("selectionBorder")).toBe("#3463a6");
     });
 
-    test("plan keeps the default box look in noir mode (approval surface)", () => {
+    test("both plan surfaces keep the default box look in noir mode (approval surfaces)", () => {
         noirOn();
-        const plan = new ToolExecutionComponent("plan", { plan: "# P" }, tui, "/repo");
-        plan.updateResult({ content: [{ type: "text", text: "ok" }], isError: false }, false);
-        // default renderer = multi-line box with bg padding
-        expect(plan.render(W).length).toBeGreaterThan(2);
+        // exit_plan_mode carries the same deliverable as plan — a document the
+        // user reads before approving — so it must render the same way.
+        for (const name of ["plan", "exit_plan_mode"]) {
+            const plan = new ToolExecutionComponent(name, { plan: "# P" }, tui, "/repo");
+            plan.updateResult({ content: [{ type: "text", text: "ok" }], isError: false }, false);
+            // default renderer = multi-line box with bg padding
+            expect(plan.render(W).length).toBeGreaterThan(2);
+        }
     });
 
     test("subagent renders as a noir row: live status+tail, stats title, expanded log", () => {

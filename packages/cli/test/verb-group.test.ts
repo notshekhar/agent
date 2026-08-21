@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { AGENT_TOOL_NAMES, ENTER_PLAN_MODE_TOOL_NAME } from "@notshekhar/loop-core";
+import { AGENT_TOOL_NAMES, ENTER_PLAN_MODE_TOOL_NAME, EXIT_PLAN_MODE_TOOL_NAME } from "@notshekhar/loop-core";
 import {
     clearToolVerbGroups,
     foldsEagerly,
@@ -31,7 +31,7 @@ describe("classification", () => {
             expect(foldsEagerly(t)).toBe(true);
         }
         // A question or a plan folded into a count is one nobody answers.
-        for (const t of ["ask", "plan", "enter_plan_mode"]) expect(foldsEagerly(t)).toBe(false);
+        for (const t of ["ask", "plan", "enter_plan_mode", "exit_plan_mode"]) expect(foldsEagerly(t)).toBe(false);
     });
 });
 
@@ -41,7 +41,7 @@ describe("loop's own tools are never mistaken for somebody else's", () => {
     // its grammar — it claims to be an extension tool, which is a lie the user
     // has no way to see through. `artifact`, `sql`, `ask`, `plan` and
     // `enter_plan_mode` all shipped that way once; this is why they cannot again.
-    const BUILTIN_TOOLS = [...AGENT_TOOL_NAMES, ENTER_PLAN_MODE_TOOL_NAME];
+    const BUILTIN_TOOLS = [...AGENT_TOOL_NAMES, ENTER_PLAN_MODE_TOOL_NAME, EXIT_PLAN_MODE_TOOL_NAME];
 
     test("every tool loop can emit classifies as one of loop's own kinds", () => {
         for (const name of BUILTIN_TOOLS) {
@@ -57,7 +57,7 @@ describe("loop's own tools are never mistaken for somebody else's", () => {
     });
 
     test("surfaces the user has to act on keep their rows", () => {
-        for (const t of ["ask", "plan", "enter_plan_mode"]) expect(foldsEagerly(t)).toBe(false);
+        for (const t of ["ask", "plan", "enter_plan_mode", "exit_plan_mode"]) expect(foldsEagerly(t)).toBe(false);
     });
 });
 

@@ -207,9 +207,31 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
 
         const turnSignal = state.abort.signal;
         const turnStartedAt = Date.now();
-        // enter_plan_mode can flip the session's gate mid-turn; diff at turn
-        // end to surface the change (the approval prompt itself already ran).
-        const planModeBefore = isPlanModeActive(activeSession.id);
+        // enter_plan_mode / exit_plan_mode flip the session's gate MID-turn,
+        // both behind their own approval prompt. syncPlanMode reconciles the
+        // UI with whatever the gate now says: it runs after every tool result
+        // (so the change lands the moment the user answers, not minutes later
+        // when the turn ends) and once more in the finally, which also covers
+        // a gate flipped by something that never emitted a tool result.
+        let planModeShown = isPlanModeActive(activeSession.id);
+        const syncPlanMode = (): void => {
+            const active = isPlanModeActive(activeSession.id);
+            if (active === planModeShown) return;
+            planModeShown = active;
+            deps.statusLine.setPlanMode(active);
+            if (active) {
+                history.addSystem(
+                    warn("plan mode on") + dim(" — edits rejected, bash read-only; accept a plan or /plan to turn off"),
+                );
+            } else {
+                // The agent's own exit: the gate the cycle may have armed is
+                // gone, so cycling away from the plan agent must not re-clear it.
+                state.planModeViaCycle = false;
+                history.addSystem(dim("plan approved — plan mode off, edits enabled"));
+            }
+            tui.requestRender();
+        };
+        emitter.on("tool-result", syncPlanMode);
         traceEvent("turn", `start "${text}" abortedAtStart=${turnSignal.aborted} agent=${turnAgent}`);
         try {
             await runTurn({
@@ -243,16 +265,7 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
             if (uiStyle().turn.summaryLine && !turnSignal.aborted) {
                 history.addTurnSummary((Date.now() - turnStartedAt) / 1000);
             }
-            const planModeAfter = isPlanModeActive(activeSession.id);
-            if (planModeAfter !== planModeBefore) {
-                deps.statusLine.setPlanMode(planModeAfter);
-                if (planModeAfter) {
-                    history.addSystem(
-                        warn("plan mode on") +
-                            dim(" — edits rejected, bash read-only; accept a plan or /plan to turn off"),
-                    );
-                }
-            }
+            syncPlanMode();
             hideWorking();
             tui.requestRender();
             // Plan follow-up runs before the queue drains so the selector

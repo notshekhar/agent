@@ -13,6 +13,7 @@ import {
     createArtifactTool,
     createAskTool,
     createEnterPlanModeTool,
+    createExitPlanModeTool,
     createPlanTool,
     createSkillTool,
     createTodoNudger,
@@ -20,6 +21,7 @@ import {
     createTools,
     createWebsearchTool,
     ENTER_PLAN_MODE_TOOL_NAME,
+    EXIT_PLAN_MODE_TOOL_NAME,
     getBashApprovalBridge,
     getSessionTodos,
     isAskUserAvailable,
@@ -29,7 +31,7 @@ import {
     SKILL_TOOL_NAME,
     TODO_TOOL_NAME,
 } from "../tools";
-import { buildSubagentNote, buildSystemPrompt, buildTodoNote } from "./system-prompt";
+import { buildPlanModeNote, buildSubagentNote, buildSystemPrompt, buildTodoNote } from "./system-prompt";
 import { getAgentPrompt, getAgentTools, isReadOnlyBashAgent, listAgents } from "./agents";
 import { loadWorkspaceContext } from "./context";
 import { loadMemoryContext } from "./memory";
@@ -331,22 +333,42 @@ async function assembleTurnTools(
     if (askEnabled && (!allowedTools?.length || allowedTools.includes("ask"))) {
         toolsForTurn.ask = createAskTool({ abortSignal });
     }
+    // A plan-mode session must always have exactly ONE way to deliver its
+    // plan — two overlapping delivery tools just confuse the model. Which one
+    // it gets depends on whether the agent could actually act on an approval:
+    //
+    //   exit_plan_mode — unrestricted agent + an approval bridge. The user
+    //     approves mid-turn, the gate lifts, and this same agent implements
+    //     the plan it just wrote, context intact. Does NOT stop the turn.
+    //   plan — everyone else (the restricted plan builtin, custom read-only
+    //     agents, print mode / RPC where nobody can be asked). Delivery stops
+    //     the turn; the TUI's implement/talk follow-up hands it onward.
+    const planModeOn = isPlanModeActive(session.id);
+    const canSelfExitPlanMode = planModeOn && !allowedTools?.length && getBashApprovalBridge() !== null;
     // Plan-delivery tool: for restricted agents that name it (the plan
-    // builtin does; custom agents opt in via frontmatter), and for ANY agent
-    // while the session's plan mode is active — a plan-mode session must be
-    // able to deliver its plan no matter which agent is running the turn.
-    // Added AFTER the task tool so subagents don't inherit it. Its presence
-    // also arms the hasToolCall stop condition below: calling plan ends the
-    // turn with the final plan as the tool input.
-    if ((allowedTools?.length && allowedTools.includes(PLAN_TOOL_NAME)) || isPlanModeActive(session.id)) {
+    // builtin does; custom agents opt in via frontmatter), and for any
+    // plan-mode turn that can't self-exit. Added AFTER the task tool so
+    // subagents don't inherit it. Its presence also arms the hasToolCall stop
+    // condition below: calling plan ends the turn with the plan as its input.
+    if ((allowedTools?.length && allowedTools.includes(PLAN_TOOL_NAME)) || (planModeOn && !canSelfExitPlanMode)) {
         toolsForTurn[PLAN_TOOL_NAME] = createPlanTool();
+    }
+    // exit_plan_mode: agent-initiated exit, approval-gated — the mirror of
+    // enter_plan_mode below and the reason plan mode is no longer a one-way
+    // door for the agent.
+    if (canSelfExitPlanMode) {
+        toolsForTurn[EXIT_PLAN_MODE_TOOL_NAME] = createExitPlanModeTool({
+            sessionId: session.id,
+            cwd,
+            abortSignal,
+        });
     }
     // enter_plan_mode: agent-initiated plan mode, approval-gated. Unrestricted
     // agents only (a read-only agent has nothing to gain), interactive only
     // (needs the approval bridge; print mode / RPC never register one), and
     // pointless once plan mode is already on. Added AFTER the task tool so
     // subagents can't flip the parent session's mode.
-    if (!allowedTools?.length && !isPlanModeActive(session.id) && getBashApprovalBridge()) {
+    if (!allowedTools?.length && !planModeOn && getBashApprovalBridge()) {
         toolsForTurn[ENTER_PLAN_MODE_TOOL_NAME] = createEnterPlanModeTool({
             sessionId: session.id,
             cwd,
@@ -480,6 +502,10 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
     // list matches reality, plus explicit delegation guidance when present.
     const subagentNote = "task" in toolsForTurn ? buildSubagentNote(listAgents().map((a) => a.name)) : "";
     const todoNote = TODO_TOOL_NAME in toolsForTurn ? buildTodoNote() : "";
+    // Tell the model it is planning rather than letting it find out from a
+    // rejected edit. Only when it can actually exit — everyone else is told by
+    // the plan tool's own description.
+    const planModeNote = EXIT_PLAN_MODE_TOOL_NAME in toolsForTurn ? buildPlanModeNote() : "";
     // Checked post-assembly (not re-derived from settings) so an extension
     // removing the skill tool in onAssembleTools also flips the wording back.
     const skillsBlock =
@@ -494,6 +520,7 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
         }) +
         subagentNote +
         todoNote +
+        planModeNote +
         (skillsBlock ?? "");
     // Extension turn middleware may transform the system prompt, scoped by
     // ctx.agent (update any specific agent's prompt). No-op when none.

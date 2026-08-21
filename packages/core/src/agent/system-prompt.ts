@@ -35,6 +35,17 @@ export function buildTodoNote(): string {
     return `\n\nTodos (todo tool): for any job with 3+ distinct steps, keep a visible checklist the user can watch. Create it when you start, keep exactly one item in_progress (with an activeForm label), and mark each step completed the moment it's done and verified — never batch completions at the end. Capture newly discovered follow-ups as todos; mark abandoned steps cancelled. Each call replaces the whole list, so resend every item. Skip the tool entirely for trivial or single-step requests — when in doubt, use it.`;
 }
 
+/**
+ * Plan-mode guidance, appended when the turn carries the exit_plan_mode tool
+ * — i.e. the session's read-only gate is ON and this agent is the one that
+ * can ask for it to be lifted. Without this the model only learns it is in
+ * plan mode by having an edit rejected, which wastes a step and reads to the
+ * user like a bug.
+ */
+export function buildPlanModeNote(): string {
+    return `\n\nPLAN MODE IS ACTIVE. This is a read-only phase: edit and write are rejected and bash cannot modify anything, in every permission mode — do not try to work around it. Investigate with the read-only tools (read, ls, grep, find, read-only bash) until you understand the change well enough to describe it exactly, then call exit_plan_mode with the complete plan document. That call asks the user to approve it. If they approve, plan mode ends and you implement the plan yourself, immediately, in the same turn. If they decline, you stay in plan mode: address what they raised and call exit_plan_mode again. Never end a turn silently while plan mode is on — either deliver a plan or ask the question that is blocking it.`;
+}
+
 export function buildSystemPrompt(opts: {
     cwd: string;
     workspaceContext?: string;

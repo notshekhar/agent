@@ -10,7 +10,7 @@ import { getLanguageFromPath, getMarkdownTheme, highlightCode, theme } from "./t
 import { formatToolArgs, readGutterPrefixes, readLineRangeText } from "./tool-summary";
 import { uiRenderers, uiStyle } from "./ui-mode";
 import { markSelectedLines } from "./messages";
-import { foldsEagerly } from "./verb-group";
+import { foldsEagerly, isPlanSurface } from "./verb-group";
 /** Live-streaming preview cap in EXPANDED mode. Highlighting runs on every
  * flush while input streams — unbounded, a large file made a single frame
  * expensive enough to freeze the box. The full content still renders once
@@ -128,15 +128,15 @@ export class ToolExecutionComponent extends Container {
      * transcript mid-turn to see.
      *
      * An OPEN call also leaves the group — the user asked to see that one —
-     * and `plan` never joins, being an approval surface that must stay
-     * readable.
+     * and the plan surfaces (`plan`, `exit_plan_mode`) never join, being
+     * approval surfaces that must stay readable.
      *
      * The last gate is the tool's KIND. Every kind folds — reads, commands,
      * edits, third-party calls — except the surfaces the user has to act on
      * (`ask`, `plan`). See verb-group.ts for the vocabulary.
      */
     isGroupable(): boolean {
-        return !this.isPartial && !this.expanded && this.toolName !== "plan" && foldsEagerly(this.toolName);
+        return !this.isPartial && !this.expanded && !isPlanSurface(this.toolName) && foldsEagerly(this.toolName);
     }
 
     /** Selection highlight for the ctrl+up/down block navigation. */
@@ -164,7 +164,7 @@ export class ToolExecutionComponent extends Container {
      * growing tail under it. */
     updateStreamingInput(fields: Record<string, string>): void {
         if (fields.path && this.args.path !== fields.path) this.args = { ...this.args, path: fields.path };
-        // plan streams its text under "plan"; write/edit under "content".
+        // the plan surfaces stream their text under "plan"; write/edit under "content".
         this.streamingContent = fields.content ?? fields.plan ?? "";
         this.boxDirty = true;
         this.tui.requestRender();
@@ -266,11 +266,11 @@ export class ToolExecutionComponent extends Container {
             this.box.addChild(new Text(inputLines.join("\n"), 0, 0));
         }
 
-        // plan: the input IS the deliverable — render it as full markdown (no
-        // collapse) so the user actually reads what they're approving, and drop
-        // the one-line ack output. While the input still streams the raw tail
-        // renders via streamingLines below, like write.
-        if (this.toolName === "plan" && !this.result?.isError) {
+        // plan / exit_plan_mode: the input IS the deliverable — render it as
+        // full markdown (no collapse) so the user actually reads what they're
+        // approving, and drop the one-line ack output. While the input still
+        // streams the raw tail renders via streamingLines below, like write.
+        if (isPlanSurface(this.toolName) && !this.result?.isError) {
             const plan = typeof this.args.plan === "string" ? normalizePlanText(this.args.plan.trim()) : "";
             if (plan) {
                 this.box.addChild(new Spacer(1));

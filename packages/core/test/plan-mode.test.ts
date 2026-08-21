@@ -20,6 +20,7 @@ mock.module("../src/settings", () => ({
 const { createEditTool } = await import("../src/tools/edit");
 const { createWriteTool } = await import("../src/tools/write");
 const { createEnterPlanModeTool } = await import("../src/tools/enter-plan-mode");
+const { createExitPlanModeTool, planHeadline } = await import("../src/tools/exit-plan-mode");
 const { isPlanModeActive, setPlanMode } = await import("../src/tools/utils/plan-mode");
 const { clearPermissionRulesCache } = await import("../src/tools/utils/permission-rules");
 const { recordRead } = await import("../src/tools/utils/read-registry");
@@ -114,5 +115,87 @@ describe("enter_plan_mode tool", () => {
         const out = await exec(enter, { reason: "r" });
         expect(out).toContain("already active");
         expect(requests.length).toBe(0);
+    });
+});
+
+// A plan long enough to clear PLAN_MIN_CHARS (200).
+const REAL_PLAN = `# Add the widget cache
+
+## Context
+Widgets are refetched on every render, which is why the list flickers.
+
+## Steps
+1. src/widgets.ts — memoize fetchWidget by id, mirroring the userCache above it.
+2. src/list.tsx — read through the cache instead of calling fetchWidget directly.
+
+## Verification
+bun test packages/widgets — the flicker test currently fails.
+
+## Risks
+Cache invalidation on logout is left to the user to decide.`;
+
+describe("exit_plan_mode tool", () => {
+    test("approval lifts the gate and tells the model to implement now", async () => {
+        setPlanMode(SID, true);
+        const requests = fakeBridge(["once"]);
+        const exit = createExitPlanModeTool({ sessionId: SID, cwd: dir });
+        const out = await exec(exit, { plan: REAL_PLAN });
+        expect(out).toContain("plan mode is OFF");
+        expect(out).toContain("same turn");
+        expect(isPlanModeActive(SID)).toBe(false);
+        expect(requests[0].kind).toBe("exit-plan");
+        // The prompt shows the plan's heading, not the whole document.
+        expect(requests[0].command).toBe("Add the widget cache");
+    });
+
+    test("edits work again after an approved exit", async () => {
+        setPlanMode(SID, true);
+        fakeBridge(["once"]);
+        const exit = createExitPlanModeTool({ sessionId: SID, cwd: dir });
+        await exec(exit, { plan: REAL_PLAN });
+        const write = createWriteTool({ cwd: dir, sessionId: SID });
+        expect(await exec(write, { path: "e.txt", content: "ok" })).toContain("Successfully");
+    });
+
+    test("decline keeps the gate shut and invites a revised plan", async () => {
+        setPlanMode(SID, true);
+        fakeBridge(["deny"]);
+        const exit = createExitPlanModeTool({ sessionId: SID, cwd: dir });
+        const out = await exec(exit, { plan: REAL_PLAN });
+        expect(out).toContain("stays ON");
+        expect(isPlanModeActive(SID)).toBe(true);
+        const write = createWriteTool({ cwd: dir, sessionId: SID });
+        expect(exec(write, { path: "f.txt", content: "x" })).rejects.toThrow(/Plan mode is active/);
+    });
+
+    test("a title-only delivery is rejected without prompting", async () => {
+        setPlanMode(SID, true);
+        const requests = fakeBridge(["once"]);
+        const exit = createExitPlanModeTool({ sessionId: SID, cwd: dir });
+        const out = await exec(exit, { plan: "# Do the thing" });
+        expect(out).toContain("REJECTED");
+        expect(requests.length).toBe(0);
+        expect(isPlanModeActive(SID)).toBe(true);
+    });
+
+    test("no bridge → the gate holds, no crash", async () => {
+        setPlanMode(SID, true);
+        const exit = createExitPlanModeTool({ sessionId: SID, cwd: dir });
+        const out = await exec(exit, { plan: REAL_PLAN });
+        expect(out).toContain("only be lifted by the user");
+        expect(isPlanModeActive(SID)).toBe(true);
+    });
+
+    test("not in plan mode → no prompt, nothing to exit", async () => {
+        const requests = fakeBridge(["once"]);
+        const exit = createExitPlanModeTool({ sessionId: SID, cwd: dir });
+        const out = await exec(exit, { plan: REAL_PLAN });
+        expect(out).toContain("not active");
+        expect(requests.length).toBe(0);
+    });
+
+    test("planHeadline strips the marker and falls back past blank lines", () => {
+        expect(planHeadline("\n\n## Refactor the parser\nbody")).toBe("Refactor the parser");
+        expect(planHeadline(`# ${"x".repeat(200)}`).length).toBeLessThanOrEqual(100);
     });
 });

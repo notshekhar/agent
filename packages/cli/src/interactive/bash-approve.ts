@@ -22,9 +22,16 @@ export function createBashApprovalBridge(host: SelectorHost): BashApprovalBridge
             const kind = req.kind ?? "bash";
             // Path/plan prompts are once-or-deny only; bash prompts offer the
             // persisted always/never pair when there are patterns to remember.
-            const onceLabel = kind === "bash" ? "allow once" : "allow";
+            const onceLabel = kind === "bash" ? "allow once" : kind === "exit-plan" ? "implement it" : "allow";
             const items: SelectItem[] = [
-                { value: "once", label: onceLabel, description: "approve this time; ask again next time" },
+                {
+                    value: "once",
+                    label: onceLabel,
+                    description:
+                        kind === "exit-plan"
+                            ? "approve the plan — plan mode off, the agent builds it now"
+                            : "approve this time; ask again next time",
+                },
                 ...(kind === "bash" && req.patterns.length > 0
                     ? [
                           {
@@ -39,14 +46,22 @@ export function createBashApprovalBridge(host: SelectorHost): BashApprovalBridge
                           },
                       ]
                     : []),
-                { value: "deny", label: "deny", description: "refuse — the agent is told you declined" },
+                kind === "exit-plan"
+                    ? {
+                          value: "deny",
+                          label: "keep planning",
+                          description: "stay in plan mode — tell the agent what to change",
+                      }
+                    : { value: "deny", label: "deny", description: "refuse — the agent is told you declined" },
             ];
             const headline =
                 kind === "path"
                     ? " [permission] allow this file access?"
                     : kind === "plan"
                       ? " [plan] the agent wants to enter plan mode"
-                      : " [bash] run this command?";
+                      : kind === "exit-plan"
+                        ? " [plan] plan ready — leave plan mode and implement it?"
+                        : " [bash] run this command?";
             const list = new SelectList(items, items.length, getSelectListTheme());
             const wrapper = new Container();
             wrapper.addChild(new Text(warnTitle(headline), 0, 0));
@@ -62,10 +77,24 @@ export function createBashApprovalBridge(host: SelectorHost): BashApprovalBridge
             wrapper.addChild(new DynamicBorder());
             wrapper.addChild(list);
             wrapper.addChild(new DynamicBorder());
-            wrapper.addChild(new Text(dim(" ↑↓ navigate · Enter select · Esc denies"), 0, 0));
+            wrapper.addChild(
+                new Text(
+                    dim(
+                        kind === "exit-plan"
+                            ? " ↑↓ navigate · Enter select · Esc keeps plan mode on"
+                            : " ↑↓ navigate · Enter select · Esc denies",
+                    ),
+                    0,
+                    0,
+                ),
+            );
 
             const statusLabel =
-                kind === "path" ? "file access approval" : kind === "plan" ? "plan approval" : "bash approval";
+                kind === "path"
+                    ? "file access approval"
+                    : kind === "plan" || kind === "exit-plan"
+                      ? "plan approval"
+                      : "bash approval";
             const close = host.showSelector(wrapper, list, statusLabel);
             let done = false;
             const onAbort = () => finish("deny");

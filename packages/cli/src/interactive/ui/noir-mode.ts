@@ -19,6 +19,7 @@ import {
     type ToolBlockState,
     type UiModePlugin,
 } from "./ui-mode";
+import { isPlanSurface } from "./verb-group";
 
 /**
  * Noir's palettes. Unlike `loop` mode it washes the canvas, so the terminal
@@ -220,7 +221,7 @@ export function renderThinking(state: ThinkingBlockState, ctx: RenderCtx): strin
  * folding inside a subagent needs nested entries (the pager phase).
  */
 export function renderTool(state: ToolBlockState, ctx: RenderCtx): string[] | null {
-    if (state.toolName === "plan") return null;
+    if (isPlanSurface(state.toolName)) return null;
     const isTask = state.toolName === "task";
     const th = ctx.theme;
     const width = ctx.width - RAIL_WIDTH;

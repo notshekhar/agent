@@ -110,7 +110,19 @@ const BUILTIN: Record<string, VerbGroupKindId> = {
     ask: "ask",
     plan: "plan",
     enter_plan_mode: "plan",
+    exit_plan_mode: "plan",
 };
+
+/**
+ * The two tools whose INPUT is the deliverable — a plan document the user has
+ * to read before deciding. Both render as full markdown in their box and
+ * never fold into a group; a plan folded into a count is one nobody reads.
+ * (`plan` ends the turn and hands off; `exit_plan_mode` lifts the gate and
+ * keeps going — same surface, different exit.)
+ */
+export function isPlanSurface(toolName: string): boolean {
+    return toolName === "plan" || toolName === "exit_plan_mode";
+}
 
 /** Explicit registrations — extensions naming their own tools' grammar. */
 const registered = new Map<string, VerbGroupKindId>();

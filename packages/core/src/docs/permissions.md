@@ -104,6 +104,23 @@ planning in one step). The agent may also request it via the
 `enter_plan_mode` tool when a task is genuinely ambiguous — that requires
 your approval. The status line shows `plan mode (read-only)` while active.
 
-Plan mode ends when you accept a delivered plan ("implement it"), or when
-you run `/plan` again to toggle it off. Choosing "talk about it" keeps the
-mode on so you can iterate on the plan.
+### Leaving plan mode
+
+Every exit is yours to approve — the agent can ask, never decide. Which
+prompt you get depends on who is planning:
+
+- **A normal agent** (it entered plan mode itself, or you ran `/plan`)
+  delivers the plan through the `exit_plan_mode` tool. The plan renders in
+  full, and you choose _implement it_ (plan mode off — that same agent starts
+  building immediately, in the same turn, with everything it just learned) or
+  _keep planning_ (the gate stays shut; tell it what to change and it calls
+  again).
+- **The `plan` agent** (and any read-only agent) delivers through the `plan`
+  tool instead — lifting the gate buys it nothing, since it has no `edit`/
+  `write` tools. Delivery ends the turn and you choose _implement it_, which
+  hands the plan to an agent you pick, or _talk about it_, which keeps plan
+  mode on so you can iterate.
+
+`/plan` toggles the mode off at any time. Non-interactive runs (print mode,
+RPC) have nobody to ask, so they always use the `plan` tool and never exit on
+their own.
