@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.19.12] - 2026-08-21
+
+### Added
+
+- **loop shows up in cmux's sidebar, and tells you when the turn is done.** v0.19.10 taught loop to report into cmux's Feed, which turned out to be the half you cannot see: the status chip in the pane's sidebar and the notification when a turn finishes come from a different channel entirely, and loop drove neither — so from the outside it still looked like nothing was reporting. It drives them now, under its own name, with cmux's own icons: a bolt while it works, a bell at top priority while a prompt is waiting for you (which floats that pane up a sidebar full of agents), a grey pause when it goes idle, and nothing left behind once it exits. The finish notification carries the agent's actual closing sentence, and both notifications are tagged with cmux's own categories, so your Settings > Notifications switches govern loop's exactly as they govern Claude Code's.
+
 ## [0.19.11] - 2026-08-21
 
 ### Fixed
