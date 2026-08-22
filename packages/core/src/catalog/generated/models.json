@@ -3078,9 +3078,9 @@
     "contextWindow": 1048576,
     "maxOutput": 384000,
     "cost": {
-      "input": 0.06986,
-      "output": 0.13972,
-      "cacheRead": 0.013972,
+      "input": 0.06706,
+      "output": 0.13412,
+      "cacheRead": 0.013412,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -3114,9 +3114,9 @@
     "contextWindow": 1048576,
     "maxOutput": 384000,
     "cost": {
-      "input": 0.43065,
-      "output": 0.8613,
-      "cacheRead": 0.035888,
+      "input": 0.413772,
+      "output": 0.827544,
+      "cacheRead": 0.034481,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -3276,9 +3276,9 @@
     "contextWindow": 1048576,
     "maxOutput": 384000,
     "cost": {
-      "input": 0.44,
-      "output": 1.32,
-      "cacheRead": 0.014,
+      "input": 0.22,
+      "output": 0.66,
+      "cacheRead": 0.007,
       "cacheWrite": 0
     },
     "reasoning": true,

@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.18] - 2026-08-22
+
+### Fixed
+
+- **noir's `system` theme flooded the terminal with queries, and some of them came back as keystrokes.** The reply to a colour-scheme query (`CSI ? 996 n`) is itself a colour-scheme report — so a watcher that re-measures whenever a report arrives re-asks forever. Measured on a terminal that answers: **101,022 queries in ten seconds**, where there should be one. Two things fell out of that. The replies arrived batched into single chunks, which the report handling — matching a whole chunk against exactly one reply — no longer recognised, so they went through to the key handling instead; an OSC 11 reply ends in BEL, `\x07`, which is ctrl+g, which loop binds to "continue". Sessions sent prompts nobody typed. And whatever was still in flight at exit was answered into the SHELL, printing `^[]11;rgb:…` where the prompt should be. The scheme query is asked once now, at startup, never from the watcher; a live flip re-measures with the background query alone; probes are single-flight and stop before the TUI lets go of stdin, with the terminal's unsolicited reports turned back off on the way out.
+- **A terminal report can no longer reach the keyboard at all.** Both reports are now stripped from anywhere in an input chunk, batched or not, whether or not a query is still pending — because neither can ever be something a person typed, and one getting through is not a stray character but a prompt sent on your behalf. This also covers the case that needed no bug to reproduce: a slow terminal answering after its query timed out.
+
 ## [0.19.17] - 2026-08-22
 
 ### Added
