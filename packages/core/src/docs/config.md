@@ -78,8 +78,8 @@ Other notable keys (all managed via `/settings` too):
   Noir ships a third theme, **`system`**: noir's ink with NO canvas of its
   own, so your terminal's own background shows through — a true black, a
   transparency, a background image. It asks the terminal what it is (the
-  colour-scheme report for dark-vs-light, the OSC 11 background colour for the
-  exact canvas) and follows it live, with nothing to configure. Its palette —
+  OSC 11 background colour for the exact canvas, the colour-scheme report as a
+  fallback) once at startup, with nothing to configure. Its palette —
   every slot of it, greys and hues and the syntax set — is rebuilt to hold the
   same contrast noir's own themes hold against their washed canvas, so it reads
   on your background the way noir does on its own. The lift is one-sided: a

@@ -16,10 +16,10 @@ import {
 import { contrastRatio } from "../src/interactive/ui/palette";
 import { activeUiMode, setActiveUiMode, uiStyle } from "../src/interactive/ui/ui-mode";
 import {
-    resumeSystemSchemeTrackingForTest,
-    stopSystemSchemeTracking,
+    resumeSystemSchemeProbesForTest,
+    stopSystemSchemeProbes,
+    probeSystemScheme,
     syncSystemScheme,
-    watchSystemScheme,
 } from "../src/interactive/ui/system-scheme";
 import { initTheme, Theme, theme } from "../src/interactive/ui/theme";
 import { applyCanvasWash, resetCanvasWash } from "../src/interactive/ui/canvas-wash";
@@ -1017,26 +1017,44 @@ describe("noir system theme", () => {
         expect(new Theme(systemTheme()).isLight).toBe(true);
     });
 
-    test("asking the terminal never becomes a conversation with itself", async () => {
-        // The bug this pins: the reply to a scheme query IS a scheme report, so
-        // a watcher that re-probes on every report keeps re-asking forever. In
-        // a real terminal that meant dozens of queries a second, replies
-        // batched into chunks the input path could not parse, and every OSC 11
-        // reply's trailing BEL landing as ctrl+g — loop's "continue".
+    test("the terminal is asked ONCE — a report can never provoke another query", async () => {
+        // The bug this pins, and the watcher that made it possible: the reply
+        // to a scheme query IS a scheme report, so anything that re-measures on
+        // every report re-asks forever. It did — 101,022 queries in ten seconds
+        // against a terminal that answers, replies batching into chunks the
+        // input path could not parse, every OSC 11 reply's trailing BEL landing
+        // as ctrl+g, which loop binds to "continue". There is no watcher now.
         const { tui: t, counts, flip } = echoingTui({ r: 29, g: 29, b: 32 });
         noirSystem("dark");
-        watchSystemScheme(t);
         await syncSystemScheme(t);
         await Promise.resolve();
-        expect(counts.scheme).toBe(1); // asked once, at startup, and never again
+        expect(counts.scheme).toBe(1);
+        expect(counts.background).toBe(1);
 
-        // A genuine flip re-measures — with the BACKGROUND query only.
-        const backgroundQueries = counts.background;
+        // Nothing is subscribed, so a report — solicited or not — goes nowhere.
         flip("light");
+        flip("dark");
         await Promise.resolve();
         await Promise.resolve();
         expect(counts.scheme).toBe(1);
-        expect(counts.background).toBe(backgroundQueries + 1);
+        expect(counts.background).toBe(1);
+    });
+
+    test("no unsolicited-report mode is ever switched on", () => {
+        // `?2031h` outlives the process that asked for it, so the theme that
+        // no longer needs it must never turn it on.
+        let enabled: boolean | undefined;
+        const t = {
+            queryTerminalColorScheme: async () => undefined,
+            queryTerminalBackgroundColor: async () => undefined,
+            setTerminalColorSchemeNotifications: (on: boolean) => (enabled = on),
+            onTerminalColorSchemeChange: () => () => {},
+            invalidate() {},
+            requestRender() {},
+        } as unknown as TUI;
+        noirSystem("dark");
+        probeSystemScheme(t);
+        expect(enabled).toBeUndefined();
     });
 
     test("probes are single-flight, and stop once the UI is going away", async () => {
@@ -1045,10 +1063,10 @@ describe("noir system theme", () => {
         await Promise.all([syncSystemScheme(t), syncSystemScheme(t), syncSystemScheme(t)]);
         expect(counts.background).toBe(1); // two of the three were dropped
 
-        stopSystemSchemeTracking(t);
+        stopSystemSchemeProbes();
         expect(await syncSystemScheme(t)).toBe(false);
         expect(counts.background).toBe(1); // nothing asked on the way out
-        resumeSystemSchemeTrackingForTest();
+        resumeSystemSchemeProbesForTest();
     });
 
     test("a terminal that answers nothing is still legible on any dark canvas", async () => {

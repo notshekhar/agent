@@ -28,7 +28,7 @@ import { startMcpServers } from "../startup";
 import { initTheme, initUiModeAndTheme, theme } from "../ui/theme";
 import { activeUiMode, getUiMode, isLiveVariant, listUiModes, setLiveVariant } from "../ui/ui-mode";
 import { applyCanvasWash } from "../ui/canvas-wash";
-import { startSystemSchemeTracking } from "../ui/system-scheme";
+import { probeSystemScheme } from "../ui/system-scheme";
 import { renderSessionBranch } from "../replay";
 import { replayStartupNotices, showWelcomeBanner } from "../welcome";
 import { currentBashAllow, currentBashDeny, runBashAllowManager, runBashDenyManager } from "./bashdeny-handlers";
@@ -92,7 +92,7 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
         applyCanvasWash();
         // The mode we just entered may be noir sitting on its `system` theme,
         // whose ink comes from the terminal rather than from settings.
-        startSystemSchemeTracking(tui);
+        probeSystemScheme(tui);
         // Rebuild the transcript under the new mode: prefix/spacing/group
         // decisions are baked in when components are CONSTRUCTED, so merely
         // re-rendering the old tree leaves a hybrid of both modes.
@@ -414,10 +414,9 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                     }
                     initTheme(tPick.value);
                     applyCanvasWash();
-                    // `system` asks the terminal what it is (in the background,
-                    // repainting itself when the answer lands) and follows it
-                    // from here on.
-                    startSystemSchemeTracking(tui);
+                    // `system` asks the terminal what it is, in the background,
+                    // repainting itself when the answer lands.
+                    probeSystemScheme(tui);
                     tui.invalidate();
                     history.addSystem(`theme → ${tPick.value}`);
                     tui.requestRender(true);
