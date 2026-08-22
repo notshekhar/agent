@@ -54,6 +54,7 @@ import {
 import { getSelectListTheme, initUiModeAndTheme, theme } from "./ui/theme";
 import { applyExtensionUiModes } from "./ui/ui-mode";
 import { registerNoirMode } from "./ui/noir-mode";
+import { startSystemSchemeTracking } from "./ui/system-scheme";
 import { printResumeHint } from "./resume-hint";
 import { applyCanvasWash, resetCanvasWash } from "./ui/canvas-wash";
 import { ChatHistory } from "./components/chat-history";
@@ -766,6 +767,10 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     // After start: terminal.start() cleanses stale modes (incl. OSC 111
     // background reset), so the mode's wash must be applied after it.
     applyCanvasWash();
+    // noir's `system` theme has no canvas of its own — it needs to know what
+    // the terminal's background IS. Probes the terminal (in the background,
+    // and only when that theme is active) and then follows it live.
+    startSystemSchemeTracking(tui);
     // Same reason, and the same trap: the cleanse writes `?1000l ?1006l`, so a
     // pinned prompt asking for wheel reports BEFORE start() has its request
     // wiped a few thousand bytes into the first paint. The window still

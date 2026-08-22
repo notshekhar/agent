@@ -7,7 +7,16 @@
  * block renderers) — if this file needs private hooks, the contract is wrong.
  */
 import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from "@notshekhar/loop-tui";
-import { DARK_INK, LIGHT_INK, type Palette, type ThemeJson, themeFromPalette } from "./palette";
+import {
+    atLeastContrast,
+    contrastRatio,
+    DARK_INK,
+    LIGHT_INK,
+    mix,
+    type Palette,
+    type ThemeJson,
+    themeFromPalette,
+} from "./palette";
 import { bulletColor, RAIL_WIDTH, railForState, withRail, type RailSpec } from "./rail";
 import { fgHex, type ThemeBg, type ThemeColor } from "./theme";
 import { readGutterPrefixes, readLineRangeText } from "./tool-summary";
@@ -119,6 +128,153 @@ export const DAY_PALETTE: Palette = {
 export const NIGHT_THEME: ThemeJson = themeFromPalette(NIGHT_PALETTE);
 export const DAY_THEME: ThemeJson = themeFromPalette(DAY_PALETTE);
 
+/**
+ * `system` — noir's third theme: the mode WITHOUT the canvas.
+ *
+ * Night and day each claim the terminal's background and wash it (OSC 11/10).
+ * That is right when you want noir's canvas, and wrong when your terminal
+ * already has a background it means: a true black, a transparency, an image.
+ * `system` gives that back — it washes nothing, so every row is noir's ink
+ * drawn straight onto whatever the terminal already was.
+ *
+ * Which ink it uses is not yours to configure: the terminal is ASKED (its
+ * colour-scheme report, else its background colour) and the dark or light set
+ * follows, live — flip your terminal to light mid-session and the transcript
+ * follows it. That is the whole point of calling it `system` rather than
+ * shipping two more theme names.
+ *
+ * Both variants keep their palette's `bg` even though nothing paints it: every
+ * surface tint (selection, a custom message, a failed tool's fill) is MIXED
+ * against it, so dropping it would drop those surfaces too. It stops being
+ * painted; it stays the colour the rest is computed from.
+ */
+export const SYSTEM_THEME_NAME = "system";
+
+/**
+ * How far the two surface levels and the chrome line sit off the canvas.
+ * Measured from night AND day, which agree on all three — the lift is a
+ * relationship in the design, not a per-palette constant, which is why it
+ * survives being moved onto a background neither palette chose.
+ */
+const LIFT = { raised: 0.05, sunken: 0.025, line: 0.13 } as const;
+
+/**
+ * The canvas to assume before the terminal has told us its own — the LIGHTEST
+ * background a dark terminal plausibly has (and the darkest a light one does).
+ *
+ * Not a guess at the average: a guess at the worst case, because the ramp's
+ * failure is one-sided. Solve for a canvas lighter than the real one and the
+ * greys come out a little brighter than designed — no harm. Solve for a darker
+ * one and they come out too faint to read, which is precisely the bug this
+ * exists to prevent. It also has to be right from the FIRST paint: the probe's
+ * answer lands a moment later, and by then the banner and the startup notices
+ * have already baked their colours into the scrollback.
+ */
+const SAFE_CANVAS = { dark: "#2e2e2e", light: "#ececec" } as const;
+
+/**
+ * Build `system` for the canvas it is really drawn on.
+ *
+ * The ink cannot simply be night's. noir's colours are not those hexes because
+ * the hexes are special — each is a RATIO against noir's own `#141414`: text
+ * at 16.9:1, muted at 5.3:1, dim deliberately faint at 2.9:1, the accent at
+ * 6.9:1. Drop the same hexes onto a lighter terminal and every one of them
+ * loses roughly a fifth of its contrast at once; that is not "text is a bit
+ * dark", it is the whole palette sinking toward a background it was never
+ * measured against.
+ *
+ * So EVERY colour is checked against the canvas that is actually there — the
+ * greys, the semantic hues, the syntax set — and any that fell below the ratio
+ * it holds on noir's own canvas is lifted back to it. Lifted by tinting toward
+ * white (or black on a light terminal), so a hue stays its hue: a raised red is
+ * still red.
+ *
+ * One-sided, deliberately. A terminal DARKER than noir's canvas makes every
+ * slot more readable, not less, and pulling those back down to the exact ratio
+ * would be dimming a screen that was already right. Only what fell below is
+ * touched — which is why this is safe to run on every background, including
+ * the ones that never needed it.
+ */
+function systemPalette(scheme: "dark" | "light", canvas?: string): Palette {
+    const base = scheme === "light" ? DAY_PALETTE : NIGHT_PALETTE;
+    const ground = canvas ?? SAFE_CANVAS[scheme];
+    // Tinting past the ink toward pure white/black: on a background lighter
+    // than the palette's own, the ratio a slot wants can sit beyond its ink.
+    const pole = scheme === "light" ? "#000000" : "#ffffff";
+    /** `slot`, still as legible here as it is on the palette's own canvas. */
+    const held = (slot: string) => atLeastContrast(ground, slot, pole, contrastRatio(slot, base.bg));
+    return {
+        ...base,
+        name: SYSTEM_THEME_NAME,
+        wash: false,
+        bg: ground,
+        bgRaised: mix(ground, pole, LIFT.raised),
+        bgSunken: mix(ground, pole, LIFT.sunken),
+        line: mix(ground, pole, LIFT.line),
+        text: held(base.text),
+        muted: held(base.muted),
+        dim: held(base.dim),
+        accent: held(base.accent),
+        accentLift: held(base.accentLift),
+        success: held(base.success),
+        error: held(base.error),
+        warning: held(base.warning),
+        heading: held(base.heading),
+        inlineCode: held(base.inlineCode),
+        codeBlock: held(base.codeBlock ?? base.success),
+        thinkingPeak: held(base.thinkingPeak),
+        syntax: {
+            comment: held(base.syntax.comment),
+            keyword: held(base.syntax.keyword),
+            function: held(base.syntax.function),
+            variable: held(base.syntax.variable),
+            string: held(base.syntax.string),
+            number: held(base.syntax.number),
+            type: held(base.syntax.type),
+            operator: held(base.syntax.operator),
+            punctuation: held(base.syntax.punctuation),
+        },
+    };
+}
+
+/**
+ * What the terminal last told us: which set to wear, and — when it reported a
+ * background colour rather than just "dark"/"light" — the canvas to hold the
+ * ramp's contrast against. Dark on the safe canvas until it answers, which is
+ * the honest default for a terminal that never replies at all.
+ */
+let systemScheme: "dark" | "light" = "dark";
+let systemCanvas: string | undefined;
+let systemThemeJson: ThemeJson = themeFromPalette(systemPalette("dark"));
+
+/** The `system` theme as the terminal currently reads. */
+export function systemTheme(): ThemeJson {
+    return systemThemeJson;
+}
+
+/**
+ * The canvas `system` is drawn on — the terminal's own background when it told
+ * us, else the set's. Rails and bullets blend toward it, and unlike every
+ * washed theme there is no `bgBase` slot to read it back out of.
+ */
+export function systemCanvasHex(): string {
+    return systemCanvas ?? SAFE_CANVAS[systemScheme];
+}
+
+/**
+ * Record what the terminal reported. Returns true when it CHANGED — the caller
+ * only has to re-resolve the theme and repaint when it did. Re-registers noir
+ * so the mode's theme set carries the new variant.
+ */
+export function setNoirSystem(scheme: "dark" | "light", canvas?: string): boolean {
+    if (scheme === systemScheme && canvas === systemCanvas) return false;
+    systemScheme = scheme;
+    systemCanvas = canvas;
+    systemThemeJson = themeFromPalette(systemPalette(scheme, canvas));
+    registerNoirMode();
+    return true;
+}
+
 /** One-line rows must never exceed the terminal width — an overflowing line
  * trips the TUI's crash guard and kills the whole UI (a long bash command in
  * a tool header did exactly that). Truncate with an ellipsis, grok-style. */
@@ -137,6 +293,22 @@ function fitRow(line: string, width: number): string {
 function hexOf(ctx: RenderCtx, slot: ThemeColor | ThemeBg, fallback: string): string {
     const raw = ctx.theme.raw(slot);
     return typeof raw === "string" && raw.startsWith("#") ? raw : fallback;
+}
+
+/**
+ * The canvas a block's rail blends TOWARD at the trough of its animation.
+ *
+ * Normally that is `bgBase` — the colour noir washed the terminal with. Under
+ * `system` there is no wash, so `bgBase` is the terminal default (`""`, no hex
+ * to blend) and the blend falls back to the palette the theme was derived
+ * from: the rail fades toward the same near-black (or near-white, on the light
+ * set) it always did, which is the direction a terminal running `system` is in
+ * anyway. Choosing by the theme's lightness rather than its name keeps a custom
+ * noir theme fading the right way instead of always toward night's grey.
+ */
+function canvasBg(ctx: RenderCtx): string {
+    if (ctx.theme.name === SYSTEM_THEME_NAME) return systemCanvasHex();
+    return hexOf(ctx, "bgBase", ctx.theme.isLight ? DAY_PALETTE.bg : NIGHT_PALETTE.bg);
 }
 
 /**
@@ -176,7 +348,7 @@ function fmtSeconds(ms: number): string {
  */
 export function renderThinking(state: ThinkingBlockState, ctx: RenderCtx): string[] {
     const th = ctx.theme;
-    const bg = hexOf(ctx, "bgBase", "#141414");
+    const bg = canvasBg(ctx);
     const bodyWidth = Math.max(20, ctx.width - RAIL_WIDTH - 1);
     const label =
         state.durationMs !== undefined
@@ -226,7 +398,7 @@ export function renderTool(state: ToolBlockState, ctx: RenderCtx): string[] | nu
     const th = ctx.theme;
     const width = ctx.width - RAIL_WIDTH;
     const bodyWidth = Math.max(20, width - 1);
-    const bg = hexOf(ctx, "bgBase", "#141414");
+    const bg = canvasBg(ctx);
 
     // The diamond carries the state (grok's accent_running/success/error):
     // yellow while running, green on success, red on failure. The title text
@@ -359,37 +531,50 @@ export function renderTool(state: ToolBlockState, ctx: RenderCtx): string[] | nu
     return finish(lines);
 }
 
-const NOIR_MODE: UiModePlugin = {
-    id: "noir",
-    name: "Noir",
-    themes: [NIGHT_THEME, DAY_THEME],
-    style: {
-        canvas: { wash: true },
-        thinking: { display: "block", liveTailLines: 3, collapseOnFinish: true, gutter: true },
-        tool: { bullet: "◆", mutedCollapsed: true },
-        userMessage: { prefix: "❯", timestamp: true },
-        turn: { summaryLine: true },
-        layout: { blockGaps: true },
-    },
-    /**
-     * Noir's live variant (ctrl+e) — the same canvas, reading differently
-     * because the transcript now has the keyboard.
-     *
-     * Grouping belongs here rather than in the base look: folding runs of
-     * calls into "Read 3 files" is only worth the hidden detail when you can
-     * open them again, which is exactly what live mode's arrows are for. In
-     * the normal transcript the same fold would just be information you can't
-     * get back without entering a mode first.
-     */
-    live: {
-        tool: { group: true },
-        // The transcript already has the keyboard here, so the route to hidden
-        // content is just the arrow — no "ctrl+e first".
-        hints: { expandHint: "→", selectedExpandHint: "→" },
-    },
-    render: { thinking: renderThinking, toolExecution: renderTool },
-};
+function noirMode(): UiModePlugin {
+    return {
+        id: "noir",
+        name: "Noir",
+        // night and day wash their canvas; `system` carries no canvas at all
+        // (its bgBase is the terminal default) and shows the terminal's own
+        // background through. The wash flag below stays on for all three —
+        // it means "this mode paints a canvas WHEN its theme has one", and
+        // applyCanvasWash already hands the terminal back when it does not.
+        themes: [NIGHT_THEME, DAY_THEME, systemTheme()],
+        style: {
+            canvas: { wash: true },
+            thinking: { display: "block", liveTailLines: 3, collapseOnFinish: true, gutter: true },
+            tool: { bullet: "◆", mutedCollapsed: true },
+            userMessage: { prefix: "❯", timestamp: true },
+            turn: { summaryLine: true },
+            layout: { blockGaps: true },
+        },
+        /**
+         * Noir's live variant (ctrl+e) — the same canvas, reading differently
+         * because the transcript now has the keyboard.
+         *
+         * Grouping belongs here rather than in the base look: folding runs of
+         * calls into "Read 3 files" is only worth the hidden detail when you can
+         * open them again, which is exactly what live mode's arrows are for. In
+         * the normal transcript the same fold would just be information you can't
+         * get back without entering a mode first.
+         */
+        live: {
+            tool: { group: true },
+            // The transcript already has the keyboard here, so the route to hidden
+            // content is just the arrow — no "ctrl+e first".
+            hints: { expandHint: "→", selectedExpandHint: "→" },
+        },
+        render: { thinking: renderThinking, toolExecution: renderTool },
+    };
+}
 
+/**
+ * Register (or re-register) noir. Re-registering is the supported way to
+ * change a mode live: `registerUiMode` replaces by id and drops the resolved
+ * style cache, so the next render sees the new theme set — which is how a
+ * terminal that flips light/dark mid-session reaches the `system` theme.
+ */
 export function registerNoirMode(): void {
-    registerUiMode(NOIR_MODE);
+    registerUiMode(noirMode());
 }

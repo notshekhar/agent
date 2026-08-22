@@ -3,8 +3,19 @@ import type { TUI } from "@notshekhar/loop-tui";
 
 process.env.COLORTERM = "truecolor";
 
-import { registerNoirMode, DAY_THEME, NIGHT_THEME } from "../src/interactive/ui/noir-mode";
-import { setActiveUiMode, uiStyle } from "../src/interactive/ui/ui-mode";
+import {
+    registerNoirMode,
+    setNoirSystem,
+    systemCanvasHex,
+    systemTheme,
+    DAY_PALETTE,
+    DAY_THEME,
+    NIGHT_PALETTE,
+    NIGHT_THEME,
+} from "../src/interactive/ui/noir-mode";
+import { contrastRatio } from "../src/interactive/ui/palette";
+import { activeUiMode, setActiveUiMode, uiStyle } from "../src/interactive/ui/ui-mode";
+import { syncSystemScheme } from "../src/interactive/ui/system-scheme";
 import { initTheme, Theme, theme } from "../src/interactive/ui/theme";
 import { applyCanvasWash, resetCanvasWash } from "../src/interactive/ui/canvas-wash";
 import { AssistantMessageComponent, UserMessageComponent } from "../src/interactive/ui/messages";
@@ -19,12 +30,31 @@ beforeAll(() => {
 afterEach(() => {
     setActiveUiMode("loop");
     initTheme("dark");
+    setNoirSystem("dark"); // module state — a light probe must not leak
 });
 
 const noirOn = () => {
     setActiveUiMode("noir");
     initTheme("night");
 };
+
+/** noir on its `system` theme, at the scheme the terminal is pretending to be. */
+const noirSystem = (scheme: "dark" | "light" = "dark", canvas?: string) => {
+    setNoirSystem(scheme, canvas);
+    setActiveUiMode("noir");
+    initTheme("system");
+};
+
+/** A TUI stub that answers the two probes however the test wants. */
+const fakeTui = (answers: { scheme?: "dark" | "light"; bg?: { r: number; g: number; b: number } }) =>
+    ({
+        queryTerminalColorScheme: async () => answers.scheme,
+        queryTerminalBackgroundColor: async () => answers.bg,
+        setTerminalColorSchemeNotifications() {},
+        onTerminalColorSchemeChange: () => () => {},
+        invalidate() {},
+        requestRender() {},
+    }) as unknown as TUI;
 
 const tui = { requestRender() {} } as unknown as TUI;
 const strip = (s: string) => s.replace(/\x1b\[[0-9;]*m|\x1b\][^\x07]*\x07/g, "");
@@ -761,6 +791,211 @@ describe("canvas wash", () => {
         expect(writes).toEqual(["\x1b]11;#141414\x07", "\x1b]10;#f5f5f5\x07", "\x1b]111\x07", "\x1b]110\x07"]);
         resetCanvasWash(stream); // already reset → no-op
         expect(writes).toHaveLength(4);
+    });
+});
+
+describe("noir system theme", () => {
+    const fakeOut = () => {
+        const writes: string[] = [];
+        return { writes, stream: { write: (s: string) => (writes.push(s), true) } as unknown as NodeJS.WriteStream };
+    };
+
+    test("noir offers night, day and system", () => {
+        noirOn();
+        expect(activeUiMode().themes.map((t) => t.name)).toEqual(["night", "day", "system"]);
+    });
+
+    test("system carries no canvas but keeps every other surface", () => {
+        for (const scheme of ["dark", "light"] as const) {
+            setNoirSystem(scheme);
+            const t = new Theme(systemTheme());
+            expect(t.raw("bgBase")).toBe(""); // nothing to wash the terminal with
+            // The tints are still mixed against a canvas, so the surfaces that
+            // carry meaning survive — only the full-canvas claim goes.
+            for (const slot of ["bgRaised", "selectedBg", "userMessageBg", "toolErrorBg"] as const) {
+                expect(t.raw(slot)).toMatch(/^#[0-9a-f]{6}$/);
+                expect(t.raw(slot)).not.toBe(systemCanvasHex());
+            }
+            expect(t.isLight).toBe(scheme === "light");
+        }
+    });
+
+    test("a reported background rebuilds the ramp to the ratios night holds", () => {
+        // The bug this fixes: night's greys dropped ~20% of their contrast when
+        // the wash went away on a lighter terminal, and dim (2.9:1 by design)
+        // fell to 2.4:1 — the quiet half of the UI went to mush.
+        const terminal = "#262626";
+        setNoirSystem("dark", terminal);
+        const t = new Theme(systemTheme());
+        // The ceiling: a lighter canvas cannot reach night's 16.9:1 text even
+        // at pure white, so a clamped slot is held to what IS reachable.
+        const ceiling = contrastRatio("#ffffff", terminal);
+        for (const slot of ["text", "muted", "dim"] as const) {
+            const want = Math.min(contrastRatio(NIGHT_PALETTE[slot], NIGHT_PALETTE.bg), ceiling);
+            const got = contrastRatio(t.raw(slot) as string, terminal);
+            expect(got).toBeGreaterThanOrEqual(want - 0.02); // never quieter than designed
+            expect(got).toBeLessThan(want + 0.3); // and no louder — 8-bit rounding only
+        }
+        // …and the naive reuse it replaces really was worse.
+        expect(contrastRatio(NIGHT_PALETTE.dim, terminal)).toBeLessThan(
+            contrastRatio(NIGHT_PALETTE.dim, NIGHT_PALETTE.bg) - 0.4,
+        );
+    });
+
+    test("EVERY slot holds its ratio — hues and syntax, not just the greys", () => {
+        // The whole palette sinks together on a background it was not measured
+        // against; lifting only the text ramp would leave the accent, the
+        // heading, the diff colours and the syntax set behind.
+        const nightSlots: Record<string, string> = {
+            text: NIGHT_PALETTE.text,
+            muted: NIGHT_PALETTE.muted,
+            dim: NIGHT_PALETTE.dim,
+            accent: NIGHT_PALETTE.accent,
+            mdHeading: NIGHT_PALETTE.heading,
+            warning: NIGHT_PALETTE.warning,
+            error: NIGHT_PALETTE.error,
+            success: NIGHT_PALETTE.success,
+            mdCode: NIGHT_PALETTE.inlineCode,
+            syntaxKeyword: NIGHT_PALETTE.syntax.keyword,
+            syntaxString: NIGHT_PALETTE.syntax.string,
+            syntaxComment: NIGHT_PALETTE.syntax.comment,
+        };
+        for (const ground of ["#1e1e1e", "#262626", "#2e2e2e"]) {
+            setNoirSystem("dark", ground);
+            const colors = systemTheme().colors as Record<string, string>;
+            for (const [slot, nightHex] of Object.entries(nightSlots)) {
+                const want = Math.min(
+                    contrastRatio(nightHex, NIGHT_PALETTE.bg),
+                    contrastRatio("#ffffff", ground), // a lighter canvas has a ceiling
+                );
+                expect(contrastRatio(colors[slot], ground)).toBeGreaterThanOrEqual(want - 0.02);
+            }
+        }
+    });
+
+    test("a darker terminal is left alone — the lift is one-sided", () => {
+        // Pure black gives every slot MORE contrast than noir's own canvas.
+        // Holding the ratio exactly would mean dimming a screen already right.
+        setNoirSystem("dark", "#000000");
+        const colors = systemTheme().colors as Record<string, string>;
+        expect(colors.dim).toBe(NIGHT_PALETTE.dim);
+        expect(colors.accent).toBe(NIGHT_PALETTE.accent);
+        expect(colors.text).toBe(NIGHT_PALETTE.text);
+    });
+
+    test("the light set solves against a light terminal the same way", () => {
+        const terminal = "#eaeaea";
+        setNoirSystem("light", terminal);
+        const t = new Theme(systemTheme());
+        expect(t.isLight).toBe(true);
+        const ceiling = contrastRatio("#000000", terminal);
+        for (const slot of ["text", "muted", "dim"] as const) {
+            const want = Math.min(contrastRatio(DAY_PALETTE[slot], DAY_PALETTE.bg), ceiling);
+            const got = contrastRatio(t.raw(slot) as string, terminal);
+            expect(got).toBeGreaterThanOrEqual(want - 0.02);
+            expect(got).toBeLessThan(want + 0.3);
+        }
+    });
+
+    test("surfaces lift off the REAL canvas, never below it", () => {
+        setNoirSystem("dark", "#2b2b2b");
+        const t = new Theme(systemTheme());
+        // A user message on a terminal lighter than noir's own canvas must
+        // still read as raised — reusing night's #1f1f21 would have sunk it.
+        expect(contrastRatio(t.raw("bgRaised") as string, "#2b2b2b")).toBeGreaterThan(1);
+        expect(t.raw("bgRaised")).not.toBe(NIGHT_THEME.colors.bgRaised);
+        expect(systemCanvasHex()).toBe("#2b2b2b");
+    });
+
+    test("a ratio the canvas cannot reach clamps to the pole", () => {
+        setNoirSystem("dark", "#808080"); // mid-grey: 16.9:1 is impossible
+        const t = new Theme(systemTheme());
+        expect(t.raw("text")).toBe("#ffffff");
+    });
+
+    test("its ink follows the terminal, and a flip re-resolves it", () => {
+        noirSystem("dark");
+        expect(theme.name).toBe("system");
+        expect(theme.isLight).toBe(false);
+
+        // What a live colour-scheme notification does.
+        expect(setNoirSystem("light")).toBe(true);
+        initTheme("system");
+        expect(theme.isLight).toBe(true);
+        expect(setNoirSystem("light")).toBe(false); // no change → no repaint
+        expect(setNoirSystem("light", "#ffffff")).toBe(true); // a new canvas is a change
+    });
+
+    test("no OSC 11 wash at all, and switching to it un-washes", () => {
+        noirOn();
+        const { writes, stream } = fakeOut();
+        applyCanvasWash(stream);
+        expect(writes).toEqual(["\x1b]11;#141414\x07", "\x1b]10;#f5f5f5\x07"]);
+
+        noirSystem();
+        applyCanvasWash(stream);
+        expect(writes.slice(2)).toEqual(["\x1b]111\x07", "\x1b]110\x07"]);
+
+        const fresh = fakeOut();
+        applyCanvasWash(fresh.stream);
+        expect(fresh.writes).toEqual([]);
+    });
+
+    test("rows keep noir's shape — only the ramp under them moves", () => {
+        const row = () => {
+            setAnimTickForTest(0);
+            const c = new ToolExecutionComponent("read", { path: "/repo/src/a.ts" }, tui, "/repo");
+            c.updateResult({ content: [{ type: "text", text: "x" }], isError: false }, false);
+            return c.render(W).join("\n");
+        };
+        noirOn();
+        const night = row();
+        noirSystem("dark");
+        const system = row();
+        expect(strip(system)).toBe(strip(night)); // same glyphs, same layout
+        expect(system).not.toBe(night); // …drawn in the rebuilt ramp
+    });
+
+    test("the probe: the measured background outranks the scheme report", async () => {
+        // Report says light, and the colour agrees → both are used.
+        expect(await syncSystemScheme(fakeTui({ scheme: "light", bg: { r: 234, g: 234, b: 234 } }))).toBe(true);
+        expect(new Theme(systemTheme()).isLight).toBe(true);
+        expect(systemCanvasHex()).toBe("#eaeaea"); // the ramp is solved against the real thing
+
+        setNoirSystem("dark");
+        // No scheme report — a near-white background still reads as light.
+        expect(await syncSystemScheme(fakeTui({ bg: { r: 252, g: 252, b: 252 } }))).toBe(true);
+        expect(new Theme(systemTheme()).isLight).toBe(true);
+
+        // The macOS case that broke it: the OS appearance is LIGHT (so the
+        // scheme report says light) while the terminal itself is dark-themed.
+        // The background is what we actually paint on, so it wins — otherwise
+        // the light set lands on a dark screen: near-black text, a near-white
+        // input bar.
+        setNoirSystem("light");
+        expect(await syncSystemScheme(fakeTui({ scheme: "light", bg: { r: 30, g: 30, b: 30 } }))).toBe(true);
+        expect(new Theme(systemTheme()).isLight).toBe(false);
+        expect(systemCanvasHex()).toBe("#1e1e1e");
+
+        // And a report with no background at all is still honoured.
+        setNoirSystem("dark");
+        expect(await syncSystemScheme(fakeTui({ scheme: "light" }))).toBe(true);
+        expect(new Theme(systemTheme()).isLight).toBe(true);
+    });
+
+    test("a terminal that answers nothing is still legible on any dark canvas", async () => {
+        expect(await syncSystemScheme(fakeTui({}))).toBe(false);
+        const t = new Theme(systemTheme());
+        expect(t.isLight).toBe(false);
+        // The point of the safe canvas: the untold background could be as light
+        // as #2e2e2e, and dim must still hold night's 2.9:1 there — the exact
+        // contrast night's own hex LOSES when it is moved off #141414.
+        for (const bg of ["#000000", "#1e1e1e", "#262626", "#2e2e2e"]) {
+            expect(contrastRatio(t.raw("dim") as string, bg)).toBeGreaterThanOrEqual(
+                contrastRatio(NIGHT_PALETTE.dim, NIGHT_PALETTE.bg) - 0.02,
+            );
+        }
+        expect(contrastRatio(NIGHT_PALETTE.dim, "#262626")).toBeLessThan(2.5); // what it used to do
     });
 });
 

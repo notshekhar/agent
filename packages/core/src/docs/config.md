@@ -75,6 +75,16 @@ Other notable keys (all managed via `/settings` too):
   classic boxed look). Switch live with `/ui <mode>`; each mode keeps its
   own theme (loop: `dark`/`light` on the `theme` key; other modes under
   `uiThemes`, e.g. `{ "noir": "day" }`).
+  Noir ships a third theme, **`system`**: noir's ink with NO canvas of its
+  own, so your terminal's own background shows through — a true black, a
+  transparency, a background image. It asks the terminal what it is (the
+  colour-scheme report for dark-vs-light, the OSC 11 background colour for the
+  exact canvas) and follows it live, with nothing to configure. Its palette —
+  every slot of it, greys and hues and the syntax set — is rebuilt to hold the
+  same contrast noir's own themes hold against their washed canvas, so it reads
+  on your background the way noir does on its own. The lift is one-sided: a
+  terminal darker than noir's canvas is left exactly as it is. Pick it in
+  `/settings` → theme, or set `{ "uiThemes": { "noir": "system" } }`.
 - `"pinnedInput": true` — hold the prompt on the last rows of the terminal.
   Without it the prompt sits directly under whatever the transcript has
   printed so far, so a fresh session starts with it up near the banner and it

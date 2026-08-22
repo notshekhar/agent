@@ -215,6 +215,82 @@ function tint(palette: Palette, color: string, amount: number): string {
     return mix(palette.bg, color, amount);
 }
 
+/**
+ * WCAG relative luminance, and the contrast ratio between two colours.
+ *
+ * Distinct from `luminance` below, which is the cheap Rec.601 luma used to
+ * decide "does this read as light or dark". Contrast needs the real thing:
+ * a ramp is only legible relative to what it sits ON, and that is what lets a
+ * theme be rebuilt for a canvas it did not choose (noir's `system`).
+ */
+function channelLuminance(c: number): number {
+    const v = c / 255;
+    return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+}
+
+export function contrastRatio(a: string, b: string): number {
+    const rel = (hexColor: string) => {
+        const [r, g, b2] = rgb(hexColor);
+        return 0.2126 * channelLuminance(r) + 0.7152 * channelLuminance(g) + 0.0722 * channelLuminance(b2);
+    };
+    const [hi, lo] = [rel(a), rel(b)].sort((x, y) => y - x);
+    return (hi + 0.05) / (lo + 0.05);
+}
+
+/**
+ * The first colour along `bg` → `toward` that reaches `target` contrast
+ * against `bg`.
+ *
+ * Monotonic in `t`, so a fixed number of bisection steps is exact enough for
+ * 8-bit channels; when even `toward` cannot reach the target (a mid-grey
+ * background), `toward` is the best available and is returned.
+ */
+export function atContrast(bg: string, toward: string, target: number): string {
+    if (contrastRatio(toward, bg) <= target) return toward;
+    let lo = 0;
+    let hi = 1;
+    for (let i = 0; i < 12; i++) {
+        const mid = (lo + hi) / 2;
+        if (contrastRatio(mix(bg, toward, mid), bg) < target) lo = mid;
+        else hi = mid;
+    }
+    return mix(bg, toward, hi);
+}
+
+/**
+ * `color`, guaranteed to be at least `target` contrast against `bg` — lifted
+ * toward `toward` only as far as it takes, and left alone when it already is.
+ *
+ * This is how a palette keeps its RELATIONSHIPS on a canvas it doesn't own.
+ * noir's dim grey is not `#5f5f5f` because that hex is special — it is 2.9:1
+ * against noir's own background, faint on purpose but still readable. Move the
+ * same hex onto a lighter terminal and the intent is gone (2.4:1). Asking for
+ * the ratio reproduces the design on the canvas that is actually there.
+ *
+ * One-sided on purpose. A slot that already clears its target on this
+ * background is not touched: a terminal darker than the palette's own canvas
+ * makes everything MORE readable, and trading that back for exactness would be
+ * dimming a screen that was already right. Only what fell below is raised.
+ *
+ * Mixing toward white (or black) tints rather than rotates, so a hue stays the
+ * hue it was — a lifted red is still red, just no longer sunk into the
+ * background.
+ */
+export function atLeastContrast(bg: string, color: string, toward: string, target: number): string {
+    if (contrastRatio(color, bg) >= target) return color;
+    // Lift the COLOUR toward the pole, not the background toward it: mixing up
+    // from `bg` would return a grey and throw the hue away.
+    if (contrastRatio(toward, bg) <= target) return toward;
+    let lo = 0;
+    let hi = 1;
+    for (let i = 0; i < 12; i++) {
+        const mid = (lo + hi) / 2;
+        if (contrastRatio(mix(color, toward, mid), bg) < target) lo = mid;
+        else hi = mid;
+    }
+    return mix(color, toward, hi);
+}
+
 /** Relative luminance, for deciding whether a colour reads as light or dark. */
 export function luminance(hexColor: string): number {
     const [r, g, b] = rgb(hexColor);
