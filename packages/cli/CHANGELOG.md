@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.19.17] - 2026-08-22
+
+### Added
+
+- **noir has a third theme, `system` — noir with no canvas of its own.** `night` and `day` wash the terminal's background (OSC 11/10) and paint noir's own dark grey behind every row, which is the point of them and wrong when your terminal already has a background it means: a true black, a transparency, an image. `system` washes nothing and hands the background back, then rebuilds its palette to suit it. Pick it in `/settings` → theme.
+- **It asks the terminal what it is, and follows it live.** OSC 11 for the background colour and `CSI ? 996 n` for the colour-scheme report, with `?2031h` notifications so flipping your terminal to light mid-session repaints the transcript. Nothing to configure, and nothing is asked unless `system` is the theme you are on.
+- **Its whole palette holds its contrast against your background, not noir's.** noir's colours are not their hexes because the hexes are special — each is a ratio against noir's own `#141414`: text at 16.9:1, muted at 5.3:1, dim deliberately faint at 2.9:1, the accent at 6.9:1. Reuse the same hexes on a `#262626` terminal and every one of them loses about a fifth of its contrast at once — dim lands at 2.4:1 and the quiet half of the UI, the banner's values and the hints and folded tool rows, goes to mush. Every slot is checked against the canvas that is really there — greys, semantic hues, the syntax set — and any that fell below its designed ratio is lifted back to it by tinting, so a hue stays its hue. The lift is one-sided: a terminal darker than noir's canvas already reads better and is left exactly as it is.
+- **The background colour decides light-vs-dark, not the terminal's report.** `CSI ? 996 n` reports the user's colour-scheme _preference_ — on macOS, the OS appearance — so a light desktop running a dark-themed terminal answers "light" perfectly correctly, and a theme that trusts it puts near-black text and a near-white input bar on a dark screen. OSC 11 has no such gap: it is the surface being drawn on. The report is the fallback for terminals that will not name their background, and the live signal to come back and re-measure.
+- **Until the terminal answers, the ramp is solved for the lightest background a dark terminal plausibly has.** The reply lands a moment after the first frame, by which time the banner and the startup notices have baked their colours; assuming a canvas that is too light only makes those a little brighter than designed, while assuming one that is too dark is exactly the unreadable screen this is here to prevent.
+
 ## [0.19.16] - 2026-08-22
 
 ### Fixed

@@ -2200,24 +2200,6 @@
     ],
     "available": true
   },
-  "openrouter/deepcogito/cogito-v2.1-671b": {
-    "id": "openrouter/deepcogito/cogito-v2.1-671b",
-    "provider": "openrouter",
-    "name": "Cogito v2.1 671B",
-    "contextWindow": 128000,
-    "maxOutput": 128000,
-    "cost": {
-      "input": 1.25,
-      "output": 1.25,
-      "cacheRead": 0,
-      "cacheWrite": 0
-    },
-    "reasoning": true,
-    "modalities": [
-      "text"
-    ],
-    "available": true
-  },
   "openrouter/tencent/hy-mt2-30b-a3b": {
     "id": "openrouter/tencent/hy-mt2-30b-a3b",
     "provider": "openrouter",
@@ -2637,10 +2619,10 @@
     "contextWindow": 1050000,
     "maxOutput": 128000,
     "cost": {
-      "input": 2.5,
-      "output": 15,
-      "cacheRead": 0.25,
-      "cacheWrite": 3.125
+      "input": 2,
+      "output": 10,
+      "cacheRead": 0.2,
+      "cacheWrite": 2.5
     },
     "reasoning": true,
     "modalities": [
@@ -3096,9 +3078,9 @@
     "contextWindow": 1048576,
     "maxOutput": 384000,
     "cost": {
-      "input": 0.08106,
-      "output": 0.16212,
-      "cacheRead": 0.016212,
+      "input": 0.06986,
+      "output": 0.13972,
+      "cacheRead": 0.013972,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -3130,11 +3112,11 @@
     "provider": "openrouter",
     "name": "DeepSeek V4 Pro",
     "contextWindow": 1048576,
-    "maxOutput": 393216,
+    "maxOutput": 384000,
     "cost": {
-      "input": 1.6,
-      "output": 3.2,
-      "cacheRead": 0.135,
+      "input": 0.43065,
+      "output": 0.8613,
+      "cacheRead": 0.035888,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -3148,11 +3130,11 @@
     "provider": "openrouter",
     "name": "DeepSeek V3.2",
     "contextWindow": 163840,
-    "maxOutput": 65536,
+    "maxOutput": 163840,
     "cost": {
-      "input": 0.269,
-      "output": 0.4,
-      "cacheRead": 0.1345,
+      "input": 0.26,
+      "output": 0.38,
+      "cacheRead": 0.13,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -3166,11 +3148,11 @@
     "provider": "openrouter",
     "name": "DeepSeek V3.1",
     "contextWindow": 163840,
-    "maxOutput": 32768,
+    "maxOutput": 161000,
     "cost": {
-      "input": 0.25,
-      "output": 0.95,
-      "cacheRead": 0.13,
+      "input": 0.55,
+      "output": 1.65,
+      "cacheRead": 0.55,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -3294,9 +3276,9 @@
     "contextWindow": 1048576,
     "maxOutput": 384000,
     "cost": {
-      "input": 0.22,
-      "output": 0.66,
-      "cacheRead": 0.007,
+      "input": 0.44,
+      "output": 1.32,
+      "cacheRead": 0.014,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -4037,6 +4019,28 @@
     ],
     "available": true
   },
+  "openrouter/meta/muse-spark-1.2-contributor": {
+    "id": "openrouter/meta/muse-spark-1.2-contributor",
+    "provider": "openrouter",
+    "name": "Muse Spark 1.2 Contributor",
+    "contextWindow": 1048576,
+    "maxOutput": 1048576,
+    "cost": {
+      "input": 0.1,
+      "output": 0.2,
+      "cacheRead": 0.002,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image",
+      "video",
+      "pdf",
+      "audio"
+    ],
+    "available": true
+  },
   "openrouter/cognitivecomputations/dolphin-mistral-24b-venice-edition": {
     "id": "openrouter/cognitivecomputations/dolphin-mistral-24b-venice-edition",
     "provider": "openrouter",
@@ -4637,9 +4641,9 @@
     "contextWindow": 262144,
     "maxOutput": 262144,
     "cost": {
-      "input": 0.5795,
-      "output": 2.44,
-      "cacheRead": 0.0976,
+      "input": 0.5415,
+      "output": 2.28,
+      "cacheRead": 0.0912,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -5376,10 +5380,10 @@
     "contextWindow": 1050000,
     "maxOutput": 128000,
     "cost": {
-      "input": 2.5,
-      "output": 15,
-      "cacheRead": 0.25,
-      "cacheWrite": 3.125
+      "input": 2,
+      "output": 10,
+      "cacheRead": 0.2,
+      "cacheWrite": 2.5
     },
     "reasoning": true,
     "modalities": [
@@ -5545,24 +5549,6 @@
       "text",
       "image",
       "pdf"
-    ],
-    "available": true
-  },
-  "openrouter/openai/gpt-oss-20b:free": {
-    "id": "openrouter/openai/gpt-oss-20b:free",
-    "provider": "openrouter",
-    "name": "gpt-oss-20b (free)",
-    "contextWindow": 131072,
-    "maxOutput": 32768,
-    "cost": {
-      "input": 0,
-      "output": 0,
-      "cacheRead": 0,
-      "cacheWrite": 0
-    },
-    "reasoning": true,
-    "modalities": [
-      "text"
     ],
     "available": true
   },
@@ -6085,10 +6071,10 @@
     "contextWindow": 1050000,
     "maxOutput": 128000,
     "cost": {
-      "input": 2.5,
-      "output": 15,
-      "cacheRead": 0.25,
-      "cacheWrite": 3.125
+      "input": 2,
+      "output": 10,
+      "cacheRead": 0.2,
+      "cacheWrite": 2.5
     },
     "reasoning": true,
     "modalities": [
@@ -7096,11 +7082,11 @@
     "provider": "openrouter",
     "name": "Qwen3-Next 80B-A3B Instruct",
     "contextWindow": 262144,
-    "maxOutput": 16384,
+    "maxOutput": 262144,
     "cost": {
-      "input": 0.09,
+      "input": 0.1,
       "output": 1.1,
-      "cacheRead": 0,
+      "cacheRead": 0.07,
       "cacheWrite": 0
     },
     "reasoning": false,
@@ -7364,7 +7350,7 @@
     "provider": "openrouter",
     "name": "Qwen3.8 2.4T A95B",
     "contextWindow": 1048576,
-    "maxOutput": 262144,
+    "maxOutput": 131072,
     "cost": {
       "input": 2,
       "output": 6,
@@ -7735,6 +7721,26 @@
     ],
     "available": true
   },
+  "openrouter/thinkingmachines/inkling:free": {
+    "id": "openrouter/thinkingmachines/inkling:free",
+    "provider": "openrouter",
+    "name": "Inkling (free)",
+    "contextWindow": 262144,
+    "maxOutput": 262144,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image",
+      "audio"
+    ],
+    "available": true
+  },
   "openrouter/thinkingmachines/inkling": {
     "id": "openrouter/thinkingmachines/inkling",
     "provider": "openrouter",
@@ -7745,6 +7751,26 @@
       "input": 0.95,
       "output": 4.05,
       "cacheRead": 0.16,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image",
+      "audio"
+    ],
+    "available": true
+  },
+  "openrouter/thinkingmachines/inkling-small:free": {
+    "id": "openrouter/thinkingmachines/inkling-small:free",
+    "provider": "openrouter",
+    "name": "Inkling Small (free)",
+    "contextWindow": 262144,
+    "maxOutput": 262144,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -8128,11 +8154,11 @@
     "id": "openrouter/mistralai/mistral-small-3.2-24b-instruct",
     "provider": "openrouter",
     "name": "Mistral Small 3.2 24B",
-    "contextWindow": 256000,
+    "contextWindow": 131072,
     "maxOutput": 16384,
     "cost": {
-      "input": 0.09375,
-      "output": 0.25,
+      "input": 0.075,
+      "output": 0.2,
       "cacheRead": 0,
       "cacheWrite": 0
     },
@@ -8951,11 +8977,11 @@
     "provider": "openrouter",
     "name": "MiniMax-M2.5",
     "contextWindow": 204800,
-    "maxOutput": 32768,
+    "maxOutput": 128000,
     "cost": {
       "input": 0.27,
-      "output": 0.95,
-      "cacheRead": 0.03,
+      "output": 1.08,
+      "cacheRead": 0.027,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -9087,6 +9113,25 @@
     "reasoning": true,
     "modalities": [
       "text"
+    ],
+    "available": true
+  },
+  "deepseek/deepseek-v4-flash-vision-exp": {
+    "id": "deepseek/deepseek-v4-flash-vision-exp",
+    "provider": "deepseek",
+    "name": "DeepSeek V4 Flash Vision Exp",
+    "contextWindow": 1000000,
+    "maxOutput": 384000,
+    "cost": {
+      "input": 0.14,
+      "output": 0.28,
+      "cacheRead": 0.0028,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image"
     ],
     "available": true
   },
@@ -10319,9 +10364,9 @@
     "contextWindow": 1000000,
     "maxOutput": 384000,
     "cost": {
-      "input": 0.13,
-      "output": 0.26,
-      "cacheRead": 0.028,
+      "input": 0.076,
+      "output": 0.153,
+      "cacheRead": 0.014,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -12172,10 +12217,10 @@
     "contextWindow": 1050000,
     "maxOutput": 128000,
     "cost": {
-      "input": 2.5,
-      "output": 15,
-      "cacheRead": 0.25,
-      "cacheWrite": 3.125
+      "input": 2,
+      "output": 10,
+      "cacheRead": 0.2,
+      "cacheWrite": 2.5
     },
     "reasoning": true,
     "modalities": [
@@ -12550,10 +12595,10 @@
     "contextWindow": 1050000,
     "maxOutput": 128000,
     "cost": {
-      "input": 5,
-      "output": 30,
-      "cacheRead": 0.5,
-      "cacheWrite": 3.125
+      "input": 4,
+      "output": 20,
+      "cacheRead": 0.4,
+      "cacheWrite": 2.5
     },
     "reasoning": true,
     "modalities": [
