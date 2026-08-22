@@ -344,12 +344,18 @@ export function createBashTool(ctx: BashToolContext) {
                 if (t.truncated) {
                     const startLine = t.totalLines - t.outputLines + 1;
                     const endLine = t.totalLines;
+                    // Absent when the full-output file could not be written (an
+                    // unwritable TMPDIR, a full disk). The truncation notice is
+                    // still true and still worth printing — it just has nowhere
+                    // to send anyone for the rest, and naming a path that was
+                    // never written would be worse than naming none.
+                    const fullOutput = snap.fullOutputPath ? ` Full output: ${snap.fullOutputPath}` : "";
                     if (t.lastLinePartial) {
-                        text += `\n\n[Showing last ${formatSize(t.outputBytes)} of line ${endLine} (line is ${formatSize(output.getLastLineBytes())}). Full output: ${snap.fullOutputPath}]`;
+                        text += `\n\n[Showing last ${formatSize(t.outputBytes)} of line ${endLine} (line is ${formatSize(output.getLastLineBytes())}).${fullOutput}]`;
                     } else if (t.truncatedBy === "lines") {
-                        text += `\n\n[Showing lines ${startLine}-${endLine} of ${t.totalLines}. Full output: ${snap.fullOutputPath}]`;
+                        text += `\n\n[Showing lines ${startLine}-${endLine} of ${t.totalLines}.${fullOutput}]`;
                     } else {
-                        text += `\n\n[Showing lines ${startLine}-${endLine} of ${t.totalLines} (${formatSize(DEFAULT_MAX_BYTES)} limit). Full output: ${snap.fullOutputPath}]`;
+                        text += `\n\n[Showing lines ${startLine}-${endLine} of ${t.totalLines} (${formatSize(DEFAULT_MAX_BYTES)} limit).${fullOutput}]`;
                     }
                 }
                 return { text, truncated: t.truncated };
