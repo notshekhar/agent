@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.19.16] - 2026-08-22
+
+### Fixed
+
+- **An MCP server that died stayed "ready", and loop kept handing the model its tools.** The AI SDK reports transport _errors_ through a hook loop was swallowing, and a clean close — an stdio child exiting, a socket hung up — never reaches that hook at all, so loop simply never learned. Kill a connected server and its tools stayed in every later turn's tool set: the model kept calling them, every call came back "Attempted to send a request from a closed client", and `/mcp` insisted the server was fine. loop watches the connection now. A server that goes away is marked with what happened, its tools are withdrawn from the next turn, and `/mcp reconnect` brings it back.
+- **`/mcp reconnect` never re-read your config.** It reconnected from the copy in memory, and the one function that reads the file is a no-op after the first call — so the thing everyone reaches for after fixing a server in `settings.json` applied none of it. Corrected arguments reconnected with the old ones; a newly added server never showed up at all. Reconnect now means what it says: match what is on disk, including servers you have added or deleted since launch.
+- **A connect that failed after the handshake left the server process running.** The client was already live by the time `tools/list` failed, and nothing closed it — so every retry against a half-broken server orphaned another subprocess.
+- **Deleting a server while it was still connecting brought it back.** The connect finished afterwards and wrote itself in as ready, tools and all, holding a connection nothing would ever close. Same race for disable and reconnect.
+- **A re-authorization that didn't finish signed you out.** The login cleared the stored session before starting, so cancelling it — or a timeout, or a flaky network — destroyed a session that was working, on a server you were only trying to refresh. The old session goes back if the attempt doesn't complete.
+- **A server whose name had a dash in it showed no tools**, and a server whose name was a suffix of another's showed the other's too — the tool list was matched against the raw name instead of the namespaced prefix.
+- **`loop mcp remove --scope project <name>` removed nothing** and complained about a server called "project": the flag's value was being read as the server name. Writing the flag after the name worked, which is a miserable thing to have to discover. Affected `get`, `remove`, `enable`, `disable` and `add-json`; an unrecognized `--scope` is now refused instead of quietly meaning `user`.
+- **One long tool name broke every request.** `mcp__<server>__<tool>` had no length limit while providers cap tool names at 64 characters, so a single verbose MCP server made the whole turn fail. Names are shortened to fit, keeping the server prefix.
+- **Two servers whose names differ only in punctuation** (`my-fs` and `my.fs`) silently overwrote each other's tools, and removing either dropped both. The collision is reported now.
+- **`headers` and `env` are validated when they are accepted**, rather than being written to `settings.json` and failing at connect time with `value.replace is not a function`.
+- **Removing one scope's copy of a server no longer forgets the other's OAuth session**, and a tool call that hits the timeout is actually aborted instead of being left running.
+
+### Changed
+
+- **`/mcp` lists servers this process hasn't connected.** In an untrusted project — where loop deliberately doesn't auto-connect — the panel was empty while `loop mcp list` showed your servers, with no way in to reconnect or sign in to any of them. They are listed as "not connected" now, and every action that would actually spawn a server asks the same trust question startup does.
+
 ## [0.19.15] - 2026-08-22
 
 ### Fixed
