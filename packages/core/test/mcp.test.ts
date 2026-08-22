@@ -200,6 +200,16 @@ describe("listMcpServers", () => {
         setSetting("mcpServers", {});
         const root = makeProjectWith({ "my-fs": stdioConfig, fs: stdioConfig, myfs: stdioConfig });
         try {
+            // The manager is a process-global singleton whose `init()` is a
+            // no-op once ANYTHING has initialized it, and `config.reload`
+            // (rpc/server.ts) initializes it as a matter of course — which
+            // rpc.test.ts exercises. Test files share one module registry, and
+            // bun discovers them in filesystem order, so this is decided by the
+            // platform: on Linux CI rpc.test.ts ran first and the init below
+            // connected nothing, leaving every row tool-less; macOS happened to
+            // order it the other way, which is why it stayed green locally.
+            // Closing first makes the test own the manager either way.
+            await getMcpManager().close();
             await getMcpManager().init(root);
             const byName = Object.fromEntries(listMcpServers(root).servers.map((s) => [s.name, s]));
             // A dash in the name is sanitized in the tool key; the row must
