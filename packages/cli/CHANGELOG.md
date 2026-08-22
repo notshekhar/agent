@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.19.19] - 2026-08-22
+
+### Changed
+
+- **noir's `system` theme asks the terminal what colour it is once, and never again.** The watcher that enabled unsolicited colour-scheme reports (`?2031h`) and re-measured on every flip is gone. It was never worth its keep: following a flip only repainted half the screen — live components re-resolve their colours, but every line whose ANSI was already baked into the scrollback keeps the old ink, so a flipped session read as two palettes stacked — and it was the shape that made v0.19.17's flood possible in the first place, since the reply to a scheme query is itself a scheme report. Asking once cannot loop. A terminal that flips mid-session is a `/reload` away, and that gives you a whole screen in one palette instead of half of one.
+
 ## [0.19.18] - 2026-08-22
 
 ### Fixed
