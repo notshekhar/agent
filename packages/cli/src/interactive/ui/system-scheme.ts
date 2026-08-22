@@ -66,8 +66,15 @@ export function systemThemeActive(): boolean {
  * The report still earns its keep as the LIVE signal: `?2031h` notifications
  * fire on a flip, and each one sends us back here to re-measure.
  */
-async function probe(tui: TUI): Promise<{ scheme: "dark" | "light"; canvas?: string } | undefined> {
-    const reported = await tui.queryTerminalColorScheme({ timeoutMs: PROBE_TIMEOUT_MS });
+async function probe(tui: TUI, askScheme: boolean): Promise<{ scheme: "dark" | "light"; canvas?: string } | undefined> {
+    // The scheme query is asked ONCE, at startup, and never from the change
+    // listener — its own reply IS a colour-scheme report, so re-asking on every
+    // report is a feedback loop that floods the terminal with queries. (It did:
+    // dozens of replies per second, batched into chunks the input path could no
+    // longer recognise, every OSC 11 reply's trailing BEL read as ctrl+g —
+    // which loop binds to "continue". Sessions typed prompts nobody asked for
+    // and the leftovers spilled into the shell on exit.)
+    const reported = askScheme ? await tui.queryTerminalColorScheme({ timeoutMs: PROBE_TIMEOUT_MS }) : undefined;
     const bg = await tui.queryTerminalBackgroundColor({ timeoutMs: PROBE_TIMEOUT_MS });
     if (bg) return { scheme: isLight(bg) ? "light" : "dark", canvas: toHex(bg) };
     return reported ? { scheme: reported } : undefined;
@@ -88,11 +95,23 @@ function repaint(tui: TUI): void {
  * caller mid-session knows whether it has to repaint; the startup call does
  * not care (it repaints only when the answer differs from the default).
  */
-export async function syncSystemScheme(tui: TUI): Promise<boolean> {
-    const answer = await probe(tui);
-    if (!answer || !setNoirSystem(answer.scheme, answer.canvas)) return false;
-    if (systemThemeActive()) repaint(tui);
-    return true;
+let probing = false;
+let stopped = false;
+
+export async function syncSystemScheme(tui: TUI, askScheme = true): Promise<boolean> {
+    // Single-flight, and silent once the UI is going away. A query whose reply
+    // nobody is waiting for is not free: it arrives as input, and after exit it
+    // arrives at whatever owns the terminal next.
+    if (probing || stopped) return false;
+    probing = true;
+    try {
+        const answer = await probe(tui, askScheme);
+        if (!answer || !setNoirSystem(answer.scheme, answer.canvas)) return false;
+        if (systemThemeActive()) repaint(tui);
+        return true;
+    } finally {
+        probing = false;
+    }
 }
 
 let watching = false;
@@ -107,13 +126,15 @@ export function watchSystemScheme(tui: TUI): void {
     if (watching) return;
     watching = true;
     tui.setTerminalColorSchemeNotifications(true);
-    tui.onTerminalColorSchemeChange(() => {
-        // The notification carries the new polarity but not the new background
-        // colour — and the ramp is solved against that colour — so re-probe
-        // rather than trusting the report alone. Records the answer either
-        // way: switching to `system` later should land on what the terminal
-        // already said, without a further probe.
-        void syncSystemScheme(tui).catch(() => {});
+    tui.onTerminalColorSchemeChange((scheme) => {
+        // A flip means the background moved, and the notification names the
+        // polarity but not the colour the palette is solved against — so
+        // re-measure, with the BACKGROUND query only. Asking the scheme
+        // question here would answer itself forever.
+        void syncSystemScheme(tui, false).then((changed) => {
+            // Terminal named no background: the notification is all we have.
+            if (!changed && setNoirSystem(scheme) && systemThemeActive()) repaint(tui);
+        });
     });
 }
 
@@ -126,4 +147,29 @@ export function startSystemSchemeTracking(tui: TUI): void {
     if (!systemThemeActive()) return;
     watchSystemScheme(tui);
     void syncSystemScheme(tui).catch(() => {});
+}
+
+/** Undo `stopSystemSchemeTracking` — tests only; the real latch is one-way. */
+export function resumeSystemSchemeTrackingForTest(): void {
+    stopped = false;
+    probing = false;
+}
+
+/**
+ * Shutdown: stop asking, and tell the terminal to stop volunteering.
+ *
+ * Both halves matter on the way out. A query sent as loop exits is answered
+ * into the SHELL — a line of `^[]11;rgb:…` where the prompt should be — and
+ * unsolicited reports left enabled (`?2031h`) outlive the process that asked
+ * for them.
+ */
+export function stopSystemSchemeTracking(tui: TUI): void {
+    stopped = true;
+    if (!watching) return;
+    watching = false;
+    try {
+        tui.setTerminalColorSchemeNotifications(false);
+    } catch {
+        // exiting anyway
+    }
 }

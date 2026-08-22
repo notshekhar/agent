@@ -15,7 +15,12 @@ import {
 } from "../src/interactive/ui/noir-mode";
 import { contrastRatio } from "../src/interactive/ui/palette";
 import { activeUiMode, setActiveUiMode, uiStyle } from "../src/interactive/ui/ui-mode";
-import { syncSystemScheme } from "../src/interactive/ui/system-scheme";
+import {
+    resumeSystemSchemeTrackingForTest,
+    stopSystemSchemeTracking,
+    syncSystemScheme,
+    watchSystemScheme,
+} from "../src/interactive/ui/system-scheme";
 import { initTheme, Theme, theme } from "../src/interactive/ui/theme";
 import { applyCanvasWash, resetCanvasWash } from "../src/interactive/ui/canvas-wash";
 import { AssistantMessageComponent, UserMessageComponent } from "../src/interactive/ui/messages";
@@ -55,6 +60,35 @@ const fakeTui = (answers: { scheme?: "dark" | "light"; bg?: { r: number; g: numb
         invalidate() {},
         requestRender() {},
     }) as unknown as TUI;
+
+/**
+ * A stub that behaves like a REAL terminal on the one point that mattered:
+ * the reply to a colour-scheme query is itself a colour-scheme report, so it
+ * reaches every listener — including ours.
+ */
+const echoingTui = (bg?: { r: number; g: number; b: number }) => {
+    const counts = { scheme: 0, background: 0 };
+    const listeners: Array<(s: "dark" | "light") => void> = [];
+    const tui = {
+        queryTerminalColorScheme: async () => {
+            counts.scheme++;
+            for (const l of [...listeners]) l("light"); // the reply, as a report
+            return "light" as const;
+        },
+        queryTerminalBackgroundColor: async () => {
+            counts.background++;
+            return bg;
+        },
+        setTerminalColorSchemeNotifications() {},
+        onTerminalColorSchemeChange: (l: (s: "dark" | "light") => void) => {
+            listeners.push(l);
+            return () => {};
+        },
+        invalidate() {},
+        requestRender() {},
+    };
+    return { tui: tui as unknown as TUI, counts, flip: (s: "dark" | "light") => listeners.forEach((l) => l(s)) };
+};
 
 const tui = { requestRender() {} } as unknown as TUI;
 const strip = (s: string) => s.replace(/\x1b\[[0-9;]*m|\x1b\][^\x07]*\x07/g, "");
@@ -981,6 +1015,40 @@ describe("noir system theme", () => {
         setNoirSystem("dark");
         expect(await syncSystemScheme(fakeTui({ scheme: "light" }))).toBe(true);
         expect(new Theme(systemTheme()).isLight).toBe(true);
+    });
+
+    test("asking the terminal never becomes a conversation with itself", async () => {
+        // The bug this pins: the reply to a scheme query IS a scheme report, so
+        // a watcher that re-probes on every report keeps re-asking forever. In
+        // a real terminal that meant dozens of queries a second, replies
+        // batched into chunks the input path could not parse, and every OSC 11
+        // reply's trailing BEL landing as ctrl+g — loop's "continue".
+        const { tui: t, counts, flip } = echoingTui({ r: 29, g: 29, b: 32 });
+        noirSystem("dark");
+        watchSystemScheme(t);
+        await syncSystemScheme(t);
+        await Promise.resolve();
+        expect(counts.scheme).toBe(1); // asked once, at startup, and never again
+
+        // A genuine flip re-measures — with the BACKGROUND query only.
+        const backgroundQueries = counts.background;
+        flip("light");
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(counts.scheme).toBe(1);
+        expect(counts.background).toBe(backgroundQueries + 1);
+    });
+
+    test("probes are single-flight, and stop once the UI is going away", async () => {
+        const { tui: t, counts } = echoingTui({ r: 29, g: 29, b: 32 });
+        noirSystem("dark");
+        await Promise.all([syncSystemScheme(t), syncSystemScheme(t), syncSystemScheme(t)]);
+        expect(counts.background).toBe(1); // two of the three were dropped
+
+        stopSystemSchemeTracking(t);
+        expect(await syncSystemScheme(t)).toBe(false);
+        expect(counts.background).toBe(1); // nothing asked on the way out
+        resumeSystemSchemeTrackingForTest();
     });
 
     test("a terminal that answers nothing is still legible on any dark canvas", async () => {

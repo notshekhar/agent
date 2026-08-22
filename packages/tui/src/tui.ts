@@ -10,7 +10,8 @@ import { performance } from "node:perf_hooks";
 import { isKeyRelease, matchesKey } from "./keys";
 import type { Terminal } from "./terminal";
 import {
-    isOsc11BackgroundColorResponse,
+    COLOR_SCHEME_REPORT_PREFIX,
+    OSC11_REPORT_PREFIX,
     parseOsc11BackgroundColor,
     parseTerminalColorSchemeReport,
     type RgbColor,
@@ -1000,10 +1001,8 @@ export class TUI extends Container {
     }
 
     private handleInput(data: string): void {
-        if (this.consumeOsc11BackgroundResponse(data)) {
-            return;
-        }
-        if (this.consumeTerminalColorSchemeReport(data)) {
+        data = this.stripTerminalReports(data);
+        if (data.length === 0) {
             return;
         }
         if (this.pendingWidthProbeReplies > 0) {
@@ -1081,17 +1080,57 @@ export class TUI extends Container {
         }
     }
 
-    private consumeOsc11BackgroundResponse(data: string): boolean {
-        if (this.pendingOsc11BackgroundReplies <= 0) {
-            return false;
+    /**
+     * Strip every terminal REPORT out of an input chunk — the OSC 11
+     * background colour and the `CSI ? 997 ; n` colour-scheme report — and
+     * route each to whoever asked for it.
+     *
+     * Both are removed unconditionally: whether or not a query is still
+     * pending, and wherever in the chunk they sit. Neither can ever be
+     * something a person typed, and letting one through is not a harmless
+     * stray character — an OSC 11 reply ENDS IN BEL, `\x07`, which is ctrl+g,
+     * which loop binds to "continue". A reply that arrived after its query
+     * timed out, or two that arrived batched into one chunk (so an anchored
+     * whole-chunk match no longer recognises either), used to fall through to
+     * the key handling and send a prompt nobody typed.
+     */
+    private stripTerminalReports(data: string): string {
+        if (!data.includes("\x1b")) {
+            return data;
         }
-
-        if (!isOsc11BackgroundColorResponse(data)) {
-            return false;
+        let rest = data;
+        let out = "";
+        while (rest.length > 0) {
+            const esc = rest.indexOf("\x1b");
+            if (esc === -1) {
+                out += rest;
+                break;
+            }
+            out += rest.slice(0, esc);
+            rest = rest.slice(esc);
+            const osc = rest.match(OSC11_REPORT_PREFIX);
+            if (osc) {
+                this.deliverOsc11Response(osc[0]);
+                rest = rest.slice(osc[0].length);
+                continue;
+            }
+            const scheme = rest.match(COLOR_SCHEME_REPORT_PREFIX);
+            if (scheme) {
+                this.deliverColorSchemeReport(scheme[0]);
+                rest = rest.slice(scheme[0].length);
+                continue;
+            }
+            out += rest[0];
+            rest = rest.slice(1);
         }
+        return out;
+    }
 
+    private deliverOsc11Response(data: string): void {
         const rgb = parseOsc11BackgroundColor(data);
-        this.pendingOsc11BackgroundReplies -= 1;
+        if (this.pendingOsc11BackgroundReplies > 0) {
+            this.pendingOsc11BackgroundReplies -= 1;
+        }
         const query = this.pendingOsc11BackgroundQueries.shift();
         if (query && !query.settled) {
             query.settled = true;
@@ -1102,19 +1141,16 @@ export class TUI extends Container {
             query.resolve?.(rgb);
             query.resolve = undefined;
         }
-        return true;
     }
 
-    private consumeTerminalColorSchemeReport(data: string): boolean {
+    private deliverColorSchemeReport(data: string): void {
         const scheme = parseTerminalColorSchemeReport(data);
         if (!scheme) {
-            return false;
+            return;
         }
-
         for (const listener of this.terminalColorSchemeListeners) {
             listener(scheme);
         }
-        return true;
     }
 
     private consumeCellSizeResponse(data: string): boolean {

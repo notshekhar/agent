@@ -247,3 +247,78 @@ describe("TUI.queryTerminalBackgroundColor", () => {
         }
     });
 });
+
+describe("terminal reports never reach the keyboard", () => {
+    // An OSC 11 reply ENDS IN BEL (\x07). loop reads \x07 as ctrl+g, which is
+    // bound to "continue" — so a reply that slips past the report handling does
+    // not produce a stray character, it sends a prompt nobody typed. These are
+    // the shapes that used to slip past: a batch (an anchored whole-chunk match
+    // recognises neither), and a reply riding in the same chunk as real keys.
+    it("strips a BATCH of replies instead of passing the whole chunk through", async () => {
+        const terminal = new TestTerminal();
+        const tui = new TUI(terminal);
+        const listenerInputs: string[] = [];
+        tui.addInputListener((data) => {
+            listenerInputs.push(data);
+            return undefined;
+        });
+        tui.start();
+        try {
+            const query = tui.queryTerminalBackgroundColor({ timeoutMs: 1000 });
+            terminal.sendInput("\x1b]11;rgb:1d1d/1d1d/2020\x07".repeat(4));
+
+            assert.deepStrictEqual(await query, { r: 29, g: 29, b: 32 });
+            assert.deepStrictEqual(listenerInputs, []);
+        } finally {
+            tui.stop();
+        }
+    });
+
+    it("strips a report but keeps the keystroke sharing its chunk", async () => {
+        const terminal = new TestTerminal();
+        const tui = new TUI(terminal);
+        const listenerInputs: string[] = [];
+        tui.addInputListener((data) => {
+            listenerInputs.push(data);
+            return undefined;
+        });
+        tui.start();
+        try {
+            terminal.sendInput("\x1b[?997;2n\x1b]11;#000000\x07hi");
+            assert.deepStrictEqual(listenerInputs, ["hi"]);
+        } finally {
+            tui.stop();
+        }
+    });
+
+    it("strips a reply that arrives with no query pending at all", () => {
+        const terminal = new TestTerminal();
+        const tui = new TUI(terminal);
+        const listenerInputs: string[] = [];
+        tui.addInputListener((data) => {
+            listenerInputs.push(data);
+            return undefined;
+        });
+        tui.start();
+        try {
+            terminal.sendInput("\x1b]11;rgb:1d1d/1d1d/2020\x07");
+            assert.deepStrictEqual(listenerInputs, []);
+        } finally {
+            tui.stop();
+        }
+    });
+
+    it("notifies scheme listeners once per report in a batch", () => {
+        const terminal = new TestTerminal();
+        const tui = new TUI(terminal);
+        const seen: string[] = [];
+        tui.onTerminalColorSchemeChange((scheme) => seen.push(scheme));
+        tui.start();
+        try {
+            terminal.sendInput("\x1b[?997;2n\x1b[?997;1n");
+            assert.deepStrictEqual(seen, ["light", "dark"]);
+        } finally {
+            tui.stop();
+        }
+    });
+});

@@ -54,7 +54,7 @@ import {
 import { getSelectListTheme, initUiModeAndTheme, theme } from "./ui/theme";
 import { applyExtensionUiModes } from "./ui/ui-mode";
 import { registerNoirMode } from "./ui/noir-mode";
-import { startSystemSchemeTracking } from "./ui/system-scheme";
+import { startSystemSchemeTracking, stopSystemSchemeTracking } from "./ui/system-scheme";
 import { printResumeHint } from "./resume-hint";
 import { applyCanvasWash, resetCanvasWash } from "./ui/canvas-wash";
 import { ChatHistory } from "./components/chat-history";
@@ -650,6 +650,10 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         stopTicker();
         // Clear the OSC 9;4 tab progress bar before leaving the TUI.
         hideWorking();
+        // BEFORE tui.stop(): stop asking the terminal about its colours, and
+        // turn its unsolicited reports back off. A query still in flight when
+        // the TUI lets go of stdin is answered into the SHELL.
+        stopSystemSchemeTracking(tui);
         tui.stop();
         // Give the terminal its own background back (OSC 111; no-op unwashed).
         resetCanvasWash();

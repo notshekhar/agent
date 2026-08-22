@@ -28,6 +28,15 @@ function parseOscHexChannel(channel: string): number | undefined {
 const OSC11_BACKGROUND_COLOR_RESPONSE_PATTERN = /^\x1b\]11;([^\x07\x1b]*)(?:\x07|\x1b\\)$/i;
 const COLOR_SCHEME_REPORT_PATTERN = /^\x1b\[\?997;(1|2)n$/;
 
+/**
+ * The same two reports, matched at the START of a chunk rather than as the
+ * whole of it — so a batch of them, or one followed by real keystrokes, can be
+ * peeled off a byte at a time. See `TUI.stripTerminalReports` for why letting
+ * one through is worse than dropping a keystroke: an OSC 11 reply ends in BEL.
+ */
+export const OSC11_REPORT_PREFIX = /^\x1b\]11;[^\x07\x1b]*(?:\x07|\x1b\\)/i;
+export const COLOR_SCHEME_REPORT_PREFIX = /^\x1b\[\?997;(?:1|2)n/;
+
 export function isOsc11BackgroundColorResponse(data: string): boolean {
     return OSC11_BACKGROUND_COLOR_RESPONSE_PATTERN.test(data);
 }
