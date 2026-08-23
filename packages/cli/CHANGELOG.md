@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.19.20] - 2026-08-23
+
+### Changed
+
+- **Gateways run inside loop now, instead of each forking a detached daemon.** Opening loop used to spawn `loop gateways <id>` as its own separate OS process per enabled gateway, bound to the TUI's lifetime by a watchdog that polled every five seconds to see whether its owner still existed. Nothing about a gateway ever needed that: the Telegram bridge is a fifty-second long poll driving its own in-process `RpcServer` — idle I/O, the same shape `loop serve` already hosts in the process you are sitting in. What the daemon did add was a way to lose one. A detached process whose shutdown signal never arrived kept polling, and a Telegram bridge that keeps polling keeps running shell commands from a chat nobody is watching; each one also re-invoked the whole loop binary just to sit in a socket read. Enabled gateways now come up in the TUI's own process and stop with it, so there is no longer a process that can outlive the loop that owns it.
+- **Turning a gateway on tells you whether it actually started.** Setup spawned a child and then polled its pidfile for up to eight seconds, so the only honest thing the screen could say was whether something had appeared; a rejected token surfaced in a logfile you had to know to go and read. `start()` is awaited now — "running" means the token validated and the poll loop is up, and a failure names its reason on the screen it happened on. The daemon logfile is gone with the daemon, and gateway diagnostics go to the transcript.
+- **`loop gateways stop` will not take your session down with it.** The pidfile records how a gateway is being served, not just which pid serves it, because the same SIGTERM that correctly stops a dedicated daemon would kill an entire interactive loop. An in-process gateway is reported and left alone, with `/gateways` named as the way to turn it off. Pidfiles written by older versions still read correctly and stay stoppable.
+
 ## [0.19.19] - 2026-08-22
 
 ### Changed
