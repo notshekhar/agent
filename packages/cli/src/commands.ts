@@ -352,7 +352,7 @@ export function cmdServe(args: Args): void {
  * `onlyId` is set by the `loop telegram` alias (→ run telegram foreground).
  */
 export async function cmdGateways(args: Args, onlyId?: string): Promise<void> {
-    const { listGateways, getGateway, listEnabledGateways, liveGatewayPid, stopGatewayDaemon } =
+    const { listGateways, getGateway, listEnabledGateways, liveGatewayOwner, stopGatewayDaemon } =
         await import("@notshekhar/loop-core");
     const { spawnGatewayDaemon, runGatewayForeground } = await import("./gateway-daemon");
 
@@ -361,11 +361,17 @@ export async function cmdGateways(args: Args, onlyId?: string): Promise<void> {
     if (!onlyId && sub === "status") {
         for (const gw of listGateways()) {
             const st = gw.status();
-            const pid = liveGatewayPid(gw.id);
+            const owner = liveGatewayOwner(gw.id);
             console.log(`${gw.displayName} (${gw.id})`);
             console.log(`  configured  ${st.configured ? "yes" : "no"}`);
             console.log(`  enabled     ${st.enabled ? "yes" : "no"}`);
-            console.log(`  running     ${pid ? `yes (pid ${pid})` : "no"}`);
+            console.log(
+                `  running     ${
+                    owner
+                        ? `yes (pid ${owner.pid}, ${owner.mode === "in-process" ? `inside ${PRODUCT_NAME}` : "daemon"})`
+                        : "no"
+                }`,
+            );
             for (const line of st.detail) console.log(`  ${line}`);
         }
         return;
@@ -381,7 +387,16 @@ export async function cmdGateways(args: Args, onlyId?: string): Promise<void> {
         }
         for (const gw of gws) {
             const r = stopGatewayDaemon(gw!.id);
-            console.log(r.stopped ? `stopped ${gw!.id} daemon (pid ${r.pid})` : `${gw!.id} daemon not running`);
+            if (r.refusedInProcess) {
+                // That pid is a whole loop, not a gateway daemon — signalling it
+                // would kill the user's session to turn off a chat bridge.
+                console.log(
+                    `${gw!.id} is running inside ${PRODUCT_NAME} (pid ${r.pid}) — ` +
+                        `turn it off there with /gateways, or quit that ${PRODUCT_NAME}`,
+                );
+            } else {
+                console.log(r.stopped ? `stopped ${gw!.id} daemon (pid ${r.pid})` : `${gw!.id} not running`);
+            }
         }
         return;
     }

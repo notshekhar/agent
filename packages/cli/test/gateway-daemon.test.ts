@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { daemonInvocation, GATEWAY_DAEMON_ENV, GATEWAY_PARENT_ENV, spawnGatewayDaemon } from "../src/gateway-daemon";
+import { daemonInvocation, GATEWAY_DAEMON_ENV, spawnGatewayDaemon } from "../src/gateway-daemon";
+import { parseGatewayOwner } from "@notshekhar/loop-core";
 
 // A gateway daemon re-invokes loop as `loop gateways <id>`. Get that argv wrong
 // and the child doesn't run the daemon at all — it lands in the interactive
-// TUI, which spawns a daemon for every enabled gateway on startup, which lands
-// in a TUI… A real run reached 212 processes in five minutes.
+// TUI. That used to spawn a daemon for every enabled gateway on startup, which
+// landed in a TUI… a real run reached 212 processes in five minutes. The TUI
+// hosts gateways in-process now, but the argv shape still has to be right.
 describe("daemonInvocation", () => {
     test("compiled binary passes only the command args", () => {
         const { command, args } = daemonInvocation("/Users/x/.loop-bin/loop", "/$bunfs/root/cli.js", [
@@ -41,12 +43,6 @@ describe("daemonInvocation", () => {
     });
 });
 
-describe("daemon env markers", () => {
-    test("are distinct, so the recursion guard can't be confused for the watchdog", () => {
-        expect(GATEWAY_DAEMON_ENV).not.toBe(GATEWAY_PARENT_ENV);
-    });
-});
-
 describe("nested-spawn refusal", () => {
     afterEach(() => {
         delete process.env[GATEWAY_DAEMON_ENV];
@@ -59,8 +55,38 @@ describe("nested-spawn refusal", () => {
     test("a process already running as a gateway daemon refuses to spawn one", () => {
         process.env[GATEWAY_DAEMON_ENV] = "telegram";
         expect(spawnGatewayDaemon("telegram")).toBe("refused-nested");
-        expect(spawnGatewayDaemon("telegram", { ownerPid: process.pid })).toBe("refused-nested");
         // Any gateway, not just the one this process serves.
         expect(spawnGatewayDaemon("slack")).toBe("refused-nested");
+    });
+});
+
+// The pidfile says WHO owns a gateway and HOW. `loop gateways stop` reads the
+// mode to decide whether SIGTERM is safe: right for a daemon that exists only
+// to poll, catastrophic for an in-process owner, where the pid is a whole
+// interactive loop the user is sitting in.
+describe("gateway pidfile ownership", () => {
+    test("a JSON record round-trips pid and mode", () => {
+        expect(parseGatewayOwner('{"pid":4321,"mode":"in-process"}')).toEqual({ pid: 4321, mode: "in-process" });
+        expect(parseGatewayOwner('{"pid":4321,"mode":"daemon"}')).toEqual({ pid: 4321, mode: "daemon" });
+    });
+
+    test("a legacy bare-pid file reads as a daemon", () => {
+        // Written by an older loop that only had detached daemons. Such a
+        // process may still be alive across an upgrade, and must stay stoppable
+        // rather than reading as a corrupt pidfile.
+        expect(parseGatewayOwner("9182")).toEqual({ pid: 9182, mode: "daemon" });
+        expect(parseGatewayOwner(" 9182\n")).toEqual({ pid: 9182, mode: "daemon" });
+    });
+
+    test("garbage and impossible pids are rejected, not guessed at", () => {
+        // A pid that parses to 0/-1 would make process.kill() signal the
+        // process group rather than one process.
+        for (const raw of ["", "   ", "not-a-pid", "0", "-1", "{", '{"pid":"x"}', '{"mode":"daemon"}']) {
+            expect(parseGatewayOwner(raw)).toBeNull();
+        }
+    });
+
+    test("an unknown mode falls back to daemon rather than failing the parse", () => {
+        expect(parseGatewayOwner('{"pid":7,"mode":"wat"}')).toEqual({ pid: 7, mode: "daemon" });
     });
 });

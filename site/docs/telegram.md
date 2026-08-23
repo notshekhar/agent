@@ -10,7 +10,7 @@ The Telegram gateway bridges a bot to a loop agent running on your machine. You 
 
 - A Telegram account
 - loop installed and signed in to a provider ([Signing in](login.html))
-- A machine that stays awake — the bridge is a daemon running on your computer, not a hosted service. Close the lid and it stops answering.
+- A machine that stays awake — the bridge runs on your computer, not as a hosted service. Close the lid and it stops answering.
 
 ## Step 1 — create a bot with BotFather
 
@@ -40,7 +40,7 @@ Then in the TUI:
 
 Pick **Telegram**, then **connect a bot**, and paste the token when prompted.
 
-loop validates the token against Telegram, stores it in `~/.loop/auth.json` alongside your provider credentials, turns the bridge on, and starts the daemon — a **separate process**, not part of your TUI session. Quitting loop does not stop it.
+loop validates the token against Telegram, stores it in `~/.loop/auth.json` alongside your provider credentials, turns the bridge on, and starts polling — **inside the loop you're sitting in**. It starts with loop and stops with it, so quitting takes the bridge with you. If you want one that outlives the terminal, run `loop gateways` from a shell instead (below).
 
 It then prints a pairing link:
 
@@ -111,25 +111,28 @@ Every one of these is in Telegram's own command menu (the `/` button), so you do
 
 Panel commands render as inline keyboards — `/model` gives you provider buttons, then model buttons, and the tap applies immediately.
 
-`/cd` matters more than it looks: the daemon has one working directory, and `/cd` changes where **new** sessions start. Switch projects with `/cd ~/code/other-project` then `/new`.
+`/cd` matters more than it looks: the bridge has one working directory, and `/cd` changes where **new** sessions start. Switch projects with `/cd ~/code/other-project` then `/new`.
 
-## Running the daemon
+## Running it
 
-The bridge is a detached process with its own lifecycle.
+By default the bridge lives inside your loop session: it comes up with loop and goes down with it. Nothing is left running after you quit.
 
-| What                                     | How                                                |
-| ---------------------------------------- | -------------------------------------------------- |
-| Start / stop                             | `/gateways` → Telegram → toggle **bridge: on/off** |
-| Restart                                  | `/gateways` → Telegram → **restart daemon**        |
-| Status from the shell                    | `loop gateways status`                             |
-| Stop from the shell                      | `loop gateways stop`                               |
-| Start all enabled gateways               | `loop gateways`                                    |
-| Run in the foreground (see the log live) | `loop gateways telegram`                           |
-| Daemon log                               | `~/.loop/agent/gateway-telegram.log`               |
+| What                                       | How                                                |
+| ------------------------------------------ | -------------------------------------------------- |
+| Start / stop                               | `/gateways` → Telegram → toggle **bridge: on/off** |
+| Restart                                    | `/gateways` → Telegram → **restart bridge**        |
+| Status from the shell                      | `loop gateways status`                             |
+| Run detached, outliving the terminal       | `loop gateways`                                    |
+| Stop a detached one                        | `loop gateways stop`                               |
+| Run in the foreground (see the log live)   | `loop gateways telegram`                           |
 
-`loop gateways telegram` runs the same daemon body attached to your terminal — the fastest way to see what's actually happening when something misbehaves. `Ctrl+C` stops it.
+`loop gateways status` tells you which of the two you have — `inside loop` or `daemon` — and the pid serving it.
 
-Only **one** poller can consume a bot at a time. If two machines both run a bridge on the same token, Telegram returns a 409 and the log says so — use a second bot for the second machine.
+If you want a bridge that keeps answering after you close the terminal, that's what `loop gateways` is for: it backgrounds every enabled gateway and hands the shell back, and `loop gateways stop` ends it. `loop gateways stop` will not touch a bridge running inside a loop session — that pid is your whole editor — so turn those off with `/gateways` or by quitting.
+
+`loop gateways telegram` runs the bridge attached to your terminal — the fastest way to see what's actually happening when something misbehaves. `Ctrl+C` stops it.
+
+Only **one** poller can consume a bot at a time. Whichever loop claims it first keeps it, and any other is told so rather than fighting for it; two machines on one token get a 409 from Telegram — use a second bot for the second machine.
 
 ## Managing the pairing
 
@@ -137,8 +140,8 @@ Only **one** poller can consume a bot at a time. If two machines both run a brid
 | ------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | Move to a different phone | `/gateways` → Telegram → **re-pair (new device)**. Drops the current chat, mints a fresh code, prints a new link. |
 | Swap in a different bot   | **replace token**. Re-pairs from scratch.                                                                         |
-| Turn it off for now       | Toggle **bridge: off**. Token stays, daemon stops.                                                                |
-| Remove it entirely        | **disconnect**. Stops the daemon and deletes the token.                                                           |
+| Turn it off for now       | Toggle **bridge: off**. Token stays, polling stops.                                                               |
+| Remove it entirely        | **disconnect**. Stops the bridge and deletes the token.                                                           |
 
 Re-pairing is also your kill switch: if a phone is lost, re-pair from the TUI and the old chat loses access immediately.
 
@@ -151,7 +154,7 @@ The bridge gives a chat the same power your terminal has.
 - **The token is the real secret.** Chat pairing protects the bridge; the token protects the bot. Treat it like an API key. `/revoke` in BotFather if it ever leaks.
 - **Telegram sees your messages.** Cloud chats aren't end-to-end encrypted. Prompts, file contents the agent quotes back, and diffs all pass through Telegram's servers. Don't drive work you couldn't paste into a normal cloud chat.
 - **No sandbox by default.** The agent runs commands as your user. `/bashdeny` and the bash sandbox settings apply here exactly as they do in the TUI — see [Configuration](configuration.html) — and are worth turning on before you leave a bridge running.
-- **Stop it when you're done.** `loop gateways stop`, or toggle the bridge off.
+- **Stop it when you're done.** Quitting loop stops a bridge running inside it. A detached one needs `loop gateways stop`.
 
 ## When it isn't working
 
@@ -160,9 +163,9 @@ The bridge gives a chat the same power your terminal has.
 | Bot says `not authorized`          | You're messaging from a chat that isn't the paired one. Re-pair, or use the paired phone.      |
 | Pressing START does nothing useful | A bare `/start` has no code. Open the pairing link instead.                                    |
 | `this bot isn't ready to pair`     | Setup isn't finished, or the code was already claimed. Re-pair from `/gateways`.               |
-| Bot doesn't answer at all          | Daemon isn't running. `loop gateways status`, then check `~/.loop/agent/gateway-telegram.log`. |
+| Bot doesn't answer at all          | The bridge isn't running. `loop gateways status` says whether anything is serving it.          |
 | Log shows 409                      | Two bridges on one token. Stop one.                                                            |
 | `token rejected` at setup          | Wrong or revoked token. Get a fresh one from BotFather.                                        |
-| Answers stop mid-turn              | The host machine slept or lost network. The daemon reconnects; the turn doesn't.               |
+| Answers stop mid-turn              | The host machine slept or lost network. The bridge reconnects; the turn doesn't.               |
 
 More in [Troubleshooting](troubleshooting.html).

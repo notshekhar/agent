@@ -84,7 +84,7 @@ import { createTicker } from "./ticker";
 import { registerAppKeybindings } from "./app-keybindings";
 import { installConsoleBridge } from "./console-bridge";
 import { runStartupTrustAndHooks, showWhatsNew, showWorkspaceBanners, startUpdateCheck } from "./startup";
-import { startEnabledGateways, stopSpawnedGateways } from "./gateway-process";
+import { startEnabledGateways, stopRunningGateways } from "./gateway-process";
 import { showWelcomeBanner } from "./welcome";
 import { listUsableProviders } from "./provider-availability";
 import { openBrowser } from "../open-browser";
@@ -662,10 +662,10 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         stopTerminalTitle();
         // Tear down MCP transports (stdio subprocesses, sockets) on the way out.
         void getMcpManager().close();
-        // Gateway daemons are separate processes, but not immortal ones: stop
-        // the daemons this loop spawned so a phone bridge never keeps polling
-        // (and running shell commands) after the loop that owns it is gone.
-        stopSpawnedGateways();
+        // Gateways run in this process: release their transports so a phone
+        // bridge never keeps polling (and running shell commands) after the
+        // loop that owns it is gone, and so the pidfile frees up for the next.
+        stopRunningGateways();
         // Run extensions' deactivate() so they can release resources.
         void getExtensionHost().close();
         // Close any open datasource connection pools.
@@ -792,8 +792,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     // hook-injected context isn't lost to a fast first prompt.
     state.startupHooksDone = runStartupTrustAndHooks(state, deps);
 
-    // Gateways: bring up the daemon for each enabled gateway (Telegram, …) as
-    // its own separate process — not run in this one, and stopped again by
-    // cleanExit. Spawn only, never blocks the UI.
-    startEnabledGateways(deps);
+    // Gateways: bring up each enabled gateway (Telegram, …) inside this
+    // process, stopped again by cleanExit. Fire-and-forget, never blocks the UI.
+    startEnabledGateways(state, deps);
 }

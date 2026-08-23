@@ -4,10 +4,16 @@ export { telegramGateway } from "./telegram-gateway";
 export {
     gatewayPidPath,
     gatewayLogPath,
+    parseGatewayOwner,
+    liveGatewayOwner,
     liveGatewayPid,
     isGatewayRunning,
+    ownsGateway,
     claimGatewayPid,
     clearGatewayPid,
     clearOwnGatewayPid,
     stopGatewayDaemon,
+    type GatewayOwner,
+    type GatewayOwnerMode,
+    type StopGatewayResult,
 } from "./daemon";

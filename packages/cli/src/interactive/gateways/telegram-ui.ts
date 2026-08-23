@@ -1,66 +1,75 @@
 /**
  * Telegram setup UI, reached from /gateways → Telegram. Configures the bot
  * token, enables/disables the bridge, shows the pairing deep link, and
- * starts/stops the Telegram daemon — a SEPARATE process (never in the TUI), so
- * enabling spawns it and disabling terminates it.
+ * starts/stops the bridge — which runs IN THIS PROCESS, so enabling starts it
+ * here and disabling stops it here. Because start() is awaited rather than
+ * spawned, a bad token surfaces as an error on this screen instead of only in
+ * a logfile.
  */
 import chalk from "chalk";
 import type { SelectItem } from "@notshekhar/loop-tui";
 import {
     TelegramApi,
     clearTelegram,
-    gatewayLogPath,
+    getGateway,
     getTelegramConfig,
     isGatewayRunning,
+    liveGatewayOwner,
     resetTelegramPairing,
     setTelegramEnabled,
-    stopGatewayDaemon,
     storeTelegramSetup,
     telegramPairLink,
     PRODUCT_NAME,
 } from "@notshekhar/loop-core";
 import type { AppDeps } from "../deps";
 import type { AppState } from "../state";
-import { spawnGatewayDaemon } from "../../gateway-daemon";
+import { isGatewayRunningHere, startGatewayHere, stopGatewayHere } from "../gateway-process";
 import type { GatewayUi } from "./types";
 
 const ID = "telegram";
 
-/** The daemon is a detached process — spawning it forks a child that must
- * boot, validate the token over the network, and claim its pidfile before it
- * reads as "running". Poll until a state settles (or we give up) so the menu
- * repaints with the real state instead of a stale "starting…". */
-async function waitForState(want: boolean, deps: AppDeps, working: string, timeoutMs = 8000): Promise<void> {
-    if (isGatewayRunning(ID) === want) return;
-    deps.showWorking(working);
+/** Start the bridge here, reporting the outcome. Awaiting the real start is
+ * the whole point of running in-process: "running" means the token validated
+ * and the poll loop is up, not "a child was forked and might be fine". */
+async function startHere(state: AppState, deps: AppDeps): Promise<void> {
+    if (isGatewayRunningHere(ID)) return;
+    const gw = getGateway(ID);
+    if (!gw) return;
+    deps.showWorking("Starting telegram bridge");
     deps.tui.requestRender();
-    const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
-        await new Promise((r) => setTimeout(r, 200));
-        if (isGatewayRunning(ID) === want) break;
+    let result: Awaited<ReturnType<typeof startGatewayHere>>;
+    try {
+        result = await startGatewayHere(gw, state, deps);
+    } finally {
+        deps.hideWorking();
     }
-    deps.hideWorking();
+    if (result === "started") {
+        deps.history.addSystem(chalk.dim("telegram: bridge running in this loop"));
+    } else if (result === "already-running") {
+        const owner = liveGatewayOwner(ID);
+        deps.history.addSystem(
+            chalk.dim(
+                `telegram: already served by pid ${owner?.pid ?? "?"} — only one poller per bot token is allowed`,
+            ),
+        );
+    }
+    // "error" already reported the reason (bad token, network) via startGatewayHere.
     deps.tui.requestRender();
 }
 
-/** Ensure the daemon reflects the enabled flag: spawn when on, stop when off —
- * and wait for that to actually take effect before returning. */
-async function syncDaemon(deps: AppDeps): Promise<void> {
-    const cfg = getTelegramConfig();
-    if (cfg.enabled) {
-        spawnGatewayDaemon(ID);
-        await waitForState(true, deps, "Starting telegram daemon");
-        if (isGatewayRunning(ID)) {
-            deps.history.addSystem(chalk.dim("telegram: daemon running (separate process)"));
-        } else {
-            deps.history.addSystem(
-                chalk.dim(`telegram: daemon did not come up — check the log: ${gatewayLogPath(ID)}`),
-            );
-        }
-    } else {
-        stopGatewayDaemon(ID);
-        await waitForState(false, deps, "Stopping telegram daemon", 3000);
+/** Stop the bridge if this loop is the one serving it. A gateway owned by
+ * another process is left alone — it isn't ours to stop. */
+function stopHere(deps: AppDeps): void {
+    if (stopGatewayHere(ID)) {
+        deps.history.addSystem(chalk.dim("telegram: bridge stopped"));
+        deps.tui.requestRender();
     }
+}
+
+/** Make the live bridge match the enabled flag. */
+async function syncBridge(state: AppState, deps: AppDeps): Promise<void> {
+    if (getTelegramConfig().enabled) await startHere(state, deps);
+    else stopHere(deps);
 }
 
 async function run(state: AppState, deps: AppDeps): Promise<void> {
@@ -69,6 +78,9 @@ async function run(state: AppState, deps: AppDeps): Promise<void> {
     while (true) {
         const cfg = getTelegramConfig();
         const running = isGatewayRunning(ID);
+        // Running somewhere else (another loop, a `loop gateways` daemon) is a
+        // different state from running here: only the latter is ours to stop.
+        const elsewhere = running && !isGatewayRunningHere(ID);
         const items: SelectItem[] = [];
 
         if (!cfg.token) {
@@ -80,16 +92,16 @@ async function run(state: AppState, deps: AppDeps): Promise<void> {
         } else {
             items.push({
                 value: "toggle",
-                label: `bridge: ${cfg.enabled ? "on" : "off"}${cfg.enabled ? (running ? " · running" : " · not running") : ""}`,
+                label: `bridge: ${cfg.enabled ? "on" : "off"}${cfg.enabled ? (elsewhere ? " · running elsewhere" : running ? " · running here" : " · not running") : ""}`,
                 description: cfg.enabled
-                    ? "turn the Telegram bridge off (stops its daemon)"
-                    : "enable and start the Telegram daemon (separate process)",
+                    ? "turn the Telegram bridge off (stops it in this loop)"
+                    : "enable and start the Telegram bridge in this loop",
             });
             if (cfg.enabled) {
                 items.push({
                     value: "restart",
-                    label: "restart daemon",
-                    description: "stop and re-spawn the daemon process",
+                    label: "restart bridge",
+                    description: "stop and re-start the bridge in this loop",
                 });
             }
             if (cfg.botUsername && cfg.pairCode && !cfg.chatId) {
@@ -107,13 +119,20 @@ async function run(state: AppState, deps: AppDeps): Promise<void> {
                 });
             }
             items.push(
-                { value: "log", label: "daemon log path", description: "where the daemon writes its output" },
                 { value: "set-token", label: "replace token", description: "swap in a different bot (re-pairs)" },
-                { value: "disconnect", label: "disconnect", description: "remove the token and stop the daemon" },
+                { value: "disconnect", label: "disconnect", description: "remove the token and stop the bridge" },
             );
         }
 
-        const status = cfg.token ? (running ? "running" : cfg.enabled ? "not running" : "stopped") : "not configured";
+        const status = !cfg.token
+            ? "not configured"
+            : elsewhere
+              ? `running in pid ${liveGatewayOwner(ID)?.pid}`
+              : running
+                ? "running"
+                : cfg.enabled
+                  ? "not running"
+                  : "stopped";
         const pick = await searchOnce(items, `Telegram — ${status} (Esc to close)`);
         if (!pick) return;
 
@@ -136,12 +155,11 @@ async function run(state: AppState, deps: AppDeps): Promise<void> {
             } finally {
                 hideWorking();
             }
-            // Replacing a token: stop the old daemon before the new one starts.
-            stopGatewayDaemon(ID);
-            await waitForState(false, deps, "Stopping old daemon", 3000);
+            // Replacing a token: stop the old bridge before the new one starts.
+            stopHere(deps);
             const pairCode = storeTelegramSetup({ token, botUsername: username });
             setTelegramEnabled(true);
-            await syncDaemon(deps);
+            await startHere(state, deps);
             history.addSystem(
                 chalk.dim(
                     `telegram: connected to @${username}. Open this link on your phone and press Start:\n  ` +
@@ -156,21 +174,14 @@ async function run(state: AppState, deps: AppDeps): Promise<void> {
             const next = !cfg.enabled;
             setTelegramEnabled(next);
             history.addSystem(`telegram bridge → ${next ? "on" : "off"}`);
-            await syncDaemon(deps);
+            await syncBridge(state, deps);
             tui.requestRender();
             continue;
         }
 
         if (pick.value === "restart") {
-            stopGatewayDaemon(ID);
-            await waitForState(false, deps, "Stopping telegram daemon", 3000);
-            spawnGatewayDaemon(ID);
-            await waitForState(true, deps, "Restarting telegram daemon");
-            history.addSystem(
-                chalk.dim(
-                    isGatewayRunning(ID) ? "telegram: daemon restarted" : "telegram: restart failed — check the log",
-                ),
-            );
+            stopHere(deps);
+            await startHere(state, deps);
             tui.requestRender();
             continue;
         }
@@ -187,11 +198,10 @@ async function run(state: AppState, deps: AppDeps): Promise<void> {
 
         if (pick.value === "repair" && cfg.botUsername) {
             const pairCode = resetTelegramPairing();
-            // The running daemon caches the old (now-cleared) pairing; restart
+            // The running bridge caches the old (now-cleared) pairing; restart
             // it so it picks up the fresh code.
-            stopGatewayDaemon(ID);
-            await waitForState(false, deps, "Stopping telegram daemon", 3000);
-            await syncDaemon(deps);
+            stopHere(deps);
+            await syncBridge(state, deps);
             history.addSystem(
                 chalk.dim(
                     `telegram: re-pair on your phone and press Start:\n  ${telegramPairLink(cfg.botUsername, pairCode)}`,
@@ -201,17 +211,10 @@ async function run(state: AppState, deps: AppDeps): Promise<void> {
             continue;
         }
 
-        if (pick.value === "log") {
-            history.addSystem(chalk.dim(`telegram: daemon log → ${gatewayLogPath(ID)}`));
-            tui.requestRender();
-            continue;
-        }
-
         if (pick.value === "disconnect") {
-            stopGatewayDaemon(ID);
-            await waitForState(false, deps, "Stopping telegram daemon", 3000);
+            stopHere(deps);
             clearTelegram();
-            history.addSystem("telegram: disconnected (daemon stopped, token removed)");
+            history.addSystem("telegram: disconnected (bridge stopped, token removed)");
             tui.requestRender();
             continue;
         }
