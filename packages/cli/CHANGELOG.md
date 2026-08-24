@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.19.21] - 2026-08-25
+
+### Changed
+
+- **`edit` stops making you pay for its own diff, for the rest of the conversation.** The tool handed its unified diff back to the model, and the AI SDK persists whatever a tool returns — so the diff was not sent once but re-sent on every later step of the turn and on every resume after it, while the call's own arguments already carried every `oldText`/`newText` pair the diff was built from. Measured across the twelve largest sessions on one machine: 201k chars of edit arguments against 227k chars of edit results, the echo costing slightly more than the request that produced it, and 3.2M prompt tokens spent carrying it forward where 240k would have done. `edit` now cuts the diff on the way to the model, exactly as `write` has since it shipped, and the two share one definition of where the cut falls instead of `write` keeping a private copy. A fuzzy match is the one exception: there the text that was replaced is not byte-for-byte the `oldText` that was asked for, so the file does not read the way the model thinks it does, and that result reaches it whole — named edit, reason, and diff.
+- **A reloaded edit still shows what it changed.** The diff rides the live tool-result event, which is real while the turn is on screen and gone when the thread is replayed from history — the same gap `write` has had all along. The terminal and the desktop both rebuild it now from the call's own arguments, which do survive. Without line numbers, deliberately: the arguments never said where in the file the blocks landed, and invented numbers sitting in the same gutter as a live edit's real ones would be read as real ones.
+
 ## [0.19.20] - 2026-08-23
 
 ### Changed

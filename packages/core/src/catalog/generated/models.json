@@ -2290,6 +2290,24 @@
     ],
     "available": true
   },
+  "openrouter/tencent/hy-mt2-7b": {
+    "id": "openrouter/tencent/hy-mt2-7b",
+    "provider": "openrouter",
+    "name": "Hy-MT2-7B",
+    "contextWindow": 8192,
+    "maxOutput": 4096,
+    "cost": {
+      "input": 0.074,
+      "output": 0.295,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
   "openrouter/~anthropic/claude-haiku-latest": {
     "id": "openrouter/~anthropic/claude-haiku-latest",
     "provider": "openrouter",
@@ -2462,26 +2480,6 @@
     ],
     "available": true
   },
-  "openrouter/nvidia/nemotron-nano-12b-v2-vl:free": {
-    "id": "openrouter/nvidia/nemotron-nano-12b-v2-vl:free",
-    "provider": "openrouter",
-    "name": "Nemotron Nano 12B 2 VL (free)",
-    "contextWindow": 128000,
-    "maxOutput": 128000,
-    "cost": {
-      "input": 0,
-      "output": 0,
-      "cacheRead": 0,
-      "cacheWrite": 0
-    },
-    "reasoning": true,
-    "modalities": [
-      "text",
-      "image",
-      "video"
-    ],
-    "available": true
-  },
   "openrouter/nvidia/nemotron-3-ultra-550b-a55b": {
     "id": "openrouter/nvidia/nemotron-3-ultra-550b-a55b",
     "provider": "openrouter",
@@ -2564,42 +2562,6 @@
     "name": "Nemotron 3 Ultra (free)",
     "contextWindow": 1000000,
     "maxOutput": 65536,
-    "cost": {
-      "input": 0,
-      "output": 0,
-      "cacheRead": 0,
-      "cacheWrite": 0
-    },
-    "reasoning": true,
-    "modalities": [
-      "text"
-    ],
-    "available": true
-  },
-  "openrouter/nvidia/nemotron-3-nano-30b-a3b:free": {
-    "id": "openrouter/nvidia/nemotron-3-nano-30b-a3b:free",
-    "provider": "openrouter",
-    "name": "Nemotron 3 Nano 30B A3B (free)",
-    "contextWindow": 256000,
-    "maxOutput": 256000,
-    "cost": {
-      "input": 0,
-      "output": 0,
-      "cacheRead": 0,
-      "cacheWrite": 0
-    },
-    "reasoning": true,
-    "modalities": [
-      "text"
-    ],
-    "available": true
-  },
-  "openrouter/nvidia/nemotron-nano-9b-v2:free": {
-    "id": "openrouter/nvidia/nemotron-nano-9b-v2:free",
-    "provider": "openrouter",
-    "name": "Nemotron Nano 9B V2 (free)",
-    "contextWindow": 128000,
-    "maxOutput": 128000,
     "cost": {
       "input": 0,
       "output": 0,
@@ -2729,7 +2691,7 @@
     "provider": "openrouter",
     "name": "ReMM SLERP 13B",
     "contextWindow": 6144,
-    "maxOutput": 6144,
+    "maxOutput": 4096,
     "cost": {
       "input": 0.45,
       "output": 0.65,
@@ -3078,9 +3040,9 @@
     "contextWindow": 1048576,
     "maxOutput": 384000,
     "cost": {
-      "input": 0.06706,
-      "output": 0.13412,
-      "cacheRead": 0.013412,
+      "input": 0.056,
+      "output": 0.112,
+      "cacheRead": 0.0112,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -3096,9 +3058,9 @@
     "contextWindow": 1048576,
     "maxOutput": 384000,
     "cost": {
-      "input": 1.188,
-      "output": 3.564,
-      "cacheRead": 0.0396,
+      "input": 1.122,
+      "output": 3.366,
+      "cacheRead": 0.0374,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -3114,9 +3076,9 @@
     "contextWindow": 1048576,
     "maxOutput": 384000,
     "cost": {
-      "input": 0.413772,
-      "output": 0.827544,
-      "cacheRead": 0.034481,
+      "input": 0.522,
+      "output": 1.044,
+      "cacheRead": 0.0435,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -3256,11 +3218,11 @@
     "provider": "openrouter",
     "name": "DeepSeek V4 Flash 0731",
     "contextWindow": 1310720,
-    "maxOutput": 384000,
+    "maxOutput": 131072,
     "cost": {
-      "input": 0.08,
-      "output": 0.18,
-      "cacheRead": 0.016,
+      "input": 0.0658,
+      "output": 0.1316,
+      "cacheRead": 0.01316,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -3963,8 +3925,8 @@
     "contextWindow": 131072,
     "maxOutput": 131072,
     "cost": {
-      "input": 0.3,
-      "output": 1.1,
+      "input": 0.35,
+      "output": 1.5,
       "cacheRead": 0.04,
       "cacheWrite": 0
     },
@@ -4531,7 +4493,7 @@
     "cost": {
       "input": 0.67,
       "output": 3.4,
-      "cacheRead": 0.17,
+      "cacheRead": 0.19,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -4586,9 +4548,9 @@
     "contextWindow": 262144,
     "maxOutput": 262144,
     "cost": {
-      "input": 0.45,
-      "output": 2.25,
-      "cacheRead": 0.07,
+      "input": 0.6,
+      "output": 3,
+      "cacheRead": 0.1,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -4641,9 +4603,9 @@
     "contextWindow": 262144,
     "maxOutput": 262144,
     "cost": {
-      "input": 0.5415,
-      "output": 2.28,
-      "cacheRead": 0.0912,
+      "input": 0.95,
+      "output": 4,
+      "cacheRead": 0.16,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -5639,9 +5601,9 @@
     "contextWindow": 131072,
     "maxOutput": 131072,
     "cost": {
-      "input": 0.03,
+      "input": 0.037,
       "output": 0.17,
-      "cacheRead": 0.03,
+      "cacheRead": 0,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -6541,7 +6503,7 @@
     "id": "openrouter/qwen/qwen3-235b-a22b-thinking-2507",
     "provider": "openrouter",
     "name": "Qwen3 235B A22B Thinking 2507",
-    "contextWindow": 262144,
+    "contextWindow": 131072,
     "maxOutput": 32768,
     "cost": {
       "input": 0.23,
@@ -6636,10 +6598,10 @@
     "provider": "openrouter",
     "name": "Qwen3 30B A3B",
     "contextWindow": 131072,
-    "maxOutput": 8192,
+    "maxOutput": 16384,
     "cost": {
-      "input": 0.13,
-      "output": 0.52,
+      "input": 0.12,
+      "output": 0.5,
       "cacheRead": 0,
       "cacheWrite": 0
     },
@@ -6654,11 +6616,11 @@
     "provider": "openrouter",
     "name": "Qwen3.5 397B-A17B",
     "contextWindow": 262144,
-    "maxOutput": 65536,
+    "maxOutput": 262144,
     "cost": {
-      "input": 0.39,
-      "output": 2.34,
-      "cacheRead": 0,
+      "input": 0.5,
+      "output": 3.6,
+      "cacheRead": 0.3,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -7062,11 +7024,11 @@
     "provider": "openrouter",
     "name": "Qwen3.6 27B",
     "contextWindow": 262144,
-    "maxOutput": 262144,
+    "maxOutput": 81920,
     "cost": {
-      "input": 0.6,
-      "output": 3.6,
-      "cacheRead": 0.12,
+      "input": 0.32,
+      "output": 3.2,
+      "cacheRead": 0,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -7102,8 +7064,8 @@
     "contextWindow": 1000000,
     "maxOutput": 131072,
     "cost": {
-      "input": 0.45,
-      "output": 3.2,
+      "input": 0.4,
+      "output": 3,
       "cacheRead": 0.05,
       "cacheWrite": 0
     },
@@ -7217,7 +7179,7 @@
     "provider": "openrouter",
     "name": "Qwen3.5 122B-A10B",
     "contextWindow": 262144,
-    "maxOutput": 65536,
+    "maxOutput": 262144,
     "cost": {
       "input": 0.26,
       "output": 2.08,
@@ -7630,7 +7592,7 @@
     "provider": "openrouter",
     "name": "UnslopNemo 12B",
     "contextWindow": 1024000,
-    "maxOutput": 1024000,
+    "maxOutput": 32768,
     "cost": {
       "input": 0.4,
       "output": 0.4,
@@ -7748,9 +7710,9 @@
     "contextWindow": 1048576,
     "maxOutput": 262144,
     "cost": {
-      "input": 0.95,
+      "input": 1,
       "output": 4.05,
-      "cacheRead": 0.16,
+      "cacheRead": 0.17,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -7806,27 +7768,9 @@
     "contextWindow": 1310720,
     "maxOutput": 1048576,
     "cost": {
-      "input": 0.065,
-      "output": 0.18,
-      "cacheRead": 0.02,
-      "cacheWrite": 0
-    },
-    "reasoning": true,
-    "modalities": [
-      "text"
-    ],
-    "available": true
-  },
-  "openrouter/inclusionai/ring-2.6-1t": {
-    "id": "openrouter/inclusionai/ring-2.6-1t",
-    "provider": "openrouter",
-    "name": "Ring-2.6-1T",
-    "contextWindow": 262144,
-    "maxOutput": 65536,
-    "cost": {
-      "input": 0.075,
-      "output": 0.625,
-      "cacheRead": 0.015,
+      "input": 0.04,
+      "output": 0.08,
+      "cacheRead": 0.008,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -7848,42 +7792,6 @@
       "cacheWrite": 0
     },
     "reasoning": true,
-    "modalities": [
-      "text"
-    ],
-    "available": true
-  },
-  "openrouter/inclusionai/ling-2.6-1t": {
-    "id": "openrouter/inclusionai/ling-2.6-1t",
-    "provider": "openrouter",
-    "name": "Ling-2.6-1T",
-    "contextWindow": 262144,
-    "maxOutput": 32768,
-    "cost": {
-      "input": 0.075,
-      "output": 0.625,
-      "cacheRead": 0.015,
-      "cacheWrite": 0
-    },
-    "reasoning": false,
-    "modalities": [
-      "text"
-    ],
-    "available": true
-  },
-  "openrouter/inclusionai/ling-2.6-flash": {
-    "id": "openrouter/inclusionai/ling-2.6-flash",
-    "provider": "openrouter",
-    "name": "Ling-2.6-flash",
-    "contextWindow": 262144,
-    "maxOutput": 32768,
-    "cost": {
-      "input": 0.01,
-      "output": 0.03,
-      "cacheRead": 0.002,
-      "cacheWrite": 0
-    },
-    "reasoning": false,
     "modalities": [
       "text"
     ],
@@ -8128,6 +8036,25 @@
     "reasoning": false,
     "modalities": [
       "text"
+    ],
+    "available": true
+  },
+  "openrouter/mistralai/devstral-2512": {
+    "id": "openrouter/mistralai/devstral-2512",
+    "provider": "openrouter",
+    "name": "Devstral 2",
+    "contextWindow": 262144,
+    "maxOutput": 262144,
+    "cost": {
+      "input": 0.44,
+      "output": 2.2,
+      "cacheRead": 0.044,
+      "cacheWrite": 0
+    },
+    "reasoning": false,
+    "modalities": [
+      "text",
+      "pdf"
     ],
     "available": true
   },
@@ -10140,6 +10067,24 @@
     ],
     "available": true
   },
+  "vercel/nvidia/nemotron-3.5-lightning-free": {
+    "id": "vercel/nvidia/nemotron-3.5-lightning-free",
+    "provider": "vercel",
+    "name": "Nemotron 3.5 Lightning 30B (Free)",
+    "contextWindow": 1000000,
+    "maxOutput": 32768,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
   "vercel/nvidia/nemotron-nano-12b-v2-vl": {
     "id": "vercel/nvidia/nemotron-nano-12b-v2-vl",
     "provider": "vercel",
@@ -10181,12 +10126,12 @@
     "id": "vercel/nvidia/nemotron-3.5-lightning",
     "provider": "vercel",
     "name": "Nemotron 3.5 Lightning 30B",
-    "contextWindow": 262144,
-    "maxOutput": 131072,
+    "contextWindow": 1000000,
+    "maxOutput": 32768,
     "cost": {
-      "input": 0.05,
-      "output": 0.2,
-      "cacheRead": 0.01,
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
       "cacheWrite": 0
     },
     "reasoning": true,
