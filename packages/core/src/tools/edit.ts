@@ -5,7 +5,9 @@ import { z } from "zod";
 import {
     applyEditsToNormalizedContent,
     detectLineEnding,
+    DIFF_SEPARATOR,
     generateDiffString,
+    modelFacingResult,
     normalizeToLF,
     restoreLineEndings,
     stripBom,
@@ -67,6 +69,27 @@ export function createEditTool(ctx: EditToolContext) {
                     "One or more targeted replacements. Each edit is matched against the original file, not incrementally. Do not include overlapping or nested edits. If two changes touch the same block or nearby lines, merge them into one edit instead.",
                 ),
         }),
+        /**
+         * The diff is for the user, not the model.
+         *
+         * The model already supplied every oldText/newText pair as this call's
+         * own argument, so a diff in the result is that same content a second
+         * time — and not once, but for the rest of the conversation, since the
+         * AI SDK persists what THIS function returns (`toResponseMessages` →
+         * `createToolModelOutput`) and loop replays those entries verbatim on
+         * every later turn and on resume. Measured across the biggest sessions
+         * on this machine, edit call-args and edit results were 201k and 227k
+         * chars: the echo cost slightly MORE than the request it echoed.
+         *
+         * The raw return value — diff and all — still reaches the `tool-result`
+         * event the UIs render from. Same contract as `write`.
+         *
+         * The one case where the diff IS news to the model is a fuzzy match:
+         * the replaced span was not byte-identical to the oldText asked for, so
+         * the file does not read the way the model thinks it does. Those
+         * results carry no separator at all and reach the model whole.
+         */
+        toModelOutput: ({ output }) => ({ type: "text", value: modelFacingResult(output) }),
         execute: async (input, options) => {
             const signal = options?.abortSignal ?? ctx.abortSignal;
             if (signal?.aborted) throw new Error("Operation aborted");
@@ -108,7 +131,11 @@ export function createEditTool(ctx: EditToolContext) {
                 const { bom, text: content } = stripBom(rawContent);
                 const originalEnding = detectLineEnding(content);
                 const normalizedContent = normalizeToLF(content);
-                const { baseContent, newContent } = applyEditsToNormalizedContent(normalizedContent, edits, path);
+                const { baseContent, newContent, fuzzyEditIndexes } = applyEditsToNormalizedContent(
+                    normalizedContent,
+                    edits,
+                    path,
+                );
 
                 if (signal?.aborted) throw new Error("Operation aborted");
                 const finalContent = bom + restoreLineEndings(newContent, originalEnding);
@@ -116,7 +143,19 @@ export function createEditTool(ctx: EditToolContext) {
                 recordModified(absolutePath, ctx.sessionId);
 
                 const diffResult = generateDiffString(baseContent, newContent);
-                return `Successfully replaced ${edits.length} block(s) in ${path}.\n\n${diffResult.diff}`;
+                const summary = `Successfully replaced ${edits.length} block(s) in ${path}.`;
+                // Fuzzy match: what got replaced is not what was asked for, so
+                // the model is shown the diff — joined with single newlines so
+                // the whole result stays on the model-facing side of the cut.
+                if (fuzzyEditIndexes.length > 0) {
+                    const which = fuzzyEditIndexes.map((i) => `edits[${i}]`).join(", ");
+                    return [
+                        summary,
+                        `${which} matched text that differs from the oldText you sent (whitespace or unicode normalization), so the file does not read exactly the way you assumed. What actually changed:`,
+                        diffResult.diff,
+                    ].join("\n");
+                }
+                return `${summary}${DIFF_SEPARATOR}${diffResult.diff}`;
             });
         },
     });

@@ -8,7 +8,7 @@ import { enforcePathPermission } from "./utils/permission-rules";
 import { formatPlanModeRefusal, isPlanModeActive } from "./utils/plan-mode";
 import { withFileMutationQueue } from "./utils/file-mutation-queue";
 import { checkReadBeforeModify, recordModified } from "./utils/read-registry";
-import { generateDiffString } from "./utils/edit-diff";
+import { DIFF_SEPARATOR, generateDiffString, modelFacingResult } from "./utils/edit-diff";
 
 /**
  * Diff lines a write reports back to the UI.
@@ -19,16 +19,6 @@ import { generateDiffString } from "./utils/edit-diff";
  * has to cross the RPC socket and get rendered, so it is capped anyway.
  */
 const MAX_DIFF_LINES = 200;
-
-/**
- * Splits the model-facing summary from the UI-only diff.
- *
- * The result is one string so nothing downstream has to learn a new shape —
- * `tool-result` consumers, the CLI's renderer and the desktop's all take
- * `output` as text. `toModelOutput` cuts here; everything before the separator
- * is what the model is told, everything after is for human eyes only.
- */
-const DIFF_SEPARATOR = "\n\n";
 
 function capDiff(diff: string): string {
     const lines = diff.split("\n");
@@ -64,10 +54,7 @@ export function createWriteTool(ctx: WriteToolContext) {
          * value — diff and all — still reaches the `tool-result` event the UIs
          * render from.
          */
-        toModelOutput: ({ output }) => ({
-            type: "text",
-            value: String(output).split(DIFF_SEPARATOR)[0] ?? String(output),
-        }),
+        toModelOutput: ({ output }) => ({ type: "text", value: modelFacingResult(output) }),
         execute: async ({ path, content }, options) => {
             const signal = options?.abortSignal ?? ctx.abortSignal;
             if (signal?.aborted) throw new Error("Operation aborted");

@@ -162,6 +162,35 @@ interface MatchedEdit {
 export interface AppliedEditsResult {
     baseContent: string;
     newContent: string;
+    /**
+     * Indexes (into the caller's `edits`) that matched only after fuzzy
+     * normalization — the replaced span was NOT byte-identical to the
+     * `oldText` asked for. The model's picture of the file is wrong exactly
+     * there, so `edit` shows it the diff in this case and stays quiet in the
+     * ordinary one (see DIFF_SEPARATOR).
+     */
+    fuzzyEditIndexes: number[];
+}
+
+/**
+ * Splits the model-facing head of a file-mutation result from the UI-only tail.
+ *
+ * `edit` and `write` both return ONE string so nothing downstream has to learn
+ * a new shape — the `tool-result` event, the CLI renderer and the desktop's all
+ * take `output` as text. Their `toModelOutput` cuts here: everything before the
+ * separator is what the model is told, everything after is for human eyes only.
+ *
+ * A blank line is a safe marker because `generateDiffString` prefixes EVERY
+ * line it emits (`+12 `, `-12 `, ` 12 `), so a diff never contains one — and a
+ * head built from single-newline joins never does either.
+ */
+export const DIFF_SEPARATOR = "\n\n";
+
+/** The head of such a result: what the model is allowed to see. */
+export function modelFacingResult(output: unknown): string {
+    const text = String(output);
+    const cut = text.indexOf(DIFF_SEPARATOR);
+    return cut === -1 ? text : text.slice(0, cut);
 }
 
 /** Strip UTF-8 BOM if present, return both the BOM (if any) and the text without it */
@@ -259,6 +288,7 @@ export function applyEditsToNormalizedContent(
     const baseContent = normalizedContent;
 
     const matchedEdits: MatchedEdit[] = [];
+    const fuzzyEditIndexes: number[] = [];
     for (let i = 0; i < normalizedEdits.length; i++) {
         const edit = normalizedEdits[i];
         const span = findMatchSpan(baseContent, edit.oldText);
@@ -271,6 +301,7 @@ export function applyEditsToNormalizedContent(
             throw getDuplicateError(path, i, normalizedEdits.length, occurrences);
         }
 
+        if (span.usedFuzzyMatch) fuzzyEditIndexes.push(i);
         matchedEdits.push({
             editIndex: i,
             matchIndex: span.start,
@@ -303,7 +334,7 @@ export function applyEditsToNormalizedContent(
         throw getNoChangeError(path, normalizedEdits.length);
     }
 
-    return { baseContent, newContent };
+    return { baseContent, newContent, fuzzyEditIndexes };
 }
 
 /**

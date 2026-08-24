@@ -17,6 +17,10 @@ import { foldsEagerly, isPlanSurface } from "./verb-group";
  * the call completes (the result path has no such cap). */
 const STREAMING_EXPANDED_LINES = 200;
 
+/** Cap on a replayed edit's reconstructed diff (see editReplayDiff). Matches
+ * the cap `write` puts on the real thing. */
+const REPLAY_DIFF_MAX_LINES = 200;
+
 export interface ToolResultLike {
     content: Array<{ type: string; text?: string }>;
     isError: boolean;
@@ -413,7 +417,42 @@ export class ToolExecutionComponent extends Container {
         // after its summary. The terminal has no card to draw, so it shows the
         // summary and drops the payload rather than printing raw JSON at the
         // user — `/artifacts` is where a terminal opens one.
-        return artifactResultSummary(text).trimEnd();
+        const summary = artifactResultSummary(text).trimEnd();
+        const replay = this.editReplayDiff(summary);
+        return replay ? `${summary}\n${replay}` : summary;
+    }
+
+    /**
+     * The diff a REPLAYED edit no longer carries.
+     *
+     * `edit` keeps its diff out of the model's context via `toModelOutput`, and
+     * the AI SDK persists the model-facing value — so the real diff rides the
+     * live `tool-result` event and exists nowhere else. Replaying a session,
+     * the call's own arguments are all that survive, and they are enough: the
+     * model sent every oldText/newText pair.
+     *
+     * Line numbers are deliberately absent. The arguments never said where in
+     * the file the blocks landed, and invented numbers sitting in the same
+     * gutter as a live edit's real ones would be read as real.
+     */
+    private editReplayDiff(output: string): string | null {
+        if (this.toolName !== "edit" || this.isPartial || this.result?.isError) return null;
+        // A live edit carries its own real diff — never dress one up twice.
+        if (!output || /^[+-]/m.test(output)) return null;
+        const edits = this.args.edits;
+        if (!Array.isArray(edits)) return null;
+        const lines: string[] = [];
+        for (const edit of edits as Array<{ oldText?: unknown; newText?: unknown }>) {
+            if (typeof edit?.oldText !== "string" || typeof edit?.newText !== "string") return null;
+            for (const line of edit.oldText.split("\n")) lines.push(`-${line}`);
+            for (const line of edit.newText.split("\n")) lines.push(`+${line}`);
+        }
+        if (lines.length === 0) return null;
+        if (lines.length > REPLAY_DIFF_MAX_LINES) {
+            const rest = lines.length - REPLAY_DIFF_MAX_LINES;
+            return `${lines.slice(0, REPLAY_DIFF_MAX_LINES).join("\n")}\n… ${rest} more diff lines`;
+        }
+        return lines.join("\n");
     }
 
     private colorOutput(lines: string[]): string[] {

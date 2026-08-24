@@ -147,6 +147,35 @@ function writeContentAdditions(tool: LoopToolEntry): string[] | null {
   return lines.map((line, index) => `+${String(index + 1).padStart(width, " ")} ${line}`);
 }
 
+/**
+ * The diff a REPLAYED edit no longer carries.
+ *
+ * Same shape of gap as `writeContentAdditions` above: `edit` keeps its diff out
+ * of the model's context via `toModelOutput`, the AI SDK persists the
+ * model-facing value, and so the real diff rides the live `tool-result` event
+ * and exists nowhere else. Reloading the thread, the call's own arguments are
+ * all that survive — and they are enough, since the model sent every
+ * oldText/newText pair.
+ *
+ * Line numbers are deliberately absent. The arguments never said where in the
+ * file the blocks landed, and invented numbers next to a live edit's real ones
+ * would be read as real.
+ */
+function editReplayDiff(tool: LoopToolEntry, output: string | undefined): string[] | null {
+  if (tool.name !== "edit" || tool.isError || tool.isPartial) return null;
+  // A live edit carries its own real diff — never dress one up twice.
+  if (!output || /^[+-]/m.test(output)) return null;
+  const edits = tool.args.edits;
+  if (!Array.isArray(edits)) return null;
+  const lines: string[] = [output];
+  for (const edit of edits as Array<{ oldText?: unknown; newText?: unknown }>) {
+    if (typeof edit?.oldText !== "string" || typeof edit?.newText !== "string") return null;
+    for (const line of edit.oldText.split("\n")) lines.push(`-${line}`);
+    for (const line of edit.newText.split("\n")) lines.push(`+${line}`);
+  }
+  return lines.length > 1 ? lines : null;
+}
+
 /** A code surface, the way the rest of the app renders code. */
 function OutputSurface({ children }: { children: React.ReactNode }) {
   return (
@@ -386,7 +415,9 @@ export const LoopToolRow = memo(function LoopToolRow({
   const visibleOutput =
     artifactCard && tool.output ? artifactResultSummary(tool.output) : tool.output;
   const outputLines =
-    writeContentAdditions(tool) ?? (visibleOutput ? visibleOutput.split("\n") : []);
+    writeContentAdditions(tool) ??
+    editReplayDiff(tool, visibleOutput) ??
+    (visibleOutput ? visibleOutput.split("\n") : []);
   // While the input is still arriving there is no output — the growing file
   // content stands in, which is how a long `write` shows progress.
   const streamingLines =
