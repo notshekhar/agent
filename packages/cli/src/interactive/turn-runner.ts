@@ -263,6 +263,11 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
                 history.addSystem(todoPanel.retireLine());
                 todoPanel.clear();
             }
+            // Finished shells leave the panel only here. Dropping a row the
+            // moment its process exits would shrink the frame mid-turn, which
+            // is the one change the renderer cannot make cleanly; a turn
+            // boundary is where the transcript is settled anyway.
+            deps.shellsPanel.retireFinished();
             if (uiStyle().turn.summaryLine && !turnSignal.aborted) {
                 history.addTurnSummary((Date.now() - turnStartedAt) / 1000);
             }

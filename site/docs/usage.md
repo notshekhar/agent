@@ -35,6 +35,7 @@ Prints the final response to stdout and exits. No UI, pipeable, safe in scripts.
 | `/share`               | Shareable transcript                              |
 | `/compact`             | Summarize the conversation to reclaim context     |
 | `/context`             | What's currently loaded and how much room is left |
+| `/shells`              | Background shells: run, read, kill                |
 
 From the shell, `loop sessions` lists sessions in the current directory with ids, models, and timestamps.
 
@@ -78,9 +79,13 @@ Tab on an empty prompt cycles the built-ins:
 
 ## Tools
 
-`read` · `bash` · `edit` · `write` · `grep` · `find` · `ls` · `sql` · `task`
+`read` · `bash` · `edit` · `write` · `grep` · `find` · `ls` · `sql` · `shells` · `task`
 
 Colored diffs, syntax-highlighted output, file previews. `read` also fetches `http(s)://` URLs as readable text, and takes `offset`/`limit` for large files. `edit` and `write` enforce read-before-modify within a session, so the agent can't overwrite a file it hasn't looked at.
+
+**Background shells**: `bash` takes `run_in_background` for a command that isn't supposed to finish — a dev server, a watcher, a tail. It returns straight away and the process keeps running while the agent works; the `shells` tool reads what it has printed since the last look, and the agent is told when it exits rather than polling for it. A foreground command that outruns its timeout is **moved** to the background instead of being killed, so a long build never dies at the two-minute mark.
+
+Running shells are pinned above the prompt, and `/shells` is your side of the same registry — `/shells run <cmd>` to start one yourself, `/shells <id>` to read it, `/shells kill <id>|all` to stop it. They belong to the session, not the turn: pressing esc ends the turn and leaves your server running. They do not survive loop itself — everything still running is stopped on exit.
 
 Opt-in, via `/settings`:
 

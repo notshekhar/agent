@@ -232,6 +232,52 @@ def test_clear_screen():
         check(not any("filler " in r for r in rows), "/clear leaves no old conversation on screen")
 
 
+def test_shells_panel():
+    """A background shell appears in the pinned panel without disturbing the
+    conversation above it — and killing it does not strand a band."""
+    with Session(settings=NOIR_PINNED) as s:
+        s.pump(7)
+        fill(s, 20)
+        committed_before = len(s.screen.history.top)
+
+        s.send("/shells run sleep 30\r", settle=2.0)
+        rows = s.screen_rows()
+        check(any("bash_1" in r for r in rows), "the shell shows up on screen", rows[-12:])
+        check(not duplicates(s), "starting one printed nothing twice", duplicates(s))
+        printed = [r for r in s.history_rows() + s.screen_rows() if "filler " in r]
+        order = [int(r.split("filler ")[1].split()[0]) for r in printed if r.split("filler ")[1].strip().isdigit()]
+        check(order == sorted(order), "the conversation above it is intact and in order", order[:40])
+
+        # The panel grew the frame; growth is safe, but the rows it pushed off
+        # must be exactly as many as it added, never a duplicated stretch.
+        s.send("/shells\r", settle=1.5)
+        check(any("bash_1" in r for r in s.screen_rows()), "/shells lists it")
+        check(not duplicates(s), "listing printed nothing twice", duplicates(s))
+
+        s.send("/shells kill all\r", settle=2.0)
+        rows = s.screen_rows()
+        check(any("Killed" in r for r in rows), "killing it is reported", rows[-12:])
+        check(not duplicates(s), "killing printed nothing twice", duplicates(s))
+        check(blank_band(s.screen_rows()) == -1, "no blank band was left behind", s.screen_rows())
+        check(
+            len(s.screen.history.top) >= committed_before,
+            "history only ever grew",
+        )
+
+
+def test_shells_survive_esc():
+    """esc ends a turn; it must not take a background shell with it."""
+    with Session(settings=NOIR_PINNED) as s:
+        s.pump(7)
+        s.send("/shells run sleep 30\r", settle=2.0)
+        s.send("\x1b", settle=0.6)
+        s.send("\x1b", settle=0.6)
+        s.send("/shells\r", settle=1.5)
+        rows = s.screen_rows()
+        check(any("running" in r for r in rows), "the shell is still running after esc", rows[-14:])
+        s.send("/shells kill all\r", settle=1.5)
+
+
 def test_resize():
     """A resize re-wraps without losing or duplicating the conversation."""
     import fcntl, struct, termios, signal  # noqa: E401
@@ -258,6 +304,8 @@ SCENARIOS = {
     "new": test_new_session,
     "clear": test_clear_screen,
     "resize": test_resize,
+    "shells": test_shells_panel,
+    "shells-esc": test_shells_survive_esc,
 }
 
 

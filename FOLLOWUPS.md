@@ -114,31 +114,6 @@ push the filename around.
 offering "Working tree", "Branch changes", "Latest turn" and a specific turn
 used to sit in the header.
 
-**Why it went.** It mostly offered ways to end up looking at something other
-than the work in progress. Turn-scoped diffs in particular assume changes are
-followed turn by turn, which is not how this project is worked on, and the
-picker's presence made the panel's default state ambiguous — a stored selection
-of "branch changes" would silently persist across sessions.
-
-**What is still there.** All of it, minus the control: `selectedTurnId`,
-`selectTurn`, `orderedTurnDiffSummaries`, the checkpoint-diff query and the
-whole branch-range source are untouched and working. `selectedGitScope` is
-pinned to `"unstaged"`, which is the only line that has to change to bring the
-choice back.
-
-**If it returns**, the two things to decide first: where the control lives now
-that the header also carries commit/push and the per-file revert, and whether a
-scope should persist across sessions at all — reopening the panel to a
-half-remembered comparison is what made the old one confusing.
-
----
-
-## 4. The diff panel's scope picker was removed, and should come back deliberately
-
-**Where:** `apps/web/src/components/DiffPanel.tsx`, where a `DropdownMenu`
-offering "Working tree", "Branch changes", "Latest turn" and a specific turn
-used to sit in the header.
-
 **Why it went.** Turn-scoped diffs assume changes are followed turn by turn,
 which is not how this project is worked on, so the picker mostly offered ways to
 end up looking at something other than the work in progress — and a stored
@@ -194,3 +169,47 @@ feed source enum, and accept `cmux hooks loop <event>` with
 `loop --session <id>` as the resume command. If it lands, the only loop-side
 change is to stop sending `_source` through the generic path and start calling
 `cmux hooks loop …`; the payloads are already the ones cmux expects.
+
+---
+
+## 6. Background shells are CLI-only
+
+**Where:** `packages/core/src/tools/utils/shell-registry.ts` (the registry),
+`packages/cli/src/interactive/components/shells-panel.ts` (the surface), and
+everything that does NOT exist under `apps/web` / `packages/core/src/rpc`.
+
+**What shipped.** `bash` takes `run_in_background`; the `shells` tool reads
+(from a cursor), kills and lists; exits announce themselves through the
+`prepareStep` seam next to the todo nudge; a pinned panel shows what is
+running; `/shells` is the user's side of the same registry. Shells belong to
+the session, not the turn — the abort signal is deliberately not wired, so esc
+leaves a dev server running — and are killed on exit.
+
+**What is missing.** The RPC server and the web/desktop app know nothing about
+any of it. Three specific gaps:
+
+- **No panel, so no promotion.** A foreground command that outruns its timeout
+  is moved to the background instead of being killed, but only where
+  `isShellPanelPresent()` is true — the CLI sets it, nothing else does. Print
+  mode and RPC keep killing on timeout, on purpose: the timeout exists to stop
+  an *invisible* long run, and promoting into a surface that cannot show the
+  shell recreates exactly that. Give the web app a panel and flip the flag with
+  it, not before.
+- **No events.** `onShellChange` is a process-local listener set. The RPC layer
+  needs to forward start/exit/output-throttle events to its clients the way it
+  forwards turn events, or the web panel can only poll.
+- **Nothing kills them.** The CLI's exit path calls `killAllShells()` and
+  `killTrackedDetachedChildren()`; the desktop's quit path and the RPC server's
+  shutdown do not. Until they do, a shell started through those surfaces
+  outlives its process — which is the failure mode the CLI wiring exists to
+  prevent. (`killTrackedDetachedChildren` had no caller at all before this
+  feature; the same applies to any surface that spawns bash.)
+
+**Deliberately not built, and not a gap to close casually:** shells are
+process-lifetime. Nothing is persisted, and a resumed session does not adopt
+the previous process's children. Adopting an orphan tree means owning reaping
+and authorization; opencode pulled their model-facing background launch for
+exactly this and left the preconditions in a TODO ("persist background job
+status and define restart recovery before exposing remote observation").
+Remote observation is where that bill comes due, so decide it before the RPC
+layer starts reporting shells to a client that outlives them.

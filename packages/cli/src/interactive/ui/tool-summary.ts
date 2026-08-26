@@ -68,7 +68,18 @@ export function formatToolArgs(toolName: string, args: Record<string, unknown>, 
         case "bash": {
             const cmd = typeof a.command === "string" ? a.command : "";
             const firstLine = cmd.split("\n")[0];
-            return firstLine.length > 80 ? `${firstLine.slice(0, 77)}…` : firstLine;
+            // A backgrounded command is labelled where it starts: the row is
+            // the only place the transcript ever says the run did not finish
+            // here, and its output lives in the shells panel instead.
+            const bg = a.run_in_background === true ? " (background)" : "";
+            const room = 80 - bg.length;
+            return (firstLine.length > room ? `${firstLine.slice(0, room - 3)}…` : firstLine) + bg;
+        }
+        case "shells": {
+            const action = typeof a.action === "string" ? a.action : "";
+            const id = typeof a.id === "string" ? a.id : "";
+            if (action === "list") return "list";
+            return [action, id].filter(Boolean).join(" ");
         }
         case "grep":
             return [a.pattern, rel(a.path, cwd)].filter(Boolean).join(" in ");

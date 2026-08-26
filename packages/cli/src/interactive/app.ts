@@ -44,6 +44,11 @@ import {
     latestTodos,
     setAskUserBridge,
     setBashApprovalBridge,
+    setShellPanelPresent,
+    killAllShells,
+    killTrackedDetachedChildren,
+    listShells,
+    onShellChange,
     getSetting,
     PRODUCT_NAME,
     type ThinkingLevel,
@@ -61,6 +66,7 @@ import { ChatHistory } from "./components/chat-history";
 import { renderSessionBranch } from "./replay";
 import { StatusLine } from "./components/status-line";
 import { TodoPanel } from "./components/todo-panel";
+import { ShellsPanel } from "./components/shells-panel";
 import { SelectorOverlay } from "./components/selector-overlay";
 import {
     selectOnce as selectOnceShared,
@@ -203,6 +209,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     const history = new ChatHistory(tui, opts.cwd);
     const statusLine = new StatusLine();
     const todoPanel = new TodoPanel();
+    const shellsPanel = new ShellsPanel();
     // A resumed session restores its branch's latest checklist immediately.
     if (initialSession) todoPanel.setItems(latestTodos(initialSession.getBranch()) ?? []);
     statusLine.setModel(initialModelId);
@@ -293,6 +300,22 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     root.addChild(statusContainer);
     // Pinned checklist: below the loader slot, above queued messages + editor.
     root.addChild(todoPanel);
+    // Background shells sit under the checklist — the work the agent is doing,
+    // then the processes it left running.
+    root.addChild(shellsPanel);
+    // The panel is mounted, so a foreground command that outruns its timeout may
+    // be promoted instead of killed: the reason for the timeout is invisibility,
+    // and a shell listed here is not invisible.
+    setShellPanelPresent(true);
+    // Assigned once the ticker exists (created further down): a shell starting
+    // has to restart the 1s pulse, or its elapsed time sits still.
+    let syncTickerRef: () => void = () => {};
+    const refreshShells = () => {
+        shellsPanel.setShells(listShells(state.session?.id));
+        syncTickerRef();
+        tui.requestRender();
+    };
+    onShellChange(refreshShells);
     root.addChild(pendingContainer);
     root.addChild(editorContainer);
     root.addChild(statusLine);
@@ -621,6 +644,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         getSelectorDepth: () => selectorDepth,
         selectOnce,
     });
+    syncTickerRef = syncTicker;
 
     const restoreConsole = installConsoleBridge(history, tui);
 
@@ -656,6 +680,16 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         tui.stop();
         // Give the terminal its own background back (OSC 111; no-op unwashed).
         resetCanvasWash();
+        // Background shells die with the loop that started them. They are
+        // process-lifetime by design (nothing is persisted, nothing is adopted
+        // on resume), so leaving them running would strand processes nobody
+        // can see or kill. killTrackedDetachedChildren covers the foreground
+        // strays too — it had no caller before this.
+        const strayShells = killAllShells();
+        killTrackedDetachedChildren();
+        if (strayShells > 0) {
+            process.stdout.write(`\nStopped ${strayShells} background shell${strayShells === 1 ? "" : "s"}.\n`);
+        }
         printResumeHint(state.session?.id);
         // Put the tab back to a plain name: whatever spinner frame was showing
         // would otherwise be the last thing this terminal was told.
@@ -699,6 +733,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         history,
         statusLine,
         todoPanel,
+        shellsPanel,
         tracker,
         editor,
         commands,

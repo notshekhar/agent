@@ -12,6 +12,13 @@ import {
     untrackDetachedChildPid,
 } from "./utils/shell";
 import { OutputAccumulator } from "./utils/output-accumulator";
+import {
+    MAX_BACKGROUND_SHELLS,
+    isShellPanelPresent,
+    registerShell,
+    runningShellCount,
+    type ShellInfo,
+} from "./utils/shell-registry";
 import { DEFAULT_MAX_BYTES, formatSize } from "./utils/truncate";
 import {
     DEFAULT_BASH_DENY,
@@ -74,62 +81,106 @@ export interface BashToolContext {
     readOnlyFs?: boolean;
 }
 
+interface SpawnOptions {
+    env?: NodeJS.ProcessEnv;
+    shellPath?: string;
+    /** Pre-built spawn argv (sandbox wrapper). When set, `command` is ignored. */
+    argv?: string[];
+}
+
+/**
+ * Spawn the command, shared by the foreground and background paths so a
+ * background shell gets the same shell resolution, PATH and sandbox wrapper as
+ * a foreground one. Throws if the cwd is gone.
+ */
+function spawnBash(command: string, cwd: string, opts: SpawnOptions) {
+    if (!existsSync(cwd)) {
+        throw new Error(`Working directory does not exist: ${cwd}\nCannot execute bash commands.`);
+    }
+    // Sandbox path: spawn the wrapper argv directly (no host shell layer).
+    // Otherwise spawn the command through the configured shell as before.
+    let file: string;
+    let spawnArgs: string[];
+    if (opts.argv && opts.argv.length > 0) {
+        file = opts.argv[0];
+        spawnArgs = opts.argv.slice(1);
+    } else {
+        const { shell, args } = getShellConfig(opts.shellPath);
+        file = shell;
+        spawnArgs = [...args, command];
+    }
+    const child = spawn(file, spawnArgs, {
+        cwd,
+        detached: process.platform !== "win32",
+        env: opts.env ?? getShellEnv(),
+        stdio: ["ignore", "pipe", "pipe"],
+    });
+    if (child.pid) trackDetachedChildPid(child.pid);
+    return child;
+}
+
+/** Foreground result: the command finished, or it was promoted to a shell. */
+type ExecResult = { exitCode: number | null; promoted?: undefined } | { exitCode?: undefined; promoted: ShellInfo };
+
 function execBash(
     command: string,
     cwd: string,
-    opts: {
+    opts: SpawnOptions & {
         onData: (d: Buffer) => void;
         signal?: AbortSignal;
         timeout?: number;
-        env?: NodeJS.ProcessEnv;
-        shellPath?: string;
-        /** Pre-built spawn argv (sandbox wrapper). When set, `command` is ignored. */
-        argv?: string[];
+        /**
+         * Called instead of killing when the timeout fires. Returning a shell
+         * hands the still-running child over to the registry — the run keeps
+         * going in the background rather than dying at the deadline. Returning
+         * undefined keeps the old behaviour (kill the tree, report a timeout).
+         */
+        onTimeout?: (child: ReturnType<typeof spawnBash>) => ShellInfo | undefined;
     },
-): Promise<{ exitCode: number | null }> {
+): Promise<ExecResult> {
     return new Promise((resolve, reject) => {
-        if (!existsSync(cwd)) {
-            reject(new Error(`Working directory does not exist: ${cwd}\nCannot execute bash commands.`));
+        let child: ReturnType<typeof spawnBash>;
+        try {
+            child = spawnBash(command, cwd, opts);
+        } catch (err) {
+            reject(err);
             return;
         }
-        // Sandbox path: spawn the wrapper argv directly (no host shell layer).
-        // Otherwise spawn the command through the configured shell as before.
-        let file: string;
-        let spawnArgs: string[];
-        if (opts.argv && opts.argv.length > 0) {
-            file = opts.argv[0];
-            spawnArgs = opts.argv.slice(1);
-        } else {
-            const { shell, args } = getShellConfig(opts.shellPath);
-            file = shell;
-            spawnArgs = [...args, command];
-        }
-        const child = spawn(file, spawnArgs, {
-            cwd,
-            detached: process.platform !== "win32",
-            env: opts.env ?? getShellEnv(),
-            stdio: ["ignore", "pipe", "pipe"],
-        });
-        if (child.pid) trackDetachedChildPid(child.pid);
         let timedOut = false;
+        let promotedTo: ShellInfo | undefined;
         let timeoutHandle: NodeJS.Timeout | undefined;
+        const onAbort = () => {
+            if (child.pid) killProcessTree(child.pid);
+        };
         if (opts.timeout !== undefined && opts.timeout > 0) {
             timeoutHandle = setTimeout(() => {
+                // Hand the live child to the registry if we can. Everything the
+                // foreground had wired must come off first: our data listeners
+                // (the registry owns the stream now) and the abort listener
+                // (the next esc ends the TURN, and must not reach through it to
+                // kill a shell the user can now see and manage).
+                const promote = opts.onTimeout?.(child);
+                if (promote) {
+                    promotedTo = promote;
+                    if (opts.signal) opts.signal.removeEventListener("abort", onAbort);
+                    resolve({ promoted: promote });
+                    return;
+                }
                 timedOut = true;
                 if (child.pid) killProcessTree(child.pid);
             }, opts.timeout * 1000);
         }
         child.stdout?.on("data", opts.onData);
         child.stderr?.on("data", opts.onData);
-        const onAbort = () => {
-            if (child.pid) killProcessTree(child.pid);
-        };
         if (opts.signal) {
             if (opts.signal.aborted) onAbort();
             else opts.signal.addEventListener("abort", onAbort, { once: true });
         }
         waitForChildProcess(child)
             .then((code) => {
+                // Promoted: the registry owns this child's exit now, and the
+                // promise above has already settled.
+                if (promotedTo) return;
                 if (child.pid) untrackDetachedChildPid(child.pid);
                 if (timeoutHandle) clearTimeout(timeoutHandle);
                 if (opts.signal) opts.signal.removeEventListener("abort", onAbort);
@@ -144,6 +195,7 @@ function execBash(
                 resolve({ exitCode: code });
             })
             .catch((err) => {
+                if (promotedTo) return;
                 if (child.pid) untrackDetachedChildPid(child.pid);
                 if (timeoutHandle) clearTimeout(timeoutHandle);
                 if (opts.signal) opts.signal.removeEventListener("abort", onAbort);
@@ -229,7 +281,9 @@ async function resolveSandbox(command: string, ctx: BashToolContext): Promise<{ 
 
 export function createBashTool(ctx: BashToolContext) {
     return tool({
-        description: `Execute a bash command. Returns merged stdout/stderr. Output truncated to 50KB / 2000 lines (tail kept). Process tree killed on abort/timeout. Timeout is in seconds — defaults to ${DEFAULT_BASH_TIMEOUT_SEC}s, max ${MAX_BASH_TIMEOUT_SEC}s; pass a larger value for long-running work like builds or installs.`,
+        description: `Execute a bash command. Returns merged stdout/stderr. Output truncated to 50KB / 2000 lines (tail kept). Process tree killed on abort/timeout. Timeout is in seconds — defaults to ${DEFAULT_BASH_TIMEOUT_SEC}s, max ${MAX_BASH_TIMEOUT_SEC}s; pass a larger value for long-running work like builds or installs.
+
+Set run_in_background for a command that is not supposed to finish — a dev server, a watcher, a tail. It returns a shell id immediately and keeps running while you work; read it with the \`shells\` tool. You are told when it exits, so never sleep or poll in a loop waiting for one. Do NOT background a command whose output you need in order to take the next step, and never background it by writing \`&\` or \`nohup\` yourself — a command backgrounded that way is invisible and cannot be read or killed.`,
         inputSchema: z.object({
             command: z.string().describe("Bash command to execute"),
             timeout: z
@@ -237,14 +291,40 @@ export function createBashTool(ctx: BashToolContext) {
                 .positive()
                 .optional()
                 .describe(
-                    `Timeout in seconds. Defaults to ${DEFAULT_BASH_TIMEOUT_SEC}, capped at ${MAX_BASH_TIMEOUT_SEC}.`,
+                    `Timeout in seconds. Defaults to ${DEFAULT_BASH_TIMEOUT_SEC}, capped at ${MAX_BASH_TIMEOUT_SEC}. Ignored when run_in_background is set.`,
+                ),
+            run_in_background: z
+                .boolean()
+                .optional()
+                .describe(
+                    "Run without waiting: returns a shell id straight away and the command keeps running. Use for servers, watchers and tails.",
                 ),
         }),
-        execute: async ({ command, timeout }, options) => {
+        execute: async ({ command, timeout, run_in_background }, options) => {
             // Always bound the run: an omitted timeout falls back to the default,
             // and any value (default or model-supplied) is clamped to the max, so
             // a command can never run unbounded.
             const effectiveTimeout = resolveBashTimeout(timeout);
+            const background = run_in_background === true;
+            if (background) {
+                if (getSetting("backgroundShells") === false) {
+                    throw new Error(
+                        "Background shells are turned off (backgroundShells setting). Run the command in the foreground, with a longer timeout if it needs one.",
+                    );
+                }
+                // A read-only planning agent must not be able to leave daemons
+                // behind: plan mode ends, the process does not.
+                if (ctx.readOnlyFs || isPlanModeActive(ctx.sessionId)) {
+                    throw new Error(
+                        "Background shells are not available here — this agent runs bash read-only and must not leave processes running. Run the command in the foreground, or leave it for after plan mode.",
+                    );
+                }
+                if (runningShellCount(ctx.sessionId) >= MAX_BACKGROUND_SHELLS) {
+                    throw new Error(
+                        `Too many background shells (${MAX_BACKGROUND_SHELLS} already running). Kill one with the shells tool before starting another.`,
+                    );
+                }
+            }
             // Denylist guardrail: refuse blocked commands before anything runs.
             // Read live so settings edits apply without a restart; an unset
             // bashDeny falls back to the seeded defaults. Checked against the
@@ -328,6 +408,9 @@ export function createBashTool(ctx: BashToolContext) {
             }
             // ruleVerdict "allow": explicit configuration — skip all prompting.
             const output = new OutputAccumulator({ tempFilePrefix: "loop-bash" });
+            // Named so promotion can detach it: the registry takes the stream
+            // over, and two writers on one child duplicate every chunk.
+            const onData = (d: Buffer) => output.append(d);
             const finalCommand = ctx.commandPrefix ? `${ctx.commandPrefix}\n${command}` : command;
 
             // Resolve the sandbox against the final command (commandPrefix included).
@@ -363,14 +446,63 @@ export function createBashTool(ctx: BashToolContext) {
 
             const appendStatus = (text: string, status: string) => `${text ? `${text}\n\n` : ""}${status}`;
 
+            // Background: spawn, hand it to the registry, return the id. The
+            // turn's abort signal is deliberately NOT wired — esc ends the
+            // turn, and must not take the user's dev server with it.
+            if (background) {
+                const child = spawnBash(finalCommand, ctx.cwd, {
+                    shellPath: ctx.shellPath,
+                    argv: sandboxRun.argv,
+                });
+                const info = registerShell({
+                    sessionId: ctx.sessionId,
+                    command,
+                    cwd: ctx.cwd,
+                    child,
+                });
+                await output.closeTempFile();
+                return withSandboxWarning(
+                    `Started ${info.id} in the background (pid ${info.pid ?? "?"}).\nRead its output with shells({ action: "output", id: "${info.id}" }). You will be told when it exits.`,
+                );
+            }
+
             try {
-                const { exitCode } = await execBash(finalCommand, ctx.cwd, {
-                    onData: (d) => output.append(d),
+                const result = await execBash(finalCommand, ctx.cwd, {
+                    onData,
                     signal,
                     timeout: effectiveTimeout,
                     shellPath: ctx.shellPath,
                     argv: sandboxRun.argv,
+                    onTimeout: (child) => {
+                        // Promotion instead of death — but only where the shells
+                        // panel will show it. The timeout exists to stop an
+                        // invisible long run; without a surface listing it, a
+                        // promoted shell is exactly that invisible run again.
+                        if (getSetting("backgroundShells") === false) return undefined;
+                        if (!isShellPanelPresent()) return undefined;
+                        if (runningShellCount(ctx.sessionId) >= MAX_BACKGROUND_SHELLS) return undefined;
+                        child.stdout?.removeListener("data", onData);
+                        child.stderr?.removeListener("data", onData);
+                        output.finish();
+                        const seed = output.snapshot().content;
+                        return registerShell({
+                            sessionId: ctx.sessionId,
+                            command,
+                            cwd: ctx.cwd,
+                            child,
+                            seed,
+                            promoted: true,
+                        });
+                    },
                 });
+                if (result.promoted) {
+                    await output.closeTempFile();
+                    const info = result.promoted;
+                    return withSandboxWarning(
+                        `Still running after ${effectiveTimeout}s, so it was moved to the background as ${info.id} (pid ${info.pid ?? "?"}) rather than killed.\nRead it with shells({ action: "output", id: "${info.id}" }), or kill it with shells({ action: "kill", id: "${info.id}" }). You will be told when it exits.`,
+                    );
+                }
+                const { exitCode } = result;
                 const { text } = await formatOutput();
                 if (exitCode !== 0 && exitCode !== null) {
                     throw new Error(withSandboxWarning(appendStatus(text, `Command exited with code ${exitCode}`)));

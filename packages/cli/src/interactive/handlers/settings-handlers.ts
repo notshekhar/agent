@@ -68,6 +68,7 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
         serve: false,
         todos: false,
         artifacts: false,
+        backgroundShells: true,
         clock: false,
         reminders: true,
         mcp: true,
@@ -191,6 +192,12 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                         label: `websearch (DuckDuckGo): ${boolSetting("webSearch") ? "on" : "off"}`,
                         description:
                             "give the agent a websearch tool (scrapes DuckDuckGo — no API key, may rate-limit)",
+                    },
+                    {
+                        value: "backgroundShells",
+                        label: `background shells: ${boolSetting("backgroundShells") ? "on" : "off"}`,
+                        description:
+                            "let bash start servers/watchers that keep running (shells tool + panel); off bounds every command to its own call",
                     },
                     {
                         value: "serve",

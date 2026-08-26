@@ -67,6 +67,10 @@ const KIND = {
 
     command: { past: "Ran", present: "Running", nounOne: "command", nounMany: "commands", folds: true },
 
+    // Reading or killing a background shell — the noun is the shell, not the
+    // command it is running (that row was already printed when it started).
+    shell: { past: "Checked", present: "Checking", nounOne: "shell", nounMany: "shells", folds: true },
+
     // Tools we did not write, named by the only thing we reliably know about
     // them — where they came from. Both fold; see the layering note above.
     mcp: { past: "Called", present: "Calling", nounOne: "MCP tool", nounMany: "MCP tools", folds: true },
@@ -103,6 +107,7 @@ const BUILTIN: Record<string, VerbGroupKindId> = {
     task: "subagent",
     todo: "todo",
     bash: "command",
+    shells: "shell",
     edit: "edit",
     write: "edit",
     sql: "data",

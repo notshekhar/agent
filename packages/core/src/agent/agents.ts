@@ -183,7 +183,7 @@ export function agentToolNames(): string[] {
  * exhaustiveness test: listing the older tools still means "everything", with
  * or without it.
  */
-const OPTIONAL_FOR_EXHAUSTIVE: readonly string[] = ["artifact"];
+const OPTIONAL_FOR_EXHAUSTIVE: readonly string[] = ["artifact", "shells"];
 
 function sanitizeTools(tools: string[] | undefined, valid: readonly string[]): string[] | undefined {
     if (!tools) return undefined;

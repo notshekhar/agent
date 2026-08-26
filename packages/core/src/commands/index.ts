@@ -15,6 +15,7 @@ export interface CommandContext {
     showCost(): void;
     /** /context — context-window usage breakdown (grid + categories). */
     showContext(): Promise<void>;
+    manageShells(args: string): void;
     /** /steak — GitHub-style token-usage heatmap; arg is an optional year. */
     showSteak(args: string): void;
     showSessions(): Promise<void>;
@@ -306,6 +307,12 @@ export async function registerBuiltins(reg: CommandRegistry, opts: { cwd?: strin
             handler: async (ctx) => {
                 await ctx.showContext();
             },
+        },
+        {
+            name: "shells",
+            description:
+                "Background shells: /shells lists · /shells run <cmd> · /shells <id> shows output · /shells kill <id>|all",
+            handler: (ctx, args) => ctx.manageShells(args ?? ""),
         },
         {
             name: "steak",

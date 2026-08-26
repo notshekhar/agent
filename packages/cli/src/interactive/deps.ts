@@ -3,6 +3,7 @@ import type { CommandRegistry, CostTracker, Session, SessionManager, UsageBlock 
 import type { ChatHistory } from "./components/chat-history";
 import type { StatusLine } from "./components/status-line";
 import type { TodoPanel } from "./components/todo-panel";
+import type { ShellsPanel } from "./components/shells-panel";
 
 /**
  * Stable references for handlers. Functions and objects here don't change
@@ -14,6 +15,8 @@ export interface AppDeps {
     statusLine: StatusLine;
     /** Pinned checklist the todo tool maintains (below the loader, above the editor). */
     todoPanel: TodoPanel;
+    /** Pinned list of background shells (bash run_in_background). */
+    shellsPanel: ShellsPanel;
     tracker: CostTracker;
     editor: Editor;
     commands: CommandRegistry;

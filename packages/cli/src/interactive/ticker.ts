@@ -1,4 +1,4 @@
-import { deleteReminder, listReminders, settingsStore } from "@notshekhar/loop-core";
+import { deleteReminder, listReminders, runningShellCount, settingsStore } from "@notshekhar/loop-core";
 import { Cron } from "croner";
 import type { SelectItem, TUI } from "@notshekhar/loop-tui";
 import type { StatusLine } from "./components/status-line";
@@ -44,7 +44,12 @@ export function createTicker(deps: TickerDeps): Ticker {
         // during a turn is held until !busy, and a one-shot reminder deletes
         // itself when it fires — without this the ticker could stop before the
         // turn ends, stranding the notice so it never shows.
-        return clockOn || state.timerEndsAt !== null || remindersPending || notices.length > 0;
+        // A running background shell keeps the pulse alive so its elapsed time
+        // advances on screen — otherwise a quiet process (a server that has
+        // finished booting and says nothing) freezes at the age it had when it
+        // last printed.
+        const shellsRunning = runningShellCount(state.session?.id) > 0;
+        return clockOn || state.timerEndsAt !== null || remindersPending || notices.length > 0 || shellsRunning;
     }
 
     function syncTicker(): void {

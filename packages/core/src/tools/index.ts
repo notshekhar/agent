@@ -4,6 +4,7 @@ import { createFindTool } from "./find";
 import { createGrepTool } from "./grep";
 import { createLsTool } from "./ls";
 import { createReadTool } from "./read";
+import { createShellsTool } from "./shells";
 import { createSqlTool } from "./sql";
 import { createWriteTool } from "./write";
 
@@ -39,15 +40,47 @@ export function createTools(ctx: ToolContext) {
         // gets it automatically, and restricted agents keep it only if their
         // allowlist names it (plan/data-analyst do, via READONLY_TOOLS).
         sql: createSqlTool(ctx),
+        // shells is the read/kill half of bash's run_in_background: always
+        // present, because a tool the model only discovers after it has
+        // already started a shell is a tool it cannot plan around. Cheap when
+        // idle — every action on an empty registry is one line of text.
+        shells: createShellsTool(ctx),
     };
 }
 
 export type ToolSet = ReturnType<typeof createTools>;
 
 /** Stable tool name list — agents reference these for per-agent tool selection. */
-export const TOOL_NAMES = ["read", "write", "edit", "bash", "ls", "grep", "find", "sql"] as const;
+export const TOOL_NAMES = ["read", "write", "edit", "bash", "ls", "grep", "find", "sql", "shells"] as const;
 export type ToolName = (typeof TOOL_NAMES)[number];
 export { clearReadRegistry } from "./utils/read-registry";
+// Background shells (bash run_in_background): the registry is the surfaces'
+// window onto them — the CLI's panel, /shells, and the turn's exit notices.
+export {
+    formatDuration,
+    isShellPanelPresent,
+    killAllShells,
+    killSessionShells,
+    killShell,
+    listShells,
+    onShellChange,
+    readShell,
+    runningShellCount,
+    setShellPanelPresent,
+    takeShellNotices,
+    MAX_BACKGROUND_SHELLS,
+    type ShellInfo,
+    type ShellStatus,
+} from "./utils/shell-registry";
+export { formatShellNotices, SHELLS_TOOL_NAME } from "./shells";
+// Process cleanup on the way out. killTrackedDetachedChildren has existed
+// since detached spawning did and was never called from anywhere — a bash
+// child could outlive the loop that spawned it. Background shells make wiring
+// it mandatory, so it is exported here alongside them.
+export { getShellConfig, getShellEnv, killTrackedDetachedChildren } from "./utils/shell";
+// Registering a shell the USER started (/shells run) — same registry, so the
+// agent can read a server its user launched.
+export { registerShell } from "./utils/shell-registry";
 // Bash denylist guardrail — types + defaults for the /bashdeny management UI.
 export {
     DEFAULT_BASH_DENY,

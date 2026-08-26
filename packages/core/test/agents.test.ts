@@ -79,6 +79,21 @@ describe("parseAgentFile", () => {
         expect(withArtifact.tools).toBeUndefined();
     });
 
+    test("a pre-shells full list still means all tools", () => {
+        // Same guarantee as the artifact case above, for the tool that came
+        // with background shells: an agent file that enumerated the set before
+        // `shells` existed must not be demoted to restricted.
+        const parsed = parseAgentFile(
+            "---\ntools: read, write, edit, bash, ls, grep, find, sql, task, ask, websearch, plan, todo, skill, artifact\n---\n\nBody.",
+        );
+        expect(parsed.tools).toBeUndefined();
+    });
+
+    test("shells is a valid agent tool", () => {
+        const parsed = parseAgentFile("---\ntools: read, bash, shells\n---\n\nBody.");
+        expect(parsed.tools).toEqual(["read", "bash", "shells"]);
+    });
+
     test("artifact is a valid agent tool", () => {
         const parsed = parseAgentFile("---\ntools: read, write, artifact\n---\n\nBody.");
         expect(parsed.tools).toEqual(["read", "write", "artifact"]);

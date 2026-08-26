@@ -9,6 +9,7 @@ import type { AppState } from "./state";
 import { createAgentHandlers } from "./handlers/agent-handlers";
 import { createBashDenyHandlers } from "./handlers/bashdeny-handlers";
 import { createContextHandlers } from "./handlers/context-handlers";
+import { createShellsHandlers } from "./handlers/shells-handlers";
 import { createDoctorHandlers } from "./handlers/doctor-handlers";
 import { createDatasourceHandlers } from "./handlers/datasource-handlers";
 import { createExtensionHandlers } from "./handlers/extension-handlers";
@@ -39,6 +40,7 @@ export function createCommandContext(state: AppState, deps: AppDeps): CommandCon
         ...createBashDenyHandlers(state, deps),
         ...createPermissionHandlers(state, deps),
         ...createContextHandlers(state, deps),
+        ...createShellsHandlers(state, deps),
         ...createDoctorHandlers(state, deps),
         ...createHookHandlers(state, deps),
         ...createMcpHandlers(state, deps),

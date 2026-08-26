@@ -28,6 +28,9 @@ import {
     isPlanModeActive,
     planDeliveredThisStep,
     PLAN_TOOL_NAME,
+    formatShellNotices,
+    SHELLS_TOOL_NAME,
+    takeShellNotices,
     SKILL_TOOL_NAME,
     TODO_TOOL_NAME,
 } from "../tools";
@@ -241,6 +244,12 @@ async function assembleTurnTools(
     // access. Subagents never get task themselves (no nesting).
     const subagentsEnabled = getSetting("subagents") !== false;
     let toolsForTurn: Record<string, unknown> = { ...toolSet };
+
+    // Background shells: the `backgroundShells` setting (default ON) gates the
+    // whole capability. Off means the shells tool is not offered at all —
+    // bash refuses run_in_background separately, so the model can neither
+    // start one nor be handed a tool for reading shells that cannot exist.
+    if (getSetting("backgroundShells") === false) delete toolsForTurn[SHELLS_TOOL_NAME];
 
     // Websearch: opt-in `webSearch` setting (default off) — DuckDuckGo HTML
     // scraping, no API key, no UI bridge, so print mode gets it too. Added
@@ -658,9 +667,15 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
     // the transcript stay clean. Layered AFTER the caching prepareStep so the
     // cache breakpoint lands on stable history, with the nudge as uncached tail.
     const todoNudger = TODO_TOOL_NAME in toolsForTurn ? createTodoNudger(() => getSessionTodos(session.id)) : null;
+    // Background shells announce their own exits on the same seam: a shell
+    // that finished between steps is reported once, then cleared. Without it
+    // "you will be told when it exits" is a promise the tool cannot keep, and
+    // the model falls back to sleeping and polling.
+    const shellNotices =
+        SHELLS_TOOL_NAME in toolsForTurn ? () => formatShellNotices(takeShellNotices(session.id)) : null;
     const basePrepareStep = call.prepareStep;
     const prepareStep =
-        todoNudger || basePrepareStep
+        todoNudger || shellNotices || basePrepareStep
             ? (opts: {
                   messages: ModelMessage[];
                   steps?: ReadonlyArray<{ toolCalls?: ReadonlyArray<{ toolName?: string }> }>;
@@ -668,6 +683,13 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
                   let stepMessages = basePrepareStep
                       ? basePrepareStep({ messages: opts.messages }).messages
                       : opts.messages;
+                  if (shellNotices) {
+                      const notice = shellNotices();
+                      if (notice) {
+                          debugLog("shells", `exit notice injected (session ${session.id})`);
+                          stepMessages = [...stepMessages, { role: "user", content: notice }];
+                      }
+                  }
                   if (todoNudger) {
                       const calls: string[] = [];
                       for (const s of opts.steps ?? []) {
