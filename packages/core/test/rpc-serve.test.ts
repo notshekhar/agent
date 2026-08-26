@@ -322,6 +322,14 @@ describe("startWebServer", () => {
         const memory = list.find((s) => s.key === "memory");
         expect(memory?.value).toBe(true); // default, nothing set in mem store
 
+        // Every setting that gates a TOOL has to reach the web/desktop panel
+        // too, or the feature can be switched off in the terminal and nowhere
+        // else. backgroundShells was added to the TUI list and missed here.
+        for (const key of ["webSearch", "todos", "artifacts", "backgroundShells", "subagents", "mcp"]) {
+            expect(list.find((s) => s.key === key)).toBeDefined();
+        }
+        expect(list.find((s) => s.key === "backgroundShells")?.value).toBe(true); // default on
+
         const set = await call(4, "settings.set", { key: "memory", value: false });
         expect((set.result as { value: boolean }).value).toBe(false);
         expect(memSettings.memory).toBe(false);

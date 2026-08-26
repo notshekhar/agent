@@ -220,6 +220,12 @@ const WEB_SETTINGS: ReadonlyArray<{ key: keyof AppSettings; label: string; descr
     },
     { key: "todos", label: "todos", description: "visible checklist during multi-step tasks", def: false },
     {
+        key: "backgroundShells",
+        label: "background shells",
+        description: "let bash start servers/watchers that keep running after the tool call",
+        def: true,
+    },
+    {
         key: "artifacts",
         label: "artifacts",
         description: "let the agent publish documents it writes as pages you can open",

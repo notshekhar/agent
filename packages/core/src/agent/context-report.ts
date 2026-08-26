@@ -15,6 +15,7 @@ import {
     createAskTool,
     createSkillTool,
     createTools,
+    SHELLS_TOOL_NAME,
     createWebsearchTool,
     isAskUserAvailable,
     SKILL_TOOL_NAME,
@@ -131,6 +132,9 @@ export async function buildContextReport(opts: {
     if (visibleSkills.length > 0 && (!allowedTools?.length || allowedTools.includes(SKILL_TOOL_NAME))) {
         toolSet[SKILL_TOOL_NAME] = createSkillTool({ skills: visibleSkills });
     }
+    // Same gate as assembleTurnTools: with background shells off the shells
+    // tool is never offered, so it must not be measured either.
+    if (getSetting("backgroundShells") === false) delete toolSet[SHELLS_TOOL_NAME];
     const todosEnabled =
         getSetting("todos") === true && (!allowedTools?.length || allowedTools.includes(TODO_TOOL_NAME));
 
