@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.19.22] - 2026-08-26
+
+### Added
+
+- **bash can start work that outlives the turn.** Every run was bounded by a timeout, so a dev server, a watcher or a ten-minute build could only be started by giving the turn up to it or by watching it die at the deadline — which closed off the loop the work is actually judged on: run the app, look at it, fix it. `bash` now takes `run_in_background` and returns a shell id immediately. The new `shells` tool reads what one has printed **since the last look** (a cursor, not a replay of the startup banner), kills it, or lists them, with a regex `filter` for processes that will not stop talking. Exits announce themselves instead of waiting to be polled, so the model is told a build failed rather than sleeping in a loop to find out. Running shells are pinned above the editor, and `/shells` is the same registry from your side — `/shells run <cmd>` to start one yourself, `/shells <id>` to read it, `/shells kill <id>|all`. Gated by the `backgroundShells` setting, default on.
+- **A long command is moved to the background instead of being killed.** A foreground command that outruns its timeout used to die at the deadline with its output thrown away. It is now handed to the registry with the lines it had already printed, and keeps running — but only where the shells panel is mounted to show it, because the timeout exists to stop an *invisible* long run and promoting into a surface that cannot show the shell would recreate exactly that. Print mode and RPC keep killing.
+
+### Changed
+
+- **A background shell belongs to the session, not the turn.** The turn's abort signal is deliberately not wired to it: esc ends the turn and leaves your server running. It does not outlive loop itself — everything still running is stopped on exit, which is also the first time `killTrackedDetachedChildren()` has ever been called. It has been exported since detached spawning existed and had no caller anywhere in the repo, so a plain foreground bash child could already survive a crash.
+
 ## [0.19.21] - 2026-08-25
 
 ### Changed
