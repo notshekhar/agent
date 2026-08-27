@@ -10,10 +10,6 @@ import { join } from "node:path";
 
 const enabled = Boolean(brandEnv("DEBUG"));
 
-export function isDebugEnabled(): boolean {
-    return enabled;
-}
-
 export function debugLog(scope: string, ...parts: unknown[]): void {
     if (!enabled) return;
     try {

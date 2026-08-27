@@ -175,8 +175,8 @@
       "@loop/shared/composerInlineTokens": [
         "./src/loop/shared/composerInlineTokens.ts"
       ],
-      "@loop/shared/composerTrigger": [
-        "./src/loop/shared/composerTrigger.ts"
+      "@loop/shared/composerFileLink": [
+        "./src/loop/shared/composerFileLink.ts"
       ],
       "@loop/shared/connectAuth": [
         "./src/loop/shared/connectAuth.ts"

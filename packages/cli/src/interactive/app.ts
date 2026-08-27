@@ -11,7 +11,6 @@ import {
     SelectList,
     type SelectItem,
     Spacer,
-    Text,
     truncateToWidth,
     TUI,
     type Component,

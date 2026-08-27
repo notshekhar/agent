@@ -37,10 +37,6 @@ const COLOR_SCHEME_REPORT_PATTERN = /^\x1b\[\?997;(1|2)n$/;
 export const OSC11_REPORT_PREFIX = /^\x1b\]11;[^\x07\x1b]*(?:\x07|\x1b\\)/i;
 export const COLOR_SCHEME_REPORT_PREFIX = /^\x1b\[\?997;(?:1|2)n/;
 
-export function isOsc11BackgroundColorResponse(data: string): boolean {
-    return OSC11_BACKGROUND_COLOR_RESPONSE_PATTERN.test(data);
-}
-
 export function parseOsc11BackgroundColor(data: string): RgbColor | undefined {
     const match = data.match(OSC11_BACKGROUND_COLOR_RESPONSE_PATTERN);
     if (!match) {

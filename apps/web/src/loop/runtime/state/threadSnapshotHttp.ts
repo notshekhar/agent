@@ -9,11 +9,7 @@ import { HttpClient } from "effect/unstable/http";
 import type { PreparedConnection } from "../connection/model.ts";
 import { environmentEndpointUrl } from "../environment/endpoint.ts";
 import { ManagedRelayDpopSigner } from "../relay/managedRelay.ts";
-import {
-  executeEnvironmentHttpRequest,
-  makeEnvironmentHttpApiClient,
-  type RemoteEnvironmentRequestError,
-} from "../rpc/http.ts";
+import { executeEnvironmentHttpRequest, makeEnvironmentHttpApiClient } from "../rpc/http.ts";
 import { buildEnvironmentAuthHeaders, withEnvironmentCredentials } from "./environmentHttpAuth.ts";
 
 // Bounded so a pathologically slow endpoint cannot block the (cheaper) socket
@@ -57,8 +53,6 @@ export const fetchEnvironmentThreadSnapshot = Effect.fn(
     ),
   );
 });
-
-export type FetchEnvironmentThreadSnapshotError = RemoteEnvironmentRequestError;
 
 /**
  * Loads a thread's detail snapshot over HTTP, returning `Option.none()` when it

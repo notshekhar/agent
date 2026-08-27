@@ -19,7 +19,6 @@ import { answerAuthFlow, runAuthFlow, type AuthFlowEvent } from "../../loop/prov
 import {
   discoverCustomProviderModels,
   saveCustomProvider,
-  type CustomProviderModel,
   type CustomProviderSdk,
   type CustomProviderSummary,
 } from "../../loop/providers/custom";

@@ -1,4 +1,4 @@
-import { serializeComposerFileLink } from "@loop/shared/composerTrigger";
+import { serializeComposerFileLink } from "@loop/shared/composerFileLink";
 
 /**
  * Drag payload type carrying a serialized composer mention. Set on drags that

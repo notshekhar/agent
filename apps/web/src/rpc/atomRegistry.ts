@@ -8,7 +8,3 @@ export function AppAtomRegistryProvider({ children }: React.PropsWithChildren) {
   return createElement(RegistryContext.Provider, { value: appAtomRegistry }, children);
 }
 
-export function resetAppAtomRegistryForTests() {
-  appAtomRegistry.dispose();
-  appAtomRegistry = AtomRegistry.make();
-}

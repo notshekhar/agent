@@ -224,19 +224,3 @@ export async function conflictStages(
   return { base, ours, theirs };
 }
 
-/**
- * Record a conflict as resolved with this exact content.
- *
- * Staging the result is what clears the unmerged entry: `update-index` at
- * stage 0 replaces the three conflicting stages with one ordinary one, which is
- * how git itself defines "resolved". The working-tree file is the caller's to
- * write — the panel shows what it wrote, and leaving the two in step is the
- * caller's business, not this function's.
- */
-export async function resolveConflict(
-  cwd: string,
-  path: string,
-  content: string,
-): Promise<void> {
-  await stageContent(cwd, path, content);
-}

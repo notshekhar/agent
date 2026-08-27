@@ -8,7 +8,9 @@
  * arrives instead of popping in complete, which is how the terminal renders it.
  *
  * Ported verbatim from `packages/cli/src/interactive/ui/streaming-input.ts`
- * (pure, no node or ANSI dependencies). KEEP IN SYNC.
+ * (pure, no node or ANSI dependencies). KEEP IN SYNC —
+ * `packages/cli/test/web-port-parity.test.ts` runs both copies over every
+ * prefix of a set of streaming buffers and requires the same output.
  */
 
 /**

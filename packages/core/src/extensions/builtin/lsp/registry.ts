@@ -580,10 +580,6 @@ export function getServerDefs(): LanguageServerDef[] {
     return cache;
 }
 
-export function reloadServerDefs(): void {
-    cache = null;
-}
-
 export function findDef(key: LanguageKey): LanguageServerDef | undefined {
     return getServerDefs().find((d) => d.key === key);
 }

@@ -16,7 +16,6 @@ import {
   WS_METHODS,
 } from "@loop/contracts";
 import {
-  type RelayClientDeviceRecord,
   type RelayClientEnvironmentRecord,
   type RelayEnvironmentLinkResponse,
   type RelayProtectedError as RelayProtectedErrorType,
@@ -27,10 +26,6 @@ import { request, runStream } from "@loop/runtime/rpc";
 import { makeEnvironmentHttpApiClient } from "@loop/runtime/rpc";
 import { ManagedRelay } from "@loop/runtime/relay";
 
-import {
-  readPrimaryEnvironmentDescriptor,
-  readPrimaryEnvironmentTarget,
-} from "../environments/primary";
 import { primaryEnvironmentHttpLayer } from "../environments/primary/httpLayer";
 import { resolveCloudPublicConfig } from "./publicConfig";
 import {
@@ -260,20 +255,6 @@ export function collectCloudLinkTargets(input: {
   return [...byId.values()];
 }
 
-export function readPrimaryCloudLinkTarget(): CloudLinkTarget | null {
-  const descriptor = readPrimaryEnvironmentDescriptor();
-  const target = readPrimaryEnvironmentTarget();
-  if (!descriptor || !target) {
-    return null;
-  }
-  return {
-    environmentId: descriptor.environmentId,
-    label: descriptor.label,
-    httpBaseUrl: target.target.httpBaseUrl,
-    wsBaseUrl: target.target.wsBaseUrl,
-  };
-}
-
 export function listManagedCloudEnvironments(input: {
   readonly clerkToken: string;
 }): Effect.Effect<
@@ -302,32 +283,6 @@ export function listManagedCloudEnvironments(input: {
             }),
         ),
       );
-  });
-}
-
-export function listCloudDevices(input: {
-  readonly clerkToken: string;
-}): Effect.Effect<
-  ReadonlyArray<RelayClientDeviceRecord>,
-  CloudEnvironmentLinkError,
-  ManagedRelay.ManagedRelayClient
-> {
-  return Effect.gen(function* () {
-    if (!relayUrl()) {
-      return yield* new CloudEnvironmentLinkError({
-        message: "T3CODE_RELAY_URL is not configured.",
-      });
-    }
-    const relayClient = yield* ManagedRelay.ManagedRelayClient;
-    return yield* relayClient.listDevices({ clerkToken: input.clerkToken }).pipe(
-      Effect.mapError(
-        (cause) =>
-          new CloudEnvironmentLinkError({
-            message: "Could not list cloud devices.",
-            cause,
-          }),
-      ),
-    );
   });
 }
 

@@ -238,26 +238,6 @@ export function contrastRatio(a: string, b: string): number {
 }
 
 /**
- * The first colour along `bg` → `toward` that reaches `target` contrast
- * against `bg`.
- *
- * Monotonic in `t`, so a fixed number of bisection steps is exact enough for
- * 8-bit channels; when even `toward` cannot reach the target (a mid-grey
- * background), `toward` is the best available and is returned.
- */
-export function atContrast(bg: string, toward: string, target: number): string {
-    if (contrastRatio(toward, bg) <= target) return toward;
-    let lo = 0;
-    let hi = 1;
-    for (let i = 0; i < 12; i++) {
-        const mid = (lo + hi) / 2;
-        if (contrastRatio(mix(bg, toward, mid), bg) < target) lo = mid;
-        else hi = mid;
-    }
-    return mix(bg, toward, hi);
-}
-
-/**
  * `color`, guaranteed to be at least `target` contrast against `bg` — lifted
  * toward `toward` only as far as it takes, and left alone when it already is.
  *

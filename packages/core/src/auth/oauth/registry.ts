@@ -13,8 +13,4 @@ export function getOAuthProvider(id: string): OAuthProviderInterface | undefined
     return REGISTRY[id];
 }
 
-export function listOAuthProviders(): OAuthProviderInterface[] {
-    return Object.values(REGISTRY);
-}
-
 export { anthropicOAuthProvider, githubCopilotOAuthProvider, openaiChatgptOAuthProvider };

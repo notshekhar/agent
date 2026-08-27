@@ -70,8 +70,3 @@ export const createAssetUrl = Effect.fnUntraced(function* (input: {
   return { relativeUrl: url, expiresAt: Date.now() + ASSET_TTL_MS };
 });
 
-/** Test seam — the blob registry is module state by design. */
-export function resetAssetUrlsForTest(): void {
-  for (const url of blobUrlsByPath.values()) URL.revokeObjectURL(url);
-  blobUrlsByPath.clear();
-}

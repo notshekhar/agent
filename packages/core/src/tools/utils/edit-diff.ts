@@ -4,10 +4,6 @@
  */
 
 import * as Diff from "diff";
-import { constants } from "fs";
-import { access, readFile } from "fs/promises";
-import { resolveToCwd } from "./path-utils";
-
 export function detectLineEnding(content: string): "\r\n" | "\n" {
     const crlfIdx = content.indexOf("\r\n");
     const lfIdx = content.indexOf("\n");
@@ -466,60 +462,3 @@ export function generateDiffString(
     return { diff: output.join("\n"), firstChangedLine };
 }
 
-export interface EditDiffResult {
-    diff: string;
-    firstChangedLine: number | undefined;
-}
-
-export interface EditDiffError {
-    error: string;
-}
-
-/**
- * Compute the diff for one or more edit operations without applying them.
- * Used for preview rendering in the TUI before the tool executes.
- */
-export async function computeEditsDiff(
-    path: string,
-    edits: Edit[],
-    cwd: string,
-): Promise<EditDiffResult | EditDiffError> {
-    const absolutePath = resolveToCwd(path, cwd);
-
-    try {
-        // Check if file exists and is readable
-        try {
-            await access(absolutePath, constants.R_OK);
-        } catch (error: unknown) {
-            const errorMessage =
-                error instanceof Error && "code" in error ? `Error code: ${error.code}` : String(error);
-            return { error: `Could not edit file: ${path}. ${errorMessage}.` };
-        }
-
-        // Read the file
-        const rawContent = await readFile(absolutePath, "utf-8");
-
-        // Strip BOM before matching (LLM won't include invisible BOM in oldText)
-        const { text: content } = stripBom(rawContent);
-        const normalizedContent = normalizeToLF(content);
-        const { baseContent, newContent } = applyEditsToNormalizedContent(normalizedContent, edits, path);
-
-        // Generate the diff
-        return generateDiffString(baseContent, newContent);
-    } catch (err) {
-        return { error: err instanceof Error ? err.message : String(err) };
-    }
-}
-
-/**
- * Compute the diff for a single edit operation without applying it.
- * Kept as a convenience wrapper for single-edit callers.
- */
-export async function computeEditDiff(
-    path: string,
-    oldText: string,
-    newText: string,
-    cwd: string,
-): Promise<EditDiffResult | EditDiffError> {
-    return computeEditsDiff(path, [{ oldText, newText }], cwd);
-}

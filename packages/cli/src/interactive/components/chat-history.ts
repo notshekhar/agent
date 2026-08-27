@@ -15,7 +15,7 @@ import {
 } from "../ui/messages";
 import { ToolExecutionComponent } from "../ui/tool-execution";
 import { verbGroupLabel, type GroupMember } from "../ui/verb-group";
-import { matchSessionHookContext, settingsStore } from "@notshekhar/loop-core";
+import { matchSessionHookContext } from "@notshekhar/loop-core";
 import { accentTitle, dim, err } from "../ui/text";
 
 interface PiAssistantMessage {

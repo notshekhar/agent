@@ -47,7 +47,6 @@ import { useNewThreadHandler } from "../../hooks/useHandleNewThread";
 import { useClientSettings } from "../../hooks/useSettings";
 import { useProjects, useThreadShells } from "../../state/entities";
 import { useUiStateStore } from "../../uiStateStore";
-import { cn } from "../../lib/utils";
 import { formatRelativeTimeLabel } from "../../timestampFormat";
 import { SettingsSidebarNav } from "../settings/SettingsSidebarNav";
 import { SidebarChromeFooter, SidebarChromeHeader } from "../sidebar/SidebarChrome";

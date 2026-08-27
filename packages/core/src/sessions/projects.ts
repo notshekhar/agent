@@ -31,13 +31,6 @@ function upsert(dir: string, fields: { trust?: boolean; model?: string; provider
 // Trust
 // --------------------------------------------------------------------------
 
-/** The persisted trust decision for exactly this dir (no ancestor walk). */
-export function readTrustRow(dir: string): boolean | null {
-    const row = getDb().query<{ trust: number | null }, [string]>("SELECT trust FROM projects WHERE dir = ?").get(dir);
-    if (!row || row.trust === null) return null;
-    return row.trust === 1;
-}
-
 export function writeTrustRow(dir: string, decision: boolean): void {
     upsert(dir, { trust: decision });
 }

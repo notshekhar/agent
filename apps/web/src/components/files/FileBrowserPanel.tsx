@@ -4,7 +4,7 @@ import type {
 } from "@pierre/trees";
 import type { EnvironmentId, ProjectEntry } from "@loop/contracts";
 import { FileTree, useFileTree, useFileTreeSearch } from "@pierre/trees/react";
-import { serializeComposerFileLink } from "@loop/shared/composerTrigger";
+import { serializeComposerFileLink } from "@loop/shared/composerFileLink";
 import { RotateCw } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 

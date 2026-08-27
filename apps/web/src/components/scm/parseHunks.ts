@@ -127,6 +127,17 @@ function stripPrefix(name: string): string {
 }
 
 /**
+ * The first and last line of a hunk's removed (or added) run. They are only
+ * ever set together, so they travel as one value — that is what lets the
+ * caller read `.last` off a non-null span without a non-null assertion.
+ */
+type LineSpan = { readonly first: number; readonly last: number };
+
+function extendSpan(span: LineSpan | null, at: number): LineSpan {
+  return span === null ? { first: at, last: at } : { first: span.first, last: at };
+}
+
+/**
  * The change a hunk represents, in `applyLineChanges` terms.
  *
  * A hunk's removed lines are contiguous within it, as are its added lines, but
@@ -145,10 +156,8 @@ function toLineChange(
 ): LineChange {
   let originalCursor = originalStart;
   let modifiedCursor = modifiedStart;
-  let firstRemoved: number | null = null;
-  let lastRemoved: number | null = null;
-  let firstAdded: number | null = null;
-  let lastAdded: number | null = null;
+  let removed: LineSpan | null = null;
+  let added: LineSpan | null = null;
 
   for (const line of lines) {
     if (line.kind === "context") {
@@ -157,26 +166,27 @@ function toLineChange(
       continue;
     }
     if (line.kind === "removed") {
-      firstRemoved ??= originalCursor;
-      lastRemoved = originalCursor;
+      removed = extendSpan(removed, originalCursor);
       originalCursor += 1;
       continue;
     }
-    firstAdded ??= modifiedCursor;
-    lastAdded = modifiedCursor;
+    added = extendSpan(added, modifiedCursor);
     modifiedCursor += 1;
   }
-
-  const isInsertion = firstRemoved === null;
-  const isDeletion = firstAdded === null;
 
   return {
     // An insertion goes AFTER the line preceding it, which is where the added
     // lines begin on the original side minus one.
-    originalStart: isInsertion ? (firstAdded ?? modifiedStart) - modifiedStart + originalStart - 1 : firstRemoved,
-    originalEnd: isInsertion ? 0 : lastRemoved!,
-    modifiedStart: isDeletion ? (firstRemoved ?? originalStart) - originalStart + modifiedStart : firstAdded,
-    modifiedEnd: isDeletion ? 0 : lastAdded!,
+    originalStart:
+      removed === null
+        ? (added?.first ?? modifiedStart) - modifiedStart + originalStart - 1
+        : removed.first,
+    originalEnd: removed?.last ?? 0,
+    modifiedStart:
+      added === null
+        ? (removed?.first ?? originalStart) - originalStart + modifiedStart
+        : added.first,
+    modifiedEnd: added?.last ?? 0,
   };
 }
 

@@ -286,11 +286,6 @@ export function listShells(sessionId: string | undefined): ShellInfo[] {
     return [...bucket(sessionId).byId.values()].map(toInfo);
 }
 
-export function getShell(sessionId: string | undefined, id: string): ShellInfo | undefined {
-    const rec = bucket(sessionId).byId.get(id);
-    return rec ? toInfo(rec) : undefined;
-}
-
 export function runningShellCount(sessionId: string | undefined): number {
     let n = 0;
     for (const rec of bucket(sessionId).byId.values()) if (rec.status === "running") n++;

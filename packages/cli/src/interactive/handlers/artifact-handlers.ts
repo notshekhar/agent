@@ -125,9 +125,3 @@ export function createArtifactHandlers(deps: AppDeps): ArtifactHandlers {
     };
 }
 
-/** Shown by `${PRODUCT_NAME} --help`-adjacent surfaces that count artifacts. */
-export function artifactsStatusLabel(): string {
-    if (getSetting("artifacts") !== true) return "off";
-    const n = listArtifacts().length;
-    return n === 0 ? "none yet" : `${n}`;
-}

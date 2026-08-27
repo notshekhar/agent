@@ -105,10 +105,6 @@ export class PrimaryEnvironmentAuthSessionTimeoutError extends Schema.TaggedErro
   }
 }
 
-export const isPrimaryEnvironmentAuthSessionTimeoutError = Schema.is(
-  PrimaryEnvironmentAuthSessionTimeoutError,
-);
-
 export class PrimaryEnvironmentPairingCredentialRequiredError extends Schema.TaggedErrorClass<PrimaryEnvironmentPairingCredentialRequiredError>()(
   "PrimaryEnvironmentPairingCredentialRequiredError",
   {
@@ -119,10 +115,6 @@ export class PrimaryEnvironmentPairingCredentialRequiredError extends Schema.Tag
     return "Enter a pairing token to continue.";
   }
 }
-
-export const isPrimaryEnvironmentPairingCredentialRequiredError = Schema.is(
-  PrimaryEnvironmentPairingCredentialRequiredError,
-);
 
 const isEnvironmentHttpCommonError = Schema.is(EnvironmentHttpCommonError);
 

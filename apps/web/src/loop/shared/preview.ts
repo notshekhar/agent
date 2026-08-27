@@ -20,14 +20,6 @@ export function newPreviewTabId(): string {
 
 const LOOPBACK_HOSTS: ReadonlySet<string> = new Set(["localhost", "127.0.0.1", "0.0.0.0", "::1"]);
 
-/** Internal — used by `lsof` parsing where the host string is wire-formatted. */
-export const LSOF_LOCAL_HOST_TOKENS: ReadonlySet<string> = new Set([
-  ...LOOPBACK_HOSTS,
-  "*",
-  "[::]",
-  "[::1]",
-]);
-
 const LOOPBACK_PREFIX_PATTERN = /^(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1?\])(?::|\/|$)/i;
 
 export function isLoopbackHost(host: string): boolean {
@@ -61,8 +53,6 @@ export class PreviewUrlNormalizationError extends Schema.TaggedErrorClass<Previe
     return `Invalid preview URL (${this.reason}${protocol}; input length ${this.inputLength}).`;
   }
 }
-
-export const isPreviewUrlNormalizationError = Schema.is(PreviewUrlNormalizationError);
 
 function previewUrlProtocol(rawUrl: string): string | undefined {
   return /^([A-Za-z][A-Za-z\d+.-]*):/.exec(rawUrl)?.[1]?.toLowerCase().concat(":");

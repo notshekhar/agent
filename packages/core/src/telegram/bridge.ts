@@ -42,7 +42,6 @@ import {
     streamCut,
     streamPreview,
     STREAM_SOFT_LIMIT,
-    toolLine,
     toolMessageHtml,
     truncate,
 } from "./render";

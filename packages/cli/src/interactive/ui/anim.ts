@@ -89,11 +89,6 @@ export function setAnimationActive(active: boolean): void {
     }
 }
 
-/** Drop the clock unconditionally (shutdown). Idempotent. */
-export function stopAnimationClock(): void {
-    setAnimationActive(false);
-}
-
 /**
  * Pin the frame for a test. Animated rendering is a pure function of the tick,
  * so a test can step frames deterministically instead of sleeping and hoping.

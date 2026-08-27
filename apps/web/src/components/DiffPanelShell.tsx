@@ -45,20 +45,6 @@ export function DiffPanelShell(props: {
   );
 }
 
-export function DiffPanelHeaderSkeleton() {
-  return (
-    <>
-      <div className="min-w-0 flex-1">
-        <Skeleton className="h-8 w-32 rounded-lg" />
-      </div>
-      <div className="flex shrink-0 gap-1">
-        <Skeleton className="size-7 rounded-md" />
-        <Skeleton className="size-7 rounded-md" />
-      </div>
-    </>
-  );
-}
-
 export function DiffPanelLoadingState(props: { label: string }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col p-2">

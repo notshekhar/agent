@@ -1,6 +1,5 @@
 import type { ContextMenuItem, LocalApi } from "@loop/contracts";
 
-import { resetRequestLatencyStateForTests } from "./rpc/requestLatencyState";
 import { showContextMenuFallback } from "./contextMenuFallback";
 import { readBrowserClientSettings, writeBrowserClientSettings } from "./clientPersistenceStorage";
 
@@ -81,9 +80,3 @@ export function ensureLocalApi(): LocalApi {
   return api;
 }
 
-export async function __resetLocalApiForTests() {
-  cachedApi = undefined;
-  const { __resetClientSettingsPersistenceForTests } = await import("./hooks/useSettings");
-  __resetClientSettingsPersistenceForTests();
-  resetRequestLatencyStateForTests();
-}

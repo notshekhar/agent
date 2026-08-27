@@ -680,11 +680,6 @@ export function onLoopConnectionChange(listener: (state: ConnectionState) => voi
   return socket.onStateChange(listener);
 }
 
-/** Open the connection eagerly so the first call does not pay for the handshake. */
-export function connectToLoop(): void {
-  if (!isDesktopShell()) socket.connect();
-}
-
 /**
  * The filesystem bridge, or null in a browser.
  *

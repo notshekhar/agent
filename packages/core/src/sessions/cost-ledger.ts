@@ -1,5 +1,4 @@
 import { getModelSync } from "../catalog";
-import { debugLog } from "../debug";
 import type { UsageBlock } from "../types";
 import { getDb } from "./db";
 import { normalizeUsage } from "./usage";

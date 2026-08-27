@@ -228,10 +228,6 @@ export function artifactTitle(id: string): string | undefined {
  */
 let pendingOpenId: string | null = null;
 
-export function requestOpenArtifact(id: string): void {
-  pendingOpenId = id;
-}
-
 /** Read once and clear, so a later visit to the page does not reopen it. */
 export function takePendingArtifactId(): string | null {
   const id = pendingOpenId;

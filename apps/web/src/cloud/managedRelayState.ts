@@ -5,10 +5,7 @@ import {
   managedRelaySessionAtom,
   readManagedRelaySnapshotState,
 } from "@loop/runtime/relay";
-import type {
-  RelayClientDeviceRecord,
-  RelayClientEnvironmentRecord,
-} from "@loop/contracts/relay";
+import type { RelayClientDeviceRecord } from "@loop/contracts/relay";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -29,42 +26,9 @@ const managedRelayAtomRuntime = Atom.runtime(
 
 export const managedRelayQueryManager = createManagedRelayQueryManager(managedRelayAtomRuntime);
 
-const EMPTY_ENVIRONMENTS_ATOM = Atom.make(
-  AsyncResult.success<ReadonlyArray<RelayClientEnvironmentRecord>>([]),
-).pipe(Atom.keepAlive, Atom.withLabel("managed-relay:web:environments:null"));
-
 const EMPTY_DEVICES_ATOM = Atom.make(
   AsyncResult.success<ReadonlyArray<RelayClientDeviceRecord>>([]),
 ).pipe(Atom.keepAlive, Atom.withLabel("managed-relay:web:devices:null"));
-
-export function useManagedRelayEnvironments() {
-  const session = useAtomValue(managedRelaySessionAtom);
-  const accountId = session?.accountId ?? null;
-  const atom = accountId
-    ? managedRelayQueryManager.environmentsAtom(accountId)
-    : EMPTY_ENVIRONMENTS_ATOM;
-  const result = useAtomValue(atom);
-  const snapshot = readManagedRelaySnapshotState(result);
-  useEffect(() => {
-    if (snapshot.error) {
-      console.error("[t3-cloud] Relay environment listing failed", {
-        message: snapshot.error,
-        traceId: snapshot.errorTraceId,
-      });
-    }
-  }, [snapshot.error, snapshot.errorTraceId]);
-  const refresh = useCallback(() => {
-    if (accountId) {
-      managedRelayQueryManager.refreshEnvironments(appAtomRegistry, accountId);
-    }
-  }, [accountId]);
-
-  return {
-    ...snapshot,
-    accountId,
-    refresh,
-  };
-}
 
 export function useManagedRelayDevices() {
   const session = useAtomValue(managedRelaySessionAtom);
@@ -93,9 +57,3 @@ export function useManagedRelayDevices() {
   };
 }
 
-export function refreshManagedRelayEnvironments(): void {
-  const session = appAtomRegistry.get(managedRelaySessionAtom);
-  if (session) {
-    managedRelayQueryManager.refreshEnvironments(appAtomRegistry, session.accountId);
-  }
-}

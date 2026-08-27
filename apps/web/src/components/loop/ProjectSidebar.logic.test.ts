@@ -5,7 +5,6 @@ import {
   buildProjectSidebarRows,
   compactTimeLabel,
   resolveActiveProjectId,
-  SIDEBAR_SETTLED_PAGE,
   type ProjectSidebarProjectInput,
   type ProjectSidebarThreadInput,
 } from "./ProjectSidebar.logic";

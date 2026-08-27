@@ -321,7 +321,3 @@ export function resetMcpLogins(): void {
     logins.clear();
 }
 
-/** The project-scoped servers for a cwd, for a UI that shows where each came from. */
-export function projectMcpServers(cwd: string): Record<string, McpServerConfig> {
-    return getProjectServers(cwd);
-}

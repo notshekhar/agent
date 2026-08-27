@@ -52,11 +52,6 @@ export function getConfigDir(): string {
     return join(homedir(), CONFIG_DIR_NAME);
 }
 
-/** <cwd>/.loop — project-local config/skills/hooks dir. */
-export function projectConfigDir(cwd: string): string {
-    return join(cwd, CONFIG_DIR_NAME);
-}
-
 /** Full env-var name for a suffix: envName("DEBUG") → "LOOP_DEBUG". */
 export function envName(suffix: string): string {
     return `${ENV_PREFIX}_${suffix}`;

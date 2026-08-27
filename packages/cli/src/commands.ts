@@ -1,7 +1,7 @@
 import { brandEnv, envName, REPO_SLUG, PRODUCT_NAME } from "@notshekhar/loop-core";
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { dirname, join } from "node:path";
 import {
     getActiveProvider,
     getCatalog,

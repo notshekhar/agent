@@ -18,7 +18,7 @@ import { createWriteStream } from "node:fs";
 import { chmod, mkdir, mkdtemp, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, dirname, join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
@@ -399,7 +399,3 @@ export async function ensureExecutable(root: string, platform: Platform): Promis
   await chmod(launcher, 0o755).catch(() => undefined);
 }
 
-/** The name of the thing being replaced, for log lines and errors. */
-export function describeLayout(layout: InstallLayout): string {
-  return `${layout.kind} ${basename(layout.root)}`;
-}

@@ -1,6 +1,5 @@
 import { CONFIG_DIR_NAME, getConfigDir } from "../brand";
 import { existsSync, readFileSync, statSync, watch, type FSWatcher } from "node:fs";
-import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 const CONTEXT_FILES = ["AGENTS.md", "CLAUDE.md", `${CONFIG_DIR_NAME}/AGENTS.md`, `${CONFIG_DIR_NAME}/CLAUDE.md`];

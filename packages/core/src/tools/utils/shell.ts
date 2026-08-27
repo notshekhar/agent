@@ -1,7 +1,6 @@
 import { getConfigDir } from "../../brand";
 import { existsSync } from "node:fs";
 import { delimiter, join } from "node:path";
-import { homedir } from "node:os";
 import { spawn, spawnSync } from "node:child_process";
 
 export function getBinDir(): string {

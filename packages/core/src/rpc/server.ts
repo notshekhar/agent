@@ -59,7 +59,6 @@ import {
     logout,
     parseCustomProviderId,
     refreshConfigStores,
-    settingsStore,
 } from "../auth";
 import {
     answerAuthFlow,
@@ -331,6 +330,17 @@ type Transport = {
     send(msg: RpcResponse | RpcNotification): void;
 };
 
+/**
+ * One RPC method's implementation. Every handler takes the same three
+ * arguments so the groups compose into one table; a handler names only the
+ * ones it uses.
+ */
+type RpcMethodHandler = (
+    params: Record<string, unknown>,
+    transport: Transport,
+    req: RpcRequest,
+) => unknown;
+
 export class RpcServer {
     private sessions = new Map<string, ActiveSession>();
     private manager = new SessionManager();
@@ -457,10 +467,41 @@ export class RpcServer {
         }
     }
 
+    /**
+     * The method table, built once on first dispatch.
+     *
+     * This used to be one 64-case switch, which meant a single 800-line method
+     * and no way to see a domain's surface without scrolling past every other
+     * one. The bodies are unchanged — each is now an arrow in the group its
+     * method name belongs to, so `this` still means the server.
+     */
+    private methodHandlers: Record<string, RpcMethodHandler> | undefined;
+
+    private get handlers(): Record<string, RpcMethodHandler> {
+        this.methodHandlers ??= {
+            ...this.sessionHandlers(),
+            ...this.agentHandlers(),
+            ...this.authHandlers(),
+            ...this.catalogHandlers(),
+            ...this.settingsHandlers(),
+            ...this.extensionHandlers(),
+            ...this.datasourceHandlers(),
+            ...this.mcpHandlers(),
+            ...this.artifactHandlers(),
+        };
+        return this.methodHandlers;
+    }
+
     private async dispatch(req: RpcRequest, transport: Transport): Promise<unknown> {
-        const params = (req.params ?? {}) as Record<string, unknown>;
-        switch (req.method) {
-            case "session.create": {
+        const handler = this.handlers[req.method];
+        if (!handler) throw new Error(`Method not found: ${req.method}`);
+        return handler((req.params ?? {}) as Record<string, unknown>, transport, req);
+    }
+
+    /** Sessions: create, open, send, and the tree they live in. */
+    private sessionHandlers(): Record<string, RpcMethodHandler> {
+        return {
+            "session.create": async (params, transport) => {
                 const cwd = String(params.cwd ?? process.cwd());
                 const provider = (params.provider as ProviderId) ?? getActiveProvider() ?? "xai";
                 const model = String(params.model ?? "");
@@ -479,8 +520,8 @@ export class RpcServer {
                 this.wireCtx(session.id, ctx);
                 this.sessions.set(session.id, ctx);
                 return { sessionId: session.id };
-            }
-            case "session.answer": {
+            },
+            "session.answer": (params) => {
                 // Index-aligned with the questions the `ask` event carried.
                 // Unknown id = the turn already moved on (aborted, or answered
                 // by another client); say so rather than failing.
@@ -490,75 +531,8 @@ export class RpcServer {
                 const answers = Array.isArray(params.answers) ? (params.answers as AskAnswer[]) : [];
                 resolve(answers);
                 return { ok: true, askId };
-            }
-            case "agent.list": {
-                // Name, description and model only: `prompt` can be pages long
-                // and no client needs it to render a picker.
-                return listAgents()
-                    .filter((a) => !a.hidden)
-                    .map((a) => ({
-                        name: a.name,
-                        builtin: a.builtin,
-                        ...(a.model === undefined ? {} : { model: a.model }),
-                        ...(a.tools === undefined ? {} : { tools: a.tools }),
-                    }));
-            }
-            case "agent.get": {
-                // The editor's read: unlike agent.list this DOES carry the
-                // prompt, because editing it is the whole point. Hidden
-                // built-ins are fetchable by name — they are only hidden from
-                // the picker, not secret.
-                const name = String(params.name ?? "");
-                if (!agentExists(name)) throw new Error(`Unknown agent: ${name}`);
-                const builtin = isBuiltinAgent(name);
-                return {
-                    name,
-                    prompt: getAgentPrompt(name) ?? "",
-                    builtin,
-                    // Undefined means "all tools" — kept as an absent field so
-                    // a client can tell it apart from an empty allowlist.
-                    ...(getAgentTools(name) === undefined ? {} : { tools: getAgentTools(name) }),
-                    ...(getAgentModel(name) === undefined ? {} : { model: getAgentModel(name) }),
-                    // A built-in's tool set is fixed; only its prompt and model
-                    // are editable, and `hasOverride` is what makes "reset to
-                    // built-in" offerable.
-                    toolsEditable: !builtin,
-                    hasOverride: hasBuiltinOverride(name),
-                };
-            }
-            case "agent.save": {
-                // Create or update. Mirrors the TUI's /agents editor, including
-                // its rule that a built-in's tool set is fixed (saveAgent drops
-                // `tools` for built-ins rather than trusting the caller).
-                const name = String(params.name ?? "").trim();
-                if (!isValidAgentName(name)) {
-                    throw new Error(`Invalid agent name: ${name} (alphanumeric and dashes, 32 chars max)`);
-                }
-                const prompt = String(params.prompt ?? "");
-                if (!prompt.trim()) throw new Error("An agent needs a system prompt");
-                // A name that is already a slash command but not an agent would
-                // produce an agent nobody can invoke — the TUI refuses it too.
-                if (!agentExists(name) && this.commands.has(name)) {
-                    throw new Error(`"${name}" is already a command`);
-                }
-                const tools = Array.isArray(params.tools) ? (params.tools as unknown[]).map(String) : undefined;
-                const model = typeof params.model === "string" ? params.model : undefined;
-                saveAgent(name, prompt, tools, model);
-                return { ok: true, name };
-            }
-            case "agent.delete": {
-                // For a custom agent this removes it; for a built-in it drops
-                // the override file, resetting the prompt. `{ok:false}` means
-                // there was no file — nothing to reset — not an error.
-                const name = String(params.name ?? "");
-                return { ok: deleteAgent(name) };
-            }
-            case "agent.tools": {
-                // The allowlist an agent editor offers. Dynamic, not the static
-                // constant, so tools registered by extensions are offerable.
-                return agentToolNames();
-            }
-            case "session.list": {
+            },
+            "session.list": (params) => {
                 // DB rows enriched with liveness so pickers can mark sessions
                 // that are running / being watched right now.
                 //
@@ -586,8 +560,8 @@ export class RpcServer {
                         attached: ctx?.subscribers.size ?? 0,
                     };
                 });
-            }
-            case "session.history": {
+            },
+            "session.history": async (params) => {
                 // Full transcript along the current branch so a (re)connecting
                 // client can render the conversation before subscribing to the
                 // live stream. Abandoned branches are excluded — this is what
@@ -611,8 +585,8 @@ export class RpcServer {
                     seq: ctx.seq,
                     running: ctx.running,
                 };
-            }
-            case "session.open": {
+            },
+            "session.open": async (params) => {
                 // Reuses a live context: a second client opening the session
                 // must NOT reset the running flag / abort controller of a turn
                 // in flight. Does NOT subscribe — clients call session.attach
@@ -621,8 +595,8 @@ export class RpcServer {
                 const id = String(params.sessionId);
                 const ctx = await this.ensureCtx(id);
                 return { sessionId: id, info: ctx.session.info, running: ctx.running, seq: ctx.seq };
-            }
-            case "session.attach": {
+            },
+            "session.attach": async (params, transport) => {
                 // Subscribe + catch up: replays ring events after `afterSeq`,
                 // or signals resync when the gap left the ring (client falls
                 // back to a full session.history render).
@@ -652,13 +626,13 @@ export class RpcServer {
                     resync = true;
                 }
                 return { ok: true, seq: ctx.seq, running: ctx.running, resync };
-            }
-            case "session.detach": {
+            },
+            "session.detach": (params, transport) => {
                 const id = String(params.sessionId);
                 this.sessions.get(id)?.subscribers.delete(transport);
                 return { ok: true };
-            }
-            case "session.send": {
+            },
+            "session.send": (params) => {
                 const id = String(params.sessionId);
                 const ctx = this.requireSession(id);
                 if (ctx.running) throw new Error(`session ${id} already has a turn running (cancel it first)`);
@@ -709,22 +683,22 @@ export class RpcServer {
                         }),
                 );
                 return { ok: true };
-            }
-            case "session.rename": {
+            },
+            "session.rename": async (params) => {
                 const id = String(params.sessionId);
                 const ctx = this.requireSession(id);
                 const name = String(params.name ?? "").trim();
                 await ctx.session.setName(name);
                 return { ok: true, name };
-            }
-            case "session.cancel": {
+            },
+            "session.cancel": (params) => {
                 const id = String(params.sessionId);
                 const ctx = this.requireSession(id);
                 ctx.abort.abort();
                 ctx.abort = new AbortController();
                 return { ok: true };
-            }
-            case "session.tree": {
+            },
+            "session.tree": async (params) => {
                 // ALL branches, unlike `session.history`, which returns only
                 // the current one. That is the right answer for rendering a
                 // conversation and the wrong one for choosing between them —
@@ -733,8 +707,8 @@ export class RpcServer {
                 const id = String(params.sessionId);
                 const ctx = await this.ensureCtx(id);
                 return buildSessionTreeView(ctx.session);
-            }
-            case "session.branch": {
+            },
+            "session.branch": (params) => {
                 // `/tree` navigation: move the leaf, so the entries after it
                 // stop reaching the model. Nothing is deleted — the abandoned
                 // branch stays in the tree and can be navigated back to, which
@@ -760,8 +734,8 @@ export class RpcServer {
                 // path, so a branch that ran on another model changes it.
                 ctx.modelId = ctx.session.lastModel();
                 return { ok: true, leafId: ctx.session.getLeafId(), model: ctx.modelId };
-            }
-            case "session.fork": {
+            },
+            "session.fork": async (params) => {
                 // A COPY, unlike session.branch, which moves this session's
                 // leaf. `position` mirrors the TUI: "at" clones up to and
                 // including the entry (/clone), "before" forks at its parent so
@@ -804,8 +778,8 @@ export class RpcServer {
                             ? stripSessionHookContext(extractMessageText(entry.content))
                             : undefined,
                 };
-            }
-            case "session.archive": {
+            },
+            "session.archive": (params) => {
                 // The gentler half of `session.delete`: the conversation, its
                 // entries and its spend all stay — it just stops appearing in
                 // the list you work from. `archived: false` takes it back out.
@@ -820,8 +794,8 @@ export class RpcServer {
                 const archived = params.archived !== false;
                 const ok = this.manager.setArchived(id, archived);
                 return { ok, sessionId: id, archived: ok ? archived : false };
-            }
-            case "session.delete": {
+            },
+            "session.delete": (params) => {
                 // Deliberately does NOT go through requireSession: a session
                 // that was never opened in this process has no live context,
                 // and being unable to delete the ones you have not touched
@@ -840,8 +814,8 @@ export class RpcServer {
                 }
                 const deleted = this.manager.delete(id);
                 return { ok: deleted, sessionId: id };
-            }
-            case "session.compact": {
+            },
+            "session.compact": async (params) => {
                 const id = String(params.sessionId);
                 const ctx = this.requireSession(id);
                 if (ctx.running) throw new Error(`session ${id} already has a turn running (cancel it first)`);
@@ -874,8 +848,87 @@ export class RpcServer {
                 } finally {
                     this.setRunning(id, ctx, false);
                 }
-            }
-            case "auth.status":
+            },
+        };
+    }
+
+    /** Named agents and the tools each may use. */
+    private agentHandlers(): Record<string, RpcMethodHandler> {
+        return {
+            "agent.list": () => {
+                // Name, description and model only: `prompt` can be pages long
+                // and no client needs it to render a picker.
+                return listAgents()
+                    .filter((a) => !a.hidden)
+                    .map((a) => ({
+                        name: a.name,
+                        builtin: a.builtin,
+                        ...(a.model === undefined ? {} : { model: a.model }),
+                        ...(a.tools === undefined ? {} : { tools: a.tools }),
+                    }));
+            },
+            "agent.get": (params) => {
+                // The editor's read: unlike agent.list this DOES carry the
+                // prompt, because editing it is the whole point. Hidden
+                // built-ins are fetchable by name — they are only hidden from
+                // the picker, not secret.
+                const name = String(params.name ?? "");
+                if (!agentExists(name)) throw new Error(`Unknown agent: ${name}`);
+                const builtin = isBuiltinAgent(name);
+                return {
+                    name,
+                    prompt: getAgentPrompt(name) ?? "",
+                    builtin,
+                    // Undefined means "all tools" — kept as an absent field so
+                    // a client can tell it apart from an empty allowlist.
+                    ...(getAgentTools(name) === undefined ? {} : { tools: getAgentTools(name) }),
+                    ...(getAgentModel(name) === undefined ? {} : { model: getAgentModel(name) }),
+                    // A built-in's tool set is fixed; only its prompt and model
+                    // are editable, and `hasOverride` is what makes "reset to
+                    // built-in" offerable.
+                    toolsEditable: !builtin,
+                    hasOverride: hasBuiltinOverride(name),
+                };
+            },
+            "agent.save": (params) => {
+                // Create or update. Mirrors the TUI's /agents editor, including
+                // its rule that a built-in's tool set is fixed (saveAgent drops
+                // `tools` for built-ins rather than trusting the caller).
+                const name = String(params.name ?? "").trim();
+                if (!isValidAgentName(name)) {
+                    throw new Error(`Invalid agent name: ${name} (alphanumeric and dashes, 32 chars max)`);
+                }
+                const prompt = String(params.prompt ?? "");
+                if (!prompt.trim()) throw new Error("An agent needs a system prompt");
+                // A name that is already a slash command but not an agent would
+                // produce an agent nobody can invoke — the TUI refuses it too.
+                if (!agentExists(name) && this.commands.has(name)) {
+                    throw new Error(`"${name}" is already a command`);
+                }
+                const tools = Array.isArray(params.tools) ? (params.tools as unknown[]).map(String) : undefined;
+                const model = typeof params.model === "string" ? params.model : undefined;
+                saveAgent(name, prompt, tools, model);
+                return { ok: true, name };
+            },
+            "agent.delete": (params) => {
+                // For a custom agent this removes it; for a built-in it drops
+                // the override file, resetting the prompt. `{ok:false}` means
+                // there was no file — nothing to reset — not an error.
+                const name = String(params.name ?? "");
+                return { ok: deleteAgent(name) };
+            },
+            "agent.tools": () => {
+                // The allowlist an agent editor offers. Dynamic, not the static
+                // constant, so tools registered by extensions are offerable.
+                return agentToolNames();
+            },
+        };
+    }
+
+    /** Provider sign-in: status, the device/OAuth flows, custom gateways. */
+    private authHandlers(): Record<string, RpcMethodHandler> {
+        return {
+            "auth.status": async () => {
                 // `providers` is what a remote client may OFFER, which includes
                 // the zero-login (ollama, bedrock) and custom gateways that have
                 // no auth entry — returning only logged-in providers here is
@@ -886,13 +939,15 @@ export class RpcServer {
                     authorized: listAuthorizedProviders(),
                     active: getActiveProvider(),
                 };
+            },
             // Every provider a client may OFFER TO SIGN IN TO — wider than
             // auth.status, which only answers "what can run now". A settings
             // screen needs the ones you could connect, or it has nothing to
             // show but the providers you already have.
-            case "auth.providers":
+            "auth.providers": () => {
                 return { providers: listProviderDescriptors(), active: getActiveProvider() };
-            case "auth.login": {
+            },
+            "auth.login": (params) => {
                 const provider = params.provider as ProviderId;
                 const key = String(params.apiKey ?? "");
                 if (!provider || !key) {
@@ -904,8 +959,8 @@ export class RpcServer {
                 // appear until the process restarted.
                 bustCatalogCache();
                 return { ok: true };
-            }
-            case "auth.logout": {
+            },
+            "auth.logout": (params) => {
                 const provider = params.provider as ProviderId | undefined;
                 logout(provider);
                 if (provider && isCustomProvider(provider)) {
@@ -913,10 +968,10 @@ export class RpcServer {
                 }
                 bustCatalogCache();
                 return { ok: true };
-            }
+            },
             // The logins a request/response cannot hold open — OAuth, device
             // flows, credential probes. See rpc/auth-flows.ts.
-            case "auth.flow.start":
+            "auth.flow.start": (params) => {
                 return startAuthFlow({
                     provider: String(params.provider ?? ""),
                     ...(params.method ? { method: params.method as AuthMethod } : {}),
@@ -924,36 +979,51 @@ export class RpcServer {
                     // rpc/custom-providers.ts.
                     ...(params.custom === undefined ? {} : { custom: params.custom }),
                 });
-            case "auth.flow.poll":
+            },
+            "auth.flow.poll": (params) => {
                 return pollAuthFlow(String(params.flowId ?? ""), Number(params.cursor ?? 0));
-            case "auth.flow.answer":
+            },
+            "auth.flow.answer": (params) => {
                 return answerAuthFlow(
                     String(params.flowId ?? ""),
                     String(params.promptId ?? ""),
                     String(params.value ?? ""),
                 );
-            case "auth.flow.cancel":
+            },
+            "auth.flow.cancel": (params) => {
                 return cancelAuthFlow(String(params.flowId ?? ""));
+            },
             // Creating a gateway, which `auth.login` cannot do: it stores a key
             // against a provider that already exists, and a custom provider IS
             // its config. See rpc/custom-providers.ts.
-            case "auth.custom.list":
+            "auth.custom.list": () => {
                 return listCustomProviderSummaries();
-            case "auth.custom.discover":
+            },
+            "auth.custom.discover": async (params) => {
                 return await discoverCustomProviderModels(params);
-            case "auth.custom.save":
+            },
+            "auth.custom.save": (params) => {
                 return saveCustomProviderConfig(params);
-            case "auth.custom.remove":
+            },
+            "auth.custom.remove": (params) => {
                 return removeCustomProvider(params);
-            case "auth.custom.setActive":
+            },
+            "auth.custom.setActive": (params) => {
                 return setActiveCustomProvider(params);
-            case "catalog.list": {
+            },
+        };
+    }
+
+    /** Models, what a run cost, and the message a commit gets. */
+    private catalogHandlers(): Record<string, RpcMethodHandler> {
+        return {
+            "catalog.list": async (params) => {
                 const cat = await getCatalog();
                 const wanted = params.provider as ProviderId | undefined;
                 const list = Object.values(cat);
                 return wanted ? list.filter((m) => m.provider === wanted) : list;
-            }
-            case "cost.session": {
+            },
+            "cost.session": async (params) => {
                 // `ensureCtx`, not `requireSession`: what a session cost is a
                 // property of the transcript, not of whether this process
                 // happens to have it open. Refusing to answer for a session
@@ -961,12 +1031,12 @@ export class RpcServer {
                 const id = String(params.sessionId);
                 const ctx = await this.ensureCtx(id);
                 return ctx.tracker.sessionBreakdown();
-            }
-            case "cost.lifetime": {
+            },
+            "cost.lifetime": () => {
                 const tracker = new CostTracker();
                 return tracker.lifetimeBreakdown();
-            }
-            case "git.commitMessage": {
+            },
+            "git.commitMessage": async (params) => {
                 // Sessionless on purpose: the desktop commit dialog wants one
                 // subject line for a diff it already has, and opening a session
                 // to get it would litter the session list and the tree.
@@ -982,29 +1052,35 @@ export class RpcServer {
                     cwd: params.cwd ? String(params.cwd) : undefined,
                 });
                 return { message };
-            }
-            case "cost.stats": {
+            },
+            "cost.stats": (params) => {
                 // today/7d/month/lifetime USD + per-provider split; cwd bucket
                 // when the client passes one (the web UI's selected project).
                 const tracker = new CostTracker();
                 return tracker.stats(params.cwd ? String(params.cwd) : undefined);
-            }
-            case "usage.steak": {
+            },
+            "usage.steak": (params) => {
                 // The /steak heatmap, computed server-side with the exact CLI
                 // layout (buildSteakGrid) so every client shades identically.
                 const year = params.year !== undefined ? Number(params.year) : undefined;
                 const daily = this.manager.dailyTokens();
                 return buildSteakGrid(daily, Number.isInteger(year) ? { year } : {});
-            }
-            case "settings.list": {
+            },
+        };
+    }
+
+    /** Settings, the context report, and what this server is. */
+    private settingsHandlers(): Record<string, RpcMethodHandler> {
+        return {
+            "settings.list": () => {
                 return WEB_SETTINGS.map((s) => ({
                     key: s.key,
                     label: s.label,
                     description: s.description,
                     value: (getSetting(s.key) as boolean | undefined) ?? s.def,
                 }));
-            }
-            case "context.report": {
+            },
+            "context.report": async (params) => {
                 // The /context breakdown for an open session, or — for a draft
                 // (no session yet) — the fixed overhead a new session in that
                 // cwd would start with. Read-only; buildContextReport mutates
@@ -1023,159 +1099,8 @@ export class RpcServer {
                     modelId: model,
                     cwd: String(params.cwd ?? process.cwd()),
                 });
-            }
-            case "extension.list": {
-                return getExtensionHost().listAll();
-            }
-            case "extension.setEnabled": {
-                // Enable/disable only — install/uninstall stay local-only, a
-                // remote client must not be able to pull new code onto the box.
-                const name = String(params.name ?? "");
-                if (typeof params.value !== "boolean") throw new Error("value must be boolean");
-                const entry = getExtensionHost()
-                    .listAll()
-                    .find((e) => e.name === name);
-                if (!entry) throw new Error(`unknown extension: ${name}`);
-                if (entry.builtin) setBuiltinEnabled(name, params.value);
-                else setRecordEnabled(name, params.value);
-                const host = getExtensionHost();
-                if (params.value) await host.reload(name);
-                else await host.unload(name);
-                bustCatalogCache();
-                return { name, value: params.value };
-            }
-            /**
-             * Saved database connections, with the secret withheld.
-             *
-             * `loop serve` is reachable over a network, so a stored password
-             * must never ride a list response — the client only needs to know
-             * whether one is set, and to render it if it is a `${env:VAR}`
-             * reference, which is a pointer rather than a secret.
-             */
-            case "datasource.list":
-                return listDatasources().map(({ id, config }) => {
-                    const { password, ...rest } = config;
-                    const isRef = typeof password === "string" && password.startsWith("${env:");
-                    return {
-                        id,
-                        config: { ...rest, ...(isRef ? { password } : {}) },
-                        hasPassword: Boolean(password),
-                        passwordIsEnvRef: isRef,
-                    };
-                });
-            case "datasource.save": {
-                const id = String(params.id ?? "").trim();
-                if (!isValidConnectionId(id)) throw new Error(`invalid connection id: ${id}`);
-                const draft = parseDatasourceConfig(params.config);
-                /**
-                 * An omitted password KEEPS the stored one.
-                 *
-                 * The list above withholds it, so an edit form has nothing to
-                 * send back — and treating that silence as "clear the password"
-                 * would break the connection every time someone corrected a
-                 * port. Clearing is still possible, by sending an empty string.
-                 */
-                const existing = getDatasource(id);
-                const config: DataSourceConfig =
-                    draft.password === undefined && existing?.password !== undefined
-                        ? { ...draft, password: existing.password }
-                        : draft;
-                saveDatasource(id, config);
-                // The cached pool still holds the OLD credentials; leaving it
-                // would mean the next query silently used the config the user
-                // just replaced.
-                await closePool(id);
-                return { id };
-            }
-            case "datasource.remove": {
-                const id = String(params.id ?? "").trim();
-                const removed = deleteDatasource(id);
-                if (removed) await closePool(id);
-                return { ok: removed };
-            }
-            /**
-             * Probe a connection without saving it.
-             *
-             * Takes either a draft config (the form's current contents, before
-             * the user commits) or the id of a saved one. A draft that omits
-             * its password falls back to the saved secret, so "Test" works on
-             * an edit form that never received it.
-             */
-            case "datasource.test": {
-                const id = typeof params.id === "string" ? params.id.trim() : "";
-                if (params.config === undefined) {
-                    const saved = id ? getDatasource(id) : undefined;
-                    if (!saved) throw new Error(`unknown datasource: ${id || "(none)"}`);
-                    return await testConnection(saved);
-                }
-                const draft = parseDatasourceConfig(params.config);
-                const existing = id ? getDatasource(id) : undefined;
-                return await testConnection(
-                    draft.password === undefined && existing?.password !== undefined
-                        ? { ...draft, password: existing.password }
-                        : draft,
-                );
-            }
-            case "mcp.list":
-                return listMcpServers(String(params.cwd ?? process.cwd()));
-            case "mcp.add": {
-                // Scope matters: a project server lives in the repo's own file
-                // and travels with it, a global one in ~/<config>/settings.json.
-                // The manager only knows the global half, so a project add is
-                // written and then picked up by the reconnect below.
-                const name = String(params.name ?? "").trim();
-                if (!name) throw new Error("server name required");
-                const config = parseServerConfig(params.config);
-                const cwd = String(params.cwd ?? process.cwd());
-                if (params.scope === "project") {
-                    addProjectServer(cwd, name, config);
-                    await getMcpManager().adopt(name, config);
-                } else {
-                    await getMcpManager().add(name, config);
-                }
-                return { name, server: getMcpManager().getServer(name) ?? null };
-            }
-            case "mcp.remove": {
-                const name = String(params.name ?? "").trim();
-                const cwd = String(params.cwd ?? process.cwd());
-                if (params.scope === "project") {
-                    // The live connection has to go too, or its tools stay in
-                    // the agent's tool set for the rest of the process.
-                    const removed = removeProjectServer(cwd, name);
-                    if (removed) await getMcpManager().forget(name);
-                    return { ok: removed };
-                }
-                return { ok: await getMcpManager().remove(name) };
-            }
-            case "mcp.setEnabled": {
-                const name = String(params.name ?? "").trim();
-                if (typeof params.value !== "boolean") throw new Error("value must be boolean");
-                const cwd = String(params.cwd ?? process.cwd());
-                if (params.scope === "project") {
-                    const ok = setProjectServerEnabled(cwd, name, params.value);
-                    if (!ok) return { ok };
-                    const config = getProjectServers(cwd)[name];
-                    if (config) await getMcpManager().adopt(name, config);
-                    return { ok };
-                }
-                return { ok: await getMcpManager().setEnabled(name, params.value) };
-            }
-            case "mcp.reconnect": {
-                // No name = all of them. This is also what makes the first
-                // `mcp.list` meaningful: nothing connects until asked.
-                const name = String(params.name ?? "").trim();
-                const manager = getMcpManager();
-                await manager.init(String(params.cwd ?? process.cwd()));
-                await manager.reconnect(name || undefined);
-                return listMcpServers(String(params.cwd ?? process.cwd()));
-            }
-            case "mcp.login.start":
-                return startMcpLogin(String(params.name ?? ""), String(params.cwd ?? process.cwd()));
-            case "mcp.login.poll":
-                return pollMcpLogin(String(params.flowId ?? ""), Number(params.cursor ?? 0));
-            case "mcp.login.cancel":
-                return cancelMcpLogin(String(params.flowId ?? ""));
-            case "config.reload": {
+            },
+            "config.reload": async (params) => {
                 // The GUI's `/reload`, and the same act as the terminal's: every
                 // config surface re-read from disk and the model catalog
                 // re-fetched, in one round trip.
@@ -1227,53 +1152,16 @@ export class RpcServer {
                     agents: listAgents().length,
                     providers: (await listUsableProviders()).length,
                 };
-            }
-            // Artifacts: pages the agent wrote under ~/<config>/artifacts. The
-            // rows carry `path` and `url` so a client can open one without a
-            // second round trip — there is no HTTP route serving artifacts, by
-            // design, so the file itself is what gets opened.
-            case "artifact.list": {
-                this.requireLocal(req.method);
-                return listArtifacts().map(artifactRow);
-            }
-            case "artifact.get": {
-                this.requireLocal(req.method);
-                const meta = getArtifact(String(params.id));
-                if (!meta) throw new Error(`no such artifact: ${params.id}`);
-                return artifactRow(meta);
-            }
-            case "artifact.read": {
-                this.requireLocal(req.method);
-                // The bytes, for a client that renders an artifact itself rather
-                // than pointing a browser at the file — the desktop app's viewer
-                // reads markdown/json/csv/text this way, since a renderer in the
-                // page cannot open a file:// URL.
-                const meta = getArtifact(String(params.id));
-                if (!meta) throw new Error(`no such artifact: ${params.id}`);
-                if (!meta.written) throw new Error(`artifact ${meta.id} has no content yet`);
-                return { ...artifactRow(meta), content: readArtifact(meta.id) };
-            }
-            case "artifact.export": {
-                this.requireLocal(req.method);
-                // Copies the artifact into a real folder (~/Downloads unless
-                // asked otherwise) and reports where — the client has no
-                // filesystem of its own, so the path is the whole answer.
-                const dest = typeof params.dest === "string" ? params.dest : undefined;
-                return { path: exportArtifact(String(params.id), dest) };
-            }
-            case "artifact.delete": {
-                this.requireLocal(req.method);
-                return { deleted: deleteArtifact(String(params.id)) };
-            }
-            case "settings.set": {
+            },
+            "settings.set": (params) => {
                 const key = String(params.key);
                 const entry = WEB_SETTINGS.find((s) => s.key === key);
                 if (!entry) throw new Error(`setting not writable over RPC: ${key}`);
                 if (typeof params.value !== "boolean") throw new Error("value must be boolean");
                 setSetting(entry.key, params.value as never);
                 return { key, value: params.value };
-            }
-            case "server.info": {
+            },
+            "server.info": () => {
                 // Capabilities handshake: lets a client discover the methods and
                 // event types this server speaks without version-sniffing.
                 // `defaults` saves a remote client (which has no local settings)
@@ -1297,12 +1185,226 @@ export class RpcServer {
                         thinking: getSetting("thinkingLevel") ?? "off",
                     },
                 };
-            }
-            default:
-                throw new Error(`Method not found: ${req.method}`);
-        }
+            },
+        };
     }
 
+    /** Extensions. */
+    private extensionHandlers(): Record<string, RpcMethodHandler> {
+        return {
+            "extension.list": () => {
+                return getExtensionHost().listAll();
+            },
+            "extension.setEnabled": async (params) => {
+                // Enable/disable only — install/uninstall stay local-only, a
+                // remote client must not be able to pull new code onto the box.
+                const name = String(params.name ?? "");
+                if (typeof params.value !== "boolean") throw new Error("value must be boolean");
+                const entry = getExtensionHost()
+                    .listAll()
+                    .find((e) => e.name === name);
+                if (!entry) throw new Error(`unknown extension: ${name}`);
+                if (entry.builtin) setBuiltinEnabled(name, params.value);
+                else setRecordEnabled(name, params.value);
+                const host = getExtensionHost();
+                if (params.value) await host.reload(name);
+                else await host.unload(name);
+                bustCatalogCache();
+                return { name, value: params.value };
+            },
+        };
+    }
+
+    /** SQL datasources. */
+    private datasourceHandlers(): Record<string, RpcMethodHandler> {
+        return {
+            /**
+             * Saved database connections, with the secret withheld.
+             *
+             * `loop serve` is reachable over a network, so a stored password
+             * must never ride a list response — the client only needs to know
+             * whether one is set, and to render it if it is a `${env:VAR}`
+             * reference, which is a pointer rather than a secret.
+             */
+            "datasource.list": () => {
+                return listDatasources().map(({ id, config }) => {
+                    const { password, ...rest } = config;
+                    const isRef = typeof password === "string" && password.startsWith("${env:");
+                    return {
+                        id,
+                        config: { ...rest, ...(isRef ? { password } : {}) },
+                        hasPassword: Boolean(password),
+                        passwordIsEnvRef: isRef,
+                    };
+                });
+            },
+            "datasource.save": async (params) => {
+                const id = String(params.id ?? "").trim();
+                if (!isValidConnectionId(id)) throw new Error(`invalid connection id: ${id}`);
+                const draft = parseDatasourceConfig(params.config);
+                /**
+                 * An omitted password KEEPS the stored one.
+                 *
+                 * The list above withholds it, so an edit form has nothing to
+                 * send back — and treating that silence as "clear the password"
+                 * would break the connection every time someone corrected a
+                 * port. Clearing is still possible, by sending an empty string.
+                 */
+                const existing = getDatasource(id);
+                const config: DataSourceConfig =
+                    draft.password === undefined && existing?.password !== undefined
+                        ? { ...draft, password: existing.password }
+                        : draft;
+                saveDatasource(id, config);
+                // The cached pool still holds the OLD credentials; leaving it
+                // would mean the next query silently used the config the user
+                // just replaced.
+                await closePool(id);
+                return { id };
+            },
+            "datasource.remove": async (params) => {
+                const id = String(params.id ?? "").trim();
+                const removed = deleteDatasource(id);
+                if (removed) await closePool(id);
+                return { ok: removed };
+            },
+            /**
+             * Probe a connection without saving it.
+             *
+             * Takes either a draft config (the form's current contents, before
+             * the user commits) or the id of a saved one. A draft that omits
+             * its password falls back to the saved secret, so "Test" works on
+             * an edit form that never received it.
+             */
+            "datasource.test": async (params) => {
+                const id = typeof params.id === "string" ? params.id.trim() : "";
+                if (params.config === undefined) {
+                    const saved = id ? getDatasource(id) : undefined;
+                    if (!saved) throw new Error(`unknown datasource: ${id || "(none)"}`);
+                    return await testConnection(saved);
+                }
+                const draft = parseDatasourceConfig(params.config);
+                const existing = id ? getDatasource(id) : undefined;
+                return await testConnection(
+                    draft.password === undefined && existing?.password !== undefined
+                        ? { ...draft, password: existing.password }
+                        : draft,
+                );
+            },
+        };
+    }
+
+    /** MCP servers and their sign-in flows. */
+    private mcpHandlers(): Record<string, RpcMethodHandler> {
+        return {
+            "mcp.list": (params) => {
+                return listMcpServers(String(params.cwd ?? process.cwd()));
+            },
+            "mcp.add": async (params) => {
+                // Scope matters: a project server lives in the repo's own file
+                // and travels with it, a global one in ~/<config>/settings.json.
+                // The manager only knows the global half, so a project add is
+                // written and then picked up by the reconnect below.
+                const name = String(params.name ?? "").trim();
+                if (!name) throw new Error("server name required");
+                const config = parseServerConfig(params.config);
+                const cwd = String(params.cwd ?? process.cwd());
+                if (params.scope === "project") {
+                    addProjectServer(cwd, name, config);
+                    await getMcpManager().adopt(name, config);
+                } else {
+                    await getMcpManager().add(name, config);
+                }
+                return { name, server: getMcpManager().getServer(name) ?? null };
+            },
+            "mcp.remove": async (params) => {
+                const name = String(params.name ?? "").trim();
+                const cwd = String(params.cwd ?? process.cwd());
+                if (params.scope === "project") {
+                    // The live connection has to go too, or its tools stay in
+                    // the agent's tool set for the rest of the process.
+                    const removed = removeProjectServer(cwd, name);
+                    if (removed) await getMcpManager().forget(name);
+                    return { ok: removed };
+                }
+                return { ok: await getMcpManager().remove(name) };
+            },
+            "mcp.setEnabled": async (params) => {
+                const name = String(params.name ?? "").trim();
+                if (typeof params.value !== "boolean") throw new Error("value must be boolean");
+                const cwd = String(params.cwd ?? process.cwd());
+                if (params.scope === "project") {
+                    const ok = setProjectServerEnabled(cwd, name, params.value);
+                    if (!ok) return { ok };
+                    const config = getProjectServers(cwd)[name];
+                    if (config) await getMcpManager().adopt(name, config);
+                    return { ok };
+                }
+                return { ok: await getMcpManager().setEnabled(name, params.value) };
+            },
+            "mcp.reconnect": async (params) => {
+                // No name = all of them. This is also what makes the first
+                // `mcp.list` meaningful: nothing connects until asked.
+                const name = String(params.name ?? "").trim();
+                const manager = getMcpManager();
+                await manager.init(String(params.cwd ?? process.cwd()));
+                await manager.reconnect(name || undefined);
+                return listMcpServers(String(params.cwd ?? process.cwd()));
+            },
+            "mcp.login.start": (params) => {
+                return startMcpLogin(String(params.name ?? ""), String(params.cwd ?? process.cwd()));
+            },
+            "mcp.login.poll": (params) => {
+                return pollMcpLogin(String(params.flowId ?? ""), Number(params.cursor ?? 0));
+            },
+            "mcp.login.cancel": (params) => {
+                return cancelMcpLogin(String(params.flowId ?? ""));
+            },
+        };
+    }
+
+    /** Artifacts the agent published. */
+    private artifactHandlers(): Record<string, RpcMethodHandler> {
+        return {
+            // Artifacts: pages the agent wrote under ~/<config>/artifacts. The
+            // rows carry `path` and `url` so a client can open one without a
+            // second round trip — there is no HTTP route serving artifacts, by
+            // design, so the file itself is what gets opened.
+            "artifact.list": (_params, _transport, req) => {
+                this.requireLocal(req.method);
+                return listArtifacts().map(artifactRow);
+            },
+            "artifact.get": (params, _transport, req) => {
+                this.requireLocal(req.method);
+                const meta = getArtifact(String(params.id));
+                if (!meta) throw new Error(`no such artifact: ${params.id}`);
+                return artifactRow(meta);
+            },
+            "artifact.read": (params, _transport, req) => {
+                this.requireLocal(req.method);
+                // The bytes, for a client that renders an artifact itself rather
+                // than pointing a browser at the file — the desktop app's viewer
+                // reads markdown/json/csv/text this way, since a renderer in the
+                // page cannot open a file:// URL.
+                const meta = getArtifact(String(params.id));
+                if (!meta) throw new Error(`no such artifact: ${params.id}`);
+                if (!meta.written) throw new Error(`artifact ${meta.id} has no content yet`);
+                return { ...artifactRow(meta), content: readArtifact(meta.id) };
+            },
+            "artifact.export": (params, _transport, req) => {
+                this.requireLocal(req.method);
+                // Copies the artifact into a real folder (~/Downloads unless
+                // asked otherwise) and reports where — the client has no
+                // filesystem of its own, so the path is the whole answer.
+                const dest = typeof params.dest === "string" ? params.dest : undefined;
+                return { path: exportArtifact(String(params.id), dest) };
+            },
+            "artifact.delete": (params, _transport, req) => {
+                this.requireLocal(req.method);
+                return { deleted: deleteArtifact(String(params.id)) };
+            },
+        };
+    }
     private requireSession(id: string): ActiveSession {
         const ctx = this.sessions.get(id);
         if (!ctx) throw new Error(`Unknown sessionId: ${id}`);

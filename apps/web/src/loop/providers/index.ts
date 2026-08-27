@@ -121,9 +121,6 @@ const ENTRIES: ReadonlyMap<string, LoopProviderPresentation> = new Map(
   }),
 );
 
-/** Every provider the catalog describes, in file order. */
-export const LOOP_PROVIDER_CATALOG: readonly LoopProviderPresentation[] = [...ENTRIES.values()];
-
 /** The name of a custom gateway (`custom:bifrost` → `bifrost`), or null. */
 export function customProviderName(loopProviderId: string): string | null {
   return loopProviderId.startsWith("custom:") ? loopProviderId.slice("custom:".length) : null;
@@ -168,12 +165,6 @@ export function rememberCustomProviderShapes(
     if (shape in SHAPE_ICONS) next.set(name, shape as CustomProviderShape);
   }
   CUSTOM_SHAPES = next;
-}
-
-/** The API shape a gateway speaks, or undefined before loop has said. */
-export function customProviderShape(loopProviderId: string): CustomProviderShape | undefined {
-  const name = customProviderName(loopProviderId);
-  return name === null ? undefined : CUSTOM_SHAPES.get(name);
 }
 
 /**

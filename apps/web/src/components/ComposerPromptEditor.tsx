@@ -6,7 +6,7 @@ import { HistoryPlugin } from "@lexical/react/LexicalHistoryPlugin";
 import { OnChangePlugin } from "@lexical/react/LexicalOnChangePlugin";
 import { PlainTextPlugin } from "@lexical/react/LexicalPlainTextPlugin";
 import { type ServerProviderSkill } from "@loop/contracts";
-import { serializeComposerFileLink } from "@loop/shared/composerTrigger";
+import { serializeComposerFileLink } from "@loop/shared/composerFileLink";
 import {
   $applyNodeReplacement,
   $createRangeSelectionFromDom,

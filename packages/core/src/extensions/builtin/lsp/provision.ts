@@ -8,7 +8,6 @@
 import { getConfigDir } from "../../../brand";
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 
 const SERVERS_DIR = join(getConfigDir(), "servers");

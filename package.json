@@ -54,8 +54,10 @@
         "link": "bun run --filter @notshekhar/loop build && cd packages/cli && bun link",
         "format": "prettier --write .",
         "format:check": "prettier --check .",
+        "//typecheck": "Every bundler here transpiles without checking, so a type error reaches a release unless this runs. tsgo for the two app packages, tsc for the rest.",
+        "typecheck": "bun scripts/typecheck.ts",
         "//test": "Scoped: a bare `bun test` also collects apps/web, whose suite is vitest-only and hangs the process under bun. The web app has its own `test` script.",
-        "test": "bun test packages apps/desktop && bun run --filter @loop/web test",
+        "test": "bun run typecheck && bun test packages apps/desktop && bun run --filter @loop/web test",
         "//test:screens": "Runs loop in a real pty and asserts on the screen — the only tests that catch a correct frame drawn in the wrong place. Needs python3 + pyte.",
         "test:screens": "python3 packages/cli/test/e2e/run.py"
     },

@@ -53,16 +53,6 @@ export function getProviderInteractionModeToggle(
   return getProviderSnapshot(providers, provider)?.showInteractionModeToggle ?? true;
 }
 
-export function isProviderEnabled(
-  providers: ReadonlyArray<ServerProvider>,
-  provider: ProviderDriverKind,
-): boolean {
-  if (providers.length === 0) {
-    return true;
-  }
-  return getProviderSnapshot(providers, provider)?.enabled ?? false;
-}
-
 // Resolve an instance selection to the correlated live driver. If the
 // instance is absent, fall back to a live enabled provider instead of
 // inferring a driver from the missing instance id.

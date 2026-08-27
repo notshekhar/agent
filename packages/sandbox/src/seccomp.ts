@@ -32,11 +32,6 @@ export function getApplySeccompBinaryPath(): string | undefined {
     return existsSync(bin) ? bin : undefined;
 }
 
-/** Whether the seccomp layer is available (compiled) on this host. */
-export function seccompAvailable(): boolean {
-    return getApplySeccompBinaryPath() !== undefined;
-}
-
 /**
  * Shell prefix that runs a command under seccomp, or undefined when the binary
  * isn't built. The result ends with a trailing space; callers append

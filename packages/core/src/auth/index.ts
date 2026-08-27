@@ -100,12 +100,6 @@ export async function loginOAuth(provider: ProviderId, cb: OAuthLoginCallbacks):
     if (!getActiveProvider()) setActiveProvider(provider);
 }
 
-function getGenericOAuthCreds(provider: ProviderId): GenericOAuthCredentials | undefined {
-    const entry = readProviders()[provider];
-    if (entry?.mode === "oauth" && "creds" in entry) return entry.creds;
-    return undefined;
-}
-
 /**
  * Returns bearer token for a provider. Resolves stored API key, OAuth creds
  * (auto-refresh + persist), or env var fallback. Pi-mono pattern.

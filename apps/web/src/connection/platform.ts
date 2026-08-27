@@ -45,7 +45,6 @@ import { FetchHttpClient } from "effect/unstable/http";
 
 import { APP_BASE_NAME } from "../branding";
 import { readDesktopPrimaryBearerToken } from "../environments/primary/desktopAuth";
-import { primaryEnvironmentHttpLayer } from "../environments/primary/httpLayer";
 import {
   readPrimaryEnvironmentTarget,
   type PrimaryEnvironmentTarget,

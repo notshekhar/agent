@@ -19,7 +19,6 @@ import {
     setTelegramEnabled,
     storeTelegramSetup,
     telegramPairLink,
-    PRODUCT_NAME,
 } from "@notshekhar/loop-core";
 import type { AppDeps } from "../deps";
 import type { AppState } from "../state";

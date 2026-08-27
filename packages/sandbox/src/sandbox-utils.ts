@@ -9,7 +9,6 @@ import { brandEnv } from "./brand";
 import { homedir } from "node:os";
 import * as path from "node:path";
 import * as fs from "node:fs";
-import { getPlatform } from "./platform";
 import { logForDebugging } from "./debug";
 
 /**

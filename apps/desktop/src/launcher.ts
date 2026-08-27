@@ -51,11 +51,6 @@ const MAC_BUNDLE_ALIASES: Readonly<Record<string, readonly string[]>> = {
 const BUNDLE_SCAN_TTL_MS = 60_000;
 let bundleScan: { at: number; launchers: Promise<Map<string, string>> } | null = null;
 
-/** Forget the scanned bundles — for tests, and after an install. */
-export function resetBundleScan(): void {
-  bundleScan = null;
-}
-
 async function isExecutable(path: string): Promise<boolean> {
   try {
     await access(path, constants.X_OK);

@@ -42,8 +42,6 @@ export interface ModelAttachmentSupport {
   readonly file: boolean;
 }
 
-export const NO_ATTACHMENT_SUPPORT: ModelAttachmentSupport = { image: false, file: false };
-
 /**
  * Resolve support from a catalog entry's input modalities and its provider id.
  *

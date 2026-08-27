@@ -119,19 +119,6 @@ export const decodeJsonResult = <S extends Schema.Codec<unknown, unknown, never,
   };
 };
 
-export const decodeUnknownJsonResult = <S extends Schema.Codec<unknown, unknown, never, never>>(
-  schema: S,
-) => {
-  const decode = Schema.decodeUnknownExit(Schema.fromJsonString(schema));
-  return (input: unknown) => {
-    const result = decode(input);
-    if (Exit.isFailure(result)) {
-      return Result.fail(result.cause);
-    }
-    return Result.succeed(result.value);
-  };
-};
-
 export const formatSchemaError = (cause: Cause.Cause<Schema.SchemaError>) => {
   const issues: Array<SchemaDiagnosticIssue> = [];
   let issueCount = 0;
@@ -217,10 +204,6 @@ export const fromLenientJsonString = new SchemaTransformation.Transformation(
   SchemaGetter.stringifyJson(),
 );
 
-export const prettyJsonString = SchemaGetter.parseJson<string>().compose(
-  SchemaGetter.stringifyJson({ space: 2 }),
-);
-
 /**
  * Build a schema that decodes a lenient JSON string into `A`.
  *
@@ -278,16 +261,3 @@ export function extractJsonObject(raw: string): string {
   return trimmed.slice(start);
 }
 
-/**
- * Build a JSON string schema that encodes with stable 2-space formatting.
- *
- * Decode behavior matches `Schema.fromJsonString(schema)`. Encode behavior
- * keeps the transformation schema-based while preserving human-readable JSON.
- */
-export const fromJsonStringPretty = <S extends Schema.Top>(schema: S) =>
-  Schema.fromJsonString(schema).pipe(
-    Schema.encode({
-      decode: prettyJsonString,
-      encode: prettyJsonString,
-    }),
-  );

@@ -12,7 +12,9 @@
  * CLI module lives in a tree that reaches for the extension host and the ANSI
  * theme. Only the grammar comes across.
  *
- * KEEP IN SYNC with the CLI module. If loop grows a tool, both need the case.
+ * KEEP IN SYNC with the CLI module: if loop grows a tool, both need the case.
+ * `packages/cli/test/web-port-parity.test.ts` enforces it — it imports both
+ * copies and requires them to classify and label every tool identically.
  *
  * The one thing NOT ported is the CLI's `registerToolVerbGroup` seam, which
  * exists for extensions — CLI-side code that cannot run in a browser. A tool
@@ -100,6 +102,10 @@ const KIND = {
     folds: true,
   },
 
+  // Reading or killing a background shell — the noun is the shell, not the
+  // command it is running (that row was already printed when it started).
+  shell: { past: "Checked", present: "Checking", nounOne: "shell", nounMany: "shells", folds: true },
+
   // Tools we did not write, named by the only thing we reliably know about
   // them — where they came from. Both fold.
   mcp: {
@@ -148,6 +154,7 @@ const BUILTIN: Record<string, VerbGroupKindId> = {
   task: "subagent",
   todo: "todo",
   bash: "command",
+  shells: "shell",
   edit: "edit",
   write: "edit",
   sql: "data",

@@ -2,8 +2,6 @@ import { ProviderDriverKind } from "@loop/contracts";
 import { ClaudeAI, CursorIcon, GrokIcon, Icon, OpenAI, OpenCodeIcon } from "../Icons";
 import { fromInstanceId } from "../../loop/handlers/ids";
 import { providerPresentation } from "../../loop/providers";
-import { PROVIDER_OPTIONS } from "../../session-logic";
-
 export const PROVIDER_ICON_BY_PROVIDER: Partial<Record<ProviderDriverKind, Icon>> = {
   [ProviderDriverKind.make("codex")]: OpenAI,
   [ProviderDriverKind.make("claudeAgent")]: ClaudeAI,
@@ -32,17 +30,6 @@ export function providerIconFor(driverKind: ProviderDriverKind): Icon | null {
     null
   );
 }
-
-function isAvailableProviderOption(option: (typeof PROVIDER_OPTIONS)[number]): option is {
-  value: ProviderDriverKind;
-  label: string;
-  available: true;
-  pickerSidebarBadge?: "new" | "soon";
-} {
-  return option.available;
-}
-
-export const AVAILABLE_PROVIDER_OPTIONS = PROVIDER_OPTIONS.filter(isAvailableProviderOption);
 
 export type ModelEsque = {
   slug: string;

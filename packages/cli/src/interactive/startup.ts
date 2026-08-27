@@ -2,7 +2,7 @@
  * Startup-time chat banners and the trust → SessionStart hooks sequence.
  * Pulled out of app.ts so the app file stays an orchestrator.
  */
-import type { SelectItem, TUI } from "@notshekhar/loop-tui";
+import type { SelectItem } from "@notshekhar/loop-tui";
 import {
     getMcpManager,
     getExtensionHost,
