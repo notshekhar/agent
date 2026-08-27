@@ -223,7 +223,7 @@ const WEB_SETTINGS: ReadonlyArray<{ key: keyof AppSettings; label: string; descr
         key: "backgroundShells",
         label: "background shells",
         description: "let bash start servers/watchers that keep running after the tool call",
-        def: true,
+        def: false,
     },
     {
         key: "artifacts",

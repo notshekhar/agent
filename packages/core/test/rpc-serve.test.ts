@@ -328,7 +328,7 @@ describe("startWebServer", () => {
         for (const key of ["webSearch", "todos", "artifacts", "backgroundShells", "subagents", "mcp"]) {
             expect(list.find((s) => s.key === key)).toBeDefined();
         }
-        expect(list.find((s) => s.key === "backgroundShells")?.value).toBe(true); // default on
+        expect(list.find((s) => s.key === "backgroundShells")?.value).toBe(false); // opt-in, default off
 
         const set = await call(4, "settings.set", { key: "memory", value: false });
         expect((set.result as { value: boolean }).value).toBe(false);

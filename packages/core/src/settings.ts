@@ -93,8 +93,9 @@ export interface AppSettings {
     artifacts?: boolean;
     /** Background shells: bash's `run_in_background`, the `shells` tool, and
      * promoting a foreground command that outruns its timeout instead of
-     * killing it. Default ON. Set false and bash goes back to being strictly
-     * bounded — nothing the agent runs can outlive its own tool call. */
+     * killing it. Default OFF — until it is on, bash is strictly bounded and
+     * nothing the agent runs can outlive its own tool call. Set true to let it
+     * start servers, watchers and tails that keep going. */
     backgroundShells?: boolean;
     /** Live date + hh:mm:ss clock in the footer. Default off. */
     clock?: boolean;

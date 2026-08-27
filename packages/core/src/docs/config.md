@@ -45,17 +45,17 @@ Other notable keys (all managed via `/settings` too):
   runs (`[>]` in progress, `[-]` cancelled) and retired into the scrollback
   as a one-line summary when the turn ends. Lists persist with the session
   (`/resume`, `/fork`, `/tree` restore them). Default off.
-- `"backgroundShells": false` — disables background shells. Default **on**:
-  `bash` takes `run_in_background` for a command that is not meant to finish
-  (a dev server, a watcher, a tail), the `shells` tool reads what one has
-  printed since the last look and can kill it, running shells are pinned above
-  the editor, and a foreground command that outruns its timeout is moved to
-  the background instead of being killed. Turned off, the `shells` tool is not
-  offered, `run_in_background` is refused, a timeout kills as it always did —
-  nothing the agent runs can outlive its own tool call. `/shells` still works
-  either way: the setting governs what the *agent* may start, not what you
-  can. Shells never survive loop itself; whatever is running is stopped on
-  exit.
+- `"backgroundShells": true` — enables background shells. Default **off**, so
+  out of the box nothing the agent runs can outlive its own tool call: the
+  `shells` tool is not offered, `run_in_background` is refused, and a command
+  that outruns its timeout is killed. Turned on, `bash` takes
+  `run_in_background` for a command that is not meant to finish (a dev server,
+  a watcher, a tail), the `shells` tool reads what one has printed since the
+  last look and can kill it, running shells are pinned above the editor, and a
+  foreground command that outruns its timeout is moved to the background
+  instead of being killed. `/shells` still works either way: the setting
+  governs what the *agent* may start, not what you can. Shells never survive
+  loop itself; whatever is running is stopped on exit.
 - `"herdr": false` — disables herdr agent-state reporting. Default on, and
   only ever active inside a [herdr](https://herdr.dev) pane (detected via the
   env herdr injects): the pane's sidebar entry shows `loop` with live

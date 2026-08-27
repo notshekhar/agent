@@ -68,7 +68,7 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
         serve: false,
         todos: false,
         artifacts: false,
-        backgroundShells: true,
+        backgroundShells: false,
         clock: false,
         reminders: true,
         mcp: true,

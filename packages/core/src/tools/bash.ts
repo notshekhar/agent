@@ -307,9 +307,9 @@ Set run_in_background for a command that is not supposed to finish — a dev ser
             const effectiveTimeout = resolveBashTimeout(timeout);
             const background = run_in_background === true;
             if (background) {
-                if (getSetting("backgroundShells") === false) {
+                if (getSetting("backgroundShells") !== true) {
                     throw new Error(
-                        "Background shells are turned off (backgroundShells setting). Run the command in the foreground, with a longer timeout if it needs one.",
+                        "Background shells are off (the backgroundShells setting is opt-in). Run the command in the foreground, with a longer timeout if it needs one.",
                     );
                 }
                 // A read-only planning agent must not be able to leave daemons
@@ -478,7 +478,7 @@ Set run_in_background for a command that is not supposed to finish — a dev ser
                         // panel will show it. The timeout exists to stop an
                         // invisible long run; without a surface listing it, a
                         // promoted shell is exactly that invisible run again.
-                        if (getSetting("backgroundShells") === false) return undefined;
+                        if (getSetting("backgroundShells") !== true) return undefined;
                         if (!isShellPanelPresent()) return undefined;
                         if (runningShellCount(ctx.sessionId) >= MAX_BACKGROUND_SHELLS) return undefined;
                         child.stdout?.removeListener("data", onData);

@@ -34,7 +34,13 @@ import {
     SKILL_TOOL_NAME,
     TODO_TOOL_NAME,
 } from "../tools";
-import { buildPlanModeNote, buildSubagentNote, buildSystemPrompt, buildTodoNote } from "./system-prompt";
+import {
+    buildBackgroundShellsNote,
+    buildPlanModeNote,
+    buildSubagentNote,
+    buildSystemPrompt,
+    buildTodoNote,
+} from "./system-prompt";
 import { getAgentPrompt, getAgentTools, isReadOnlyBashAgent, listAgents } from "./agents";
 import { loadWorkspaceContext } from "./context";
 import { loadMemoryContext } from "./memory";
@@ -245,11 +251,11 @@ async function assembleTurnTools(
     const subagentsEnabled = getSetting("subagents") !== false;
     let toolsForTurn: Record<string, unknown> = { ...toolSet };
 
-    // Background shells: the `backgroundShells` setting (default ON) gates the
-    // whole capability. Off means the shells tool is not offered at all —
-    // bash refuses run_in_background separately, so the model can neither
+    // Background shells: the opt-in `backgroundShells` setting (default off)
+    // gates the whole capability. Off means the shells tool is not offered at
+    // all — bash refuses run_in_background separately, so the model can neither
     // start one nor be handed a tool for reading shells that cannot exist.
-    if (getSetting("backgroundShells") === false) delete toolsForTurn[SHELLS_TOOL_NAME];
+    if (getSetting("backgroundShells") !== true) delete toolsForTurn[SHELLS_TOOL_NAME];
 
     // Websearch: opt-in `webSearch` setting (default off) — DuckDuckGo HTML
     // scraping, no API key, no UI bridge, so print mode gets it too. Added
@@ -511,6 +517,7 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
     // list matches reality, plus explicit delegation guidance when present.
     const subagentNote = "task" in toolsForTurn ? buildSubagentNote(listAgents().map((a) => a.name)) : "";
     const todoNote = TODO_TOOL_NAME in toolsForTurn ? buildTodoNote() : "";
+    const backgroundShellsNote = SHELLS_TOOL_NAME in toolsForTurn ? buildBackgroundShellsNote() : "";
     // Tell the model it is planning rather than letting it find out from a
     // rejected edit. Only when it can actually exit — everyone else is told by
     // the plan tool's own description.
@@ -529,6 +536,7 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
         }) +
         subagentNote +
         todoNote +
+        backgroundShellsNote +
         planModeNote +
         (skillsBlock ?? "");
     // Extension turn middleware may transform the system prompt, scoped by

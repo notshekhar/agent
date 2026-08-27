@@ -40,10 +40,13 @@ export function createTools(ctx: ToolContext) {
         // gets it automatically, and restricted agents keep it only if their
         // allowlist names it (plan/data-analyst do, via READONLY_TOOLS).
         sql: createSqlTool(ctx),
-        // shells is the read/kill half of bash's run_in_background: always
-        // present, because a tool the model only discovers after it has
-        // already started a shell is a tool it cannot plan around. Cheap when
-        // idle — every action on an empty registry is one line of text.
+        // shells is the read/kill half of bash's run_in_background, so it is
+        // built here unconditionally and then dropped for the turn when the
+        // opt-in backgroundShells setting is off (runTurn / context-report).
+        // With the setting on it stays for the whole turn, because a tool the
+        // model only discovers after it has already started a shell is a tool
+        // it cannot plan around. Cheap when idle — every action on an empty
+        // registry is one line of text.
         shells: createShellsTool(ctx),
     };
 }

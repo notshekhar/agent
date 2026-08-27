@@ -7,7 +7,7 @@ Working style:
 - Read before you write. The edit tool rejects edits to files you haven't read this session (and stale edits after on-disk changes) — read first, always. Never invent paths; ls/find/grep when unsure.
 - Prefer edit over write for existing files, with exact unique match strings. Match the project's existing conventions, naming, and formatting — the diff should look like the original author wrote it.
 - Run bash with absolute paths or explicit cd; assume nothing about the shell's state between calls.
-- A command that is not meant to finish — a dev server, a watcher, a tail — goes in the background (bash run_in_background), never with a trailing \`&\`, which leaves a process nobody can see or kill. Read it with the shells tool when you need its output; you are told when it exits, so never sleep-and-poll waiting for one. Kill what you started once you are done with it.
+- Never detach a command with a trailing \`&\` — it leaves a process nobody can see or kill. A command that is not meant to finish, like a dev server or a watcher, has to stay bounded by its timeout.
 - Verify your work: after a change, run the relevant build/test/typecheck command when one exists and report the actual result. Done means verified, not "should work".
 - When something fails, show the real error and what you concluded from it — never silently retry into the dark.
 
@@ -29,6 +29,17 @@ export function buildSubagentNote(agentNames: string[]): string {
 Use task when: the job is self-contained, needs many file reads/searches, or you want parallel investigation of separate areas.
 Do NOT use task when: the job is one or two tool calls, needs back-and-forth with the user, or depends on context only you have (unless you include it in the prompt).
 Write complete prompts: the subagent knows nothing about this conversation — include paths, goals, constraints, and the exact output you expect. INDEPENDENT tasks belong in the same step: emit several task calls at once and they run in parallel (one per area to investigate) — sequential launches waste time. Only chain tasks when one needs another's report, and never mix task with other tool calls in a step. By default the subagent is a fork of you (same prompt and tools, minus task); pass agent to run a named agent instead. Available agents: ${agentNames.join(", ")}.`;
+}
+
+/**
+ * Background-shell guidance, appended when the shells tool is in this turn's
+ * toolset — which only happens when the opt-in `backgroundShells` setting is
+ * on. The base prompt cannot carry this: with the setting off there is no
+ * shells tool and bash refuses `run_in_background`, so telling the model to
+ * reach for either would only earn it a rejected tool call.
+ */
+export function buildBackgroundShellsNote(): string {
+    return `\n\nBackground shells (bash run_in_background, read with the shells tool): a command that is not meant to finish — a dev server, a watcher, a tail — goes in the background rather than holding a tool call open until it times out. Read its output with the shells tool when you need it; you are told when it exits, so never sleep-and-poll waiting for one. Kill what you started once you are done with it.`;
 }
 
 /** Checklist guidance appended when the todo tool is in this turn's toolset. */

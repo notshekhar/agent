@@ -62,6 +62,10 @@ beforeEach(() => {
     process.env.HOME = home;
     resetShellRegistry();
     setShellPanelPresent(false);
+    // Background shells are opt-in, and beforeEach just cleared the store — so
+    // every test below that exercises the feature has to turn it on. The tests
+    // for the OFF path set it back to false themselves.
+    mem.backgroundShells = true;
 });
 
 afterEach(() => {
@@ -116,7 +120,15 @@ describe("run_in_background", () => {
     test("refused outright when the setting is off", async () => {
         mem.backgroundShells = false;
         await expect(run(bash(), { command: "sleep 30", run_in_background: true })).rejects.toThrow(
-            /turned off \(backgroundShells/,
+            /Background shells are off/,
+        );
+        expect(runningShellCount(SESSION)).toBe(0);
+    });
+
+    test("refused when the setting is unset — the feature is opt-in", async () => {
+        delete mem.backgroundShells;
+        await expect(run(bash(), { command: "sleep 30", run_in_background: true })).rejects.toThrow(
+            /Background shells are off/,
         );
         expect(runningShellCount(SESSION)).toBe(0);
     });
@@ -167,6 +179,13 @@ describe("promotion on timeout", () => {
         // Disabling the feature has to take promotion with it — otherwise a
         // long command still ends up as a shell the user switched off.
         mem.backgroundShells = false;
+        setShellPanelPresent(true);
+        await expect(run(bash(), { command: "sleep 5", timeout: 1 })).rejects.toThrow(/timed out/);
+        expect(runningShellCount(SESSION)).toBe(0);
+    });
+
+    test("unset means a timeout kills too — promotion is part of the opt-in", async () => {
+        delete mem.backgroundShells;
         setShellPanelPresent(true);
         await expect(run(bash(), { command: "sleep 5", timeout: 1 })).rejects.toThrow(/timed out/);
         expect(runningShellCount(SESSION)).toBe(0);

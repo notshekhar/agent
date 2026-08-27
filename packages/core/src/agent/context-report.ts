@@ -27,7 +27,7 @@ import { loadWorkspaceContext } from "./context";
 import { loadMemoryContext } from "./memory";
 import { loadProjectSkills } from "./skills";
 import { isTrusted } from "./trust";
-import { buildSubagentNote, buildSystemPrompt, buildTodoNote } from "./system-prompt";
+import { buildBackgroundShellsNote, buildSubagentNote, buildSystemPrompt, buildTodoNote } from "./system-prompt";
 import { applySystemPrompt } from "./turn-middleware";
 import { latestCompactEntry } from "./compact";
 
@@ -134,7 +134,7 @@ export async function buildContextReport(opts: {
     }
     // Same gate as assembleTurnTools: with background shells off the shells
     // tool is never offered, so it must not be measured either.
-    if (getSetting("backgroundShells") === false) delete toolSet[SHELLS_TOOL_NAME];
+    if (getSetting("backgroundShells") !== true) delete toolSet[SHELLS_TOOL_NAME];
     const todosEnabled =
         getSetting("todos") === true && (!allowedTools?.length || allowedTools.includes(TODO_TOOL_NAME));
 
@@ -154,7 +154,12 @@ export async function buildContextReport(opts: {
         ...(todosEnabled ? [TODO_TOOL_NAME] : []),
     ];
     const todoNote = todosEnabled ? buildTodoNote() : "";
-    const systemBase = buildSystemPrompt({ cwd, basePrompt: agentPrompt, tools: toolNames }) + subagentNote + todoNote;
+    const backgroundShellsNote = SHELLS_TOOL_NAME in toolSet ? buildBackgroundShellsNote() : "";
+    const systemBase =
+        buildSystemPrompt({ cwd, basePrompt: agentPrompt, tools: toolNames }) +
+        subagentNote +
+        todoNote +
+        backgroundShellsNote;
     // Extension turn middleware (onSystemPrompt — e.g. the caveman/ponytail
     // builtins) reshapes the prompt in runTurn; run the same transform here so
     // injected text is billed context /context actually shows. The middleware
