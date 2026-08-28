@@ -1,0 +1,16 @@
+{
+    "//": "The build scripts sit outside every package's tsconfig `include`, which is how `import { $ } from \"bun\"` got dropped from build-bin.ts and only the release workflow found out. They are checked here instead.",
+    "extends": "./tsconfig.base.json",
+    "compilerOptions": {
+        "lib": ["ES2024", "DOM"],
+        "types": ["bun", "node"]
+    },
+    "include": [
+        "scripts/*.ts",
+        "packages/*/build.ts",
+        "packages/cli/build-bin.ts",
+        "packages/web/build-page.ts",
+        "apps/desktop/build.ts"
+    ],
+    "//exclude": "apps/desktop/package-app.ts is left out: it has two pre-existing errors (electron-packager's platform/arch unions) that predate this file and are not what it is here to catch."
+}

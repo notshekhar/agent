@@ -7,6 +7,7 @@
 
 import { readFileSync, mkdirSync, existsSync, rmSync, copyFileSync } from "node:fs";
 import { join } from "node:path";
+import { $ } from "bun";
 import { buildPage } from "../web/build-page";
 
 const pkg = JSON.parse(readFileSync(join(import.meta.dir, "package.json"), "utf8")) as { version: string };

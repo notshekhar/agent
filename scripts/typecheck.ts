@@ -25,6 +25,10 @@ const TARGETS: readonly Target[] = [
     { label: "packages/cli", cwd: ROOT, bin: "tsc", project: "packages/cli/tsconfig.json" },
     { label: "packages/sandbox", cwd: ROOT, bin: "tsc", project: "packages/sandbox/tsconfig.json" },
     { label: "packages/web", cwd: ROOT, bin: "tsc", project: "packages/web/tsconfig.json" },
+    // The build scripts sit outside every package's `include`, so nothing was
+    // reading them — which is how `import { $ } from "bun"` went missing from
+    // build-bin.ts and only the release workflow found out, on the tag.
+    { label: "build scripts", cwd: ROOT, bin: "tsc", project: "tsconfig.build-scripts.json" },
     { label: "apps/web", cwd: join(ROOT, "apps/web"), bin: "tsgo" },
     { label: "apps/desktop", cwd: join(ROOT, "apps/desktop"), bin: "tsgo" },
 ];
