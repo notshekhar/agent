@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.19.23] - 2026-08-28
+
+### Changed
+
+- **Background shells are something you turn on now.** Shipping the feature on by default decided for everyone that the agent may leave processes running past the turn that started them, which is a choice that belongs to you. `backgroundShells` now reads like `artifacts` and `webSearch`: unset means off, so out of the box nothing the agent runs outlives its own tool call. Off, the `shells` tool is never offered, `bash` refuses `run_in_background`, and a command that outruns its timeout is killed rather than moved to the background — promotion is part of the capability, not a separate mercy. `/shells` is untouched either way: the setting governs what the *agent* may start, not what you can. Turn it back on in `/settings` or with `"backgroundShells": true`. The system prompt no longer tells the model to reach for a background shell when there is no shells tool to reach for.
+- **The repository typechecks itself.** Neither bundler here checked types — `bun build` and `vp build` both transpile — so the desktop app had been carrying seven type errors that nothing was reading, including a value used but never imported. `bun run typecheck` now covers every workspace and runs ahead of the tests. Asking the same question of every symbol turned up 153 exports that nothing referenced anywhere, and removing them cascaded until about four thousand lines of unreachable code were gone.
+
+### Fixed
+
+- **A run of `shells` calls was labelled "Called 2 tools" in the app.** The desktop and web UI carry their own copy of the vocabulary that turns a run of tool calls into one line of English, because they are a browser bundle and cannot import the terminal's. The copy was never given the `shell` entry that shipped with background shells, so the same run read "Checked 2 shells" in the terminal and "Called 2 tools" — the wording reserved for tools loop did not write — in the app. Both copies are now held to identical behaviour by a test, rather than by a comment asking to be kept in sync.
+
 ## [0.19.22] - 2026-08-26
 
 ### Added

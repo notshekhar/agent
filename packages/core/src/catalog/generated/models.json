@@ -2254,6 +2254,24 @@
     ],
     "available": true
   },
+  "openrouter/tencent/hy4-preview": {
+    "id": "openrouter/tencent/hy4-preview",
+    "provider": "openrouter",
+    "name": "Hy4 preview",
+    "contextWindow": 1048576,
+    "maxOutput": 64000,
+    "cost": {
+      "input": 0.834,
+      "output": 2.501,
+      "cacheRead": 0.042,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
   "openrouter/tencent/hunyuan-a13b-instruct": {
     "id": "openrouter/tencent/hunyuan-a13b-instruct",
     "provider": "openrouter",
@@ -2431,11 +2449,11 @@
     "provider": "openrouter",
     "name": "Nemotron 3 Nano 30B A3B",
     "contextWindow": 262144,
-    "maxOutput": 235929,
+    "maxOutput": 228000,
     "cost": {
       "input": 0.05,
       "output": 0.2,
-      "cacheRead": 0.03,
+      "cacheRead": 0.025,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -2467,11 +2485,11 @@
     "provider": "openrouter",
     "name": "Nemotron 3.5 Lightning 30B A3B",
     "contextWindow": 262144,
-    "maxOutput": 131072,
+    "maxOutput": 235929,
     "cost": {
-      "input": 0.08,
-      "output": 0.2,
-      "cacheRead": 0.04,
+      "input": 0.1,
+      "output": 0.25,
+      "cacheRead": 0.05,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -2484,12 +2502,12 @@
     "id": "openrouter/nvidia/nemotron-3-ultra-550b-a55b",
     "provider": "openrouter",
     "name": "Nemotron 3 Ultra 550B A55B",
-    "contextWindow": 512288,
-    "maxOutput": 461059,
+    "contextWindow": 262144,
+    "maxOutput": 16384,
     "cost": {
-      "input": 0.6,
-      "output": 3.6,
-      "cacheRead": 0.2,
+      "input": 0.5,
+      "output": 2.2,
+      "cacheRead": 0.1,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -2745,11 +2763,11 @@
     "provider": "openrouter",
     "name": "GLM-4.6",
     "contextWindow": 204800,
-    "maxOutput": 131072,
+    "maxOutput": 16384,
     "cost": {
-      "input": 0.5,
-      "output": 2,
-      "cacheRead": 0.1,
+      "input": 0.43,
+      "output": 1.75,
+      "cacheRead": 0.08,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -2997,6 +3015,26 @@
     ],
     "available": true
   },
+  "openrouter/z-ai/glm-5.3-flash": {
+    "id": "openrouter/z-ai/glm-5.3-flash",
+    "provider": "openrouter",
+    "name": "GLM-5.3-Flash",
+    "contextWindow": 1310720,
+    "maxOutput": 131072,
+    "cost": {
+      "input": 0.075,
+      "output": 0.25,
+      "cacheRead": 0.015,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image",
+      "video"
+    ],
+    "available": true
+  },
   "openrouter/deepseek/deepseek-v3.1-terminus": {
     "id": "openrouter/deepseek/deepseek-v3.1-terminus",
     "provider": "openrouter",
@@ -3040,9 +3078,9 @@
     "contextWindow": 1048576,
     "maxOutput": 384000,
     "cost": {
-      "input": 0.0826,
-      "output": 0.1652,
-      "cacheRead": 0.01652,
+      "input": 0.088606,
+      "output": 0.177212,
+      "cacheRead": 0.017721,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -3056,11 +3094,11 @@
     "provider": "openrouter",
     "name": "DeepSeek V4 Pro 0813",
     "contextWindow": 1048576,
-    "maxOutput": 943717,
+    "maxOutput": 384000,
     "cost": {
-      "input": 1.122,
-      "output": 3.366,
-      "cacheRead": 0.0374,
+      "input": 0.66,
+      "output": 1.98,
+      "cacheRead": 0.022,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -3092,11 +3130,11 @@
     "provider": "openrouter",
     "name": "DeepSeek V3.2",
     "contextWindow": 163840,
-    "maxOutput": 147456,
+    "maxOutput": 65536,
     "cost": {
-      "input": 0.26,
-      "output": 0.38,
-      "cacheRead": 0.13,
+      "input": 0.269,
+      "output": 0.4,
+      "cacheRead": 0.1345,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -3220,9 +3258,9 @@
     "contextWindow": 1310720,
     "maxOutput": 943718,
     "cost": {
-      "input": 0.06,
-      "output": 0.12,
-      "cacheRead": 0.012,
+      "input": 0.07,
+      "output": 0.14,
+      "cacheRead": 0.014,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -3597,7 +3635,7 @@
     "id": "openrouter/google/gemma-3-27b-it",
     "provider": "openrouter",
     "name": "Gemma 3 27B",
-    "contextWindow": 262144,
+    "contextWindow": 131072,
     "maxOutput": 117964,
     "cost": {
       "input": 0.08,
@@ -4473,9 +4511,9 @@
     "contextWindow": 262144,
     "maxOutput": 235929,
     "cost": {
-      "input": 0.67,
+      "input": 0.66,
       "output": 3.4,
-      "cacheRead": 0.19,
+      "cacheRead": 0.18,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -6654,11 +6692,11 @@
     "provider": "openrouter",
     "name": "Qwen3 235B A22B Instruct 2507",
     "contextWindow": 262144,
-    "maxOutput": 16384,
+    "maxOutput": 235929,
     "cost": {
-      "input": 0.09,
-      "output": 0.55,
-      "cacheRead": 0,
+      "input": 0.0875,
+      "output": 0.35,
+      "cacheRead": 0.0175,
       "cacheWrite": 0
     },
     "reasoning": false,
@@ -6873,6 +6911,26 @@
     ],
     "available": true
   },
+  "openrouter/qwen/qwen3.8-flash": {
+    "id": "openrouter/qwen/qwen3.8-flash",
+    "provider": "openrouter",
+    "name": "Qwen3.8 Flash",
+    "contextWindow": 1000000,
+    "maxOutput": 131072,
+    "cost": {
+      "input": 0.15,
+      "output": 0.47,
+      "cacheRead": 0.016,
+      "cacheWrite": 0.2
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image",
+      "video"
+    ],
+    "available": true
+  },
   "openrouter/qwen/qwen3-next-80b-a3b-thinking": {
     "id": "openrouter/qwen/qwen3-next-80b-a3b-thinking",
     "provider": "openrouter",
@@ -6970,8 +7028,8 @@
     "contextWindow": 262144,
     "maxOutput": 235929,
     "cost": {
-      "input": 0.14,
-      "output": 1,
+      "input": 0.1,
+      "output": 0.9,
       "cacheRead": 0.05,
       "cacheWrite": 0
     },
@@ -7143,10 +7201,10 @@
     "provider": "openrouter",
     "name": "Qwen3.5 122B-A10B",
     "contextWindow": 262144,
-    "maxOutput": 235929,
+    "maxOutput": 81920,
     "cost": {
-      "input": 0.26,
-      "output": 2.08,
+      "input": 0.29,
+      "output": 2.4,
       "cacheRead": 0,
       "cacheWrite": 0
     },
@@ -7276,7 +7334,7 @@
     "provider": "openrouter",
     "name": "Qwen3.8 2.4T A95B",
     "contextWindow": 1048576,
-    "maxOutput": 131072,
+    "maxOutput": 262144,
     "cost": {
       "input": 2,
       "output": 6,
@@ -7533,24 +7591,6 @@
     ],
     "available": true
   },
-  "openrouter/thedrummer/rocinante-12b": {
-    "id": "openrouter/thedrummer/rocinante-12b",
-    "provider": "openrouter",
-    "name": "Rocinante 12B",
-    "contextWindow": 65536,
-    "maxOutput": 58982,
-    "cost": {
-      "input": 0.25,
-      "output": 0.5,
-      "cacheRead": 0,
-      "cacheWrite": 0
-    },
-    "reasoning": false,
-    "modalities": [
-      "text"
-    ],
-    "available": true
-  },
   "openrouter/thedrummer/unslopnemo-12b": {
     "id": "openrouter/thedrummer/unslopnemo-12b",
     "provider": "openrouter",
@@ -7604,26 +7644,6 @@
     "reasoning": true,
     "modalities": [
       "text"
-    ],
-    "available": true
-  },
-  "openrouter/stealth/ox-alpha": {
-    "id": "openrouter/stealth/ox-alpha",
-    "provider": "openrouter",
-    "name": "Ox Alpha",
-    "contextWindow": 1048576,
-    "maxOutput": 131072,
-    "cost": {
-      "input": 0,
-      "output": 0,
-      "cacheRead": 0,
-      "cacheWrite": 0
-    },
-    "reasoning": true,
-    "modalities": [
-      "text",
-      "image",
-      "video"
     ],
     "available": true
   },
@@ -7733,8 +7753,26 @@
     "maxOutput": 131072,
     "cost": {
       "input": 0.03,
-      "output": 0.075,
+      "output": 0.1,
       "cacheRead": 0.007,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "openrouter/inclusionai/ling-3.0-flash-fin:free": {
+    "id": "openrouter/inclusionai/ling-3.0-flash-fin:free",
+    "provider": "openrouter",
+    "name": "Ling 3.0 Flash Fin (free)",
+    "contextWindow": 262144,
+    "maxOutput": 32768,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -7982,24 +8020,6 @@
       "text",
       "image",
       "pdf"
-    ],
-    "available": true
-  },
-  "openrouter/mistralai/ministral-8b": {
-    "id": "openrouter/mistralai/ministral-8b",
-    "provider": "openrouter",
-    "name": "Ministral 8B",
-    "contextWindow": 128000,
-    "maxOutput": 102400,
-    "cost": {
-      "input": 0.11,
-      "output": 0.11,
-      "cacheRead": 0,
-      "cacheWrite": 0
-    },
-    "reasoning": false,
-    "modalities": [
-      "text"
     ],
     "available": true
   },
@@ -8647,7 +8667,7 @@
     "id": "openrouter/kwaipilot/kat-coder-pro-v2.5",
     "provider": "openrouter",
     "name": "KAT-Coder-Pro V2.5",
-    "contextWindow": 256000,
+    "contextWindow": 262144,
     "maxOutput": 80000,
     "cost": {
       "input": 0.74,
@@ -9557,6 +9577,24 @@
       "cacheWrite": 0
     },
     "reasoning": false,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "mistral/zai-glm-5-2": {
+    "id": "mistral/zai-glm-5-2",
+    "provider": "mistral",
+    "name": "GLM-5.2",
+    "contextWindow": 1000000,
+    "maxOutput": 131072,
+    "cost": {
+      "input": 1.4,
+      "output": 4.4,
+      "cacheRead": 0.14,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
     "modalities": [
       "text"
     ],
@@ -11849,6 +11887,25 @@
     ],
     "available": true
   },
+  "vercel/zai/glm-5.3-flash": {
+    "id": "vercel/zai/glm-5.3-flash",
+    "provider": "vercel",
+    "name": "GLM 5.3 Flash",
+    "contextWindow": 1000000,
+    "maxOutput": 131000,
+    "cost": {
+      "input": 0.15,
+      "output": 0.5,
+      "cacheRead": 0.03,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image"
+    ],
+    "available": true
+  },
   "vercel/bytedance/seed-1.8": {
     "id": "vercel/bytedance/seed-1.8",
     "provider": "vercel",
@@ -13400,6 +13457,26 @@
     ],
     "available": true
   },
+  "vercel/alibaba/qwen3.8-flash": {
+    "id": "vercel/alibaba/qwen3.8-flash",
+    "provider": "vercel",
+    "name": "Qwen 3.8 Flash",
+    "contextWindow": 991000,
+    "maxOutput": 128000,
+    "cost": {
+      "input": 0.16,
+      "output": 0.47,
+      "cacheRead": 0.016,
+      "cacheWrite": 0.2
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "available": true
+  },
   "vercel/alibaba/qwen3-next-80b-a3b-thinking": {
     "id": "vercel/alibaba/qwen3-next-80b-a3b-thinking",
     "provider": "vercel",
@@ -14030,6 +14107,42 @@
       "input": 0.06,
       "output": 0.18,
       "cacheRead": 0.012,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "vercel/inclusionai/ling-3.0-flash-fin-free": {
+    "id": "vercel/inclusionai/ling-3.0-flash-fin-free",
+    "provider": "vercel",
+    "name": "Ling 3.0 Flash Fin (Free)",
+    "contextWindow": 256000,
+    "maxOutput": 32000,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text"
+    ],
+    "available": true
+  },
+  "vercel/inclusionai/ling-3.0-flash-fin": {
+    "id": "vercel/inclusionai/ling-3.0-flash-fin",
+    "provider": "vercel",
+    "name": "Ling 3.0 Flash Fin",
+    "contextWindow": 256000,
+    "maxOutput": 32000,
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
       "cacheWrite": 0
     },
     "reasoning": true,
