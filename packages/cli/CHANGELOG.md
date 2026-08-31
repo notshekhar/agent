@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.19.24] - 2026-08-31
+
+### Fixed
+
+- **A background shell no longer outlives every surface except the terminal.** Shells are process-lifetime by design — the registry holding them is in memory, nothing is persisted, and a resumed session does not adopt the previous process's children — but only the terminal ever acted on that. `killAllShells()` had exactly one caller in the repository, on the TUI's exit path, while `run_in_background` is gated on the `backgroundShells` setting and not on the surface. So a shell started through `loop serve`, `loop rpc`, print mode or the desktop app kept running after the process that owned it was gone, and what was left behind was not a stray `sleep` but a dev server holding a port that no later session could list, read or kill, because the only handle on it died with the registry. Every surface now reaps on its way out: the RPC server does it for stdio (on stdin end and on SIGTERM, which is how the desktop stops a spawned child), for the socket daemon, for `serve`, and for core embedded in the desktop app — where a background shell is a child of Electron itself and survives the app quitting. Deleting a session kills that session's shells too, since the registry is keyed by session id and deleting the session is the moment they become unreachable.
+- **`loop serve` had no exit path.** It printed "Ctrl+C to stop" and left the default signal disposition to end the process, which unwinds nothing — so the surface most exposed to other machines was also the one least able to clean up after them. Ctrl+C is handled now.
+
+### Added
+
+- **A blocked pane shows on the MacBook notch.** A background pane waiting on an approval is invisible: nothing about it reaches you until you look at that terminal, which is the one thing you are not doing while it waits. herdr and cmux each solve this inside their own multiplexer; this solves it for every pane at once, on the one surface that is always in view without being looked for — above every app, inside fullscreen. The same working / blocked / idle state the herdr reporter sends is drawn there alongside the session's name and the last thing the agent said. It is gated on `~/.notch/notch.sock` existing rather than on an environment variable, because a desktop app cannot inject env into a terminal that is already open — so starting the notch app half an hour into a session works, and the next transition appears. Default on and completely inert when the notch is not running; turn it off with `"notch": false` or in `/settings`.
+
 ## [0.19.23] - 2026-08-28
 
 ### Changed
