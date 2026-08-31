@@ -44,8 +44,7 @@ import {
     setAskUserBridge,
     setBashApprovalBridge,
     setShellPanelPresent,
-    killAllShells,
-    killTrackedDetachedChildren,
+    killAllBashChildren,
     listShells,
     onShellChange,
     getSetting,
@@ -691,10 +690,9 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         // Background shells die with the loop that started them. They are
         // process-lifetime by design (nothing is persisted, nothing is adopted
         // on resume), so leaving them running would strand processes nobody
-        // can see or kill. killTrackedDetachedChildren covers the foreground
-        // strays too — it had no caller before this.
-        const strayShells = killAllShells();
-        killTrackedDetachedChildren();
+        // can see or kill. The helper covers the detached foreground strays
+        // too, and is what every other surface calls on its own way out.
+        const strayShells = killAllBashChildren();
         if (strayShells > 0) {
             process.stdout.write(`\nStopped ${strayShells} background shell${strayShells === 1 ? "" : "s"}.\n`);
         }

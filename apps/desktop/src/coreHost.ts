@@ -109,6 +109,12 @@ export class CoreHost extends EventEmitter {
   }
 
   stop(): void {
+    // Core runs IN THIS PROCESS, so a background shell it started is a child
+    // of the Electron main process — and a detached one survives the app
+    // quitting. Nothing else reaps them: `LoopProcess.stop()` at least kills a
+    // child that now cleans up after itself on SIGTERM, but embedded core has
+    // no such boundary. dispose() is that boundary.
+    this.#server?.dispose();
     this.#close?.();
     this.#close = null;
     this.#feed = null;

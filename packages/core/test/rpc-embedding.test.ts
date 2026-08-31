@@ -72,4 +72,18 @@ describe("embedding core in another process", () => {
         expect((replies[0] as { error?: { message?: string } }).error?.message).toBe("Parse error");
         close();
     });
+
+    test("dispose() is part of the embedded surface and is idempotent", () => {
+        // The desktop calls this from before-quit. Core runs in the Electron
+        // main process there, so a background shell it started is that
+        // process's child — and detached, so it survives the app quitting
+        // unless something kills it. dispose() is that something, and the
+        // shell may reach it from more than one path (quit, window close), so
+        // a second call must be a no-op rather than a throw.
+        const server = new RpcServer();
+        server.attach({ send: () => {} });
+        expect(typeof server.dispose).toBe("function");
+        expect(server.dispose()).toBe(0);
+        expect(() => server.dispose()).not.toThrow();
+    });
 });

@@ -35,7 +35,7 @@ import { join } from "node:path";
 import type { ChildProcess } from "node:child_process";
 import { getConfigDir } from "../../brand";
 import { debugLog } from "../../debug";
-import { killProcessTree, sanitizeBinaryOutput, untrackDetachedChildPid } from "./shell";
+import { killProcessTree, killTrackedDetachedChildren, sanitizeBinaryOutput, untrackDetachedChildPid } from "./shell";
 
 /** Live shells per session. Beyond this, starting another is refused — the cap
  * replaces the timeout as the thing that stops a runaway from accumulating. */
@@ -413,6 +413,25 @@ export function killSessionShells(sessionId: string | undefined): number {
 export function killAllShells(): number {
     let killed = 0;
     for (const key of sessions.keys()) killed += killSessionShells(key === SHARED ? undefined : key);
+    return killed;
+}
+
+/**
+ * Everything bash started, on the way out: background shells plus the detached
+ * foreground strays. Returns the number of shells killed, which is what a
+ * surface prints — the strays are invisible by definition and not counted.
+ *
+ * This exists because the leak it fixes was surface-by-surface. Shells are
+ * process-lifetime BY DESIGN — nothing is persisted, and a resumed session
+ * does not adopt the previous process's children — so a surface that exits
+ * without calling this strands processes nobody can see, read or kill. The CLI
+ * made both calls; `loop serve`, `loop rpc`, print mode and the desktop made
+ * neither. Every surface that can run a turn owes this call on its exit path,
+ * and there is now one call to owe rather than two to remember.
+ */
+export function killAllBashChildren(): number {
+    const killed = killAllShells();
+    killTrackedDetachedChildren();
     return killed;
 }
 

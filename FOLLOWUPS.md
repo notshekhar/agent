@@ -186,7 +186,7 @@ the session, not the turn — the abort signal is deliberately not wired, so esc
 leaves a dev server running — and are killed on exit.
 
 **What is missing.** The RPC server and the web/desktop app know nothing about
-any of it. Three specific gaps:
+any of it. Two specific gaps:
 
 - **No panel, so no promotion.** A foreground command that outruns its timeout
   is moved to the background instead of being killed, but only where
@@ -198,12 +198,14 @@ any of it. Three specific gaps:
 - **No events.** `onShellChange` is a process-local listener set. The RPC layer
   needs to forward start/exit/output-throttle events to its clients the way it
   forwards turn events, or the web panel can only poll.
-- **Nothing kills them.** The CLI's exit path calls `killAllShells()` and
-  `killTrackedDetachedChildren()`; the desktop's quit path and the RPC server's
-  shutdown do not. Until they do, a shell started through those surfaces
-  outlives its process — which is the failure mode the CLI wiring exists to
-  prevent. (`killTrackedDetachedChildren` had no caller at all before this
-  feature; the same applies to any surface that spawns bash.)
+
+Cleanup is no longer one of these. `killAllBashChildren()` is the single call
+every surface owes on its way out, and `RpcServer.dispose()` makes it for the
+RPC ones — stdio (including SIGTERM, which is how the desktop stops a spawned
+child), the socket daemon, `serve`, and embedded core in the Electron main
+process. Print mode makes it directly, and `session.delete` kills that
+session's shells, since deleting a session is the moment its shells become
+unreachable.
 
 **Deliberately not built, and not a gap to close casually:** shells are
 process-lifetime. Nothing is persisted, and a resumed session does not adopt

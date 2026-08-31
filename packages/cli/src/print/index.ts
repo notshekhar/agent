@@ -12,6 +12,7 @@ import {
     getProjectModel,
     isMcpEnabled,
     isTrusted,
+    killAllBashChildren,
     parseModelId,
     resolveSavedAgent,
     settingsStore,
@@ -130,6 +131,14 @@ export async function runPrint(opts: PrintOptions): Promise<void> {
         recap: false,
         maxSteps: opts.maxSteps,
     });
+
+    // The run is over, so the process is: kill anything bash left running.
+    // Print mode never promotes a timed-out command to the background (no
+    // panel to show it in), but the model can still ask for one explicitly
+    // when the backgroundShells setting is on — and a one-shot run has no
+    // later turn in which to notice it. Silent: the reporter owns both
+    // streams, and a stray line would corrupt a JSON run's output.
+    killAllBashChildren();
 
     if (mcpEnabled) await getMcpManager().close();
     await getExtensionHost().close();

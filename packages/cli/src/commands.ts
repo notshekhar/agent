@@ -306,13 +306,27 @@ export function cmdServe(args: Args): void {
     let networkUrls: string[];
     let boundPort: number;
     let token: string;
+    let stop: () => void;
     try {
-        ({ url, hostname, networkUrls, port: boundPort, token } = startWebServer({ host, port }));
+        ({ url, hostname, networkUrls, port: boundPort, token, stop } = startWebServer({ host, port }));
     } catch (err) {
         console.error((err as Error).message);
         process.exitCode = 1;
         return;
     }
+    // "Ctrl+C to stop" was the whole exit path: the default signal disposition
+    // ends the process without unwinding, so a background shell a remote client
+    // started outlived the server that started it, unreachable. Stopping the
+    // handle disposes the RPC server, which kills them.
+    let leaving = false;
+    const leave = () => {
+        if (leaving) return;
+        leaving = true;
+        stop();
+        process.exit(0);
+    };
+    process.on("SIGINT", leave);
+    process.on("SIGTERM", leave);
     console.log(`${PRODUCT_NAME} serve — web UI + WebSocket RPC\n`);
     console.log(`  local     ${url}`);
     if (networkUrls.length) {

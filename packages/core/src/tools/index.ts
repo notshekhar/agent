@@ -61,6 +61,7 @@ export { clearReadRegistry } from "./utils/read-registry";
 export {
     formatDuration,
     isShellPanelPresent,
+    killAllBashChildren,
     killAllShells,
     killSessionShells,
     killShell,

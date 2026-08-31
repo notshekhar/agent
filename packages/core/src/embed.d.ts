@@ -26,5 +26,11 @@ declare module "@notshekhar/loop-core/embed" {
       close: () => void;
     };
     disconnect(transport: EmbeddedTransport): void;
+    /**
+     * The hosting process is going away: abort live turns, drop subscribers,
+     * and kill everything bash started. Returns the number of background
+     * shells killed. Idempotent.
+     */
+    dispose(): number;
   }
 }

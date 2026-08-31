@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
     formatDuration,
+    killAllBashChildren,
     killShell,
     listShells,
     readShell,
@@ -176,5 +177,30 @@ describe("exit notice text", () => {
 
     test("nothing to report produces nothing at all", () => {
         expect(formatShellNotices([])).toBeNull();
+    });
+});
+
+describe("process exit", () => {
+    test("killAllBashChildren stops shells in every session, not just one", async () => {
+        // The bug this covers is a surface (serve / rpc / print / desktop)
+        // exiting with shells still running: the registry is in memory, so
+        // nothing that comes later can list, read or kill them.
+        const other = "test-session-two";
+        const a = start("sleep 60");
+        const b = start("sleep 60", other);
+
+        const killed = killAllBashChildren();
+        expect(killed).toBe(2);
+
+        const doneA = await settled(a.id);
+        const doneB = await settled(b.id, other);
+        expect(doneA.status === "killed" || doneA.status === "exited").toBe(true);
+        expect(doneB.status === "killed" || doneB.status === "exited").toBe(true);
+        expect(runningShellCount(SESSION)).toBe(0);
+        expect(runningShellCount(other)).toBe(0);
+    });
+
+    test("killing nothing is not an error", () => {
+        expect(killAllBashChildren()).toBe(0);
     });
 });

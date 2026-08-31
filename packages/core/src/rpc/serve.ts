@@ -207,6 +207,12 @@ export function startWebServer(opts: { host?: string; port?: number } = {}): Ser
         token,
         url: `http://${localHost}:${boundPort}/?token=${token}`,
         networkUrls: networkHosts.map((h) => `http://${h}:${boundPort}/?token=${token}`),
-        stop: () => server.stop(true),
+        // Killing the HTTP server closes the sockets; disposing the RPC
+        // server is what kills the background shells its sessions started,
+        // which nothing else in this process will do.
+        stop: () => {
+            rpc.dispose();
+            server.stop(true);
+        },
     };
 }

@@ -37,6 +37,7 @@ import {
     saveAgent,
 } from "../agent/agents";
 import { setAskUserBridge, type AskAnswer, type AskQuestion } from "../tools/ask-bridge";
+import { killAllBashChildren, killSessionShells } from "../tools/utils/shell-registry";
 import { THINKING_LEVELS, type ThinkingLevel } from "../agent/thinking";
 import {
     artifactFilePath,
@@ -438,6 +439,28 @@ export class RpcServer {
         for (const ctx of this.sessions.values()) ctx.subscribers.delete(transport);
     }
 
+    /**
+     * The process hosting this server is going away.
+     *
+     * A transport closing is `disconnect`; this is the other end of the
+     * lifetime — every live turn is aborted, every subscriber dropped, and
+     * everything bash started is killed. That last part is the reason this
+     * method exists: background shells are process-lifetime, held in an
+     * in-memory registry, so a server that exits without killing them leaves
+     * processes running that no future session can find. The CLI has always
+     * done this on its way out; nothing else did.
+     *
+     * Idempotent — a surface may reach it from both a signal and a stream end.
+     */
+    dispose(): number {
+        for (const ctx of this.sessions.values()) {
+            ctx.abort.abort();
+            ctx.subscribers.clear();
+        }
+        this.sessions.clear();
+        return killAllBashChildren();
+    }
+
     private async handleLine(line: string, transport: Transport): Promise<void> {
         let req: RpcRequest;
         try {
@@ -812,6 +835,11 @@ export class RpcServer {
                     ctx.subscribers.clear();
                     this.sessions.delete(id);
                 }
+                // Shells belong to the session. Deleting it is the one moment
+                // they become unreachable — the registry is keyed by session
+                // id, so a shell left running here can never be listed, read
+                // or killed again by anyone.
+                killSessionShells(id);
                 const deleted = this.manager.delete(id);
                 return { ok: deleted, sessionId: id };
             },
@@ -1556,8 +1584,20 @@ export function startStdioServer(): void {
         },
     };
     const { feed } = server.attach(transport);
+    // Three ways this process ends, and all of them have to reap what bash
+    // started. The desktop's LoopProcess.stop() is a plain kill(), so SIGTERM
+    // is the common path, not the exotic one.
+    let leaving = false;
+    const leave = () => {
+        if (leaving) return;
+        leaving = true;
+        server.dispose();
+        process.exit(0);
+    };
     process.stdin.on("data", feed);
-    process.stdin.on("end", () => process.exit(0));
+    process.stdin.on("end", leave);
+    process.on("SIGTERM", leave);
+    process.on("SIGINT", leave);
 }
 
 function rpcPaths(): { socketPath: string; pidPath: string } {
@@ -1608,7 +1648,13 @@ export function startSocketServer(): { server: Server; socketPath: string; pidPa
 
     // Leave no stale socket/pid behind on a signal exit — the next start would
     // otherwise have to clean up after us.
+    let shuttingDown = false;
     const shutdown = () => {
+        if (shuttingDown) return;
+        shuttingDown = true;
+        // Before the socket goes: a client cannot reconnect to kill a shell
+        // whose registry died with this process.
+        server.dispose();
         try {
             unlinkSync(socketPath);
         } catch {}
