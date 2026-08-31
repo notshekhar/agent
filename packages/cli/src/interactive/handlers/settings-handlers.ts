@@ -75,6 +75,7 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
         bashApprove: false,
         herdr: true,
         cmux: true,
+        notch: true,
         pinnedInput: false,
     };
     const boolSetting = (key: string): boolean =>
@@ -240,6 +241,12 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                         label: `cmux integration: ${boolSetting("cmux") ? "on" : "off"}`,
                         description:
                             "mirror activity into cmux's Feed and let it answer approvals (no-op outside cmux; applies next launch)",
+                    },
+                    {
+                        value: "notch",
+                        label: `notch reporting: ${boolSetting("notch") ? "on" : "off"}`,
+                        description:
+                            "show working/blocked/idle on the MacBook notch (no-op unless the notch app is running; applies next launch)",
                     },
                     {
                         value: "bashDeny",

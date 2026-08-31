@@ -117,6 +117,12 @@ export interface AppSettings {
      * does anything under cmux (CMUX_SURFACE_ID). Default ON; set false to
      * disable both the reporting and the remote answering. */
     cmux?: boolean;
+
+    /** Report agent state (working/blocked/idle + session) to the notch app's
+     * socket so a blocked pane is visible on the MacBook notch from any app.
+     * Gated on the socket existing, so it does nothing unless the notch app is
+     * running. Default ON; set false to disable reporting. */
+    notch?: boolean;
     skills?: boolean;
     agent?: string;
     /** User-defined command aliases: name → expansion ("/model gpt …"). Managed via /alias. */

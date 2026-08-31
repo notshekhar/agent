@@ -76,6 +76,14 @@ Other notable keys (all managed via `/settings` too):
   an allowlist of agents it knows, so loop's land under the default `claude`
   label (its event stream keeps `_source: "loop"`), and the per-tab agent
   lifecycle dot is only written for agents on that list.
+- `"notch": false` — disables notch reporting. Default on, and gated on the
+  socket `~/.notch/notch.sock` existing, so it does nothing unless the notch
+  app is running. When it is, the same working / blocked / idle state the
+  herdr reporter sends is drawn on the MacBook notch — above every app and
+  inside fullscreen — alongside the session's name and the last thing the
+  agent said. The gate is the socket rather than an env var on purpose: a
+  desktop app cannot inject env into a terminal that is already open, so
+  starting the notch mid-session works and the next transition appears.
 - `"skills": false` — disables skills. Default on (gated by project trust):
   skills are SKILL.md folders under `~/{{dir}}/agent/skills/` (global) and
   `<cwd>/{{dir}}/skills/` (project); the agent loads one via the `skill`

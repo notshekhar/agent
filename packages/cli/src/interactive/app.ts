@@ -85,6 +85,7 @@ import { createAgentStatusBus } from "./agent-status";
 import { attachCmuxReporter, setCmuxReporter } from "./cmux-reporter";
 import { attachTerminalTitle, defaultTabName } from "./session-title";
 import { attachHerdrReporter } from "./herdr-reporter";
+import { attachNotchReporter } from "./notch-reporter";
 import { createTicker } from "./ticker";
 import { registerAppKeybindings } from "./app-keybindings";
 import { installConsoleBridge } from "./console-bridge";
@@ -419,6 +420,14 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         disabled: getSetting("herdr") === false,
     });
 
+    // notch agent-state reporting (inert unless the notch app is running).
+    const notch = attachNotchReporter(agentStatus, {
+        getSession: () =>
+            state.session ? { id: state.session.id, path: state.session.path, name: state.session.getName() } : null,
+        cwd: () => state.cwd,
+        disabled: getSetting("notch") === false,
+    });
+
     // cmux integration (inert outside a cmux pane). Unlike herdr's this one
     // does not read the status bus: cmux speaks lifecycle EVENTS, and loop
     // already emits every one of them as a hook — including the Notification
@@ -716,6 +725,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
                     state.cwd,
                 ),
                 herdr.release(),
+                notch.release(),
                 cmuxReporter.release(),
             ]),
             new Promise((r) => setTimeout(r, 3_000)),
