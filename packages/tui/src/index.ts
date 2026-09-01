@@ -1,5 +1,6 @@
 // Core TUI interfaces and classes
 
+export { Marked, type Token, type Tokens } from "marked";
 // Autocomplete support
 export {
     type AutocompleteItem,
@@ -57,6 +58,8 @@ export {
     parseKey,
     setKittyProtocolActive,
 } from "./keys";
+// LaTeX rendering
+export { type RenderLatexOptions, renderLatex } from "./latex";
 // Input buffering for batch splitting
 export { StdinBuffer, type StdinBufferEventMap, type StdinBufferOptions } from "./stdin-buffer";
 // Terminal interface and implementations
@@ -93,6 +96,7 @@ export {
     renderImage,
     resetCapabilitiesCache,
     setCapabilities,
+    setCapabilityOverrides,
     setCellDimensions,
     type TerminalCapabilities,
 } from "./terminal-image";
@@ -111,4 +115,11 @@ export {
     TUI,
 } from "./tui";
 // Utilities
-export { sliceByColumn, truncateToWidth, visibleWidth, wrapTextWithAnsi } from "./utils";
+export {
+    getOsc8LinkAtColumn,
+    sliceByColumn,
+    stripTerminalSequences,
+    truncateToWidth,
+    visibleWidth,
+    wrapTextWithAnsi,
+} from "./utils";

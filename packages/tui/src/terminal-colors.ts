@@ -26,7 +26,7 @@ function parseOscHexChannel(channel: string): number | undefined {
 }
 
 const OSC11_BACKGROUND_COLOR_RESPONSE_PATTERN = /^\x1b\]11;([^\x07\x1b]*)(?:\x07|\x1b\\)$/i;
-const COLOR_SCHEME_REPORT_PATTERN = /^\x1b\[\?997;(1|2)n$/;
+const COLOR_SCHEME_REPORT_PATTERN = /^(?:\x1b\[\?997;(1|2)n)+$/;
 
 /**
  * The same two reports, matched at the START of a chunk rather than as the

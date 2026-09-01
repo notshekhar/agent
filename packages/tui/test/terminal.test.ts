@@ -185,7 +185,13 @@ describe("ProcessTerminal Kitty keyboard protocol negotiation", () => {
 
             assert.equal(harness.getInput(), undefined);
 
-            await sleep(180); // past the 150ms fragment flush
+            // Two timers stack here, and only the second is the negotiation's.
+            // StdinBuffer holds an incomplete SEQUENCE for 50ms (raised from 10
+            // upstream, so a multi-byte sequence split by a slow link still
+            // arrives whole); only then does the fragment reach the negotiation
+            // buffer and start its own 150ms flush. 180ms used to clear both and
+            // no longer does.
+            await sleep(260);
 
             assert.equal(harness.getInput(), "\x1b[");
         } finally {
