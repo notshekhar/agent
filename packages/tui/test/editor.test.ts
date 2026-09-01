@@ -3,14 +3,15 @@ import { describe, it } from "bun:test";
 import { stripVTControlCharacters } from "node:util";
 import { type AutocompleteProvider, CombinedAutocompleteProvider } from "../src/autocomplete";
 import { Editor, wordWrapLine } from "../src/components/editor";
-import { TUI } from "../src/tui";
+import { type TUI } from "../src/tui";
 import { visibleWidth } from "../src/utils";
 import { defaultEditorTheme } from "./test-themes";
 import { VirtualTerminal } from "./virtual-terminal";
+import { TuiMainScreen } from "../src/tui-main-screen";
 
 /** Create a TUI with a virtual terminal for testing */
 function createTestTUI(cols = 80, rows = 24): TUI {
-    return new TUI(new VirtualTerminal(cols, rows));
+    return new TuiMainScreen(new VirtualTerminal(cols, rows));
 }
 
 /** Standard applyCompletion that replaces prefix with item.value */

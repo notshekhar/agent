@@ -1,7 +1,8 @@
 import assert from "node:assert";
 import { describe, it } from "bun:test";
-import { type Component, Container, TUI } from "../src/tui";
+import { type Component, Container, type TUI } from "../src/tui";
 import { VirtualTerminal } from "./virtual-terminal";
+import { TuiMainScreen } from "../src/tui-main-screen";
 
 /**
  * A selector painted over the frame costs the frame no rows.
@@ -35,7 +36,7 @@ function app(height: number): {
     viewport: () => string[];
 } {
     const terminal = new VirtualTerminal(40, height);
-    const tui = new TUI(terminal);
+    const tui = new TuiMainScreen(terminal);
     const chat = new Lines(Array.from({ length: height * 2 }, (_, i) => `chat ${i}`));
     const editor = new Lines(["> prompt"]);
     const editorSlot = new Container();

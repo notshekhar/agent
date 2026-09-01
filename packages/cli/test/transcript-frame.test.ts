@@ -77,7 +77,10 @@ describe("a frame that shrinks pulls its content back down", () => {
         join(import.meta.dir, "..", "src", "interactive", "handlers", "settings-handlers.ts"),
         "utf8",
     );
-    const tuiSource = readFileSync(join(import.meta.dir, "..", "..", "tui", "src", "tui.ts"), "utf8");
+    // The differential renderer lives in tui-main-screen.ts since the pi-mono
+    // restructure; tui.ts is now the interfaces, Container and TuiBase.
+    const tuiSource = readFileSync(join(import.meta.dir, "..", "..", "tui", "src", "tui-main-screen.ts"), "utf8");
+    const tuiBaseSource = readFileSync(join(import.meta.dir, "..", "..", "tui", "src", "tui.ts"), "utf8");
 
     test("no command patches the layout on its way out any more", () => {
         // v0.19.5 fixed /settings alone by repainting on close, which cleared
@@ -103,7 +106,7 @@ describe("a frame that shrinks pulls its content back down", () => {
         );
         const reset = chatHistory.slice(chatHistory.indexOf("    reset(): void {"));
         expect(reset.slice(0, 700)).toContain("this.tui.resetFrame()");
-        expect(tuiSource).toContain("resetFrame(): void {");
+        expect(tuiBaseSource).toContain("resetFrame(): void {");
     });
 
     test("and it does not reach for the scrollback-clearing redraw", () => {

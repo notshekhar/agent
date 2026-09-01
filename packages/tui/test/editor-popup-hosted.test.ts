@@ -3,9 +3,10 @@ import { describe, it } from "bun:test";
 import { stripVTControlCharacters } from "node:util";
 import type { AutocompleteProvider } from "../src/autocomplete";
 import { Editor } from "../src/components/editor";
-import { TUI } from "../src/tui";
+import { type TUI } from "../src/tui";
 import { defaultEditorTheme } from "./test-themes";
 import { VirtualTerminal } from "./virtual-terminal";
+import { TuiMainScreen } from "../src/tui-main-screen";
 
 /**
  * The completion list, appended to the editor's own output, makes the editor —
@@ -18,7 +19,7 @@ import { VirtualTerminal } from "./virtual-terminal";
  * frame instead, so the editor's height does not move at all.
  */
 function popupEditor(): { editor: Editor; ready: () => Promise<void> } {
-    const editor = new Editor(new TUI(new VirtualTerminal(80, 24)), defaultEditorTheme);
+    const editor = new Editor(new TuiMainScreen(new VirtualTerminal(80, 24)), defaultEditorTheme);
     const provider: AutocompleteProvider = {
         getSuggestions: async (lines, _cursorLine, cursorCol) => ({
             items: [

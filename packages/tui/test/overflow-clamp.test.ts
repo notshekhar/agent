@@ -1,7 +1,8 @@
 import assert from "node:assert";
 import { describe, it } from "bun:test";
-import { type Component, TUI } from "../src/tui";
+import { type Component, type TUI } from "../src/tui";
 import { VirtualTerminal } from "./virtual-terminal";
+import { TuiMainScreen } from "../src/tui-main-screen";
 
 class TestComponent implements Component {
     lines: string[] = [];
@@ -14,7 +15,7 @@ class TestComponent implements Component {
 describe("over-wide line clamping", () => {
     it("clamps an over-wide line and keeps the UI alive (no crash-stop)", async () => {
         const terminal = new VirtualTerminal(20, 6);
-        const tui = new TUI(terminal);
+        const tui = new TuiMainScreen(terminal);
         const component = new TestComponent();
         tui.addChild(component);
 

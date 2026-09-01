@@ -13,6 +13,7 @@ import {
     Spacer,
     truncateToWidth,
     TUI,
+    TuiMainScreen,
     type Component,
     type EditorTheme,
     type SlashCommand as TuiSlashCommand,
@@ -203,7 +204,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     getExtensionHost().applyCommands(commands);
 
     const terminal = new ProcessTerminal();
-    const tui = new TUI(terminal, true);
+    const tui = new TuiMainScreen(terminal, true);
 
     const history = new ChatHistory(tui, opts.cwd);
     const statusLine = new StatusLine();

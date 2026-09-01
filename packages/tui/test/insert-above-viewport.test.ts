@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { type Component, TUI } from "../src/tui";
+import { type Component, type TUI } from "../src/tui";
 import { VirtualTerminal } from "./virtual-terminal";
+import { TuiMainScreen } from "../src/tui-main-screen";
 
 const COLS = 40;
 const ROWS = 10;
@@ -29,7 +30,7 @@ function transcript(n: number): string[] {
 
 async function setup(lines: string[]): Promise<{ tui: TUI; term: RecordingTerminal; frame: Frame }> {
     const term = new RecordingTerminal(COLS, ROWS);
-    const tui = new TUI(term);
+    const tui = new TuiMainScreen(term);
     const frame = new Frame(lines);
     tui.addChild(frame);
     tui.start();

@@ -2,11 +2,10 @@
  * Minimal TUI implementation with differential rendering
  */
 
-import { brandEnv, CONFIG_DIR_NAME, PRODUCT_NAME } from "./brand";
-import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { performance } from "node:perf_hooks";
+import { brandEnv, CONFIG_DIR_NAME } from "./brand";
 import { isKeyRelease, matchesKey } from "./keys";
 import type { Terminal } from "./terminal";
 import {
@@ -17,56 +16,15 @@ import {
     type RgbColor,
     type TerminalColorScheme,
 } from "./terminal-colors";
-import { deleteKittyImage, getCapabilities, isImageLine, setCellDimensions } from "./terminal-image";
+import { getCapabilities, isImageLine, setCellDimensions } from "./terminal-image";
 import {
     extractSegments,
     normalizeTerminalOutput,
     setWidthCalibration,
     sliceByColumn,
     sliceWithWidth,
-    truncateToWidth,
     visibleWidth,
 } from "./utils";
-
-const KITTY_SEQUENCE_PREFIX = "\x1b_G";
-
-interface KittyImageHeader {
-    ids: number[];
-    rows: number;
-}
-
-function parseKittyImageHeader(line: string): KittyImageHeader | undefined {
-    const sequenceStart = line.indexOf(KITTY_SEQUENCE_PREFIX);
-    if (sequenceStart === -1) return undefined;
-
-    const paramsStart = sequenceStart + KITTY_SEQUENCE_PREFIX.length;
-    const paramsEnd = line.indexOf(";", paramsStart);
-    if (paramsEnd === -1) return undefined;
-
-    const ids: number[] = [];
-    let rows = 1;
-    const params = line.slice(paramsStart, paramsEnd);
-    for (const param of params.split(",")) {
-        const [key, value] = param.split("=", 2);
-        if (value === undefined) continue;
-        const numberValue = Number(value);
-        if (!Number.isInteger(numberValue) || numberValue <= 0 || numberValue > 0xffffffff) continue;
-        if (key === "i") {
-            ids.push(numberValue);
-        } else if (key === "r") {
-            rows = numberValue;
-        }
-    }
-    return { ids, rows };
-}
-
-function extractKittyImageIds(line: string): number[] {
-    return parseKittyImageHeader(line)?.ids ?? [];
-}
-
-function extractKittyImageRows(line: string): number {
-    return parseKittyImageHeader(line)?.rows ?? 1;
-}
 
 /**
  * Component interface - all components must implement this
@@ -97,8 +55,8 @@ export interface Component {
     invalidate(): void;
 }
 
-type InputListenerResult = { consume?: boolean; data?: string } | undefined;
-type InputListener = (data: string) => InputListenerResult;
+export type TuiInputListenerResult = { consume?: boolean; data?: string } | undefined;
+export type TuiInputListener = (data: string) => TuiInputListenerResult;
 type PendingOsc11BackgroundQuery = {
     settled: boolean;
     resolve: ((rgb: RgbColor | undefined) => void) | undefined;
@@ -170,10 +128,6 @@ function parseSizeValue(value: SizeValue | undefined, referenceSize: number): nu
     return undefined;
 }
 
-function isTermuxSession(): boolean {
-    return Boolean(process.env.TERMUX_VERSION);
-}
-
 /**
  * Options for overlay positioning and sizing.
  * Values can be absolute numbers or percentage strings (e.g., "50%").
@@ -202,13 +156,13 @@ export interface OverlayOptions {
     col?: SizeValue;
 
     // === Margin from terminal edges ===
+    /** Margin from terminal edges. Number applies to all sides. */
     /**
-     * Margin from terminal edges. Number applies to all sides.
-     *
-     * A function is called every render, for an overlay whose place in the
-     * frame moves — one held above a component that grows, say. Fixed margins
-     * are resolved once at layout time, which is a frame behind anything that
-     * changes shape while the overlay is up.
+     * loop-local (keep across pi-mono syncs): a margin may be a FUNCTION, read
+     * once per composite, so an overlay can stay anchored to something whose
+     * place in the frame moves — a menu held above a prompt that grows with the
+     * draft. A fixed margin computed at showOverlay() time comes adrift the
+     * moment the thing it was measured against changes height.
      */
     margin?: OverlayMargin | number | (() => OverlayMargin | number);
 
@@ -309,83 +263,213 @@ export class Container implements Component {
 /**
  * TUI - Main class for managing terminal UI with differential rendering
  */
-export class TUI extends Container {
+const SEGMENT_RESET = "\x1b[0m\x1b]8;;\x07";
+
+/** Composite overlay content into a terminal line at a fixed column. */
+export function compositeTuiLine(
+    baseLine: string,
+    overlayLine: string,
+    startCol: number,
+    overlayWidth: number,
+    totalWidth: number,
+): string {
+    if (isImageLine(baseLine)) return baseLine;
+
+    const afterStart = startCol + overlayWidth;
+    const base = extractSegments(baseLine, startCol, afterStart, totalWidth - afterStart, true);
+    const overlay = sliceWithWidth(overlayLine, 0, overlayWidth, true);
+    const beforePad = Math.max(0, startCol - base.beforeWidth);
+    const overlayPad = Math.max(0, overlayWidth - overlay.width);
+    const actualBeforeWidth = Math.max(startCol, base.beforeWidth);
+    const actualOverlayWidth = Math.max(overlayWidth, overlay.width);
+    const afterTarget = Math.max(0, totalWidth - actualBeforeWidth - actualOverlayWidth);
+    const afterPad = Math.max(0, afterTarget - base.afterWidth);
+    const result =
+        base.before +
+        " ".repeat(beforePad) +
+        SEGMENT_RESET +
+        overlay.text +
+        " ".repeat(overlayPad) +
+        SEGMENT_RESET +
+        base.after +
+        " ".repeat(afterPad);
+
+    return visibleWidth(result) <= totalWidth ? result : sliceByColumn(result, 0, totalWidth, true);
+}
+
+export type TuiMode = "regular" | "fullscreen";
+
+export interface TuiStopOptions {
+    /** Leave renderer output in place for another TUI taking over the same terminal. */
+    preserveScreen?: boolean;
+}
+
+export interface TUI extends Component {
+    readonly mode: TuiMode;
+    children: Component[];
+    terminal: Terminal;
+    onDebug?: () => void;
+    readonly fullRedraws: number;
+    addChild(component: Component): void;
+    removeChild(component: Component): void;
+    clear(): void;
+    getShowHardwareCursor(): boolean;
+    setShowHardwareCursor(enabled: boolean): void;
+    getClearOnShrink(): boolean;
+    setClearOnShrink(enabled: boolean): void;
+    setFocus(component: Component | null): void;
+    showOverlay(component: Component, options?: OverlayOptions): OverlayHandle;
+    hideOverlay(): void;
+    hasOverlay(): boolean;
+    start(): void;
+    stop(options?: TuiStopOptions): void;
+    renderNow(force?: boolean): void;
+    requestRender(force?: boolean): void;
+    addInputListener(listener: TuiInputListener): () => void;
+    removeInputListener(listener: TuiInputListener): void;
+    onTerminalColorSchemeChange(listener: (scheme: TerminalColorScheme) => void): () => void;
+    setTerminalColorSchemeNotifications(enabled: boolean): void;
+    queryTerminalBackgroundColor(options: { timeoutMs: number }): Promise<RgbColor | undefined>;
+    queryTerminalColorScheme(options: { timeoutMs: number }): Promise<TerminalColorScheme | undefined>;
+    // ---- loop-local (keep across pi-mono syncs) ----
+    /** True only while a frame is being composed. */
+    isRendering(): boolean;
+    /** Identifies the frame being composed; for within-frame memoization. */
+    readonly renderFrameId: number;
+    /** Rows the components rendered last frame, before any overlay padding. */
+    getContentHeight(): number;
+    /** The next frame is a NEW frame, not a continuation of this one. */
+    resetFrame(): void;
+    /** Set the terminal title through the renderer rather than behind its back. */
+    setTitle(title: string): void;
+}
+
+export const VIEWPORT_TUI = Symbol.for("@earendil-works/pi-tui/viewport");
+
+export interface ViewportTUI extends TUI {
+    readonly [VIEWPORT_TUI]: true;
+    setLayoutRoot(component: Component | undefined): void;
+}
+
+export function isViewportTUI(tui: TUI): tui is ViewportTUI {
+    return (tui as Partial<ViewportTUI>)[VIEWPORT_TUI] === true;
+}
+
+export abstract class TuiBase extends Container implements TUI {
+    abstract readonly mode: TuiMode;
     public terminal: Terminal;
-    private previousLines: string[] = [];
-    private previousKittyImageIds = new Set<number>();
-    private previousWidth = 0;
-    private previousHeight = 0;
     private focusedComponent: Component | null = null;
-    private inputListeners = new Set<InputListener>();
+    private inputListeners = new Set<TuiInputListener>();
 
     /** Global callback for debug key (Shift+Ctrl+D). Called before input is forwarded to focused component. */
     public onDebug?: () => void;
     private renderRequested = false;
+    private immediateRenderScheduled = false;
     private renderTimer: NodeJS.Timeout | undefined;
-    private keepAliveTimer: ReturnType<typeof setInterval> | undefined;
-    /** One overflow log per session — see the clamp in doRender. */
-    private overflowLogged = false;
     private lastRenderAt = 0;
     private static readonly MIN_RENDER_INTERVAL_MS = 16;
-    private cursorRow = 0; // Logical cursor row (end of rendered content)
-    private hardwareCursorRow = 0; // Actual terminal cursor row (may differ due to IME positioning)
     private showHardwareCursor = brandEnv("HARDWARE_CURSOR") === "1";
-    private clearOnShrink = brandEnv("CLEAR_ON_SHRINK") === "1"; // Clear empty rows when content shrinks (default: off)
-    private frameReset = false; // The next frame is a new one, not a continuation (see resetFrame)
-    private contentHeight = 0; // Rows the components rendered, before overlay padding (see getContentHeight)
-    private maxLinesRendered = 0; // Track terminal's working area (max lines ever rendered)
-    private previousViewportTop = 0; // Track previous viewport top for resize-aware cursor moves
-    private fullRedrawCount = 0;
-    private frameId = 0;
-    private renderingFrame = false;
-    private stopped = false;
-    // Guards a one-shot recovery redraw after a render throws, so a persistently
-    // failing render can't spin in a tight requestRender→throw loop.
-    private recovering = false;
-    private static readonly DEBUG_RENDER = !!brandEnv("DEBUG_RENDER");
-    private renderSeq = 0;
-    private reqSeq = 0;
-    private pendingOsc11BackgroundReplies = 0;
-    private pendingOsc11BackgroundQueries: PendingOsc11BackgroundQuery[] = [];
+    private clearOnShrink = brandEnv("CLEAR_ON_SHRINK") === "1";
+    protected fullRedrawCount = 0;
+    protected stopped = false;
+    // loop-local render bookkeeping. `contentHeight` is where the frame ENDS,
+    // which is what an overlay anchored to the bottom of it needs — compositing
+    // pads the frame out to the full height, so previousLines.length stops
+    // answering that question exactly when it is being relied on.
+    protected renderingFrame = false;
+    protected frameId = 0;
+    protected contentHeight = 0;
+    protected frameReset = false;
+    // loop-local: complex-script width calibration probe (see queryWidthCalibration).
     private pendingWidthProbeReplies = 0;
     private widthProbeCols: number[] = [];
     private widthProbeTimer: NodeJS.Timeout | undefined;
+    private keepAliveTimer: ReturnType<typeof setInterval> | undefined;
+    private pendingOsc11BackgroundReplies = 0;
+    private pendingOsc11BackgroundQueries: PendingOsc11BackgroundQuery[] = [];
     private terminalColorSchemeListeners = new Set<(scheme: TerminalColorScheme) => void>();
     private terminalColorSchemeNotificationsEnabled = false;
+    protected readonly logDirectory: string;
 
     // Overlay stack for modal components rendered on top of base content
     private focusOrderCounter = 0;
     private overlayStack: OverlayStackEntry[] = [];
+
+    get hasOverlayEntries(): boolean {
+        return this.overlayStack.length > 0;
+    }
     private overlayFocusRestore: OverlayFocusRestoreState = { status: "inactive" };
 
-    constructor(terminal: Terminal, showHardwareCursor?: boolean) {
+    constructor(terminal: Terminal, showHardwareCursor?: boolean, logDirectory?: string) {
         super();
         this.terminal = terminal;
+        this.logDirectory = logDirectory ?? brandEnv("AGENT_DIR") ?? path.join(os.homedir(), CONFIG_DIR_NAME, "agent");
         if (showHardwareCursor !== undefined) {
             this.showHardwareCursor = showHardwareCursor;
         }
     }
 
+    protected abstract doRender(): void;
+
+    protected resetRenderState(): void {}
+
+    protected beforeTerminalStart(): void {}
+
+    protected afterTerminalStart(): void {}
+
+    protected beforeTerminalStop(_options: TuiStopOptions): void {}
+
+    protected afterTerminalStop(_options: TuiStopOptions): void {}
+
     get fullRedraws(): number {
         return this.fullRedrawCount;
-    }
-
-    /**
-     * Identity of the frame being composed, for components that get asked the
-     * same question twice while building one.
-     *
-     * Only useful together with {@link isRendering}: a value memoized against
-     * a frame id must be recomputed the moment the render pass is over, or it
-     * is just a stale cache wearing a number. See the reserve-rows measurement
-     * in the CLI for the one caller this exists for.
-     */
-    get renderFrameId(): number {
-        return this.frameId;
     }
 
     /** True only while a frame is being composed. */
     isRendering(): boolean {
         return this.renderingFrame;
+    }
+
+    /**
+     * Identifies the frame being composed, so a caller can memoize a
+     * measurement WITHIN one frame without carrying it across frames — where
+     * it would be stale in exactly the case that matters.
+     */
+    get renderFrameId(): number {
+        return this.frameId;
+    }
+
+    getContentHeight(): number {
+        return this.contentHeight;
+    }
+
+    /**
+     * The next frame is a NEW frame, not a continuation of this one.
+     *
+     * The main-screen renderer's model is that frame line i is at a known place
+     * on the screen, kept true by diffing this frame against the last one BY
+     * INDEX. That only means anything while the two frames are the same
+     * conversation with more added. Rebuild the transcript — /new, /clear, a
+     * mode switch, a resumed session — and index 0 of the new frame has nothing
+     * to do with index 0 of the old one, so the diff concludes the top of the
+     * screen is unchanged and leaves the old conversation under a new prompt.
+     *
+     * A signal, not something to detect: a rebuilt transcript and a line
+     * inserted above the window look identical from here and want opposite
+     * treatment. Only the caller knows which it did. The alt screen repaints
+     * whole frames, so it simply has nothing to do with this.
+     */
+    resetFrame(): void {
+        this.frameReset = true;
+    }
+
+    /**
+     * Titles go through the renderer, never straight at stdout: a caller
+     * writing escape sequences behind its back desynchronises the cursor
+     * bookkeeping the differential renderer depends on.
+     */
+    setTitle(title: string): void {
+        this.terminal.setTitle(title);
     }
 
     getShowHardwareCursor(): boolean {
@@ -414,42 +498,8 @@ export class TUI extends Container {
         this.clearOnShrink = enabled;
     }
 
-    /**
-     * Rows the components rendered last frame, before any overlay padding.
-     *
-     * What it answers is where the frame ENDS on the screen, which is what
-     * anything anchored to the bottom of the frame — a menu that has to sit on
-     * the prompt — actually needs. A frame at least as tall as the terminal
-     * ends on the last row; a shorter one ends that many rows above it, and an
-     * overlay aimed at the screen's bottom would come adrift from the prompt
-     * and float below it.
-     *
-     * Deliberately not `previousLines.length`: compositing pads the frame out
-     * to the full height, so once an overlay is up that number is always the
-     * terminal's height and this distinction disappears exactly when it is
-     * being relied on.
-     */
-    getContentHeight(): number {
-        return this.contentHeight;
-    }
-
-    /**
-     * The next frame is a NEW frame, not a continuation of this one.
-     *
-     * The renderer's whole model is that frame line i is at a known place on
-     * the screen, and it keeps that true by diffing this frame against the
-     * last one BY INDEX. That only means anything while the two frames are the
-     * same conversation with more added. Rebuild the transcript — /new, /clear,
-     * a mode switch, a resumed session — and index 0 of the new frame has
-     * nothing to do with index 0 of the old one, so the diff compares
-     * unrelated lines, concludes the top of the screen is unchanged, and
-     * leaves the previous conversation sitting there under a new prompt.
-     *
-     * Callers that rebuild the transcript say so here, and the next render
-     * starts from a clean screen instead of guessing.
-     */
-    resetFrame(): void {
-        this.frameReset = true;
+    getFocusedComponent(): Component | null {
+        return this.focusedComponent;
     }
 
     setFocus(component: Component | null): void {
@@ -565,8 +615,12 @@ export class TUI extends Container {
         }
     }
 
+    protected getMountedRoots(): readonly Component[] {
+        return this.children;
+    }
+
     private isComponentMounted(component: Component): boolean {
-        return this.children.some((child) => this.containsComponent(child, component));
+        return this.getMountedRoots().some((child) => this.containsComponent(child, component));
     }
 
     private containsComponent(root: Component, target: Component): boolean {
@@ -695,6 +749,13 @@ export class TUI extends Container {
         return this.overlayStack.some((o) => this.isOverlayVisible(o));
     }
 
+    /** Check if the focused component is a visible overlay */
+    protected isOverlayFocused(): boolean {
+        return this.overlayStack.some(
+            (entry) => entry.component === this.focusedComponent && this.isOverlayVisible(entry),
+        );
+    }
+
     /** Check if an overlay entry is currently visible */
     private isOverlayVisible(entry: OverlayStackEntry): boolean {
         if (entry.hidden) return false;
@@ -717,8 +778,8 @@ export class TUI extends Container {
     }
 
     override invalidate(): void {
-        super.invalidate();
-        for (const overlay of this.overlayStack) overlay.component.invalidate?.();
+        for (const root of this.getMountedRoots()) root.invalidate();
+        for (const overlay of this.overlayStack) overlay.component.invalidate();
     }
 
     start(): void {
@@ -733,10 +794,12 @@ export class TUI extends Container {
         if (!this.keepAliveTimer) {
             this.keepAliveTimer = setInterval(() => {}, 60_000);
         }
+        this.beforeTerminalStart();
         this.terminal.start(
-            (data) => this.handleInput(data),
+            (data) => this.handleTerminalInput(data),
             () => this.requestRender(),
         );
+        this.afterTerminalStart();
         this.terminal.hideCursor();
         if (this.terminalColorSchemeNotificationsEnabled) {
             this.terminal.write("\x1b[?2031h");
@@ -746,22 +809,14 @@ export class TUI extends Container {
         this.requestRender();
     }
 
-    /**
-     * Name this terminal's tab (OSC 0). One passthrough rather than letting
-     * callers write escape sequences at stdout behind the renderer's back.
-     */
-    setTitle(title: string): void {
-        this.terminal.setTitle(title);
-    }
-
-    addInputListener(listener: InputListener): () => void {
+    addInputListener(listener: TuiInputListener): () => void {
         this.inputListeners.add(listener);
         return () => {
             this.inputListeners.delete(listener);
         };
     }
 
-    removeInputListener(listener: InputListener): void {
+    removeInputListener(listener: TuiInputListener): void {
         this.inputListeners.delete(listener);
     }
 
@@ -790,6 +845,180 @@ export class TUI extends Container {
         // Query terminal for cell size in pixels: CSI 16 t
         // Response format: CSI 6 ; height ; width t
         this.terminal.write("\x1b[16t");
+    }
+
+    stop(options: TuiStopOptions = {}): void {
+        this.stopped = true;
+        this.cancelRenderTimer();
+        if (this.keepAliveTimer) {
+            clearInterval(this.keepAliveTimer);
+            this.keepAliveTimer = undefined;
+        }
+        // The width probe's give-up timer would otherwise hold the loop open.
+        if (this.widthProbeTimer) {
+            clearTimeout(this.widthProbeTimer);
+            this.widthProbeTimer = undefined;
+            this.pendingWidthProbeReplies = 0;
+        }
+        if (this.terminalColorSchemeNotificationsEnabled) {
+            this.terminal.write("\x1b[?2031l");
+        }
+        this.beforeTerminalStop(options);
+        this.terminal.showCursor();
+        this.terminal.stop();
+        this.afterTerminalStop(options);
+    }
+
+    renderNow(force = false): void {
+        if (force) this.resetRenderState();
+        this.renderRequested = false;
+        this.cancelRenderTimer();
+        this.lastRenderAt = performance.now();
+        this.doRender();
+    }
+
+    requestRender(force = false): void {
+        if (force) {
+            this.resetRenderState();
+            this.requestImmediateRender();
+            return;
+        }
+        if (this.renderRequested) return;
+        this.renderRequested = true;
+        process.nextTick(() => this.scheduleRender());
+    }
+
+    private requestImmediateRender(): void {
+        this.cancelRenderTimer();
+        this.renderRequested = true;
+        if (this.immediateRenderScheduled) return;
+        this.immediateRenderScheduled = true;
+        process.nextTick(() => {
+            this.immediateRenderScheduled = false;
+            if (this.stopped || !this.renderRequested) return;
+            // A previously queued scheduleRender() can create a timer before this
+            // callback runs. User input must preempt that throttled frame.
+            this.cancelRenderTimer();
+            this.renderRequested = false;
+            this.lastRenderAt = performance.now();
+            this.doRender();
+        });
+    }
+
+    private cancelRenderTimer(): void {
+        if (!this.renderTimer) return;
+        clearTimeout(this.renderTimer);
+        this.renderTimer = undefined;
+    }
+
+    private scheduleRender(): void {
+        if (this.stopped || this.renderTimer || !this.renderRequested) {
+            return;
+        }
+        const elapsed = performance.now() - this.lastRenderAt;
+        const delay = Math.max(0, TuiBase.MIN_RENDER_INTERVAL_MS - elapsed);
+        this.renderTimer = setTimeout(() => {
+            this.renderTimer = undefined;
+            if (this.stopped || !this.renderRequested) {
+                return;
+            }
+            this.renderRequested = false;
+            this.lastRenderAt = performance.now();
+            this.doRender();
+            if (this.renderRequested) {
+                this.scheduleRender();
+            }
+        }, delay);
+    }
+
+    private handleTerminalInput(data: string): void {
+        // LOCAL CHANGE (keep across pi-mono syncs). Reports are stripped out of
+        // the chunk rather than matched against the whole of it, and stripped
+        // whether or not a query is still pending. Upstream's whole-chunk,
+        // pending-only match misses two real cases: two replies batched into
+        // one chunk, and a reply that arrives after its query timed out. Either
+        // then falls through to the key handling — and an OSC 11 reply ENDS IN
+        // BEL, which is ctrl+g, which loop binds to "continue". A stray report
+        // sends a prompt nobody typed.
+        data = this.stripTerminalReports(data);
+        if (data.length === 0) {
+            return;
+        }
+        if (this.pendingWidthProbeReplies > 0) {
+            data = this.consumeWidthProbeReports(data);
+            if (data.length === 0) {
+                return;
+            }
+        }
+
+        if (this.inputListeners.size > 0) {
+            let current = data;
+            for (const listener of this.inputListeners) {
+                const result = listener(current);
+                if (result?.consume) {
+                    return;
+                }
+                if (result?.data !== undefined) {
+                    current = result.data;
+                }
+            }
+            if (current.length === 0) {
+                return;
+            }
+            data = current;
+        }
+
+        // Consume terminal cell size responses without blocking unrelated input.
+        if (this.consumeCellSizeResponse(data)) {
+            return;
+        }
+
+        // Global debug key handler (Shift+Ctrl+D)
+        if (matchesKey(data, "shift+ctrl+d") && this.onDebug) {
+            this.onDebug();
+            return;
+        }
+
+        // If focused component is an overlay, verify it's still visible
+        // (visibility can change due to terminal resize or visible() callback)
+        const focusedOverlay = this.overlayStack.find((o) => o.component === this.focusedComponent);
+        if (focusedOverlay && !this.isOverlayVisible(focusedOverlay)) {
+            // Focused overlay is no longer visible, redirect to topmost visible overlay
+            const topVisible = this.getTopmostVisibleOverlay();
+            if (topVisible) {
+                this.setFocus(topVisible.component);
+            } else {
+                this.setFocusInternal({ component: focusedOverlay.preFocus, overlayFocusRestore: "preserve" });
+            }
+        }
+
+        const focusIsOverlay = this.overlayStack.some((o) => o.component === this.focusedComponent);
+        if (!focusIsOverlay) {
+            const restoreState = this.getVisibleOverlayFocusRestore();
+            if (restoreState.status === "eligible") {
+                this.setFocus(restoreState.overlay.component);
+            } else if (restoreState.status === "blocked" && restoreState.blockedBy !== this.focusedComponent) {
+                if (restoreState.resume.status === "restore-overlay") {
+                    this.setFocus(restoreState.overlay.component);
+                } else {
+                    this.clearOverlayFocusRestore();
+                    this.setFocus(restoreState.resume.target);
+                }
+            }
+        }
+
+        // Pass input to focused component (including Ctrl+C)
+        // The focused component can decide how to handle Ctrl+C
+        if (this.focusedComponent?.handleInput) {
+            // Filter out key release events unless component opts in
+            if (isKeyRelease(data) && !this.focusedComponent.wantsKeyRelease) {
+                return;
+            }
+            this.focusedComponent.handleInput(data);
+            // Keyboard input is latency-sensitive. Avoid the throttled timer path,
+            // where even setTimeout(0) can take a full 16 ms tick on Windows.
+            this.requestImmediateRender();
+        }
     }
 
     /**
@@ -866,220 +1095,6 @@ export class TUI extends Container {
         return rest;
     }
 
-    stop(): void {
-        this.stopped = true;
-        if (this.keepAliveTimer) {
-            clearInterval(this.keepAliveTimer);
-            this.keepAliveTimer = undefined;
-        }
-        if (this.renderTimer) {
-            clearTimeout(this.renderTimer);
-            this.renderTimer = undefined;
-        }
-        if (this.widthProbeTimer) {
-            clearTimeout(this.widthProbeTimer);
-            this.widthProbeTimer = undefined;
-            this.pendingWidthProbeReplies = 0;
-        }
-        if (this.terminalColorSchemeNotificationsEnabled) {
-            this.terminal.write("\x1b[?2031l");
-        }
-        // Move cursor to the end of the content to prevent overwriting/artifacts on exit
-        if (this.previousLines.length > 0) {
-            const targetRow = this.previousLines.length; // Line after the last content
-            const lineDiff = targetRow - this.hardwareCursorRow;
-            if (lineDiff > 0) {
-                this.terminal.write(`\x1b[${lineDiff}B`);
-            } else if (lineDiff < 0) {
-                this.terminal.write(`\x1b[${-lineDiff}A`);
-            }
-            this.terminal.write("\r\n");
-        }
-
-        this.terminal.showCursor();
-        this.terminal.stop();
-    }
-
-    requestRender(force = false): void {
-        if (TUI.DEBUG_RENDER && ++this.reqSeq % 40 === 0) {
-            // Count-throttled (not time-throttled, so it logs even when timers
-            // are starved): if these keep advancing while "render # start" stops,
-            // renders are being requested but never flushed → event-loop / timer
-            // starvation. If renders execute but the screen is stale → a write or
-            // diff problem.
-            this.debugRender(
-                `requestRender #${this.reqSeq} force=${force} renderRequested=${this.renderRequested} timerPending=${this.renderTimer !== undefined}`,
-            );
-        }
-        if (force) {
-            this.previousLines = [];
-            this.previousWidth = -1; // -1 triggers widthChanged, forcing a full clear
-            this.previousHeight = -1; // -1 triggers heightChanged, forcing a full clear
-            this.cursorRow = 0;
-            this.hardwareCursorRow = 0;
-            this.maxLinesRendered = 0;
-            this.previousViewportTop = 0;
-            if (this.renderTimer) {
-                clearTimeout(this.renderTimer);
-                this.renderTimer = undefined;
-            }
-            this.renderRequested = true;
-            process.nextTick(() => {
-                if (this.stopped || !this.renderRequested) {
-                    return;
-                }
-                this.renderRequested = false;
-                this.lastRenderAt = performance.now();
-                this.renderNow();
-            });
-            return;
-        }
-        if (this.renderRequested) return;
-        this.renderRequested = true;
-        process.nextTick(() => this.scheduleRender());
-    }
-
-    private scheduleRender(): void {
-        if (this.stopped || this.renderTimer || !this.renderRequested) {
-            return;
-        }
-        const elapsed = performance.now() - this.lastRenderAt;
-        const delay = Math.max(0, TUI.MIN_RENDER_INTERVAL_MS - elapsed);
-        this.renderTimer = setTimeout(() => {
-            this.renderTimer = undefined;
-            if (this.stopped || !this.renderRequested) {
-                return;
-            }
-            this.renderRequested = false;
-            this.lastRenderAt = performance.now();
-            this.renderNow();
-            if (this.renderRequested) {
-                this.scheduleRender();
-            }
-        }, delay);
-    }
-
-    /**
-     * doRender, made fail-safe. A render must never wedge the loop: if doRender
-     * throws (e.g. malformed content from a tool result), letting it escape
-     * turns into an uncaughtException whose handler calls requestRender →
-     * doRender → throws again on the same content, freezing the screen in a
-     * silent loop. Here we swallow the error and schedule ONE forced full redraw
-     * to recover from any half-written escape sequence.
-     */
-    private renderNow(): void {
-        const t0 = TUI.DEBUG_RENDER ? performance.now() : 0;
-        const seq = TUI.DEBUG_RENDER ? ++this.renderSeq : 0;
-        if (TUI.DEBUG_RENDER) this.debugRender(`render #${seq} start`);
-        try {
-            this.doRender();
-            if (TUI.DEBUG_RENDER) this.debugRender(`render #${seq} ok ${(performance.now() - t0).toFixed(1)}ms`);
-        } catch (err) {
-            if (TUI.DEBUG_RENDER) {
-                this.debugRender(`render #${seq} THREW: ${err instanceof Error ? err.stack : String(err)}`);
-            }
-            if (!this.recovering && !this.stopped) {
-                this.recovering = true;
-                process.nextTick(() => {
-                    this.recovering = false;
-                    this.requestRender(true);
-                });
-            }
-        }
-    }
-
-    /** Append-only render trace, enabled with LOOP_DEBUG_RENDER=1. */
-    private debugRender(msg: string): void {
-        try {
-            fs.appendFileSync(
-                path.join(os.homedir(), CONFIG_DIR_NAME, "render-debug.log"),
-                `[${new Date().toISOString()}] ${msg}\n`,
-            );
-        } catch {
-            // diagnostics must never break rendering
-        }
-    }
-
-    private handleInput(data: string): void {
-        data = this.stripTerminalReports(data);
-        if (data.length === 0) {
-            return;
-        }
-        if (this.pendingWidthProbeReplies > 0) {
-            data = this.consumeWidthProbeReports(data);
-            if (data.length === 0) {
-                return;
-            }
-        }
-
-        if (this.inputListeners.size > 0) {
-            let current = data;
-            for (const listener of this.inputListeners) {
-                const result = listener(current);
-                if (result?.consume) {
-                    return;
-                }
-                if (result?.data !== undefined) {
-                    current = result.data;
-                }
-            }
-            if (current.length === 0) {
-                return;
-            }
-            data = current;
-        }
-
-        // Consume terminal cell size responses without blocking unrelated input.
-        if (this.consumeCellSizeResponse(data)) {
-            return;
-        }
-
-        // Global debug key handler (Shift+Ctrl+D)
-        if (matchesKey(data, "shift+ctrl+d") && this.onDebug) {
-            this.onDebug();
-            return;
-        }
-
-        // If focused component is an overlay, verify it's still visible
-        // (visibility can change due to terminal resize or visible() callback)
-        const focusedOverlay = this.overlayStack.find((o) => o.component === this.focusedComponent);
-        if (focusedOverlay && !this.isOverlayVisible(focusedOverlay)) {
-            // Focused overlay is no longer visible, redirect to topmost visible overlay
-            const topVisible = this.getTopmostVisibleOverlay();
-            if (topVisible) {
-                this.setFocus(topVisible.component);
-            } else {
-                this.setFocusInternal({ component: focusedOverlay.preFocus, overlayFocusRestore: "preserve" });
-            }
-        }
-
-        const focusIsOverlay = this.overlayStack.some((o) => o.component === this.focusedComponent);
-        if (!focusIsOverlay) {
-            const restoreState = this.getVisibleOverlayFocusRestore();
-            if (restoreState.status === "eligible") {
-                this.setFocus(restoreState.overlay.component);
-            } else if (restoreState.status === "blocked" && restoreState.blockedBy !== this.focusedComponent) {
-                if (restoreState.resume.status === "restore-overlay") {
-                    this.setFocus(restoreState.overlay.component);
-                } else {
-                    this.clearOverlayFocusRestore();
-                    this.setFocus(restoreState.resume.target);
-                }
-            }
-        }
-
-        // Pass input to focused component (including Ctrl+C)
-        // The focused component can decide how to handle Ctrl+C
-        if (this.focusedComponent?.handleInput) {
-            // Filter out key release events unless component opts in
-            if (isKeyRelease(data) && !this.focusedComponent.wantsKeyRelease) {
-                return;
-            }
-            this.focusedComponent.handleInput(data);
-            this.requestRender();
-        }
-    }
-
     /**
      * Strip every terminal REPORT out of an input chunk — the OSC 11
      * background colour and the `CSI ? 997 ; n` colour-scheme report — and
@@ -1088,11 +1103,7 @@ export class TUI extends Container {
      * Both are removed unconditionally: whether or not a query is still
      * pending, and wherever in the chunk they sit. Neither can ever be
      * something a person typed, and letting one through is not a harmless
-     * stray character — an OSC 11 reply ENDS IN BEL, `\x07`, which is ctrl+g,
-     * which loop binds to "continue". A reply that arrived after its query
-     * timed out, or two that arrived batched into one chunk (so an anchored
-     * whole-chunk match no longer recognises either), used to fall through to
-     * the key handling and send a prompt nobody typed.
+     * stray character — see handleTerminalInput.
      */
     private stripTerminalReports(data: string): string {
         if (!data.includes("\x1b")) {
@@ -1185,7 +1196,8 @@ export class TUI extends Container {
     ): { width: number; row: number; col: number; maxHeight: number | undefined } {
         const opt = options ?? {};
 
-        // Parse margin (clamp to non-negative)
+        // Parse margin (clamp to non-negative). Resolved per composite so a
+        // callable margin tracks what it is anchored to.
         const marginValue = typeof opt.margin === "function" ? opt.margin() : opt.margin;
         const margin =
             typeof marginValue === "number"
@@ -1313,20 +1325,15 @@ export class TUI extends Container {
     }
 
     /** Composite all overlays into content lines (sorted by focusOrder, higher = on top). */
-    private compositeOverlays(lines: string[], termWidth: number, termHeight: number): string[] {
-        const visibleEntries = this.overlayStack.filter((e) => this.isOverlayVisible(e));
-        // Nothing to composite. Returning the frame untouched matters as much
-        // as the compositing does: the pad-to-terminal-height below is a real
-        // change of shape, and an overlay that is only SOMETIMES visible (one
-        // gated on a `visible` predicate, held open across a whole session)
-        // must cost the frame nothing on the frames it is not showing.
-        if (visibleEntries.length === 0) return lines;
+    protected compositeOverlays(lines: string[], termWidth: number, termHeight: number): string[] {
+        if (this.overlayStack.length === 0) return lines;
         const result = [...lines];
 
         // Pre-render all visible overlays and calculate positions
         const rendered: { overlayLines: string[]; row: number; col: number; w: number }[] = [];
         let minLinesNeeded = result.length;
 
+        const visibleEntries = this.overlayStack.filter((e) => this.isOverlayVisible(e));
         visibleEntries.sort((a, b) => a.focusOrder - b.focusOrder);
         for (const entry of visibleEntries) {
             const { component, options } = entry;
@@ -1381,10 +1388,8 @@ export class TUI extends Container {
         return result;
     }
 
-    private static readonly SEGMENT_RESET = "\x1b[0m\x1b]8;;\x07";
-
-    private applyLineResets(lines: string[]): string[] {
-        const reset = TUI.SEGMENT_RESET;
+    protected applyLineResets(lines: string[]): string[] {
+        const reset = SEGMENT_RESET;
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
             if (!isImageLine(line)) {
@@ -1394,174 +1399,6 @@ export class TUI extends Container {
         return lines;
     }
 
-    private collectKittyImageIds(lines: string[]): Set<number> {
-        const ids = new Set<number>();
-        for (const line of lines) {
-            for (const id of extractKittyImageIds(line)) {
-                ids.add(id);
-            }
-        }
-        return ids;
-    }
-
-    private deleteKittyImages(ids: Iterable<number>): string {
-        let buffer = "";
-        for (const id of ids) {
-            buffer += deleteKittyImage(id);
-        }
-        return buffer;
-    }
-
-    private getKittyImageReservedRows(lines: string[], index: number, maxIndex = lines.length - 1): number {
-        const rows = extractKittyImageRows(lines[index] ?? "");
-        if (rows <= 1) return 1;
-
-        const maxRows = Math.min(rows, maxIndex - index + 1, lines.length - index);
-        let reservedRows = 1;
-        while (reservedRows < maxRows) {
-            const line = lines[index + reservedRows] ?? "";
-            if (isImageLine(line) || visibleWidth(line) > 0) break;
-            reservedRows++;
-        }
-        return reservedRows;
-    }
-
-    private expandChangedRangeForKittyImages(
-        firstChanged: number,
-        lastChanged: number,
-        newLines: string[],
-    ): { firstChanged: number; lastChanged: number } {
-        let expandedFirstChanged = firstChanged;
-        let expandedLastChanged = lastChanged;
-        const expandForLines = (lines: string[]): void => {
-            for (let i = 0; i < lines.length; i++) {
-                if (extractKittyImageIds(lines[i]).length === 0) continue;
-                const blockEnd = i + this.getKittyImageReservedRows(lines, i) - 1;
-                if (i >= firstChanged || (i <= lastChanged && blockEnd >= firstChanged)) {
-                    expandedFirstChanged = Math.min(expandedFirstChanged, i);
-                    expandedLastChanged = Math.max(expandedLastChanged, blockEnd);
-                }
-            }
-        };
-
-        expandForLines(this.previousLines);
-        expandForLines(newLines);
-        return { firstChanged: expandedFirstChanged, lastChanged: expandedLastChanged };
-    }
-
-    private deleteChangedKittyImages(firstChanged: number, lastChanged: number): string {
-        if (firstChanged < 0 || lastChanged < firstChanged) return "";
-
-        const ids = new Set<number>();
-        const maxLine = Math.min(lastChanged, this.previousLines.length - 1);
-        for (let i = firstChanged; i <= maxLine; i++) {
-            for (const id of extractKittyImageIds(this.previousLines[i] ?? "")) {
-                ids.add(id);
-            }
-        }
-
-        return this.deleteKittyImages(ids);
-    }
-
-    /**
-     * The frame grew or shrank above the visible window, and what the terminal
-     * is actually showing is unchanged — only the line indices moved. Returns
-     * that shift, or null when the window's content really did change.
-     *
-     * This is the common shape of a late startup notice (an MCP summary, a
-     * hooks list) landing under the banner while the conversation below it is
-     * long enough to have pushed the banner off the top of the screen: every
-     * visible row still holds exactly what it held before.
-     *
-     * Only claimed when BOTH frames fill the screen. A frame shorter than the
-     * terminal leaves rows loop never painted — whatever the shell left there —
-     * and comparing those against blanks would call a window unchanged that
-     * loop cannot actually vouch for.
-     */
-    private unchangedWindowShift(newLines: string[], height: number, prevViewportTop: number): number | null {
-        if (newLines.length < height || this.previousLines.length < height) return null;
-        const newTop = newLines.length - height;
-        const shift = newTop - prevViewportTop;
-        if (shift === 0) return null;
-        for (let i = 0; i < height; i++) {
-            if (newLines[newTop + i] !== this.previousLines[prevViewportTop + i]) return null;
-        }
-        return shift;
-    }
-
-    /**
-     * Repaint the rows the terminal is showing, from the frame in memory.
-     *
-     * The alternative — clearing the screen and the scrollback and drawing
-     * everything again — buys the same correct screen at the price of the
-     * user's terminal history, which is never a trade worth making. The lines
-     * that belong on screen are already in `newLines`; painting them where
-     * they go is the whole job. Whatever is in the scrollback stays as it was
-     * printed: it cannot be rewritten, only destroyed, so it is left alone.
-     *
-     * Left alone means exactly that, and it is the one rule this repaint has
-     * to keep: a row that has scrolled off the top is COMMITTED. It cannot be
-     * taken back, so painting the frame from a line above the window does not
-     * move that content down — it prints a second copy of it under the copy
-     * already in the history. A frame that shrinks by k asks for exactly that,
-     * k lines of it, and a turn full of collapsing blocks asks over and over,
-     * which is how a conversation ends up in the scrollback twice. So the
-     * window starts at the committed floor at the earliest, and the rows the
-     * frame gave up are cleared rather than filled from above it.
-     *
-     * Returns false when the frame cannot be shown from the floor down: the
-     * change itself is above it, or the frame no longer reaches it at all. The
-     * only way to paint those is to touch committed rows, so the caller falls
-     * back to the redraw instead.
-     */
-    private repaintVisibleWindow(
-        newLines: string[],
-        width: number,
-        height: number,
-        prevViewportTop: number,
-        hardwareCursorRow: number,
-        cursorPos: { row: number; col: number } | null,
-        firstChanged: number,
-    ): boolean {
-        const top = Math.max(prevViewportTop, Math.max(0, newLines.length - height));
-        const lastRow = newLines.length - 1;
-        if (lastRow < top) return false;
-        // Rows the frame is too short to fill from the floor. While there are
-        // none the window is bottom-anchored and every visible row is real
-        // content, whatever changed above it. Once there are, anything that
-        // changed above the floor has nowhere to be drawn — that one needs the
-        // redraw.
-        if (top + height > newLines.length && firstChanged < top) return false;
-        let buffer = "\x1b[?2026h";
-        // Up to the first visible row, wherever the cursor happens to be.
-        const upFromCursor = hardwareCursorRow - prevViewportTop;
-        if (upFromCursor > 0) buffer += `\x1b[${upFromCursor}A`;
-        buffer += "\r";
-        for (let i = 0; i < height; i++) {
-            if (i > 0) buffer += "\r\n";
-            buffer += "\x1b[2K" + (newLines[top + i] ?? "");
-        }
-        // The paint ends on the window's last row, which is past the frame's
-        // last line whenever the frame no longer fills the window. Come back
-        // up to it, so the row the renderer thinks it is on is the row it is
-        // on.
-        const overshoot = top + height - 1 - lastRow;
-        if (overshoot > 0) buffer += `\x1b[${overshoot}A`;
-        buffer += "\x1b[?2026l";
-        this.terminal.write(buffer);
-        this.cursorRow = lastRow;
-        this.hardwareCursorRow = lastRow;
-        this.previousViewportTop = top;
-        this.maxLinesRendered = Math.max(this.maxLinesRendered, newLines.length);
-        this.positionHardwareCursor(cursorPos, newLines.length);
-        this.previousLines = newLines;
-        this.previousKittyImageIds = this.collectKittyImageIds(newLines);
-        this.previousWidth = width;
-        this.previousHeight = height;
-        return true;
-    }
-
-    /** Splice overlay content into a base line at a specific column. Single-pass optimized. */
     private compositeLineAt(
         baseLine: string,
         overlayLine: string,
@@ -1569,47 +1406,7 @@ export class TUI extends Container {
         overlayWidth: number,
         totalWidth: number,
     ): string {
-        if (isImageLine(baseLine)) return baseLine;
-
-        // Single pass through baseLine extracts both before and after segments
-        const afterStart = startCol + overlayWidth;
-        const base = extractSegments(baseLine, startCol, afterStart, totalWidth - afterStart, true);
-
-        // Extract overlay with width tracking (strict=true to exclude wide chars at boundary)
-        const overlay = sliceWithWidth(overlayLine, 0, overlayWidth, true);
-
-        // Pad segments to target widths
-        const beforePad = Math.max(0, startCol - base.beforeWidth);
-        const overlayPad = Math.max(0, overlayWidth - overlay.width);
-        const actualBeforeWidth = Math.max(startCol, base.beforeWidth);
-        const actualOverlayWidth = Math.max(overlayWidth, overlay.width);
-        const afterTarget = Math.max(0, totalWidth - actualBeforeWidth - actualOverlayWidth);
-        const afterPad = Math.max(0, afterTarget - base.afterWidth);
-
-        // Compose result
-        const r = TUI.SEGMENT_RESET;
-        const result =
-            base.before +
-            " ".repeat(beforePad) +
-            r +
-            overlay.text +
-            " ".repeat(overlayPad) +
-            r +
-            base.after +
-            " ".repeat(afterPad);
-
-        // CRITICAL: Always verify and truncate to terminal width.
-        // This is the final safeguard against width overflow which would crash the TUI.
-        // Width tracking can drift from actual visible width due to:
-        // - Complex ANSI/OSC sequences (hyperlinks, colors)
-        // - Wide characters at segment boundaries
-        // - Edge cases in segment extraction
-        const resultWidth = visibleWidth(result);
-        if (resultWidth <= totalWidth) {
-            return result;
-        }
-        // Truncate with strict=true to ensure we don't exceed totalWidth
-        return sliceByColumn(result, 0, totalWidth, true);
+        return compositeTuiLine(baseLine, overlayLine, startCol, overlayWidth, totalWidth);
     }
 
     /**
@@ -1620,7 +1417,7 @@ export class TUI extends Container {
      * @param height - Terminal height (visible viewport size)
      * @returns Cursor position { row, col } or null if no marker found
      */
-    private extractCursorPosition(lines: string[], height: number): { row: number; col: number } | null {
+    protected extractCursorPosition(lines: string[], height: number): { row: number; col: number } | null {
         // Only scan the bottom `height` lines (visible viewport)
         const viewportTop = Math.max(0, lines.length - height);
         for (let row = lines.length - 1; row >= viewportTop; row--) {
@@ -1638,524 +1435,6 @@ export class TUI extends Container {
             }
         }
         return null;
-    }
-
-    private doRender(): void {
-        if (this.stopped) return;
-        const width = this.terminal.columns;
-        const height = this.terminal.rows;
-        const widthChanged = this.previousWidth !== 0 && this.previousWidth !== width;
-        const heightChanged = this.previousHeight !== 0 && this.previousHeight !== height;
-        const previousBufferLength = this.previousHeight > 0 ? this.previousViewportTop + this.previousHeight : height;
-        let prevViewportTop = heightChanged ? Math.max(0, previousBufferLength - height) : this.previousViewportTop;
-        let viewportTop = prevViewportTop;
-        let hardwareCursorRow = this.hardwareCursorRow;
-        const computeLineDiff = (targetRow: number): number => {
-            const currentScreenRow = hardwareCursorRow - prevViewportTop;
-            const targetScreenRow = targetRow - viewportTop;
-            return targetScreenRow - currentScreenRow;
-        };
-
-        // Render all components to get new lines
-        this.frameId++;
-        this.renderingFrame = true;
-        let newLines: string[];
-        try {
-            newLines = this.render(width);
-        } finally {
-            this.renderingFrame = false;
-        }
-
-        // Before compositing: overlays pad the frame out to the terminal's
-        // height, and where the frame really ends is what an overlay anchored
-        // to it needs to know.
-        this.contentHeight = newLines.length;
-
-        // Composite overlays into the rendered lines (before differential compare)
-        if (this.hasOverlay()) {
-            newLines = this.compositeOverlays(newLines, width, height);
-        }
-
-        // Extract cursor position before applying line resets (marker must be found first)
-        const cursorPos = this.extractCursorPosition(newLines, height);
-
-        newLines = this.applyLineResets(newLines);
-
-        // Helper to clear scrollback and viewport and render all new lines
-        const fullRender = (clear: boolean): void => {
-            this.fullRedrawCount += 1;
-            let buffer = "\x1b[?2026h"; // Begin synchronized output
-            if (clear) {
-                buffer += this.deleteKittyImages(this.previousKittyImageIds);
-                buffer += "\x1b[2J\x1b[H\x1b[3J"; // Clear screen, home, then clear scrollback
-            }
-            for (let i = 0; i < newLines.length; i++) {
-                if (i > 0) buffer += "\r\n";
-                const line = newLines[i];
-                const isImage = isImageLine(line);
-                const imageReservedRows = isImage ? this.getKittyImageReservedRows(newLines, i) : 1;
-                if (imageReservedRows > 1 && imageReservedRows <= height) {
-                    for (let row = 1; row < imageReservedRows; row++) {
-                        buffer += "\r\n";
-                    }
-                    buffer += `\x1b[${imageReservedRows - 1}A`;
-                    buffer += line;
-                    buffer += `\x1b[${imageReservedRows - 1}B`;
-                    i += imageReservedRows - 1;
-                    continue;
-                }
-                buffer += line;
-            }
-            buffer += "\x1b[?2026l"; // End synchronized output
-            this.terminal.write(buffer);
-            this.cursorRow = Math.max(0, newLines.length - 1);
-            this.hardwareCursorRow = this.cursorRow;
-            // Reset max lines when clearing, otherwise track growth
-            if (clear) {
-                this.maxLinesRendered = newLines.length;
-            } else {
-                this.maxLinesRendered = Math.max(this.maxLinesRendered, newLines.length);
-            }
-            const bufferLength = Math.max(height, newLines.length);
-            this.previousViewportTop = Math.max(0, bufferLength - height);
-            this.positionHardwareCursor(cursorPos, newLines.length);
-            this.previousLines = newLines;
-            this.previousKittyImageIds = this.collectKittyImageIds(newLines);
-            this.previousWidth = width;
-            this.previousHeight = height;
-        };
-
-        const debugRedraw = brandEnv("DEBUG_REDRAW") === "1";
-        const logRedraw = (reason: string): void => {
-            if (!debugRedraw) return;
-            const logPath = path.join(os.homedir(), CONFIG_DIR_NAME, "agent", `${PRODUCT_NAME}-debug.log`);
-            const msg = `[${new Date().toISOString()}] fullRender: ${reason} (prev=${this.previousLines.length}, new=${newLines.length}, height=${height})\n`;
-            fs.appendFileSync(logPath, msg);
-        };
-
-        // A frame that is not a continuation of the last one cannot be diffed
-        // against it: the same index means different things in the two frames.
-        //
-        // This is a signal, not something to detect. A rebuilt transcript and a
-        // line inserted above the window look identical from here — every index
-        // after the change moved — but they want opposite treatment: the first
-        // has to clear the screen, the second must NOT (that is what costs the
-        // terminal's scrollback, and is handled below without touching it).
-        // Only the caller knows which one it did.
-        if (this.frameReset) {
-            this.frameReset = false;
-            if (this.previousLines.length > 0) {
-                logRedraw("frame reset");
-                fullRender(true);
-                return;
-            }
-        }
-
-        // First render - just output everything without clearing (assumes clean screen)
-        if (this.previousLines.length === 0 && !widthChanged && !heightChanged) {
-            logRedraw("first render");
-            fullRender(false);
-            return;
-        }
-
-        // Width changes always need a full re-render because wrapping changes.
-        if (widthChanged) {
-            logRedraw(`terminal width changed (${this.previousWidth} -> ${width})`);
-            fullRender(true);
-            return;
-        }
-
-        // Height changes normally need a full re-render to keep the visible viewport aligned,
-        // but Termux changes height when the software keyboard shows or hides.
-        // In that environment, a full redraw causes the entire history to replay on every toggle.
-        if (heightChanged && !isTermuxSession()) {
-            logRedraw(`terminal height changed (${this.previousHeight} -> ${height})`);
-            fullRender(true);
-            return;
-        }
-
-        // Content shrunk below the working area and no overlays - re-render to clear empty rows
-        // (overlays need the padding, so only do this when no overlays are active)
-        // Configurable via setClearOnShrink() or LOOP_CLEAR_ON_SHRINK=0 env var
-        if (this.clearOnShrink && newLines.length < this.maxLinesRendered && !this.hasOverlay()) {
-            logRedraw(`clearOnShrink (maxLinesRendered=${this.maxLinesRendered})`);
-            fullRender(true);
-            return;
-        }
-
-        // Find first and last changed lines
-        let firstChanged = -1;
-        let lastChanged = -1;
-        const maxLines = Math.max(newLines.length, this.previousLines.length);
-        for (let i = 0; i < maxLines; i++) {
-            const oldLine = i < this.previousLines.length ? this.previousLines[i] : "";
-            const newLine = i < newLines.length ? newLines[i] : "";
-
-            if (oldLine !== newLine) {
-                if (firstChanged === -1) {
-                    firstChanged = i;
-                }
-                lastChanged = i;
-            }
-        }
-        const appendedLines = newLines.length > this.previousLines.length;
-        if (appendedLines) {
-            if (firstChanged === -1) {
-                firstChanged = this.previousLines.length;
-            }
-            lastChanged = newLines.length - 1;
-        }
-        if (firstChanged !== -1) {
-            const expandedRange = this.expandChangedRangeForKittyImages(firstChanged, lastChanged, newLines);
-            firstChanged = expandedRange.firstChanged;
-            lastChanged = expandedRange.lastChanged;
-        }
-        const appendStart = appendedLines && firstChanged === this.previousLines.length && firstChanged > 0;
-
-        // No changes - but still need to update hardware cursor position if it moved
-        if (firstChanged === -1) {
-            this.positionHardwareCursor(cursorPos, newLines.length);
-            this.previousViewportTop = prevViewportTop;
-            this.previousHeight = height;
-            return;
-        }
-
-        // A frame that shrinks — a menu closing, a tool group collapsing, the
-        // editor going back to one line — ends higher than it did, and the rows
-        // it gave up have to be dealt with. Repainting the window from the
-        // frame in memory deals with them without clearing the screen and the
-        // scrollback, which is what the alternative costs.
-        //
-        // What it must not do is fill those rows from above the fold. The
-        // window can only be pulled back down to the frame's last line by
-        // printing lines that have already scrolled off, and a line that has
-        // scrolled off is committed: printing it again does not move it, it
-        // makes a second copy under the first. Every collapse in a turn asks
-        // for a few more, which is how a conversation ends up in the scrollback
-        // twice. So the repaint stops at the committed floor and the rows below
-        // the frame's end are cleared — the prompt sits that many rows higher
-        // until the next append fills them, and the history stays true.
-        if (newLines.length < this.previousLines.length && newLines.length > height && !this.hasOverlay()) {
-            if (
-                this.repaintVisibleWindow(
-                    newLines,
-                    width,
-                    height,
-                    prevViewportTop,
-                    hardwareCursorRow,
-                    cursorPos,
-                    firstChanged,
-                )
-            ) {
-                return;
-            }
-        }
-
-        // All changes are in deleted lines (nothing to render, just clear)
-        if (firstChanged >= newLines.length) {
-            if (this.previousLines.length > newLines.length) {
-                let buffer = "\x1b[?2026h";
-                buffer += this.deleteChangedKittyImages(firstChanged, lastChanged);
-                // Move to end of new content (clamp to 0 for empty content)
-                const targetRow = Math.max(0, newLines.length - 1);
-                if (targetRow < prevViewportTop) {
-                    logRedraw(`deleted lines moved viewport up (${targetRow} < ${prevViewportTop})`);
-                    fullRender(true);
-                    return;
-                }
-                const lineDiff = computeLineDiff(targetRow);
-                if (lineDiff > 0) buffer += `\x1b[${lineDiff}B`;
-                else if (lineDiff < 0) buffer += `\x1b[${-lineDiff}A`;
-                buffer += "\r";
-                // Clear extra lines without scrolling
-                const extraLines = this.previousLines.length - newLines.length;
-                if (extraLines > height) {
-                    logRedraw(`extraLines > height (${extraLines} > ${height})`);
-                    fullRender(true);
-                    return;
-                }
-                const clearStartOffset = newLines.length === 0 ? 0 : 1;
-                if (extraLines > 0 && clearStartOffset > 0) {
-                    buffer += `\x1b[${clearStartOffset}B`;
-                }
-                for (let i = 0; i < extraLines; i++) {
-                    buffer += "\r\x1b[2K";
-                    if (i < extraLines - 1) buffer += "\x1b[1B";
-                }
-                const moveBack = Math.max(0, extraLines - 1 + clearStartOffset);
-                if (moveBack > 0) {
-                    buffer += `\x1b[${moveBack}A`;
-                }
-                buffer += "\x1b[?2026l";
-                this.terminal.write(buffer);
-                this.cursorRow = targetRow;
-                this.hardwareCursorRow = targetRow;
-            }
-            this.positionHardwareCursor(cursorPos, newLines.length);
-            this.previousLines = newLines;
-            this.previousKittyImageIds = this.collectKittyImageIds(newLines);
-            this.previousWidth = width;
-            this.previousHeight = height;
-            this.previousViewportTop = prevViewportTop;
-            return;
-        }
-
-        // Differential rendering can only touch what was actually visible, so a
-        // change above the window cannot be patched in place. It does not
-        // follow that the screen has to be thrown away.
-        //
-        // Two cases, and only the third falls back to the redraw that costs the
-        // scrollback:
-        //
-        //  1. The window's content is untouched — something was inserted above
-        //     it (a late MCP or hooks line landing under the banner while a
-        //     long conversation holds the screen). Every visible row still says
-        //     what it said, so the right amount of output is NONE: only loop's
-        //     own line bookkeeping has to move.
-        //  2. The window's content did change — repaint those rows from the
-        //     frame in memory, same as a shrinking frame does.
-        //  3. Kitty images in play: they are addressed in rows the plain
-        //     repaint does not account for, so those keep the full redraw.
-        if (firstChanged < prevViewportTop) {
-            const shift = this.unchangedWindowShift(newLines, height, prevViewportTop);
-            if (shift !== null) {
-                this.cursorRow = Math.max(0, newLines.length - 1);
-                this.hardwareCursorRow = Math.max(
-                    newLines.length - height,
-                    Math.min(newLines.length - 1, hardwareCursorRow + shift),
-                );
-                this.previousViewportTop = prevViewportTop + shift;
-                this.maxLinesRendered = Math.max(this.maxLinesRendered, newLines.length);
-                this.positionHardwareCursor(cursorPos, newLines.length);
-                this.previousLines = newLines;
-                this.previousKittyImageIds = this.collectKittyImageIds(newLines);
-                this.previousWidth = width;
-                this.previousHeight = height;
-                return;
-            }
-            const hasImages = this.previousKittyImageIds.size > 0 || newLines.some((l) => isImageLine(l));
-            if (
-                newLines.length >= height &&
-                !this.hasOverlay() &&
-                !hasImages &&
-                this.repaintVisibleWindow(
-                    newLines,
-                    width,
-                    height,
-                    prevViewportTop,
-                    hardwareCursorRow,
-                    cursorPos,
-                    firstChanged,
-                )
-            ) {
-                return;
-            }
-            logRedraw(`firstChanged < viewportTop (${firstChanged} < ${prevViewportTop})`);
-            fullRender(true);
-            return;
-        }
-
-        // Render from first changed line to end
-        // Build buffer with all updates wrapped in synchronized output
-        let buffer = "\x1b[?2026h"; // Begin synchronized output
-        buffer += this.deleteChangedKittyImages(firstChanged, lastChanged);
-        const prevViewportBottom = prevViewportTop + height - 1;
-        const moveTargetRow = appendStart ? firstChanged - 1 : firstChanged;
-        if (moveTargetRow > prevViewportBottom) {
-            const currentScreenRow = Math.max(0, Math.min(height - 1, hardwareCursorRow - prevViewportTop));
-            const moveToBottom = height - 1 - currentScreenRow;
-            if (moveToBottom > 0) {
-                buffer += `\x1b[${moveToBottom}B`;
-            }
-            const scroll = moveTargetRow - prevViewportBottom;
-            buffer += "\r\n".repeat(scroll);
-            prevViewportTop += scroll;
-            viewportTop += scroll;
-            hardwareCursorRow = moveTargetRow;
-        }
-
-        // Move cursor to first changed line (use hardwareCursorRow for actual position)
-        const lineDiff = computeLineDiff(moveTargetRow);
-        if (lineDiff > 0) {
-            buffer += `\x1b[${lineDiff}B`; // Move down
-        } else if (lineDiff < 0) {
-            buffer += `\x1b[${-lineDiff}A`; // Move up
-        }
-
-        buffer += appendStart ? "\r\n" : "\r"; // Move to column 0
-
-        // Only render changed lines (firstChanged to lastChanged), not all lines to end
-        // This reduces flicker when only a single line changes (e.g., spinner animation)
-        const renderEnd = Math.min(lastChanged, newLines.length - 1);
-        for (let i = firstChanged; i <= renderEnd; i++) {
-            if (i > firstChanged) buffer += "\r\n";
-            let line = newLines[i];
-            const isImage = isImageLine(line);
-            const imageReservedRows = isImage ? this.getKittyImageReservedRows(newLines, i, renderEnd) : 1;
-            if (imageReservedRows > 1) {
-                const imageStartScreenRow = i - viewportTop;
-                if (imageStartScreenRow < 0 || imageStartScreenRow + imageReservedRows > height) {
-                    logRedraw(
-                        `kitty image pre-clear would scroll (${imageStartScreenRow} + ${imageReservedRows} > ${height})`,
-                    );
-                    fullRender(true);
-                    return;
-                }
-
-                buffer += "\x1b[2K";
-                for (let row = 1; row < imageReservedRows; row++) {
-                    buffer += "\r\n\x1b[2K";
-                }
-                buffer += `\x1b[${imageReservedRows - 1}A`;
-                buffer += line;
-                buffer += `\x1b[${imageReservedRows - 1}B`;
-                i += imageReservedRows - 1;
-                continue;
-            }
-
-            buffer += "\x1b[2K"; // Clear current line
-            if (!isImage && visibleWidth(line) > width) {
-                // LOCAL CHANGE (keep across pi-mono syncs): an over-wide line
-                // is a component bug, but killing the whole UI over it left a
-                // dead screen that still echoed keystrokes below the last
-                // frame ("typing under the input box"). Clamp the line, log
-                // the evidence once per session, and keep rendering.
-                if (!this.overflowLogged) {
-                    this.overflowLogged = true;
-                    try {
-                        const crashLogPath = path.join(
-                            os.homedir(),
-                            CONFIG_DIR_NAME,
-                            "agent",
-                            `${PRODUCT_NAME}-crash.log`,
-                        );
-                        fs.mkdirSync(path.dirname(crashLogPath), { recursive: true });
-                        fs.writeFileSync(
-                            crashLogPath,
-                            [
-                                `Overflow (clamped) at ${new Date().toISOString()}`,
-                                `Terminal width: ${width}`,
-                                `Line ${i} visible width: ${visibleWidth(line)}`,
-                                `Line: ${line}`,
-                                "",
-                            ].join("\n"),
-                        );
-                    } catch {
-                        // Logging must never break the render either.
-                    }
-                }
-                line = truncateToWidth(line, width);
-            }
-            buffer += line;
-        }
-
-        // Track where cursor ended up after rendering
-        let finalCursorRow = renderEnd;
-
-        // If we had more lines before, clear them and move cursor back
-        if (this.previousLines.length > newLines.length) {
-            // Move to end of new content first if we stopped before it
-            if (renderEnd < newLines.length - 1) {
-                const moveDown = newLines.length - 1 - renderEnd;
-                buffer += `\x1b[${moveDown}B`;
-                finalCursorRow = newLines.length - 1;
-            }
-            const extraLines = this.previousLines.length - newLines.length;
-            for (let i = newLines.length; i < this.previousLines.length; i++) {
-                buffer += "\r\n\x1b[2K";
-            }
-            // Move cursor back to end of new content
-            buffer += `\x1b[${extraLines}A`;
-        }
-
-        buffer += "\x1b[?2026l"; // End synchronized output
-
-        if (brandEnv("TUI_DEBUG") === "1") {
-            const debugDir = "/tmp/tui";
-            fs.mkdirSync(debugDir, { recursive: true });
-            const debugPath = path.join(debugDir, `render-${Date.now()}-${Math.random().toString(36).slice(2)}.log`);
-            const debugData = [
-                `firstChanged: ${firstChanged}`,
-                `viewportTop: ${viewportTop}`,
-                `cursorRow: ${this.cursorRow}`,
-                `height: ${height}`,
-                `lineDiff: ${lineDiff}`,
-                `hardwareCursorRow: ${hardwareCursorRow}`,
-                `renderEnd: ${renderEnd}`,
-                `finalCursorRow: ${finalCursorRow}`,
-                `cursorPos: ${JSON.stringify(cursorPos)}`,
-                `newLines.length: ${newLines.length}`,
-                `previousLines.length: ${this.previousLines.length}`,
-                "",
-                "=== newLines ===",
-                JSON.stringify(newLines, null, 2),
-                "",
-                "=== previousLines ===",
-                JSON.stringify(this.previousLines, null, 2),
-                "",
-                "=== buffer ===",
-                JSON.stringify(buffer),
-            ].join("\n");
-            fs.writeFileSync(debugPath, debugData);
-        }
-
-        // Write entire buffer at once
-        this.terminal.write(buffer);
-
-        // Track cursor position for next render
-        // cursorRow tracks end of content (for viewport calculation)
-        // hardwareCursorRow tracks actual terminal cursor position (for movement)
-        this.cursorRow = Math.max(0, newLines.length - 1);
-        this.hardwareCursorRow = finalCursorRow;
-        // Track terminal's working area (grows but doesn't shrink unless cleared)
-        this.maxLinesRendered = Math.max(this.maxLinesRendered, newLines.length);
-        this.previousViewportTop = Math.max(prevViewportTop, finalCursorRow - height + 1);
-
-        // Position hardware cursor for IME
-        this.positionHardwareCursor(cursorPos, newLines.length);
-
-        this.previousLines = newLines;
-        this.previousKittyImageIds = this.collectKittyImageIds(newLines);
-        this.previousWidth = width;
-        this.previousHeight = height;
-    }
-
-    /**
-     * Position the hardware cursor for IME candidate window.
-     * @param cursorPos The cursor position extracted from rendered output, or null
-     * @param totalLines Total number of rendered lines
-     */
-    private positionHardwareCursor(cursorPos: { row: number; col: number } | null, totalLines: number): void {
-        if (!cursorPos || totalLines <= 0) {
-            this.terminal.hideCursor();
-            return;
-        }
-
-        // Clamp cursor position to valid range
-        const targetRow = Math.max(0, Math.min(cursorPos.row, totalLines - 1));
-        const targetCol = Math.max(0, cursorPos.col);
-
-        // Move cursor from current position to target
-        const rowDelta = targetRow - this.hardwareCursorRow;
-        let buffer = "";
-        if (rowDelta > 0) {
-            buffer += `\x1b[${rowDelta}B`; // Move down
-        } else if (rowDelta < 0) {
-            buffer += `\x1b[${-rowDelta}A`; // Move up
-        }
-        // Move to absolute column (1-indexed)
-        buffer += `\x1b[${targetCol + 1}G`;
-
-        if (buffer) {
-            this.terminal.write(buffer);
-        }
-
-        this.hardwareCursorRow = targetRow;
-        if (this.showHardwareCursor) {
-            this.terminal.showCursor();
-        } else {
-            this.terminal.hideCursor();
-        }
     }
 
     /**

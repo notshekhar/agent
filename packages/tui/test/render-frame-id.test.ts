@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { type Component, TUI } from "../src/tui";
+import { type Component, type TUI } from "../src/tui";
 import { VirtualTerminal } from "./virtual-terminal";
+import { TuiMainScreen } from "../src/tui-main-screen";
 
 /**
  * The frame identity a component can memoize one frame's worth of measurement
@@ -23,7 +24,7 @@ class Probe implements Component {
 describe("render frame identity", () => {
     test("the id advances once per frame and is only live during one", async () => {
         const terminal = new VirtualTerminal(80, 24);
-        const tui = new TUI(terminal);
+        const tui = new TuiMainScreen(terminal);
         const probe = new Probe(tui);
         tui.addChild(probe);
 

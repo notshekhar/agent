@@ -1,7 +1,8 @@
 import assert from "node:assert";
 import { describe, it } from "bun:test";
-import { type Component, TUI } from "../src/tui";
+import { type Component, type TUI } from "../src/tui";
 import { VirtualTerminal } from "./virtual-terminal";
+import { TuiMainScreen } from "../src/tui-main-screen";
 
 /**
  * A line that has scrolled off the top of the terminal is committed: it cannot
@@ -42,7 +43,7 @@ describe("a committed line is never printed twice", () => {
     it("a frame that shrinks does not reprint the rows above the window", async () => {
         const height = 20;
         const terminal = new VirtualTerminal(60, height);
-        const tui = new TUI(terminal);
+        const tui = new TuiMainScreen(terminal);
         const frame = new Frame();
         tui.addChild(frame);
 
@@ -82,7 +83,7 @@ describe("a committed line is never printed twice", () => {
     it("a turn of collapsing tool groups leaves one copy of the chat", async () => {
         const height = 20;
         const terminal = new VirtualTerminal(60, height);
-        const tui = new TUI(terminal);
+        const tui = new TuiMainScreen(terminal);
         const frame = new Frame();
         tui.addChild(frame);
 

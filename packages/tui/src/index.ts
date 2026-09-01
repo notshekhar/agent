@@ -13,10 +13,17 @@ export {
 export { Box } from "./components/box";
 export { CancellableLoader } from "./components/cancellable-loader";
 export { Editor, type EditorOptions, type EditorTheme } from "./components/editor";
+export { HStack } from "./components/h-stack";
 export { Image, type ImageOptions, type ImageTheme } from "./components/image";
 export { Input } from "./components/input";
 export { Loader, type LoaderIndicatorOptions } from "./components/loader";
 export { type DefaultTextStyle, Markdown, type MarkdownOptions, type MarkdownTheme } from "./components/markdown";
+export {
+    ScrollView,
+    type ScrollViewOptions,
+    type ScrollViewScrollbar,
+    type ScrollViewScrollToOptions,
+} from "./components/scroll-view";
 export {
     type SelectItem,
     SelectList,
@@ -28,6 +35,13 @@ export { type SettingItem, SettingsList, type SettingsListTheme } from "./compon
 export { Spacer } from "./components/spacer";
 export { Text } from "./components/text";
 export { TruncatedText } from "./components/truncated-text";
+export {
+    type StackChild,
+    type StackEntry,
+    type StackEntryOptions,
+    type StackOptions,
+    VStack,
+} from "./components/v-stack";
 // Editor component interface (for custom editors)
 export type { EditorComponent } from "./editor-component";
 // Fuzzy matching
@@ -104,16 +118,25 @@ export {
     type Component,
     Container,
     CURSOR_MARKER,
+    compositeTuiLine,
     type Focusable,
     isFocusable,
+    isViewportTUI,
     type OverlayAnchor,
     type OverlayHandle,
     type OverlayMargin,
     type OverlayOptions,
     type OverlayUnfocusOptions,
     type SizeValue,
-    TUI,
+    type TUI,
+    type TuiInputListener,
+    type TuiInputListenerResult,
+    type TuiMode,
+    type TuiStopOptions,
+    type ViewportTUI,
 } from "./tui";
+export { TuiAltScreen, type TuiAltScreenOptions } from "./tui-alt-screen";
+export { TuiMainScreen, type TuiMainScreenRenderState } from "./tui-main-screen";
 // Utilities
 export {
     getOsc8LinkAtColumn,

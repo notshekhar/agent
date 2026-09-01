@@ -4,9 +4,10 @@ import type { Terminal as XtermTerminalType } from "@xterm/headless";
 import { Chalk } from "chalk";
 import { Markdown } from "../src/components/markdown";
 import { resetCapabilitiesCache, setCapabilities } from "../src/terminal-image";
-import { type Component, TUI } from "../src/tui";
+import { type Component, type TUI } from "../src/tui";
 import { defaultMarkdownTheme } from "./test-themes";
 import { VirtualTerminal } from "./virtual-terminal";
+import { TuiMainScreen } from "../src/tui-main-screen";
 
 // Force full color in CI so ANSI assertions are deterministic
 const chalk = new Chalk({ level: 3 });
@@ -755,7 +756,7 @@ describe("Markdown component", () => {
             });
 
             const terminal = new VirtualTerminal(80, 6);
-            const tui = new TUI(terminal);
+            const tui = new TuiMainScreen(terminal);
             const component = new MarkdownWithInput(markdown);
             tui.addChild(component);
             tui.start();
@@ -1196,7 +1197,7 @@ bar`,
         it("should not leak h1 underline into padding when inline code is the last token", async () => {
             const markdown = new Markdown("# Important distinction from `open()`", 0, 0, defaultMarkdownTheme);
             const terminal = new VirtualTerminal(80, 4);
-            const tui = new TUI(terminal);
+            const tui = new TuiMainScreen(terminal);
             tui.addChild(markdown);
             tui.start();
             await terminal.waitForRender();
