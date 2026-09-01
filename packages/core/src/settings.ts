@@ -36,7 +36,6 @@ export interface AppSettings {
      * they do with it off, because loop never asks for mouse reporting.
      * Default OFF.
      */
-    pinnedInput?: boolean;
     thinkingLevel?: ThinkingLevel;
     maxSteps?: number;
     /**

@@ -127,9 +127,8 @@ export class ChatHistory extends Container {
      * Window geometry of the last render, when the viewport shaped it.
      *
      * `lead` is how many rows the window puts BEFORE the transcript lines —
-     * one clip indicator when it scrolls, or the whole top pad when a short
-     * pinned transcript is sitting on the bottom. Clicks land in window
-     * coordinates and have to come back out in transcript ones.
+     * one clip indicator when it scrolls. Clicks land in window coordinates
+     * and have to come back out in transcript ones.
      */
     private lastViewport: { offset: number; sliceLen: number; lead: number } | null = null;
 
@@ -181,30 +180,11 @@ export class ChatHistory extends Container {
         for (const c of this.assistantComponents) c.resetFolds();
     }
 
-    // ------------------------------------------------------------------
-    // Two different things, deliberately kept apart.
-    //
     // NAVIGATION (Tab/ctrl+e) owns a WINDOW: loop takes the scrolling off the
     // terminal so that stepping through entries and opening folds never jumps
     // the screen. It is a mode you enter and leave, and while you are in it
     // loop holds the mouse.
-    //
-    // PINNED INPUT (the `pinnedInput` setting) owns NOTHING. It does not clip,
-    // it does not scroll, it does not touch the mouse. All it does is pad a
-    // short transcript so the prompt sits on the last rows instead of floating
-    // under the banner — the terminal keeps its scrollback, its wheel and its
-    // text selection exactly as before.
-    //
-    // It was the other way around at first: pinning owned a window too, which
-    // meant asking the terminal for mouse reporting to get the wheel, which is
-    // precisely what stops a terminal from drag-selecting text. Owning the
-    // scroll is what costs you the selection. grok's TUI does not own it
-    // either — it prints the transcript into real scrollback and keeps only a
-    // small live region at the bottom — and gets a fixed prompt, native
-    // selection and native scrolling all at once.
-    // ------------------------------------------------------------------
     private navViewport = false;
-    private pinned = false;
     private viewportOffset = 0;
     /** Anchor the window to the selection on the NEXT render only. Set by
      * user actions (selection moves, folds) — never by passive re-renders,
@@ -225,24 +205,13 @@ export class ChatHistory extends Container {
         if (on) this.viewportOffset = Number.MAX_SAFE_INTEGER; // clamp to bottom
     }
 
-    /** The `pinnedInput` setting, on or off. */
-    setPinned(on: boolean): void {
-        this.markDirty();
-        this.pinned = on;
-    }
-
-    isPinned(): boolean {
-        return this.pinned;
-    }
-
     /**
      * How many rows everything BELOW the transcript is taking right now.
      *
-     * The pad is the terminal's height minus this minus the transcript, so a
-     * wrong answer puts the prompt somewhere other than the last rows. It
-     * cannot be a constant — the editor grows with the draft, and the loader,
-     * the todo panel and queued messages come and go mid-turn — so the app
-     * measures the real thing.
+     * The navigation window is the terminal's height minus this, so a wrong
+     * answer sizes the window wrong. It cannot be a constant — the editor
+     * grows with the draft, and the loader, the todo panel and queued messages
+     * come and go mid-turn — so the app measures the real thing.
      *
      * Measured at ~1µs; see the call site in app.ts before caching it.
      */
@@ -260,23 +229,6 @@ export class ChatHistory extends Container {
     /** Rows the NAVIGATION window may use. */
     private viewportRows(): number {
         return Math.max(6, this.rowsForTranscript());
-    }
-
-    /**
-     * Hold the prompt on the last rows — the whole of what pinning does.
-     *
-     * Only ever pads. A transcript taller than the screen needs no help: the
-     * terminal has already scrolled it, which puts the prompt on the bottom
-     * rows by itself and puts everything above into real scrollback, where the
-     * wheel and the mouse can reach it. Padding a SHORT transcript is the only
-     * case the terminal gets wrong, and it is the one the setting fixes.
-     */
-    private padToBottom(full: string[]): string[] {
-        const pad = this.rowsForTranscript() - full.length;
-        if (pad <= 0) return full;
-        // Bottom-aligned: the newest line stays next to the caret, and the
-        // chat grows up out of the prompt the way every chat does.
-        return [...new Array<string>(pad).fill(""), ...full];
     }
 
     /** Page height for PgUp/PgDn (full page minus one line of continuity). */
@@ -508,8 +460,8 @@ export class ChatHistory extends Container {
         this.lastViewport = null;
         // Not navigating: the whole transcript goes out as-is and the terminal
         // does what terminals do with it — scroll it, hold it in scrollback,
-        // let you select it. Pinning only pads.
-        if (!viewport) return this.pinned ? this.padToBottom(full) : full;
+        // let you select it.
+        if (!viewport) return full;
 
         // A width change re-wraps the whole transcript, so the offset — a line
         // index — silently comes to mean a different place, and a window that
@@ -529,8 +481,8 @@ export class ChatHistory extends Container {
         if (full.length <= rows) {
             // Short enough to show whole. Navigation is a temporary mode, so
             // leaving it where it already is keeps Tab from shunting the screen
-            // around; pinning still holds the prompt down.
-            return this.pinned ? this.padToBottom(full) : full;
+            // around.
+            return full;
         }
 
         // The selected entry's line range is the scroll anchor — applied once

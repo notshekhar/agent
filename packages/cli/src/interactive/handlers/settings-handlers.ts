@@ -76,7 +76,6 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
         herdr: true,
         cmux: true,
         notch: true,
-        pinnedInput: false,
     };
     const boolSetting = (key: string): boolean =>
         (settingsStore.get(key) as boolean | undefined) ?? BOOLEAN_DEFAULTS[key];
@@ -139,12 +138,6 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                     // `theme` settings key wrong outside loop mode (it showed
                     // loop's theme while grok's was active).
                     { value: "theme", label: `theme: ${theme.name}` },
-                    {
-                        value: "pinnedInput",
-                        label: `pinned input: ${boolSetting("pinnedInput") ? "on" : "off"}`,
-                        description:
-                            "hold the prompt on the last rows from the first keystroke; scrollback, wheel and text selection stay the terminal's",
-                    },
                     {
                         value: "maxSteps",
                         label: `maxSteps: ${(settingsStore.get("maxSteps") as number) || "unlimited"}`,
@@ -342,10 +335,6 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                         if (next) startMcpServers(state, deps);
                         else void getMcpManager().close();
                     }
-                    // Pinning takes effect on the spot: it moves the prompt and
-                    // changes what the wheel does, so waiting for a relaunch
-                    // would read as the toggle doing nothing.
-                    if (pick.value === "pinnedInput") deps.applyPinnedInput(next);
                     tui.requestRender();
                     continue;
                 }

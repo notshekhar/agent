@@ -29,8 +29,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from harness import Session  # noqa: E402
 
-NOIR_PINNED = '{"pinnedInput": true, "uiMode": "noir"}'
-NOIR = '{"pinnedInput": false, "uiMode": "noir"}'
+NOIR = '{"uiMode": "noir"}'
 
 failures = []
 checks = 0
@@ -79,19 +78,18 @@ def blank_band(rows, size=3):
 
 
 def test_boot():
-    """The first screen: masthead, prompt on the bottom rows when pinned."""
-    with Session(settings=NOIR_PINNED) as s:
+    """The first screen: masthead, and a prompt block that is actually drawn."""
+    with Session(settings=NOIR) as s:
         s.pump(7)
         rows = s.screen_rows()
         check(any("Welcome back" in r for r in rows), "masthead is on screen")
         check(len(s.screen.history.top) == 0, "nothing scrolled off a fresh boot")
-        # Pinned: the prompt block is padded down onto the last rows.
-        check(any(r.strip().startswith("─") for r in rows[-7:]), "the prompt block is on the last rows", rows[-7:])
+        check(any(r.strip().startswith("─") for r in rows), "the prompt block is on screen", rows)
 
 
 def test_no_duplicates_while_growing():
     """A conversation past the fold is printed once, in order."""
-    with Session(settings=NOIR_PINNED) as s:
+    with Session(settings=NOIR) as s:
         s.pump(7)
         fill(s, 30)
         dupes = duplicates(s)
@@ -103,7 +101,7 @@ def test_no_duplicates_while_growing():
 
 def test_completion_list_costs_nothing():
     """Typing `/` and deleting it must leave the screen exactly as it was."""
-    for label, settings in (("pinned", NOIR_PINNED), ("unpinned", NOIR)):
+    for label, settings in (("noir", NOIR),):
         with Session(settings=settings) as s:
             s.pump(7)
             fill(s, 20)
@@ -133,7 +131,7 @@ def test_completion_list_costs_nothing():
 
 def test_selector_costs_nothing():
     """A menu opening and closing must not move the conversation."""
-    with Session(settings=NOIR_PINNED) as s:
+    with Session(settings=NOIR) as s:
         s.pump(7)
         fill(s, 20)
         committed_before = len(s.screen.history.top)
@@ -167,47 +165,9 @@ def test_selector_costs_nothing():
         check(not duplicates(s), "and nothing was printed twice", duplicates(s))
 
 
-def test_pinned_toggle():
-    """Turning pinned input off and back on puts the prompt back on the bottom.
-
-    It did not, and the setting looked broken — but pinning was on the whole
-    time. The menu it was toggled from was INLINE in the frame, so opening it
-    pushed twelve rows off the top of the screen; when it closed the frame
-    shrank by that much and took the prompt up with it. Rows that have scrolled
-    off cannot come back, so the only fix is not to scroll them: the menu is
-    painted over the frame now.
-    """
-    down, enter, esc = "\x1b[B", "\r", "\x1b"
-
-    def borders(rows):
-        return [i for i, r in enumerate(rows) if r.strip().startswith("─")]
-
-    with Session(settings=NOIR_PINNED) as s:
-        s.pump(7)
-        at_boot = borders(s.screen_rows())
-        committed = len(s.screen.history.top)
-        check(bool(at_boot) and at_boot[-1] >= s.rows - 5, "boot: the prompt is on the bottom rows", at_boot)
-
-        s.send("/settings\r", settle=2.5)
-        check(len(s.screen.history.top) == committed, "opening /settings scrolled nothing off")
-
-        # "pinned input" is the third row of the settings list.
-        s.send(down + down, settle=0.8)
-        s.send(enter, settle=1.8)
-        s.send(esc, settle=2.0)
-        s.send("/settings\r", settle=2.5)
-        s.send(down + down, settle=0.8)
-        s.send(enter, settle=1.8)
-        s.send(esc, settle=2.5)
-
-        back = borders(s.screen_rows())
-        check(bool(back) and back[-1] >= s.rows - 5, "off and on again: the prompt is back on the bottom rows", back)
-        check(len(s.screen.history.top) == committed, "and the toggling scrolled nothing off")
-
-
 def test_new_session():
     """/new on a long conversation starts clean: banner back, old chat gone."""
-    for label, settings in (("pinned", NOIR_PINNED), ("unpinned", NOIR)):
+    for label, settings in (("noir", NOIR),):
         with Session(settings=settings) as s:
             s.pump(7)
             fill(s, 30)
@@ -223,7 +183,7 @@ def test_new_session():
 
 def test_clear_screen():
     """/clear wipes the screen and starts the session's header again."""
-    with Session(settings=NOIR_PINNED) as s:
+    with Session(settings=NOIR) as s:
         s.pump(7)
         fill(s, 30)
         s.send("/clear\r", settle=3.0)
@@ -235,7 +195,7 @@ def test_clear_screen():
 def test_shells_panel():
     """A background shell appears in the pinned panel without disturbing the
     conversation above it — and killing it does not strand a band."""
-    with Session(settings=NOIR_PINNED) as s:
+    with Session(settings=NOIR) as s:
         s.pump(7)
         fill(s, 20)
         committed_before = len(s.screen.history.top)
@@ -267,7 +227,7 @@ def test_shells_panel():
 
 def test_shells_survive_esc():
     """esc ends a turn; it must not take a background shell with it."""
-    with Session(settings=NOIR_PINNED) as s:
+    with Session(settings=NOIR) as s:
         s.pump(7)
         s.send("/shells run sleep 30\r", settle=2.0)
         s.send("\x1b", settle=0.6)
@@ -282,7 +242,7 @@ def test_resize():
     """A resize re-wraps without losing or duplicating the conversation."""
     import fcntl, struct, termios, signal  # noqa: E401
 
-    with Session(settings=NOIR_PINNED) as s:
+    with Session(settings=NOIR) as s:
         s.pump(7)
         fill(s, 20)
         fcntl.ioctl(s.fd, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 90, 0, 0))
@@ -300,7 +260,6 @@ SCENARIOS = {
     "growth": test_no_duplicates_while_growing,
     "completion": test_completion_list_costs_nothing,
     "selector": test_selector_costs_nothing,
-    "pinned-toggle": test_pinned_toggle,
     "new": test_new_session,
     "clear": test_clear_screen,
     "resize": test_resize,

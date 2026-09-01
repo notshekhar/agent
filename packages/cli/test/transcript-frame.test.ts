@@ -40,80 +40,16 @@ function history(messages: number): ChatHistory {
     return h;
 }
 
-describe("pinned input — holding the prompt down", () => {
-    test("a short transcript is padded so the frame fills the screen", () => {
-        const h = history(3);
-        h.setReserveRows(() => 8);
-        h.setPinned(true);
-        // Window + chrome == the terminal, so the prompt lands on the last rows.
-        expect(lines(h).length + 8).toBe(ROWS);
-    });
-
-    test("the pad tracks the chrome, which moves as the draft grows", () => {
-        const h = history(3);
-        let chrome = 8;
-        h.setReserveRows(() => chrome);
-        h.setPinned(true);
-        expect(lines(h).length + chrome).toBe(ROWS);
-        chrome = 14;
-        expect(lines(h).length + chrome).toBe(ROWS);
-    });
-
-    test("an empty session pins too", () => {
-        const h = new ChatHistory(tui, "/repo");
-        h.setReserveRows(() => 8);
-        h.setPinned(true);
-        expect(lines(h).length + 8).toBe(ROWS);
-    });
-
-    test("the transcript sits at the bottom of the pad, next to the prompt", () => {
-        const h = new ChatHistory(tui, "/repo");
-        h.addSystem("first thing said");
-        h.setReserveRows(() => 8);
-        h.setPinned(true);
-        const out = lines(h);
-        expect(out[0]).toBe("");
-        expect(out[out.length - 1]).toContain("first thing said");
-    });
-
-    test("a transcript taller than the screen is handed over whole", () => {
-        // Nothing to pad, and nothing to clip: the terminal scrolls it, which
-        // is what puts everything above into real scrollback where the wheel
-        // and the mouse can reach it.
-        const h = history(60);
-        h.setReserveRows(() => 8);
-        h.setPinned(true);
-        const out = lines(h);
-        expect(out.length).toBeGreaterThan(ROWS);
-        expect(out.join("\n")).toContain("line 0");
-        expect(out.join("\n")).toContain("line 59");
-    });
-
-    test("unpinned, a short transcript is left exactly as it is", () => {
-        const h = history(3);
-        h.setReserveRows(() => 8);
-        expect(lines(h).length).toBeLessThan(ROWS - 8);
-    });
-
-    test("a resize re-budgets the pad", () => {
-        const h = history(3);
-        h.setReserveRows(() => 8);
-        h.setPinned(true);
-        expect(lines(h).length + 8).toBe(ROWS);
-        terminal = { rows: 40, columns: 80 };
-        expect(lines(h).length + 8).toBe(40);
-    });
-});
-
-describe("pinned input — what it must NOT take from the terminal", () => {
-    // The first cut of this feature owned the scrolling, which meant asking
-    // for mouse reporting to get the wheel, which is exactly what stops a
-    // terminal drag-selecting text. grok's TUI does not own the scroll and
-    // keeps all three. These guard the property, not the implementation.
+describe("what the transcript must never take from the terminal", () => {
+    // loop does not own the scroll: the terminal keeps its scrollback, its
+    // wheel and its drag-selection. Owning the scroll means asking for mouse
+    // reporting, and asking for mouse reporting is exactly what stops a
+    // terminal drag-selecting text. These guard the property, not the
+    // implementation.
     const appSource = readFileSync(join(import.meta.dir, "..", "src", "interactive", "app.ts"), "utf8");
     const inputSource = readFileSync(join(import.meta.dir, "..", "src", "interactive", "input-handler.ts"), "utf8");
 
-    test("pinning never asks the terminal for mouse reporting", () => {
+    test("the app never asks the terminal for mouse reporting", () => {
         expect(appSource).not.toContain("?1006h");
         expect(appSource).not.toContain("?1000h");
         expect(appSource).not.toContain("?1002h");
@@ -127,16 +63,6 @@ describe("pinned input — what it must NOT take from the terminal", () => {
         expect(enter).toContain("?1006h");
         const exit = inputSource.slice(inputSource.indexOf("const exitScrollbackFocus"));
         expect(exit).toContain("?1000l");
-    });
-
-    test("pinning does not clip the transcript into a loop-owned window", () => {
-        // A clipped window is scrollback loop has taken away from the
-        // terminal: the wheel stops reaching it and the text stops being
-        // selectable, which is the whole trade this feature refuses to make.
-        const h = history(60);
-        h.setReserveRows(() => 8);
-        h.setPinned(true);
-        expect(lines(h).join("\n")).not.toMatch(/more lines?/);
     });
 });
 
@@ -222,10 +148,9 @@ describe("navigation mode still owns its window", () => {
         expect(lines(h).length).toBeGreaterThan(ROWS);
     });
 
-    test("pinned and navigating at once still fills the screen exactly", () => {
+    test("the nav window fills the screen exactly", () => {
         const h = history(60);
         h.setReserveRows(() => 8);
-        h.setPinned(true);
         h.setViewport(true);
         expect(lines(h).length + 8).toBe(ROWS);
     });

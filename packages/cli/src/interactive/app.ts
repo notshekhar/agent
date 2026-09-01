@@ -235,7 +235,6 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         latestContextTokens: seededCtxTokens,
         busy: false,
         scrollbackFocus: false,
-        pinnedInput: Boolean(settingsStore.get("pinnedInput")),
         abort: new AbortController(),
         pendingInjection: null,
         lastCtrlCAt: 0,
@@ -360,20 +359,6 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         reserve = rendering ? { frame: tui.renderFrameId, rows } : null;
         return rows;
     });
-
-    /**
-     * Turn the pinned prompt on/off live (startup + the /settings row).
-     *
-     * The wheel is the point of the mouse reporting: without it the terminal
-     * scrolls its own scrollback and the window under the prompt never moves.
-     * The cost is that the terminal stops seeing drags as selections while it
-     * is on, so it goes back off the moment the setting does.
-     */
-    const applyPinnedInput = (on: boolean): void => {
-        state.pinnedInput = on;
-        history.setPinned(on);
-        tui.requestRender(true);
-    };
 
     showWhatsNew(history, opts.version, Boolean(opts.sessionId));
     // Routes its result to the welcome banner (top), not chat history; safe to
@@ -764,7 +749,6 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         version: opts.version,
         restoreConsole,
         syncTicker,
-        applyPinnedInput,
     };
     syncTicker();
 
@@ -816,13 +800,6 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     // the terminal's background IS. One probe, in the background, and only
     // when that theme is what's rendering.
     probeSystemScheme(tui);
-    // Same reason, and the same trap: the cleanse writes `?1000l ?1006l`, so a
-    // pinned prompt asking for wheel reports BEFORE start() has its request
-    // wiped a few thousand bytes into the first paint. The window still
-    // scrolls on any wheel report it is handed — it just never gets handed
-    // one, because the terminal was told to stop sending them and keeps the
-    // wheel for its own scrollback.
-    if (state.pinnedInput) applyPinnedInput(true);
     tui.requestRender();
 
     // Catalog warm-up: models change between releases — kick the
