@@ -364,7 +364,11 @@ export function createMiscHandlers(state: AppState, deps: AppDeps): MiscHandlers
             // means no ticker/render can write over the editor's screen, and
             // stdin never goes through an async pause/resume cycle — the
             // async-spawn version came back with dead input.
-            tui.stop();
+            // preserveScreen: the session is coming back (tui.start() below),
+            // so leaving the alternate screen must not paint the whole
+            // transcript into the terminal on the way out — the editor is
+            // about to cover it anyway, and the copy belongs on the real exit.
+            tui.stop({ preserveScreen: true });
             process.stdout.write("\x1b[2J\x1b[H");
             const shell = process.env.SHELL || "/bin/sh";
             const quoted = `'${path.replace(/'/g, "'\\''")}'`;

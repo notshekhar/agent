@@ -255,6 +255,42 @@ def test_resize():
         check(any(r.strip() for r in rows), "the screen is not blank after a resize", rows)
 
 
+
+def test_alt_screen_keeps_scrollback_clean():
+    """The chat is on the alternate screen: nothing is committed while it runs.
+
+    This is the property the alt screen was adopted for. Committed rows were
+    the source of the duplicated chat, the blank bands and the stranded frames,
+    because a row that has scrolled off can only be reprinted, never moved. On
+    the alternate screen there are no committed rows at all — and the
+    conversation is not lost either, because leaving the screen prints it once,
+    whole, into the terminal.
+    """
+    with Session(settings=NOIR) as s:
+        s.pump(7)
+        fill(s, 40)
+        check(
+            len(s.screen.history.top) == 0,
+            "40 messages committed nothing to the terminal's scrollback",
+            len(s.screen.history.top),
+        )
+        check(
+            any(r.strip().startswith("\u2500") for r in s.screen_rows()),
+            "the prompt is still drawn after a long conversation",
+        )
+
+        s.send("\x03", settle=0.4)
+        s.send("\x03", settle=2.5)
+        s.pump(2.0)
+        left = [
+            "".join(c.data for c in line.values()).rstrip() for line in s.screen.history.top
+        ] + s.screen_rows()
+        check(
+            any("Welcome back" in r for r in left),
+            "quitting prints the transcript into the terminal instead of losing it",
+        )
+
+
 SCENARIOS = {
     "boot": test_boot,
     "growth": test_no_duplicates_while_growing,
@@ -263,6 +299,7 @@ SCENARIOS = {
     "new": test_new_session,
     "clear": test_clear_screen,
     "resize": test_resize,
+    "alt-screen": test_alt_screen_keeps_scrollback_clean,
     "shells": test_shells_panel,
     "shells-esc": test_shells_survive_esc,
 }

@@ -13,7 +13,7 @@ import {
     Spacer,
     truncateToWidth,
     TUI,
-    TuiMainScreen,
+    TuiAltScreen,
     type Component,
     type EditorTheme,
     type SlashCommand as TuiSlashCommand,
@@ -204,7 +204,10 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     getExtensionHost().applyCommands(commands);
 
     const terminal = new ProcessTerminal();
-    const tui = new TuiMainScreen(terminal, true);
+    // The chat lives on the alternate screen: turns are never written into the
+    // terminal's scrollback, so there are no committed rows to duplicate, band
+    // or strand. The transcript is printed once, whole, on the way out.
+    const tui = new TuiAltScreen(terminal, true, undefined, { mouse: true });
 
     const history = new ChatHistory(tui, opts.cwd);
     const statusLine = new StatusLine();
