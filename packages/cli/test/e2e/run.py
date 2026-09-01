@@ -291,11 +291,42 @@ def test_alt_screen_keeps_scrollback_clean():
         )
 
 
+
+def test_menu_anchors_to_the_frame_not_the_screen():
+    """A menu on a SHORT conversation must not cover the editor's status rows.
+
+    Overlays are anchored to where the frame's content ends, not to the bottom
+    of the terminal. Those are the same row once the conversation fills the
+    screen, and differ by one while it does not — so this only reproduces on a
+    short transcript, which is why the other selector scenario (20 messages,
+    frame already full) cannot see it. The alt-screen move first reported the
+    padded viewport height as the content height and landed every menu one row
+    low, over the "agent … (shift+tab)" line.
+    """
+    for label, keys in (("settings", "/settings\r"), ("completion", "/")):
+        with Session(settings=NOIR) as s:
+            s.pump(7)
+            fill(s, 2)  # deliberately short: the frame must not fill the screen
+            s.send(keys, settle=2.5)
+            rows = s.screen_rows()
+            check(
+                any("shift+tab" in r for r in rows),
+                f"[{label}] the menu left the editor's status rows visible",
+                rows[-5:],
+            )
+            check(
+                any("session" in r and "ctx" in r for r in rows),
+                f"[{label}] and the session line below them too",
+                rows[-3:],
+            )
+
+
 SCENARIOS = {
     "boot": test_boot,
     "growth": test_no_duplicates_while_growing,
     "completion": test_completion_list_costs_nothing,
     "selector": test_selector_costs_nothing,
+    "menu-anchor": test_menu_anchors_to_the_frame_not_the_screen,
     "new": test_new_session,
     "clear": test_clear_screen,
     "resize": test_resize,

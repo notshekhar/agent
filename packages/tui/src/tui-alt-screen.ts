@@ -1327,10 +1327,11 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
         } finally {
             this.renderingFrame = false;
         }
-        // The alt screen paints a whole frame every time, so the frame always
-        // ends where the layout does — there is no differential window to be
-        // out of step with.
-        this.contentHeight = nextLayout.lines.length;
+        // Where the CONTENT ends, which is not where the frame ends: the layout
+        // pads its lines out to the full viewport, so nextLayout.lines.length
+        // is always the terminal height and an overlay anchored to the bottom
+        // of the frame would sit one row too low, over the status line.
+        this.contentHeight = (nextLayout.primaryScrollView ?? this.implicitScrollView).getContentHeight();
         let screen = nextLayout.lines.map((line) => line.replace(OSC133_ZONE_PREFIX, ""));
         screen = this.applySearchHighlights(screen, nextLayout);
         screen = this.compositeOverlays(screen, width, height);

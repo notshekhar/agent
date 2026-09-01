@@ -28,6 +28,16 @@ export class ScrollView extends Container {
     private readonly scrollbarHideDelayMs: number;
     private currentScrollTop = 0;
     private contentHeight = 0;
+
+    /**
+     * Height of the DOCUMENT, not of the viewport it is shown through — the
+     * viewport is padded out to its full height, the document is not. Anything
+     * anchoring to where the content actually ends needs this one.
+     */
+    getContentHeight(): number {
+        return this.contentHeight;
+    }
+
     private currentViewportHeight = 0;
     private followingEnd: boolean;
     private followSuppressedAtEnd = false;
