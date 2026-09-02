@@ -6,9 +6,11 @@
  * written here, server-side, so the page says what it is before (or
  * without) script.
  *
- * Visual idea: a timing diagram on graph paper. The grid IS the time axis;
- * every bar is a measurement, and a measurement that was not taken is
- * written out as such rather than guessed at.
+ * Visual idea: a timing diagram. The grid IS the time axis, so it is drawn
+ * only inside the tracks, on the ruler's own ticks, and the page around them
+ * stays flat — a page-wide grid textures everything and measures nothing.
+ * Every bar is a measurement, and a measurement that was not taken is written
+ * out as such rather than guessed at.
  */
 import { TRACE_CLIENT_JS } from "./client";
 import { escapeHtml as esc, fmtMs, fmtUsd, plural } from "./format";

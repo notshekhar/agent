@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.19.26] - 2026-09-02
+
+### Changed
+
+- **`/trace` gets an overview of the whole session, and filters that reach it.** The page used to be a timeline per turn and nothing above them, so a session's shape — which turns were slow, where the tools clustered, when it sat idle — was something you scrolled to find. There is now one axis over the entire session with prompts, model and tool lanes on it: wheel to zoom anchored under the cursor, right-drag to pan, drag to select a slice, and the ledger below narrows to whatever that slice covers. A wall clock is only one of four ways to read it — idle can be removed so a session with a coffee break in it is legible, durations can be packed end to end, or every record can take one equal slot when the sequence matters more than the length. A minimap under the axis keeps the whole session in view while zoomed, hovering a bar gives its exact clock, duration and first-token/decode split, and clicking one opens the step it belongs to. Search covers prompts, replies and tool input and output, with filters for a single tool, errors only, and a minimum duration; the count, the bars and the ledger all read from one list, so they cannot disagree. Keyboard throughout — `j`/`k` between records, `J`/`K` between turns, `/` to search, `1`-`4` for the projections, `?` for the rest.
+- **`/trace` says where the time and the money actually went.** A breakdown splits the session into waiting for the first token, streaming, tools and idle; a table gives every tool its call count, total, median, p95, slowest call and errors, and clicking a row filters the page to that tool; the slowest handful of records are listed and clickable, with cost per turn beside them. Timing provenance is unchanged and still drawn rather than guessed: a step recorded before this existed is one hatched bar, never an invented split.
+- **The trace page dropped its graph-paper background.** The grid was tiled over the entire page, fixed to the viewport, texturing prose that had nothing to do with time. It now appears only inside the timing tracks, spaced on the ruler's own ticks, so the lines mean something and re-space themselves as you zoom.
+
 ## [0.19.25] - 2026-09-02
 
 ### Changed

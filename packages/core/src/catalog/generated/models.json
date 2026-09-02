@@ -3077,9 +3077,9 @@
     "contextWindow": 1048576,
     "maxOutput": 384000,
     "cost": {
-      "input": 0.088606,
-      "output": 0.177212,
-      "cacheRead": 0.017721,
+      "input": 0.08554,
+      "output": 0.17108,
+      "cacheRead": 0.017108,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -3113,9 +3113,9 @@
     "contextWindow": 1048576,
     "maxOutput": 384000,
     "cost": {
-      "input": 1.04226,
-      "output": 2.08452,
-      "cacheRead": 0.086855,
+      "input": 1.035996,
+      "output": 2.071992,
+      "cacheRead": 0.086333,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -8406,11 +8406,11 @@
     "provider": "openrouter",
     "name": "GLM Latest",
     "contextWindow": 1310720,
-    "maxOutput": 943718,
+    "maxOutput": 235929,
     "cost": {
-      "input": 1.17,
-      "output": 3.96,
-      "cacheRead": 0.234,
+      "input": 1.15,
+      "output": 3.5,
+      "cacheRead": 0.1,
       "cacheWrite": 0
     },
     "reasoning": true,
