@@ -152,7 +152,7 @@ export class WelcomeBanner implements Component {
         // the path row exceed the terminal width, tripping the TUI's
         // width-overflow crash guard (silent exit at startup).
         const padded = lines.map((l) => {
-            const truncated = visibleWidth(l) > width ? truncateToWidth(l, Math.max(0, width - 1)) + "…" : l;
+            const truncated = visibleWidth(l) > width ? truncateToWidth(l, width, "…") : l;
             const pad = Math.max(0, width - visibleWidth(truncated));
             return truncated + " ".repeat(pad);
         });

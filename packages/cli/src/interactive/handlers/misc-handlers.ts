@@ -185,6 +185,8 @@ export function createMiscHandlers(state: AppState, deps: AppDeps): MiscHandlers
                 "Cmd+←/→ ↑/↓     line start/end · input start/end",
                 "Cmd+Z / Ctrl+-  undo",
                 "Opt+←/→         word jump · Opt+Backspace delete word",
+                "Ctrl+V          attach image from clipboard (Cmd+V is the terminal's)",
+                "Ctrl+I          attach image from a file picker",
                 "Esc             abort current turn",
                 "Ctrl+C          abort, twice to quit",
                 "Ctrl+D          quit (empty)",
@@ -193,6 +195,10 @@ export function createMiscHandlers(state: AppState, deps: AppDeps): MiscHandlers
                 "Ctrl+P          cycle scoped models",
                 "Ctrl+E          navigate transcript;",
                 "                inside: arrows select, e expand all, y copy, Esc exit",
+                "PgUp / PgDn     scroll the conversation · Home / End top / bottom",
+                "Ctrl+↑/↓        jump to the previous / next prompt",
+                "Ctrl+Shift+F    search the conversation; Enter next, Shift+Enter previous, Esc close",
+                "Mouse           wheel scrolls, drag selects text",
             ];
             for (const l of lines) history.addSystem(l);
             tui.requestRender();
