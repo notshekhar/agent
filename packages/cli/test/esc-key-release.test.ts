@@ -29,6 +29,7 @@ function makeHarness() {
         editor,
         footer: { setAgent: () => {} },
         getSelectorDepth: () => 0,
+        revealPrompt: () => {},
     };
     const handler = createInputHandler(state, deps, {} as any);
     return { handler, state };

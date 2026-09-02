@@ -47,4 +47,18 @@ export interface AppDeps {
     restoreConsole: () => void;
     /** Start/stop the shared 1s ticker after clock/timer/reminder changes. */
     syncTicker: () => void;
+    /** Apply the `pinnedInput` setting live: swap the layout, repaint. */
+    applyPinnedInput: (on: boolean) => void;
+    /**
+     * The window the transcript is currently shown through, in transcript
+     * lines: `top` is the first transcript line on screen, `height` how many
+     * screen rows the transcript may occupy. Maps a clicked row to an entry.
+     */
+    transcriptViewport: () => { top: number; height: number };
+    /**
+     * Scroll the prompt back into view if the transcript was scrolled away
+     * from it (flowing layout only; pinned, it never leaves). Called on
+     * keyboard input and when a menu opens on the prompt.
+     */
+    revealPrompt: () => void;
 }

@@ -321,12 +321,203 @@ def test_menu_anchors_to_the_frame_not_the_screen():
             )
 
 
+
+def test_menu_follows_the_prompt_when_scrolled():
+    """With pinning off, the prompt scrolls away with the transcript — and a
+    menu belongs to the prompt, not to the screen.
+
+    What broke: overlays anchored to `rows - contentHeight`, the document's
+    length, which knows nothing about where the window onto it is. Scrolled
+    back, the prompt was below the screen and `/` or `/settings` painted a
+    menu floating over the transcript with no prompt under it.
+
+    The contract now: a key brings the prompt back into view (a shell scrolls
+    to the bottom on a keystroke), so a menu always opens ON the prompt; and
+    wheeling away while one is open takes the menu along — it is hidden with
+    the prompt and back when either the wheel or a key returns.
+    """
+    up, down = "\x1b[<64;20;10M", "\x1b[<65;20;10M"
+    prompt_rows = lambda rows: [i for i, r in enumerate(rows) if "agent default (shift+tab)" in r]
+    with Session(settings=NOIR) as s:
+        s.pump(7)
+        fill(s, 30)
+        for _ in range(3):
+            s.send(up, settle=0.12)
+        s.pump(0.6)
+        check(not prompt_rows(s.screen_rows()), "scrolled back, the prompt is off the screen")
+
+        s.send("/", settle=1.6)
+        rows = s.screen_rows()
+        at = prompt_rows(rows)
+        check(bool(at), "typing brought the prompt back", rows[-4:])
+        listing = [i for i, r in enumerate(rows) if "help" in r and "Show available commands" in r]
+        check(
+            bool(listing) and at and listing[0] < at[0],
+            "and the completion list opened above it, not floating in the transcript",
+            rows[-12:],
+        )
+
+        for _ in range(3):
+            s.send(up, settle=0.12)
+        s.pump(0.6)
+        rows = s.screen_rows()
+        check(not prompt_rows(rows), "wheeling away takes the prompt off again")
+        check(
+            not any("Show available commands" in r for r in rows),
+            "and the completion list went with it instead of floating",
+            rows[-12:],
+        )
+        for _ in range(6):
+            s.send(down, settle=0.1)
+        s.pump(0.6)
+        rows = s.screen_rows()
+        check(
+            any("Show available commands" in r for r in rows) and bool(prompt_rows(rows)),
+            "wheeling back shows both again",
+            rows[-12:],
+        )
+
+        s.send("\x7f", settle=1.0)
+        for _ in range(3):
+            s.send(up, settle=0.12)
+        s.pump(0.6)
+        s.send("/settings\r", settle=2.5)
+        rows = s.screen_rows()
+        at = prompt_rows(rows)
+        menu = [i for i, r in enumerate(rows) if "uiMode" in r]
+        check(bool(menu) and bool(at) and menu[0] < at[0], "/settings opens on the prompt too", rows[-8:])
+
+
+def test_wheel_tail_yields_to_typing():
+    """A trackpad keeps sending wheel-up for a few hundred ms after the fingers
+    lift. Scroll back, start typing: the first key jumps to the prompt, and the
+    tail must NOT drag the view up again — that was the prompt and the
+    completion list flickering, and the jump "only working on the second key".
+
+    The wheel yields to a keyboard jump for a moment (extended while keys keep
+    coming), and is back to normal once the typing stops.
+    """
+    up = "\x1b[<64;20;10M"
+    prompt_rows = lambda rows: [i for i, r in enumerate(rows) if "agent default (shift+tab)" in r]
+    with Session(settings=NOIR) as s:
+        s.pump(7)
+        fill(s, 30)
+        for _ in range(4):  # the flick
+            s.send(up, settle=0.03)
+        s.send("h", settle=0.05)
+        check(bool(prompt_rows(s.screen_rows())), "the FIRST key brings the prompt back", s.screen_rows()[-4:])
+        # The tail keeps coming while the user types on. (pump() polls at 50 ms,
+        # so each "60 ms" here can run to ~110; keys are interleaved densely,
+        # the way typing actually is, rather than after a long silent tail.)
+        for ch in "ey":
+            for _ in range(2):
+                s.send(up, settle=0.06)
+            s.send(ch, settle=0.05)
+        for _ in range(2):
+            s.send(up, settle=0.06)
+        s.pump(0.3)
+        rows = s.screen_rows()
+        check(bool(prompt_rows(rows)), "the tail did not drag the prompt away again", rows[-4:])
+        check(any(r.strip() == "hey" for r in rows), "and what was typed is on it", rows[-6:])
+
+        s.pump(0.6)  # the hold has lapsed
+        for _ in range(3):
+            s.send(up, settle=0.12)
+        s.pump(0.5)
+        check(not prompt_rows(s.screen_rows()), "a real scroll afterwards still works")
+
+
+def test_wheel_scrolls_the_document():
+    """The wheel scrolls the conversation, the way the terminal's own
+    scrollback would — and the prompt goes with it, because it is part of
+    the same document, exactly as it is when a shell command's output is
+    scrolled back over.
+
+    On the alternate screen there is no terminal scrollback, so the wheel has
+    to reach loop or there is no scrolling at all. What broke it: loop's
+    Terminal.start() cleanses stale modes (`?1000l ?1006l`) AFTER the alt
+    screen asks for mouse tracking, switching it straight back off.
+    """
+    up, down = "\x1b[<64;20;10M", "\x1b[<65;20;10M"
+    with Session(settings=NOIR) as s:
+        s.pump(7)
+        fill(s, 30)
+        rest = s.screen_rows()
+        check(any("shift+tab" in r for r in rest[-5:]), "the prompt is drawn at rest")
+
+        for _ in range(6):
+            s.send(up, settle=0.12)
+        s.pump(0.8)
+        scrolled = s.screen_rows()
+        check(rest[:6] != scrolled[:6], "the wheel scrolled the conversation", scrolled[:3])
+        check(len(s.screen.history.top) == 0, "scrolling committed nothing to the terminal")
+        # A real terminal only SENDS wheel reports to an app that asked for
+        # them, and this harness sends them regardless — so the request itself
+        # has to be asserted, or the cleanse switching mouse tracking back off
+        # after startup goes unnoticed here.
+        check(
+            s.mouse_tracking_enabled(),
+            "loop still has mouse tracking on after startup",
+        )
+
+        for _ in range(12):
+            s.send(down, settle=0.1)
+        s.pump(0.8)
+        check(s.screen_rows() == rest, "scrolling back down returns to the live end")
+
+
+def test_pinned_input():
+    """`pinnedInput`: the prompt is held on the last rows from the first frame,
+    the wheel scrolls only the transcript above it, and quitting still prints
+    the whole conversation.
+
+    The last point is the one that bit: the pinned frame is a VStack, and the
+    exit path renders it WITHOUT a viewport, where a `basis: 0` transcript is
+    zero rows — the conversation was gone from the terminal on quit.
+    """
+    up, down = "\x1b[<64;20;10M", "\x1b[<65;20;10M"
+    # The status line under the editor, not the masthead's "shift+tab agents" hint.
+    prompt_rows = lambda rows: [i for i, r in enumerate(rows) if "agent default (shift+tab)" in r]
+    with Session(settings='{"uiMode": "noir", "pinnedInput": true}') as s:
+        s.pump(7)
+        boot = s.screen_rows()
+        check(any("Welcome back" in r for r in boot), "masthead is on screen")
+        at_boot = prompt_rows(boot)
+        check(at_boot and at_boot[-1] >= len(boot) - 4, "the prompt is on the last rows from the start", at_boot)
+
+        fill(s, 30)
+        rest = s.screen_rows()
+        for _ in range(6):
+            s.send(up, settle=0.12)
+        s.pump(0.8)
+        scrolled = s.screen_rows()
+        check(rest[:6] != scrolled[:6], "the wheel scrolled the transcript", scrolled[:3])
+        check(prompt_rows(scrolled) == prompt_rows(rest), "and the prompt stayed put while it did")
+        check(len(s.screen.history.top) == 0, "scrolling committed nothing to the terminal")
+        for _ in range(12):
+            s.send(down, settle=0.1)
+        s.pump(0.8)
+        check(s.screen_rows() == rest, "scrolling back down returns to the live end")
+
+        s.send("\x03", settle=0.4)
+        s.send("\x03", settle=2.5)
+        s.pump(2.0)
+        left = [
+            "".join(c.data for c in line.values()).rstrip() for line in s.screen.history.top
+        ] + s.screen_rows()
+        check(any("Welcome back" in r for r in left), "quitting prints the whole transcript, masthead included")
+
+
 SCENARIOS = {
     "boot": test_boot,
     "growth": test_no_duplicates_while_growing,
     "completion": test_completion_list_costs_nothing,
     "selector": test_selector_costs_nothing,
     "menu-anchor": test_menu_anchors_to_the_frame_not_the_screen,
+    "menu-scrolled": test_menu_follows_the_prompt_when_scrolled,
+    "wheel-tail": test_wheel_tail_yields_to_typing,
+    "wheel": test_wheel_scrolls_the_document,
+    "pinned": test_pinned_input,
     "new": test_new_session,
     "clear": test_clear_screen,
     "resize": test_resize,

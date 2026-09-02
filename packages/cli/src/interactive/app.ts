@@ -14,6 +14,8 @@ import {
     truncateToWidth,
     TUI,
     TuiAltScreen,
+    ScrollView,
+    VStack,
     type Component,
     type EditorTheme,
     type SlashCommand as TuiSlashCommand,
@@ -207,7 +209,12 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     // The chat lives on the alternate screen: turns are never written into the
     // terminal's scrollback, so there are no committed rows to duplicate, band
     // or strand. The transcript is printed once, whole, on the way out.
-    const tui = new TuiAltScreen(terminal, true, undefined, { mouse: true });
+    const tui = new TuiAltScreen(terminal, true, undefined, {
+        mouse: true,
+        // One line per notch is the library default and reads as a stuck
+        // wheel; three is what terminals themselves scroll by.
+        wheelScrollLines: 3,
+    });
 
     const history = new ChatHistory(tui, opts.cwd);
     const statusLine = new StatusLine();
@@ -239,6 +246,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         latestContextTokens: seededCtxTokens,
         busy: false,
         scrollbackFocus: false,
+        pinnedInput: Boolean(settingsStore.get("pinnedInput")),
         abort: new AbortController(),
         pendingInjection: null,
         lastCtrlCAt: 0,
@@ -297,14 +305,16 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         }
     }
 
-    const root = new Container();
-    root.addChild(history);
-    root.addChild(statusContainer);
+    // Everything under the transcript is chrome: the loader slot, the panels,
+    // the editor, the status line. Kept in one container so its height can be
+    // measured in one call (the transcript's reserve, the overlays' anchors).
+    const chrome = new Container();
+    chrome.addChild(statusContainer);
     // Pinned checklist: below the loader slot, above queued messages + editor.
-    root.addChild(todoPanel);
+    chrome.addChild(todoPanel);
     // Background shells sit under the checklist — the work the agent is doing,
     // then the processes it left running.
-    root.addChild(shellsPanel);
+    chrome.addChild(shellsPanel);
     // The panel is mounted, so a foreground command that outruns its timeout may
     // be promoted instead of killed: the reason for the timeout is invisibility,
     // and a shell listed here is not invisible.
@@ -318,19 +328,56 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         tui.requestRender();
     };
     onShellChange(refreshShells);
-    root.addChild(pendingContainer);
-    root.addChild(editorContainer);
-    root.addChild(statusLine);
+    chrome.addChild(pendingContainer);
+    chrome.addChild(editorContainer);
+    chrome.addChild(statusLine);
     // Constant breathing room below the status line — without it the status block
     // sits flush with the terminal's bottom row once the screen fills up.
-    root.addChild(new Spacer(1));
-    tui.addChild(root);
+    chrome.addChild(new Spacer(1));
+
+    // The document is always the same two blocks — transcript, then chrome —
+    // and is what the exit path prints into the terminal. `pinnedInput` only
+    // changes how the screen shows it:
+    //
+    //   off  the alt screen's own follow-end scroll view over the whole
+    //        document. A short session reads top-down with the prompt right
+    //        under the last message; a long one keeps it on the last rows;
+    //        scrolling back moves the page, prompt included — the flow a shell
+    //        prompt has under a command's output.
+    //   on   a flex frame: the transcript in its own scroll view taking every
+    //        row the chrome does not, the chrome held on the last rows. The
+    //        wheel moves the transcript only.
+    //
+    // Both are one renderer; the layout root is set or cleared, the children
+    // stay mounted for the exit print either way.
+    tui.addChild(history);
+    tui.addChild(chrome);
+    const transcriptView = new ScrollView(history, { follow: "end", primary: true });
+    // Sized from the transcript's natural height, not `basis: 0`: the frame
+    // gives the same rows either way (the chrome may not shrink, so whatever it
+    // does not take is the transcript's), but the exit print renders this stack
+    // WITHOUT a viewport, and there a zero basis is zero rows — the whole
+    // conversation gone from the terminal on quit.
+    const pinnedFrame = new VStack([
+        { component: transcriptView, grow: 1, shrink: 1 },
+        { component: chrome, shrink: 0 },
+    ]);
+    const applyPinnedInput = (on: boolean): void => {
+        state.pinnedInput = on;
+        tui.setLayoutRoot(on ? pinnedFrame : undefined);
+        tui.requestRender(true);
+    };
+    if (state.pinnedInput) tui.setLayoutRoot(pinnedFrame);
+    const transcriptViewport = (): { top: number; height: number } => ({
+        top: tui.viewportTop,
+        height: state.pinnedInput ? transcriptView.viewportHeight : tui.terminal.rows,
+    });
 
     // What the transcript window may NOT use: every row the chrome under it is
     // taking this frame (loader slot, todos, queued messages, editor, status
     // line, trailing spacer). Measured rather than assumed, because all of it
     // moves — the editor grows a row per line of draft, the todo panel appears
-    // mid-turn — and an under-reserve is what pushes the pinned prompt off the
+    // mid-turn — and an under-reserve is what pushes the prompt off the
     // screen. Re-rendering to measure is safe: component renders are pure (the
     // spinner advances on its own interval, not on render), the same property
     // the click-to-select mapper already relies on, and the transcript itself
@@ -355,11 +402,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         const rendering = tui.isRendering();
         if (rendering && reserve?.frame === tui.renderFrameId) return reserve.rows;
         const width = tui.terminal.columns;
-        let rows = 0;
-        for (const child of root.children) {
-            if ((child as unknown) === (history as unknown)) continue;
-            rows += child.render(width).length;
-        }
+        const rows = chrome.render(width).length;
         reserve = rendering ? { frame: tui.renderFrameId, rows } : null;
         return rows;
     });
@@ -464,15 +507,32 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
      * off — ends higher, and an overlay aimed at the screen's last row would
      * come adrift from the prompt and float underneath it. Overlays add this to
      * their bottom margin so they land on the frame instead of on the screen.
+     *
+     * Scrolled back with pinning off, the frame's end — and the prompt on it —
+     * is BELOW the screen, and there is no row to anchor to: the overlays that
+     * sit on the prompt hide with it (see promptOnScreen) instead of clamping
+     * to the last row, which left a menu floating over the transcript with no
+     * prompt under it.
      */
-    const rowsBelowFrame = (): number => Math.max(0, tui.terminal.rows - tui.getContentHeight());
+    const rowsBelowFrame = (): number => Math.max(0, tui.rowsBelowContent);
+    const promptOnScreen = (): boolean => tui.rowsBelowContent >= 0;
+    /**
+     * Bring the prompt back into view — a shell's "scroll on keystroke". Input
+     * to the prompt, or to a menu drawn on it, is meaningless while it is
+     * scrolled off; and a prompt the AGENT opens (an approval, a question) has
+     * to be seen. Pinned, the prompt never leaves, and the transcript's scroll
+     * position is the reader's to keep.
+     */
+    const revealPrompt = (): void => {
+        if (!state.pinnedInput && !tui.isFollowingOutput) tui.scrollToBottom();
+    };
 
     /** Rows of the frame that sit BELOW the editor: the status line, the spacer. */
     const rowsBelowEditor = (): number => {
         const width = tui.terminal.columns;
         let rows = 0;
         let seenEditor = false;
-        for (const child of root.children) {
+        for (const child of chrome.children) {
             if ((child as unknown) === (editorContainer as unknown)) {
                 seenEditor = true;
                 continue;
@@ -508,7 +568,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
             margin: () => ({
                 bottom: rowsBelowFrame() + rowsBelowEditor() + editorContainer.render(tui.terminal.columns).length,
             }),
-            visible: () => editor.isShowingAutocomplete(),
+            visible: () => editor.isShowingAutocomplete() && promptOnScreen(),
             // The editor keeps the keys: the list is driven through it, the
             // same as when it drew the rows itself.
             nonCapturing: true,
@@ -538,6 +598,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         // anchored to the bottom of the FRAME (rowsBelowFrame), not the bottom
         // of the screen, so a short transcript keeps the menu on the prompt
         // instead of leaving it floating at the bottom of the terminal.
+        revealPrompt();
         const overlay = tui.showOverlay(
             new SelectorOverlay(component, () => editorContainer.render(tui.terminal.columns).length),
             {
@@ -547,6 +608,9 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
                 maxHeight: "100%",
                 anchor: "bottom-left",
                 margin: () => ({ bottom: rowsBelowFrame() + rowsBelowEditor() }),
+                // Wheeled off along with the prompt it sits on; the next key
+                // brings both back (revealPrompt in the input handler).
+                visible: promptOnScreen,
                 // Focus goes to the inner list, not the wrapper.
                 nonCapturing: true,
             },
@@ -753,6 +817,9 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         version: opts.version,
         restoreConsole,
         syncTicker,
+        applyPinnedInput,
+        transcriptViewport,
+        revealPrompt,
     };
     syncTicker();
 

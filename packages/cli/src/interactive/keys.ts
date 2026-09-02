@@ -67,6 +67,12 @@ export const isPrintableChar = (d: string) => {
 // scrolling counts every one.
 export const MOUSE_SGR_ANY = /^\x1b\[<\d+;\d+;\d+[Mm]/;
 const MOUSE_SGR_ALL = /\x1b\[<(\d+);\d+;\d+[Mm]/g;
+const MOUSE_X10 = /^\x1b\[M[\s\S]{3}/;
+const FOCUS_REPORT = /^\x1b\[[IO]$/;
+/** Input that came from the keyboard — a key, a chord, a paste — as opposed to
+ * the terminal reporting a pointer event or a focus change. */
+export const isKeyboardInput = (d: string) =>
+    d.length > 0 && !MOUSE_SGR_ANY.test(d) && !MOUSE_X10.test(d) && !FOCUS_REPORT.test(d);
 export function countWheelScroll(d: string): number {
     let delta = 0;
     for (const m of d.matchAll(MOUSE_SGR_ALL)) {

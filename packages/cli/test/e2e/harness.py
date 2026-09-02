@@ -120,6 +120,18 @@ class Session:
         os.write(self.fd, data.encode())
         self.pump(settle)
 
+    def mouse_tracking_enabled(self):
+        """Whether the LAST thing loop said about mouse tracking was 'on'.
+
+        The alternate screen has no terminal scrollback, so mouse reporting is
+        the whole of scrolling — and loop's own start-up cleanse of stale modes
+        runs after the alt screen asks for it, so 'asked once' is not enough.
+        Reads what loop actually wrote, since this harness feeds wheel bytes in
+        regardless of whether a real terminal would have sent them.
+        """
+        toggles = re.findall(rb"\x1b\[\?(?:1000|1002|1003|1006)([hl])", self.raw)
+        return bool(toggles) and toggles[-1] == b"h"
+
     # -- what the user would see ------------------------------------------
     def screen_rows(self):
         return [line.rstrip() for line in self.screen.display]

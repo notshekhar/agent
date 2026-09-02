@@ -62,6 +62,20 @@ const END_SYNCHRONIZED_OUTPUT = "\x1b[?2026l";
 const OSC133_ZONE_PREFIX = /^(?:\x1b\]133;[ABC](?:\x07|\x1b\\))+/;
 const OSC133_PROMPT_START = /^\x1b\]133;A(?:\x07|\x1b\\)/;
 const PAGE_SCROLL_OVERLAP = 4;
+/**
+ * loop-local (keep across pi-mono syncs). How long the wheel yields after a
+ * keyboard-driven jump to the end (`scrollToBottom`), extended by every key
+ * typed inside it.
+ *
+ * A trackpad keeps sending wheel-up events for a few hundred ms after the
+ * fingers lift. A person who scrolls back and starts typing gets the jump
+ * on the first key, then the tail drags the view up again, then the next
+ * key jumps it back — the prompt and the completion list flicker in and out
+ * until the tail dies. Terminals send no scroll phase, so time is the only
+ * way to tell the tail from a hand on the wheel; and nobody types and flicks
+ * at once, so keys extending the hold costs a real scroll nothing.
+ */
+const WHEEL_YIELDS_TO_KEYBOARD_MS = 400;
 const MAX_CACHED_OFFSCREEN_KITTY_IMAGES = 16;
 const MAX_CACHED_OFFSCREEN_KITTY_TRANSMISSION_BYTES = 32 * 1024 * 1024;
 const MAX_CACHED_OFFSCREEN_KITTY_DECODED_BYTES = 64 * 1024 * 1024;
@@ -177,6 +191,10 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
     private currentLayout: LayoutFrame | undefined;
     private readonly implicitDocument: Component;
     private readonly implicitScrollView: ScrollView;
+    /** Which mouse-tracking sequence this terminal got; re-asserted after start. */
+    private mouseSequence = "";
+    /** Wheel-up is dropped until this instant (see WHEEL_YIELDS_TO_KEYBOARD_MS). */
+    private wheelHoldUntil = 0;
     private readonly flashes: AltScreenFlashContainer;
     private altScreenActive = false;
     private imageProtocol: ImageProtocol = null;
@@ -237,6 +255,23 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
 
     get isFollowingOutput(): boolean {
         return this.getPrimaryScrollView().isFollowingEnd;
+    }
+
+    /**
+     * Rows between the end of the frame's content and the bottom of the
+     * screen, as drawn last frame. Zero when the content reaches the last
+     * row; positive when the document is shorter than the screen; NEGATIVE
+     * when the document is scrolled back and its end is below the screen by
+     * that many rows. Anything anchored to the end of the document (a menu
+     * on the prompt) is anchored to this, not to `getContentHeight()`, which
+     * knows the document's length but not where the window onto it sits.
+     *
+     * With a layout root the author owns the whole viewport and the frame
+     * fills it by construction, so this is always zero.
+     */
+    get rowsBelowContent(): number {
+        if (this.layoutRoot) return 0;
+        return this.terminal.rows - (this.contentHeight - this.implicitScrollView.scrollTop);
     }
 
     getCopyOnSelect(): boolean {
@@ -305,7 +340,7 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
         const term = process.env.TERM?.toLowerCase() ?? "";
         // Multiplexers can lag when every pointer movement is forwarded. Button-motion
         // tracking preserves clicks, wheel events, selections, and scrollbar dragging.
-        const mouseSequence =
+        this.mouseSequence =
             process.env.TMUX !== undefined ||
             process.env.ZELLIJ !== undefined ||
             process.env.STY !== undefined ||
@@ -314,8 +349,27 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
                 ? ENABLE_BUTTON_MOTION_MOUSE
                 : ENABLE_ALL_MOTION_MOUSE;
         this.terminal.write(
-            `${ENTER_ALT_SCREEN}${DISABLE_AUTOWRAP}${this.mouseEnabled ? mouseSequence : ""}\x1b[2J\x1b[H\x1b[?25l`,
+            `${ENTER_ALT_SCREEN}${DISABLE_AUTOWRAP}${this.mouseEnabled ? this.mouseSequence : ""}\x1b[2J\x1b[H\x1b[?25l`,
         );
+    }
+
+    /**
+     * LOCAL CHANGE (keep across pi-mono syncs).
+     *
+     * loop's Terminal.start() cleanses stale modes before it hands over —
+     * including `?1000l ?1006l` — because a predecessor killed with SIGKILL
+     * never ran its exit handlers and leaves the shell echoing raw key
+     * reports. That cleanse runs AFTER beforeTerminalStart, so the mouse
+     * tracking the alternate screen just asked for is switched straight back
+     * off and the wheel stops reaching the transcript. There is no terminal
+     * scrollback to fall back on here, so that is the whole of scrolling.
+     *
+     * Re-asserted rather than reordered: the cleanse has to run late (it is
+     * clearing someone else's mess), and these sequences are idempotent.
+     */
+    protected override afterTerminalStart(): void {
+        if (!this.mouseEnabled || !this.mouseSequence) return;
+        this.terminal.write(this.mouseSequence);
     }
 
     protected override beforeTerminalStop(_options: TuiStopOptions): void {
@@ -430,9 +484,23 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
         this.requestRender();
     }
 
+    /** A keyboard-driven jump to the end: the End key, or the app revealing
+     * the prompt on a keystroke. The wheel yields to it for a moment. */
     scrollToBottom(): void {
         this.getPrimaryScrollView().scrollToEnd();
+        this.wheelHoldUntil = Date.now() + WHEEL_YIELDS_TO_KEYBOARD_MS;
         this.requestRender();
+    }
+
+    /** The wheel tail's up-events, inside the hold, are not the user. */
+    private wheelIsYielding(event: WheelEvent): boolean {
+        return event.direction < 0 && Date.now() < this.wheelHoldUntil;
+    }
+
+    /** A key typed inside the hold keeps it going; one typed outside starts nothing. */
+    private extendWheelHoldOnKey(): void {
+        const now = Date.now();
+        if (now < this.wheelHoldUntil) this.wheelHoldUntil = now + WHEEL_YIELDS_TO_KEYBOARD_MS;
     }
 
     private scrollToPrompt(direction: -1 | 1): void {
@@ -590,7 +658,7 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
         const wheelEvent = this.parseWheelEvent(data);
         if (wheelEvent) {
             if (this.shouldDeferViewportInputToOverlay()) return undefined;
-            this.routeWheel(wheelEvent);
+            if (!this.wheelIsYielding(wheelEvent)) this.routeWheel(wheelEvent);
             return { consume: true };
         }
         const mouseEvent = this.parseSgrMouseEvent(data);
@@ -605,6 +673,7 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
 
         const keybindings = getKeybindings();
         const isRelease = isKeyRelease(data);
+        if (!isRelease) this.extendWheelHoldOnKey();
         if (keybindings.matches(data, "tui.altScreen.search")) {
             if (!isRelease) this.openSearch();
             return { consume: true };
@@ -1327,11 +1396,13 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
         } finally {
             this.renderingFrame = false;
         }
-        // Where the CONTENT ends, which is not where the frame ends: the layout
-        // pads its lines out to the full viewport, so nextLayout.lines.length
-        // is always the terminal height and an overlay anchored to the bottom
-        // of the frame would sit one row too low, over the status line.
-        this.contentHeight = (nextLayout.primaryScrollView ?? this.implicitScrollView).getContentHeight();
+        // Where the frame's CONTENT ends, which is what an overlay anchored to
+        // the bottom of the frame needs. With a layout root the author owns the
+        // whole viewport and the frame fills it by construction. Without one,
+        // the implicit document can be shorter than the viewport the layout
+        // pads it out to — and reporting the padded height there puts every
+        // overlay one row too low, over the status rows.
+        this.contentHeight = this.layoutRoot ? nextLayout.lines.length : this.implicitScrollView.getContentHeight();
         let screen = nextLayout.lines.map((line) => line.replace(OSC133_ZONE_PREFIX, ""));
         screen = this.applySearchHighlights(screen, nextLayout);
         screen = this.compositeOverlays(screen, width, height);

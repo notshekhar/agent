@@ -104,6 +104,14 @@ Other notable keys (all managed via `/settings` too):
   on your background the way noir does on its own. The lift is one-sided: a
   terminal darker than noir's canvas is left exactly as it is. Pick it in
   `/settings` → theme, or set `{ "uiThemes": { "noir": "system" } }`.
+- `"pinnedInput": true` — hold the prompt on the last rows of the screen. The
+  transcript scrolls in its own window above it and the wheel moves only that
+  window; the prompt, status line and panels stay put. Off (the default), the
+  prompt sits directly under the last message the way a shell prompt follows a
+  command's output, sinks to the bottom as the conversation grows, and
+  scrolling back moves the whole page. Either way the chat runs on the
+  alternate screen and nothing is written into the terminal until you quit.
+  Toggle it live in `/settings` → pinned input.
 - `"subagentModel"` — default model for subagents (full `provider/model` id,
   cross-provider allowed). An agent file's own `model:` wins over it; unset =
   subagents inherit the parent's model. Invalid/unavailable picks fall back to

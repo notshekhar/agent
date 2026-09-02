@@ -19,6 +19,7 @@ import {
     isEnter,
     isEsc,
     isHome,
+    isKeyboardInput,
     isLeft,
     isPageDown,
     isPageUp,
@@ -203,28 +204,18 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
     };
 
     /** Map a clicked screen row (1-based) to the chat history's own rendered
-     * lines and select the entry there. Root components render top-aligned
-     * until the content exceeds the screen, after which it bottom-aligns —
-     * the offset accounts for both. Component renders are pure, so measuring
-     * by re-rendering is safe (clicks are rare). */
+     * lines and select the entry there. The transcript is the first thing in
+     * the document, so its line under a screen row is the row plus however far
+     * the window it is shown through has scrolled — whether that window is the
+     * whole screen (flowing layout) or the transcript's own pane (pinned).
+     * Component renders are pure, so measuring by re-rendering is safe
+     * (clicks are rare). */
     const selectAtScreenRow = (row: number): boolean => {
-        const width = tui.terminal.columns;
-        const children = (tui as unknown as { children: Array<{ render(w: number): string[] }> }).children;
-        let before = 0;
-        let total = 0;
-        let historyHeight = -1;
-        for (const c of children) {
-            const h = c.render(width).length;
-            if ((c as unknown) === (history as unknown)) {
-                before = total;
-                historyHeight = h;
-            }
-            total += h;
-        }
-        if (historyHeight < 0) return false;
-        const contentLine = row - 1 + Math.max(0, total - tui.terminal.rows);
-        const local = contentLine - before;
-        if (local < 0 || local >= historyHeight) return false;
+        const { top, height } = deps.transcriptViewport();
+        const screenLine = row - 1;
+        if (screenLine < 0 || screenLine >= height) return false;
+        const local = screenLine + top;
+        if (local >= history.render(tui.terminal.columns).length) return false;
         return history.clickAtLocalLine(local);
     };
 
@@ -350,6 +341,13 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
             // A selector/overlay took over — drop focus mode quietly.
             exitScrollbackFocus();
         }
+
+        // A key brings the prompt back into view, the way a shell scrolls to
+        // the bottom on a keystroke. The wheel and the scroll keys never get
+        // this far — the viewport consumed them — so what does is input to the
+        // prompt, or to a menu drawn on it, and both live where the document
+        // ends. Pointer and focus reports are the terminal talking, not the user.
+        if (isKeyboardInput(data)) deps.revealPrompt();
 
         // Drag-and-drop / paste of attachable file(s) — images/PDFs — into the
         // prompt: attach what the model accepts (clean [image:…] tokens); paths

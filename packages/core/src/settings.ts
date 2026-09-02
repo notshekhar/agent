@@ -27,15 +27,17 @@ export interface AppSettings {
      */
     uiLive?: boolean;
     /**
-     * Hold the prompt on the last rows of the terminal, from the first
-     * keystroke of a session rather than only once the transcript is tall
-     * enough to push it there.
+     * Pin the prompt to the last rows of the screen. The transcript then
+     * scrolls in its own window above it, and the wheel moves only that
+     * window — the prompt, the status line and the panels stay put.
      *
-     * That is all it does. It takes nothing away from the terminal: the
-     * scrollback, the wheel and drag-to-select all keep working exactly as
-     * they do with it off, because loop never asks for mouse reporting.
-     * Default OFF.
+     * OFF (default): the prompt sits directly under the last message, the
+     * way a shell prompt follows a command's output, and sinks to the bottom
+     * as the conversation grows. Scrolling back moves the whole page.
+     * Either way the chat is on the alternate screen and nothing is written
+     * into the terminal until exit. Applies live from /settings.
      */
+    pinnedInput?: boolean;
     thinkingLevel?: ThinkingLevel;
     maxSteps?: number;
     /**
