@@ -26,6 +26,7 @@ import { createSettingsHandlers } from "./handlers/settings-handlers";
 import { createTimerHandlers } from "./handlers/timer-handlers";
 import { createGatewayHandlers } from "./handlers/gateway-handlers";
 import { createArtifactHandlers } from "./handlers/artifact-handlers";
+import { createTraceHandlers } from "./handlers/trace-handlers";
 
 export function createCommandContext(state: AppState, deps: AppDeps): CommandContext {
     return {
@@ -51,6 +52,7 @@ export function createCommandContext(state: AppState, deps: AppDeps): CommandCon
         ...createBackgroundHandlers(state, deps),
         ...createGatewayHandlers(state, deps),
         ...createArtifactHandlers(deps),
+        ...createTraceHandlers(state, deps),
         manageGoalMode: (args: string) => goalModeEngine(state, deps).manageGoalMode(args),
     };
 }

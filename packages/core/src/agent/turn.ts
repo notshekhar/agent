@@ -77,6 +77,7 @@ import {
 } from "./turn-middleware";
 import { attachLedgerEntry, type Session } from "../sessions";
 import type { UsageBlock } from "../types";
+import { StepTimingRecorder, type SdkStepTimingFields } from "./step-timing";
 
 export interface RunTurnOptions {
     session: Session;
@@ -734,15 +735,26 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
     // Filled by the stream loop's reasoning-start/end events; drained here in
     // the same order the parts appear in the step's messages.
     const reasoningDurations: number[] = [];
-    const persistStep = (step: {
-        response: { messages: ReadonlyArray<{ role: string; content: unknown }> };
-        usage?: UsageBlock;
-    }): Promise<void> => {
+    // Wall clock per step for the trace view (see step-timing.ts). Fed by the
+    // SDK's lifecycle callbacks below; read when a step is persisted.
+    const timing = new StepTimingRecorder();
+
+    const persistStep = (
+        step: SdkStepTimingFields & {
+            response: { messages: ReadonlyArray<{ role: string; content: unknown }> };
+            usage?: UsageBlock;
+        },
+    ): Promise<void> => {
         const entries = stepMessagesToEntries(step.response.messages, step.usage);
         if (entries.length > 0) persistedAnyMessage = true;
         // Snapshot the durations for THIS step now (the queue keeps filling
         // while the async append below waits its turn in the chain).
         const stepReasoningMs = reasoningDurations.splice(0, reasoningDurations.length);
+        // Likewise the timing: onStepEnd IS the step's end instant. It rides
+        // on the step's assistant entry (the one whose content the model
+        // produced in that window), never on the tool results.
+        const stepTiming = timing.stepEnded(step);
+        const timingEntry = entries.find((e) => e.role === "assistant");
         persistChain = persistChain
             .then(async () => {
                 const rows = entries.map((entry) => {
@@ -760,6 +772,7 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
                         role: entry.role,
                         content: entry.content,
                         ...(reasoningMs.length > 0 ? { reasoningMs } : {}),
+                        ...(entry === timingEntry ? { timing: stepTiming } : {}),
                         // Stamp the model AND the billed USD on usage-bearing
                         // (assistant) entries so cost seeding reads the true
                         // historical cost after a model switch or catalog drift.
@@ -817,6 +830,17 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
             // per-message persistence). Errors here must not break the turn.
             onStepEnd: (step) => {
                 void persistStep(step as never);
+            },
+            // Trace anchors. onStepStart is the only start instant we keep
+            // ourselves — everything else comes as durations on the step result.
+            onStepStart: () => timing.stepStarted(),
+            onToolExecutionStart: (event) => {
+                const call = (event as { toolCall?: { toolCallId?: string; toolName?: string } }).toolCall;
+                if (call?.toolCallId) timing.toolStarted(call.toolCallId, call.toolName ?? "");
+            },
+            onToolExecutionEnd: (event) => {
+                const e = event as { toolCall?: { toolCallId?: string }; toolOutput?: { type?: string } };
+                if (e.toolCall?.toolCallId) timing.toolEnded(e.toolCall.toolCallId, e.toolOutput?.type === "tool-error");
             },
             // The SDK's default onError does console.error(error) with the whole
             // APICallError (request body, tool defs — a wall of noise). We already
@@ -883,6 +907,11 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
         try {
             for await (const part of result.stream) {
                 if (abortSignal?.aborted) break;
+                // First output of the step in flight — only the abort path
+                // reads this (finished steps get the SDK's own measurement).
+                if (part.type === "text-delta" || part.type === "reasoning-delta" || part.type === "tool-input-start") {
+                    timing.outputSeen();
+                }
                 switch (part.type) {
                     case "text-delta":
                         assistantText += part.text;
@@ -1049,7 +1078,9 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
         // Let the finished steps land before rebuilding the conversation from
         // them — otherwise the resumed stream re-asks the last question.
         await persistChain;
+        const waitFrom = Date.now();
         await abortableDelay(resumeDelayMs(resumes - 1), abortSignal);
+        timing.retryWaited(Date.now() - waitFrom);
         if (abortSignal?.aborted) break streamAttempts;
         attemptMessages = buildMessages();
     }
@@ -1099,12 +1130,14 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
         // text/usage here — never tool-call parts (those persist on finished
         // steps only), so there's no orphaned tool_use to break the next turn.
         if (streamedTail || !persistedAnyMessage) {
+            const inFlight = timing.closeInFlight();
             const interruptedEntry = {
                 type: "message" as const,
                 ts: Date.now(),
                 role: "assistant" as const,
                 content: tailParts.length > 0 ? tailParts : "",
                 interrupted: true,
+                ...(inFlight ? { timing: inFlight } : {}),
                 ...(est ? { usage: stampUsageCost(modelId, est), model: modelId } : {}),
             };
             await session.append(interruptedEntry);
@@ -1125,11 +1158,13 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
         // provider error after partial output). Keep what streamed, with the
         // real usage we did capture.
         const edgeUsage = lastUsage ?? billing.sum;
+        const inFlight = timing.closeInFlight();
         await session.append({
             type: "message",
             ts: Date.now(),
             role: "assistant",
             content: tailParts.length > 0 ? tailParts : "",
+            ...(inFlight ? { timing: inFlight } : {}),
             usage: edgeUsage ? stampUsageCost(modelId, edgeUsage) : undefined,
             model: modelId,
         });

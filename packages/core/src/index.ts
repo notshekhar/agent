@@ -19,6 +19,7 @@ export {
 } from "./providers";
 export * from "./catalog";
 export * from "./sessions";
+export * from "./trace";
 export * from "./tools";
 export * from "./artifacts";
 export * from "./agent";

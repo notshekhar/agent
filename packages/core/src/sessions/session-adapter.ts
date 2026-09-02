@@ -1,4 +1,35 @@
-import type { Entry, ProviderId, SubagentActivityPart, UsageBlock } from "../types";
+import type { Entry, ProviderId, StepTiming, SubagentActivityPart, ToolTiming, UsageBlock } from "../types";
+
+const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+
+/** Step timing is display metadata: a malformed one is dropped, never
+ * repaired (the trace shows "not recorded" rather than a fabricated bar). */
+function parseStepTiming(raw: unknown): StepTiming | undefined {
+    if (!raw || typeof raw !== "object") return undefined;
+    const t = raw as Record<string, unknown>;
+    if (!isNum(t.startedAt) || !isNum(t.modelEndedAt) || !isNum(t.endedAt)) return undefined;
+    const out: StepTiming = { startedAt: t.startedAt, modelEndedAt: t.modelEndedAt, endedAt: t.endedAt };
+    if (isNum(t.firstTokenAt)) out.firstTokenAt = t.firstTokenAt;
+    if (isNum(t.retryWaitMs)) out.retryWaitMs = t.retryWaitMs;
+    if (Array.isArray(t.tools)) {
+        const tools: ToolTiming[] = [];
+        for (const item of t.tools) {
+            if (!item || typeof item !== "object") continue;
+            const tool = item as Record<string, unknown>;
+            if (typeof tool.toolCallId !== "string" || !isNum(tool.startedAt)) continue;
+            const parsed: ToolTiming = {
+                toolCallId: tool.toolCallId,
+                toolName: typeof tool.toolName === "string" ? tool.toolName : "",
+                startedAt: tool.startedAt,
+            };
+            if (isNum(tool.endedAt)) parsed.endedAt = tool.endedAt;
+            if (tool.error === true) parsed.error = true;
+            tools.push(parsed);
+        }
+        if (tools.length > 0) out.tools = tools;
+    }
+    return out;
+}
 
 /** Activity is structured parts; entries written before that were one string. */
 function parseActivity(raw: unknown): SubagentActivityPart[] | undefined {
@@ -55,6 +86,7 @@ export function adaptSessionEntry(raw: unknown): Entry | null {
             const content = nested ? nested.content : obj.content;
             const mappedRole =
                 role === "toolResult" || role === "tool" ? "tool" : role === "assistant" ? "assistant" : "user";
+            const timing = parseStepTiming(obj.timing);
             return {
                 type: "message",
                 ts,
@@ -72,6 +104,8 @@ export function adaptSessionEntry(raw: unknown): Entry | null {
                 ...(Array.isArray(obj.reasoningMs) && obj.reasoningMs.every((n) => typeof n === "number")
                     ? { reasoningMs: obj.reasoningMs as number[] }
                     : {}),
+                // Step wall clock for the trace view — same contract.
+                ...(timing ? { timing } : {}),
                 ...tree,
             };
         }

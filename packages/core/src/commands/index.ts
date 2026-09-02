@@ -90,6 +90,9 @@ export interface CommandContext {
     manageGateways(): Promise<void> | void;
     /** /artifacts — list the pages the agent wrote, and open one. */
     manageArtifacts(): Promise<void> | void;
+    /** /trace — write the session's timing-and-cost trace as HTML and open
+     * it in the browser (or at `path` when given). */
+    openTrace(path?: string): Promise<void> | void;
 }
 
 /** /init — runs as a normal agent turn via the "run-prompt" emit. */
@@ -521,6 +524,13 @@ export async function registerBuiltins(reg: CommandRegistry, opts: { cwd?: strin
             description: "Pages the agent wrote — pick one to open it in your browser",
             handler: async (ctx) => {
                 await ctx.manageArtifacts();
+            },
+        },
+        {
+            name: "trace",
+            description: "Where this session's time and money went — opens in your browser (path optional)",
+            handler: async (ctx, args) => {
+                await ctx.openTrace(args.trim() || undefined);
             },
         },
         { name: "quit", description: "Quit loop-agent", handler: (ctx) => ctx.exit() },

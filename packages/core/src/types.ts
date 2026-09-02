@@ -215,6 +215,45 @@ export type SubagentActivityPart =
     | { type: "tool"; name: string; summary: string };
 
 /**
+ * One tool call's wall clock inside a step. `startedAt` is the stream's
+ * `tool-call` part (the SDK invokes execute right after it); `endedAt` the
+ * matching `tool-result` / `tool-error`, absent when the step was cut off
+ * before the tool returned.
+ */
+export interface ToolTiming {
+    toolCallId: string;
+    toolName: string;
+    startedAt: number;
+    endedAt?: number;
+    error?: boolean;
+}
+
+/**
+ * Wall-clock stamps for one step of a turn (one model round-trip plus the
+ * tools it called). All values are epoch ms taken when the stream part was
+ * CONSUMED by the turn loop, not when the provider produced it — under a
+ * heavy TUI render a stamp can land tens of ms late, so these are "observed"
+ * timings good for a trace, not a latency benchmark.
+ */
+export interface StepTiming {
+    /** `start-step` part — the request went out. */
+    startedAt: number;
+    /** First streamed part (text, reasoning or tool input); absent if the
+     * step produced nothing before it ended. */
+    firstTokenAt?: number;
+    /** When the model finished talking: the last `tool-call` when the step
+     * called tools (execution follows), else the same as `endedAt`. */
+    modelEndedAt: number;
+    /** `finish-step` part — tools have returned — or the abort instant. */
+    endedAt: number;
+    /** Wall time spent waiting out stream-resume backoff before this
+     * attempt, when the step is the first of a resumed stream. Kept apart
+     * from the model bar because it's a different cause. */
+    retryWaitMs?: number;
+    tools?: ToolTiming[];
+}
+
+/**
  * Tree structure: every entry is a node with an id and a parent
  * pointer. Optional on read (legacy flat sessions get ids assigned and a
  * linear chain on load); always set on write.
@@ -246,6 +285,12 @@ export type Entry = EntryTreeFields &
                * Kept OUTSIDE content: reasoning parts round-trip verbatim to
                * the provider, and unknown keys on them risk strict-API 400s. */
               reasoningMs?: number[];
+              /** Wall-clock stamps for the step this assistant message closed —
+               * display metadata for the trace view, never sent to the provider
+               * (kept outside content for the same reason as reasoningMs).
+               * Absent on sessions recorded before timing existed: a trace must
+               * then say "not recorded", never infer bars from message ts. */
+              timing?: StepTiming;
           }
         | {
               type: "subagent";
