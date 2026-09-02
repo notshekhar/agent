@@ -281,6 +281,26 @@
     ],
     "available": true
   },
+  "anthropic/claude-fable-5-1": {
+    "id": "anthropic/claude-fable-5-1",
+    "provider": "anthropic",
+    "name": "Claude Fable 5.1",
+    "contextWindow": 1000000,
+    "maxOutput": 128000,
+    "cost": {
+      "input": 10,
+      "output": 50,
+      "cacheRead": 0.25,
+      "cacheWrite": 12.5
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "available": true
+  },
   "anthropic/claude-sonnet-5": {
     "id": "anthropic/claude-sonnet-5",
     "provider": "anthropic",
@@ -2276,9 +2296,9 @@
     "contextWindow": 262144,
     "maxOutput": 128000,
     "cost": {
-      "input": 0.0825,
-      "output": 0.33,
-      "cacheRead": 0.020625,
+      "input": 0.132,
+      "output": 0.528,
+      "cacheRead": 0.033,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -2374,7 +2394,7 @@
     "cost": {
       "input": 10,
       "output": 50,
-      "cacheRead": 1,
+      "cacheRead": 0.25,
       "cacheWrite": 12.5
     },
     "reasoning": true,
@@ -2482,11 +2502,11 @@
     "provider": "openrouter",
     "name": "Nemotron 3 Ultra 550B A55B",
     "contextWindow": 262144,
-    "maxOutput": 16384,
+    "maxOutput": 32768,
     "cost": {
-      "input": 0.5,
-      "output": 2.2,
-      "cacheRead": 0.1,
+      "input": 0.625,
+      "output": 3.125,
+      "cacheRead": 0.1875,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -2889,11 +2909,11 @@
     "provider": "openrouter",
     "name": "GLM-5.2",
     "contextWindow": 1048576,
-    "maxOutput": 262144,
+    "maxOutput": 131072,
     "cost": {
-      "input": 1.19,
-      "output": 3.74,
-      "cacheRead": 0.221,
+      "input": 0.966,
+      "output": 3.036,
+      "cacheRead": 0.1932,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -3057,9 +3077,9 @@
     "contextWindow": 1048576,
     "maxOutput": 384000,
     "cost": {
-      "input": 0.07476,
-      "output": 0.14952,
-      "cacheRead": 0.014952,
+      "input": 0.088606,
+      "output": 0.177212,
+      "cacheRead": 0.017721,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -3075,9 +3095,9 @@
     "contextWindow": 1048576,
     "maxOutput": 384000,
     "cost": {
-      "input": 0.66,
-      "output": 1.98,
-      "cacheRead": 0.022,
+      "input": 1.1154,
+      "output": 3.3462,
+      "cacheRead": 0.03718,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -3091,11 +3111,11 @@
     "provider": "openrouter",
     "name": "DeepSeek V4 Pro",
     "contextWindow": 1048576,
-    "maxOutput": 393216,
+    "maxOutput": 384000,
     "cost": {
-      "input": 1.6,
-      "output": 3.2,
-      "cacheRead": 0.135,
+      "input": 1.04226,
+      "output": 2.08452,
+      "cacheRead": 0.086855,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -3127,11 +3147,11 @@
     "provider": "openrouter",
     "name": "DeepSeek V3.1",
     "contextWindow": 163840,
-    "maxOutput": 144900,
+    "maxOutput": 32768,
     "cost": {
-      "input": 0.55,
-      "output": 1.65,
-      "cacheRead": 0.55,
+      "input": 0.25,
+      "output": 0.95,
+      "cacheRead": 0.13,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -4625,6 +4645,26 @@
       "output": 25,
       "cacheRead": 0.5,
       "cacheWrite": 6.25
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "available": true
+  },
+  "openrouter/anthropic/claude-fable-5.1": {
+    "id": "openrouter/anthropic/claude-fable-5.1",
+    "provider": "openrouter",
+    "name": "Claude Fable 5.1",
+    "contextWindow": 1000000,
+    "maxOutput": 128000,
+    "cost": {
+      "input": 10,
+      "output": 50,
+      "cacheRead": 0.25,
+      "cacheWrite": 12.5
     },
     "reasoning": true,
     "modalities": [
@@ -7253,11 +7293,11 @@
     "provider": "openrouter",
     "name": "Qwen3.8 2.4T A95B",
     "contextWindow": 1048576,
-    "maxOutput": 262144,
+    "maxOutput": 131072,
     "cost": {
       "input": 2,
       "output": 6,
-      "cacheRead": 0.25,
+      "cacheRead": 0.2,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -7651,11 +7691,11 @@
     "provider": "openrouter",
     "name": "DeepSeek V4 Flash Latest",
     "contextWindow": 1310720,
-    "maxOutput": 131072,
+    "maxOutput": 393216,
     "cost": {
-      "input": 0.04998,
-      "output": 0.09996,
-      "cacheRead": 0.009996,
+      "input": 0.05,
+      "output": 0.16,
+      "cacheRead": 0.013,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -8376,6 +8416,26 @@
     "reasoning": true,
     "modalities": [
       "text"
+    ],
+    "available": true
+  },
+  "openrouter/~z-ai/glm-flash-latest": {
+    "id": "openrouter/~z-ai/glm-flash-latest",
+    "provider": "openrouter",
+    "name": "GLM Flash Latest",
+    "contextWindow": 1310720,
+    "maxOutput": 131072,
+    "cost": {
+      "input": 0.075,
+      "output": 0.25,
+      "cacheRead": 0.015,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image",
+      "video"
     ],
     "available": true
   },
@@ -10190,24 +10250,6 @@
     ],
     "available": true
   },
-  "vercel/deepseek/deepseek-v3": {
-    "id": "vercel/deepseek/deepseek-v3",
-    "provider": "vercel",
-    "name": "DeepSeek V3 0324",
-    "contextWindow": 163840,
-    "maxOutput": 163840,
-    "cost": {
-      "input": 0.27,
-      "output": 1.12,
-      "cacheRead": 0.135,
-      "cacheWrite": 0
-    },
-    "reasoning": false,
-    "modalities": [
-      "text"
-    ],
-    "available": true
-  },
   "vercel/deepseek/deepseek-v3.2": {
     "id": "vercel/deepseek/deepseek-v3.2",
     "provider": "vercel",
@@ -10266,8 +10308,8 @@
     "id": "vercel/deepseek/deepseek-v4-flash-vision-exp",
     "provider": "vercel",
     "name": "DeepSeek V4 Flash Vision Exp",
-    "contextWindow": 1000000,
-    "maxOutput": 384000,
+    "contextWindow": 1048576,
+    "maxOutput": 1048576,
     "cost": {
       "input": 0.22,
       "output": 0.66,
@@ -11264,6 +11306,26 @@
       "output": 25,
       "cacheRead": 0.5,
       "cacheWrite": 6.25
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image",
+      "pdf"
+    ],
+    "available": true
+  },
+  "vercel/anthropic/claude-fable-5.1": {
+    "id": "vercel/anthropic/claude-fable-5.1",
+    "provider": "vercel",
+    "name": "Claude Fable 5.1",
+    "contextWindow": 1000000,
+    "maxOutput": 128000,
+    "cost": {
+      "input": 10,
+      "output": 50,
+      "cacheRead": 0.25,
+      "cacheWrite": 12.5
     },
     "reasoning": true,
     "modalities": [
