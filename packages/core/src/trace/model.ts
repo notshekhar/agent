@@ -21,7 +21,7 @@
  */
 import { extractMessageText, type Session } from "../sessions/session";
 import type { Entry, StepTiming } from "../types";
-import { OUTPUT_CAP, isErrorOutput, oneLine, partsOf, toolOutputText } from "./content";
+import { OUTPUT_CAP, isErrorOutput, oneLine, partsOf, toolInputLine, toolOutputText } from "./content";
 import { addUsage, emptyUsage, traceUsage, type TraceUsage } from "./usage";
 
 export type { TraceUsage } from "./usage";
@@ -356,7 +356,7 @@ function readAssistantContent(e: MessageEntry): { text: string; reasoning: strin
         if (p.type === "text") text += p.text ?? "";
         else if (p.type === "reasoning") reasoning += p.text ?? "";
         else if (p.type === "tool-call" && p.toolCallId) {
-            tools.push({ toolCallId: p.toolCallId, name: p.toolName ?? "tool", input: oneLine(p.input), error: false });
+            tools.push({ toolCallId: p.toolCallId, name: p.toolName ?? "tool", input: toolInputLine(p.input), error: false });
         }
     }
     return { text, reasoning, tools };

@@ -58,3 +58,43 @@ export function isErrorOutput(output: unknown): boolean {
     const type = (output as { type?: string } | undefined)?.type;
     return type === "error-text" || type === "error-json";
 }
+
+/**
+ * A tool call's arguments as one readable line. Raw JSON is what the model
+ * sent, but `{"command":"cd /x && ls"}` reads worse than `cd /x && ls`, and a
+ * ledger of those is unscannable. The argument a human would name the call by
+ * comes first and unlabelled; the rest keep their keys.
+ */
+const HEADLINE_ARGS = [
+    "command",
+    "cmd",
+    // a search's identity is what it searched for, not where
+    "pattern",
+    "query",
+    "file_path",
+    "path",
+    "url",
+    "prompt",
+    "description",
+    "content",
+    "name",
+];
+
+export function toolInputLine(input: unknown, max = 200): string {
+    if (input === null || input === undefined) return "";
+    if (typeof input !== "object" || Array.isArray(input)) return oneLine(input, max);
+    const obj = input as Record<string, unknown>;
+    const keys = Object.keys(obj).filter((k) => obj[k] !== undefined && obj[k] !== null && obj[k] !== "");
+    if (keys.length === 0) return "";
+    const rank = (k: string) => {
+        const i = HEADLINE_ARGS.indexOf(k);
+        return i === -1 ? HEADLINE_ARGS.length : i;
+    };
+    const ordered = keys.slice().sort((a, b) => rank(a) - rank(b) || keys.indexOf(a) - keys.indexOf(b));
+    const parts = ordered.map((k, i) => {
+        const v = obj[k];
+        const text = typeof v === "string" ? v : safeJson(v, false);
+        return i === 0 && rank(k) < HEADLINE_ARGS.length ? text : `${k}: ${text}`;
+    });
+    return oneLine(parts.join(" · "), max);
+}

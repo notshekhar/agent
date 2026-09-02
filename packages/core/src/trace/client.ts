@@ -35,6 +35,16 @@ export const TRACE_CLIENT_JS = /* js */ `(function () {
     return el;
   }
   function qs(sel, root) { return (root || document).querySelector(sel); }
+
+  /* Prose in the ledger — prompts, replies, reasoning, subagent briefs — is
+   * markdown, because that is what was written and what the terminal showed.
+   * __mdRender builds it with createTextNode only, so untrusted model output
+   * can never become markup. */
+  function md(cls, text) {
+    var el = h("div", { class: cls + " md" });
+    el.appendChild(window.__mdRender(text));
+    return el;
+  }
   function each(list, fn) { Array.prototype.forEach.call(list, fn); }
   function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
 
@@ -299,13 +309,12 @@ export const TRACE_CLIENT_JS = /* js */ `(function () {
     ov.map = h("canvas", { class: "ov-map-canvas" });
     ov.mapWindow = h("div", { class: "ov-map-window", hidden: "hidden" });
     ov.mapWrap = h("div", { class: "ov-map" }, [ov.map, ov.mapWindow]);
-    ov.tip = h("div", { class: "ov-tip", hidden: "hidden" });
     ov.badge = h("div", { class: "ov-badge" });
 
     var modeBox = h("div", { class: "seg" }, MODES.map(function (m) {
       return h("button", {
         class: "seg-b" + (m[0] === state.mode ? " on" : ""), type: "button", "data-mode": m[0],
-        title: m[2], text: m[1],
+        "data-tip": m[1] + "\\n" + m[2], text: m[1],
         onclick: function () { setMode(m[0]); }
       });
     }));
@@ -322,7 +331,6 @@ export const TRACE_CLIENT_JS = /* js */ `(function () {
       head,
       h("div", { class: "ov-plot" }, [lanes, h("div", { class: "ov-track-wrap" }, [ov.ruler, ov.track])]),
       ov.mapWrap,
-      ov.tip,
       h("div", { class: "ov-foot" }, [
         legend(),
         h("p", { class: "ov-hint", text: "drag to focus a slice · wheel to zoom · right-drag to pan · right-click or esc clears · click a bar to open it · ? for keys" })
@@ -529,23 +537,97 @@ export const TRACE_CLIENT_JS = /* js */ `(function () {
     return rows;
   }
 
-  var tipTimer = null;
-  function showTip(ev, r) {
-    if (tipTimer) clearTimeout(tipTimer);
-    var tip = ev.target && ev.target.getAttribute ? ev.target.getAttribute("data-tip") : null;
-    if (!r && !tip) { hideTip(); return; }
-    tipTimer = setTimeout(function () {
-      ov.tip.textContent = "";
-      if (r) tipHtmlFor(r).forEach(function (n) { ov.tip.appendChild(n); });
-      else ov.tip.appendChild(h("b", { text: tip }));
-      ov.tip.hidden = false;
-      var rect = ov.root.getBoundingClientRect();
-      var x = clamp(ev.clientX - rect.left + 14, 8, Math.max(8, rect.width - ov.tip.offsetWidth - 8));
-      ov.tip.style.left = x + "px";
-      ov.tip.style.top = (ev.clientY - rect.top + 16) + "px";
-    }, 90);
+  /* ------------------------------------------------------------ tooltip */
+  /* One bubble, on <body> and position:fixed, so it is never clipped by an
+   * ancestor's overflow and never has to know where in the page the thing it
+   * describes lives. It is placed in viewport coordinates and then fitted:
+   * slide back inside horizontally, flip above the cursor rather than cover
+   * it vertically. width:max-content in the stylesheet is load-bearing —
+   * a fixed box shrink-to-fits against the distance from its left edge to the
+   * viewport edge, so without it a bubble near the right edge measures narrow
+   * and wraps before the clamp ever runs. */
+
+  var TIP_GAP = 14, TIP_EDGE = 10;
+  var tip = h("div", { class: "tip", role: "tooltip", hidden: "hidden" });
+  document.body.appendChild(tip);
+  var tipTimer = null, tipAt = null;
+
+  /** Place the bubble near (x, y) in viewport coordinates, inside the viewport. */
+  function placeTip(x, y) {
+    tip.style.left = "0px";
+    tip.style.top = "0px";
+    var r = tip.getBoundingClientRect();
+    var vw = document.documentElement.clientWidth;
+    var vh = document.documentElement.clientHeight;
+    var left = clamp(x + TIP_GAP, TIP_EDGE, Math.max(TIP_EDGE, vw - r.width - TIP_EDGE));
+    var below = y + TIP_GAP + 4;
+    var top = below + r.height <= vh - TIP_EDGE ? below : y - TIP_GAP - r.height;
+    top = clamp(top, TIP_EDGE, Math.max(TIP_EDGE, vh - r.height - TIP_EDGE));
+    tip.style.left = left + "px";
+    tip.style.top = top + "px";
   }
-  function hideTip() { if (tipTimer) clearTimeout(tipTimer); ov.tip.hidden = true; }
+
+  /** Content for a bubble: a record, or the data-tip text on the element
+   * under the pointer (newline-separated lines, first line the heading). */
+  function tipContent(ev, r) {
+    if (r) return tipHtmlFor(r);
+    var el = ev.target && ev.target.closest ? ev.target.closest("[data-tip]") : null;
+    if (!el) return null;
+    var lines = el.getAttribute("data-tip").split("\\n");
+    return lines.map(function (line, i) {
+      return h(i === 0 ? "b" : "span", { class: i === 0 ? null : "dim", text: line });
+    });
+  }
+
+  /* The bubble is rebuilt only when what it describes changes; the same
+   * source under a moving pointer is a reposition, not a repaint. */
+  function tipKeyFor(ev, r) {
+    if (r) return "r" + r.idx;
+    var el = ev.target && ev.target.closest ? ev.target.closest("[data-tip]") : null;
+    return el ? "d" + el.getAttribute("data-tip") : null;
+  }
+
+  function showTip(ev, r) {
+    var key = tipKeyFor(ev, r);
+    if (key === null) { hideTip(); return; }
+    if (!tip.hidden && key === tipAt) { placeTip(ev.clientX, ev.clientY); return; }
+    var rows = tipContent(ev, r);
+    if (!rows || !rows.length) { hideTip(); return; }
+    var x = ev.clientX, y = ev.clientY;
+    if (tipTimer) clearTimeout(tipTimer);
+    var paint = function () {
+      tipTimer = null;
+      tip.textContent = "";
+      rows.forEach(function (n) { tip.appendChild(n); });
+      tip.hidden = false;
+      tipAt = key;
+      placeTip(x, y);
+    };
+    /* once a bubble is up, moving to the next one should not re-wait */
+    if (!tip.hidden) paint();
+    else tipTimer = setTimeout(paint, 90);
+  }
+
+  function hideTip() {
+    if (tipTimer) clearTimeout(tipTimer);
+    tipTimer = null;
+    tipAt = null;
+    tip.hidden = true;
+  }
+
+  /* Scrolling or leaving the window moves everything under the bubble. */
+  window.addEventListener("scroll", hideTip, true);
+  window.addEventListener("blur", hideTip);
+
+  /* Every other hover target in the page just carries data-tip. */
+  document.addEventListener("pointerover", function (ev) {
+    var el = ev.target && ev.target.closest ? ev.target.closest("[data-tip]") : null;
+    if (!el) { if (!ev.target || !ev.target.closest || !ev.target.closest(".ov-track, .ts-track")) hideTip(); return; }
+    showTip(ev, null);
+  });
+  document.addEventListener("pointermove", function (ev) {
+    if (!tip.hidden && ev.target && ev.target.closest && ev.target.closest("[data-tip]")) showTip(ev, null);
+  });
 
   function wireOverview() {
     var drag = null, pan = null;
@@ -751,30 +833,51 @@ export const TRACE_CLIENT_JS = /* js */ `(function () {
       " · model " + fmtMs(ms) + " · " + fmtUsd(usd);
   }
 
-  /* inline query highlight, capped so a huge session stays responsive */
+  /* Inline query highlight, capped so a huge session stays responsive. The
+   * prose is rendered markup now, so a match is wrapped inside the text node
+   * that holds it and the whole element is restored from an HTML snapshot —
+   * rewriting textContent would flatten the markdown away. */
+  var HL_SEL = ".turn-q, .step .text, .tool .input, .tool .name, .reason, .sub-prompt";
   var marked = [];
-  function highlightQuery() {
-    marked.forEach(function (el) { el.textContent = el.getAttribute("data-raw-text"); });
+
+  function unmark() {
+    marked.forEach(function (el) { el.innerHTML = el.__snap; el.__snap = null; });
     marked = [];
+  }
+
+  function markInside(el, q) {
+    var walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+    var hits = [], node;
+    while ((node = walker.nextNode()) !== null) {
+      if (node.nodeValue.toLowerCase().indexOf(q) !== -1) hits.push(node);
+    }
+    if (!hits.length) return false;
+    hits.forEach(function (n) {
+      var text = n.nodeValue, lower = text.toLowerCase();
+      var frag = document.createDocumentFragment(), pos = 0;
+      while (pos < text.length) {
+        var k = lower.indexOf(q, pos);
+        if (k === -1) { frag.appendChild(document.createTextNode(text.slice(pos))); break; }
+        if (k > pos) frag.appendChild(document.createTextNode(text.slice(pos, k)));
+        frag.appendChild(h("mark", { text: text.slice(k, k + q.length) }));
+        pos = k + q.length;
+      }
+      n.parentNode.replaceChild(frag, n);
+    });
+    return true;
+  }
+
+  function highlightQuery() {
+    unmark();
     if (!state.query || state.query.length < 2) return;
-    var sel = ".turn-q, .step .text, .tool .input, .tool .name, .reason";
-    var nodes = document.querySelectorAll(sel), n = 0;
+    var nodes = document.querySelectorAll(HL_SEL), n = 0;
     for (var i = 0; i < nodes.length && n < 300; i++) {
       var el = nodes[i];
       if (el.closest(".hidden")) continue;
-      var text = el.getAttribute("data-raw-text") !== null ? el.getAttribute("data-raw-text") : el.textContent;
-      var at = text.toLowerCase().indexOf(state.query);
-      if (at === -1) continue;
-      el.setAttribute("data-raw-text", text);
-      el.textContent = "";
-      var pos = 0, lower = text.toLowerCase();
-      while (pos < text.length) {
-        var k = lower.indexOf(state.query, pos);
-        if (k === -1) { el.appendChild(document.createTextNode(text.slice(pos))); break; }
-        el.appendChild(document.createTextNode(text.slice(pos, k)));
-        el.appendChild(h("mark", { text: text.slice(k, k + state.query.length) }));
-        pos = k + state.query.length;
-      }
+      if (el.textContent.toLowerCase().indexOf(state.query) === -1) continue;
+      var snap = el.innerHTML;
+      if (!markInside(el, state.query)) continue;
+      el.__snap = snap;
       marked.push(el);
       n++;
     }
@@ -814,13 +917,21 @@ export const TRACE_CLIENT_JS = /* js */ `(function () {
       .map(function (o) { return h("option", { value: o[0], text: o[1] }); }));
     ui.count = h("span", { class: "count" });
 
-    return h("div", { class: "tbar" }, [
-      ui.search, ui.toolSel, ui.errBtn, ui.slowSel,
-      h("span", { class: "spacer" }),
-      ui.count,
-      h("button", { class: "btn ghost", type: "button", text: "expand all", onclick: function () { openAll(true); } }),
-      h("button", { class: "btn ghost", type: "button", text: "collapse", onclick: function () { openAll(false); } }),
-      h("button", { class: "btn ghost", type: "button", text: "?", title: "keyboard shortcuts", onclick: toggleHelp })
+    /* Controls on one row, the readout on its own line under it: the count's
+     * text changes length with every filter, and inline it would reflow the
+     * whole (sticky) bar on each keystroke. */
+    return h("div", { class: "tbar-wrap" }, [
+      h("div", { class: "tbar" }, [
+        ui.search,
+        h("span", { class: "grp" }, [ui.toolSel, ui.slowSel, ui.errBtn]),
+        h("span", { class: "spacer" }),
+        h("span", { class: "grp" }, [
+          h("button", { class: "btn ghost", type: "button", text: "expand all", onclick: function () { openAll(true); } }),
+          h("button", { class: "btn ghost", type: "button", text: "collapse", onclick: function () { openAll(false); } }),
+          h("button", { class: "btn ghost", type: "button", text: "?", "data-tip": "keyboard shortcuts", onclick: toggleHelp })
+        ])
+      ]),
+      h("div", { class: "tbar-foot" }, [ui.count])
     ]);
   }
 
@@ -868,7 +979,7 @@ export const TRACE_CLIENT_JS = /* js */ `(function () {
       h("div", { class: "bd-bar" }, segs.map(function (s) {
         return h("span", {
           class: "bd-seg " + s[0], style: "flex-grow:" + s[2],
-          title: s[1] + " · " + fmtMs(s[2]) + " · " + Math.round((s[2] / total) * 100) + "%"
+          "data-tip": fmtMs(s[2]) + " · " + Math.round((s[2] / total) * 100) + "%\\n" + s[1]
         });
       })),
       h("ul", { class: "bd-key" }, segs.map(function (s) {
@@ -897,7 +1008,8 @@ export const TRACE_CLIENT_JS = /* js */ `(function () {
         var s = b.ms.slice().sort(function (x, y) { return x - y; });
         return h("tr", {
           class: "agg-row" + (state.tool === b.name ? " on" : ""), tabindex: "0",
-          title: "filter the ledger to " + b.name,
+          "data-tip": b.name + "\\n" + plural(b.n, "call") + (b.err ? " · " + b.err + " failed" : "") +
+            "\\nclick to filter the ledger to it",
           onclick: function () { state.tool = state.tool === b.name ? "" : b.name; ui.toolSel.value = state.tool; applyFilters(); refreshAggSelection(); }
         }, [
           h("td", { class: "l" }, [
@@ -925,7 +1037,8 @@ export const TRACE_CLIENT_JS = /* js */ `(function () {
         }, [
           h("b", { text: fmtMs(r.t1 - r.t0) }),
           h("span", { class: "slow-k", text: r.kind === "model" ? "step " + r.turn + "." + r.step : r.label }),
-          h("span", { class: "slow-s", text: r.sub ? r.sub.slice(0, 90) : "" })
+          h("span", { class: "slow-s", text: r.sub ? r.sub.slice(0, 90) : "",
+            "data-tip": r.sub ? (r.kind === "model" ? "step " + r.turn + "." + r.step : r.label) + "\\n" + r.sub.slice(0, 200) : null })
         ])
       ]);
     }));
@@ -937,7 +1050,7 @@ export const TRACE_CLIENT_JS = /* js */ `(function () {
       var v = t.usage.usd || 0;
       return h("a", {
         class: "cost-b", href: "#turn-" + t.index,
-        title: "turn " + t.index + " · " + fmtUsd(v) + " · " + oneLine(t.user.text).slice(0, 80),
+        "data-tip": "turn " + t.index + " · " + fmtUsd(v) + "\\n" + (oneLine(t.user.text).slice(0, 90) || "(no prompt)"),
         style: "height:" + Math.max(2, (v / Math.max(1e-9, maxUsd)) * 100) + "%"
       });
     }));
@@ -1146,6 +1259,7 @@ export const TRACE_CLIENT_JS = /* js */ `(function () {
         style: "left:" + left + "%;width:" + Math.max(width, 0.4) + "%;top:" + top + "px",
         onclick: function () { selectRecord(r.idx, false); },
         onpointerenter: function (ev) { showTip(ev, r); },
+        onpointermove: function (ev) { showTip(ev, r); },
         onpointerleave: hideTip
       });
       if (r.kind === "model" && r.ttft !== undefined && r.prov === "recorded") {
@@ -1189,9 +1303,9 @@ export const TRACE_CLIENT_JS = /* js */ `(function () {
     if (s.reasoning) {
       var thought = s.reasoningMs && s.reasoningMs.length
         ? " for " + fmtMs(s.reasoningMs.reduce(function (a, b) { return a + b; }, 0)) : "";
-      body.push(h("details", {}, [h("summary", { text: "thought" + thought }), h("div", { class: "reason", text: s.reasoning })]));
+      body.push(h("details", {}, [h("summary", { text: "thought" + thought }), md("reason", s.reasoning)]));
     }
-    if (s.text) body.push(h("div", { class: "text", text: s.text }));
+    if (s.text) body.push(md("text", s.text));
     if (s.tools.length) {
       body.push(h("ul", { class: "tools" }, s.tools.map(function (tool) {
         var dur = tool.timing
@@ -1199,7 +1313,7 @@ export const TRACE_CLIENT_JS = /* js */ `(function () {
           : tool.subagent && tool.subagent.durationMs !== undefined ? fmtMs(tool.subagent.durationMs) : "";
         var kids = [h("summary", {}, [
           h("span", { class: "name", text: tool.name }),
-          h("span", { class: "input", text: tool.input }),
+          h("span", { class: "input", text: tool.input, "data-tip": tool.input ? tool.name + "\\n" + tool.input : null }),
           h("span", { class: "dur" + (tool.error ? " err" : ""), text: (tool.error ? "error · " : "") + dur })
         ])];
         if (tool.subagent) {
@@ -1208,7 +1322,7 @@ export const TRACE_CLIENT_JS = /* js */ `(function () {
           var su = usageText(tool.subagent.usage);
           if (su) sm.push(su);
           kids.push(h("div", { class: "sub-meta", text: "subagent · " + sm.join(" · ") }));
-          if (tool.subagent.prompt) kids.push(h("div", { class: "sub-prompt", text: tool.subagent.prompt }));
+          if (tool.subagent.prompt) kids.push(md("sub-prompt", tool.subagent.prompt));
         }
         if (tool.output !== undefined && tool.output !== "") kids.push(h("pre", { text: tool.output }));
         else if (!tool.subagent) kids.push(h("div", { class: "more", text: "no result recorded" }));
@@ -1252,14 +1366,16 @@ export const TRACE_CLIENT_JS = /* js */ `(function () {
     var u = usageText(turn.usage);
     if (u) stats.push(h("div", { text: u }));
     stats.push(h("div", {}, [
-      h("a", { class: "jump", href: "#", title: "show this turn in the overview", text: clock(turn.startedAt),
+      h("a", { class: "jump", href: "#", "data-tip": "show this turn in the overview", text: clock(turn.startedAt),
         onclick: function (e) { e.preventDefault(); zoomToTurn(turn); } })
     ]));
 
     var head = h("div", { class: "turn-head" }, [
       h("div", {}, [
         h("p", { class: "turn-n", text: "turn " + turn.index + timingNote(turn) }),
-        h("p", { class: "turn-q" + (turn.user.text ? "" : " empty"), text: turn.user.text || "(no prompt recorded)" })
+        turn.user.text
+          ? md("turn-q", turn.user.text)
+          : h("p", { class: "turn-q empty", text: "(no prompt recorded)" })
       ]),
       h("div", { class: "turn-stats" }, stats)
     ]);

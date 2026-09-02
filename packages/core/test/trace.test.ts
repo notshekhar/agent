@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { Session } from "../src/sessions";
 import { renderTraceHtml, sessionToTrace, traceHeadline } from "../src/trace";
-import { oneLine, toolOutputText } from "../src/trace/content";
+import { oneLine, toolInputLine, toolOutputText } from "../src/trace/content";
 import { fmtMs, fmtUsd } from "../src/trace/format";
 import type { Entry } from "../src/types";
 import { useTempSessionDb } from "./helpers/temp-db";
@@ -273,5 +273,32 @@ describe("renderTraceHtml", () => {
             ),
         );
         expect(html).toContain("timing recorded for 0 of 1 steps · 1 wall-time only · 0 not recorded");
+    });
+});
+
+describe("toolInputLine", () => {
+    test("leads with the argument a human would name the call by", () => {
+        expect(toolInputLine({ timeout: 5000, command: "git status" })).toBe("git status · timeout: 5000");
+    });
+
+    test("keeps the key on every argument that is not the headline", () => {
+        expect(toolInputLine({ limit: 30, glob: "*.ts" })).toBe("limit: 30 · glob: *.ts");
+    });
+
+    test("a search leads with what it searched for, not where", () => {
+        expect(toolInputLine({ path: "/repo", pattern: "chess", limit: 30 })).toBe(
+            "chess · path: /repo · limit: 30",
+        );
+    });
+
+    test("drops empty arguments and collapses whitespace", () => {
+        expect(toolInputLine({ path: "a.ts", note: "", extra: null })).toBe("a.ts");
+        expect(toolInputLine({ command: "a\n  b" })).toBe("a b");
+    });
+
+    test("non-objects fall back to the one-line form", () => {
+        expect(toolInputLine("just a string")).toBe("just a string");
+        expect(toolInputLine(undefined)).toBe("");
+        expect(toolInputLine({})).toBe("");
     });
 });

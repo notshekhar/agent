@@ -13,6 +13,7 @@
  * out as such rather than guessed at.
  */
 import { TRACE_CLIENT_JS } from "./client";
+import { TRACE_MD_JS } from "./markdown";
 import { escapeHtml as esc, fmtMs, fmtUsd, plural } from "./format";
 import type { TraceCoverage, TraceModel } from "./model";
 import { TRACE_CSS } from "./styles";
@@ -71,6 +72,7 @@ ${masthead(model, title)}
 <main id="app"><noscript><p class="mono">This page draws the trace with script. The data is in the page; enable script to see it.</p></noscript></main>
 <footer class="foot mono">generated ${esc(new Date(model.generatedAt).toLocaleString())} <span class="sep">·</span> timings are observed by the loop process, good for a trace, not a latency benchmark</footer>
 <script id="trace" type="application/json">${embedJson(model)}</script>
+<script>${TRACE_MD_JS}</script>
 <script>${TRACE_CLIENT_JS}</script>
 </body>
 </html>

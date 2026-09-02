@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.19.27] - 2026-09-03
+
+### Fixed
+
+- **`/trace`'s hover detail no longer leaves the screen.** The bubble was positioned inside the overview section, so it was clamped against that box's width and never clamped vertically at all — hovering a bar low on the page pushed it below the fold, and the per-turn strips, which sit far down the ledger, placed it against a box they are not in. It is now one bubble on the page itself, positioned in viewport coordinates: it slides back inside at the right edge and flips above the cursor rather than run off the bottom. Every hover target that used the browser's own slow yellow tooltip — the mode buttons, the time breakdown, the tool table, the cost bars, the truncated tool arguments and the slowest list — now uses the same bubble, with a heading and its detail under it.
+
+### Changed
+
+- **Messages in `/trace` render as markdown.** Prompts, replies, reasoning and subagent briefs were printed as preformatted text, so a reply that was a numbered list with a table and a code block in it arrived as a wall of asterisks and pipes — the one thing on the page you actually read. They now render: headings, lists (nested, and task lists with their checkboxes), tables, fenced code with its language, block quotes, rules, emphasis and links. Model output is put on the page as text and never as markup, so nothing in a reply can become an element, and only http, https, mailto and in-page links are clickable. Searching still works over it — a match is marked inside the rendered prose rather than flattening it back to plain text.
+- **A tool call in `/trace` shows its arguments, not its JSON.** The row read `{"command":"cd /repo && git status"}`; it now reads `cd /repo && git status`. The argument the call is named by comes first without its key — a search leads with what it searched for, not where — and the rest follow as `key: value`.
+
 ## [0.19.26] - 2026-09-02
 
 ### Changed

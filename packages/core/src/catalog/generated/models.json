@@ -2071,6 +2071,28 @@
     ],
     "available": true
   },
+  "google/gemini-3.8-flash": {
+    "id": "google/gemini-3.8-flash",
+    "provider": "google",
+    "name": "Gemini 3.8 Flash",
+    "contextWindow": 1048576,
+    "maxOutput": 65536,
+    "cost": {
+      "input": 0.75,
+      "output": 3.75,
+      "cacheRead": 0.075,
+      "cacheWrite": 0
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image",
+      "video",
+      "audio",
+      "pdf"
+    ],
+    "available": true
+  },
   "google/gemini-3-flash-preview": {
     "id": "google/gemini-3-flash-preview",
     "provider": "google",
@@ -2296,9 +2318,9 @@
     "contextWindow": 262144,
     "maxOutput": 128000,
     "cost": {
-      "input": 0.132,
-      "output": 0.528,
-      "cacheRead": 0.033,
+      "input": 0.0825,
+      "output": 0.33,
+      "cacheRead": 0.020625,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -3077,9 +3099,9 @@
     "contextWindow": 1048576,
     "maxOutput": 384000,
     "cost": {
-      "input": 0.08554,
-      "output": 0.17108,
-      "cacheRead": 0.017108,
+      "input": 0.08246,
+      "output": 0.16492,
+      "cacheRead": 0.016492,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -3095,9 +3117,9 @@
     "contextWindow": 1048576,
     "maxOutput": 384000,
     "cost": {
-      "input": 1.1154,
-      "output": 3.3462,
-      "cacheRead": 0.03718,
+      "input": 0.66,
+      "output": 1.98,
+      "cacheRead": 0.022,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -3113,9 +3135,9 @@
     "contextWindow": 1048576,
     "maxOutput": 384000,
     "cost": {
-      "input": 1.035996,
-      "output": 2.071992,
-      "cacheRead": 0.086333,
+      "input": 1.030776,
+      "output": 2.061552,
+      "cacheRead": 0.085898,
       "cacheWrite": 0
     },
     "reasoning": true,
@@ -3823,6 +3845,28 @@
       "output": 1.5,
       "cacheRead": 0.025,
       "cacheWrite": 0.083333
+    },
+    "reasoning": true,
+    "modalities": [
+      "text",
+      "image",
+      "video",
+      "audio",
+      "pdf"
+    ],
+    "available": true
+  },
+  "openrouter/google/gemini-3.8-flash": {
+    "id": "openrouter/google/gemini-3.8-flash",
+    "provider": "openrouter",
+    "name": "Gemini 3.8 Flash",
+    "contextWindow": 1048576,
+    "maxOutput": 65536,
+    "cost": {
+      "input": 0.75,
+      "output": 3.75,
+      "cacheRead": 0.075,
+      "cacheWrite": 0.041667
     },
     "reasoning": true,
     "modalities": [
