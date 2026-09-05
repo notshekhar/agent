@@ -43,9 +43,6 @@ export function renderSessionBranch(
     for (const e of path) {
         if (e.type === "compact") latestCompact = e;
     }
-    if (latestCompact) {
-        history.addCompactionSummary(latestCompact.summary, latestCompact.tokensBefore, latestCompact.ts);
-    }
 
     const { provider } = parseModelId(modelId);
     let messageIndex = 0;
@@ -69,10 +66,32 @@ export function renderSessionBranch(
         }
         pendingSubagents.length = 0;
     };
+
+    // A compaction removed these entries from the MODEL's context, not from the
+    // session — they are still on the branch, and the web surfaces always showed
+    // them. Replay used to skip them, so the same session read as two different
+    // conversations depending on where you opened it. Render everything; the
+    // compaction summary already marks where the model's memory resumes.
+    //
+    // That summary goes at cutAt, not at the compact entry's own position: the
+    // entry is appended when compaction runs, so it sits LATER on the branch
+    // than the cut it recorded, and drawing it there would put surviving
+    // messages above their own boundary.
+    const cutAt = latestCompact?.cutAt ?? 0;
+    let boundaryDrawn = cutAt === 0;
+    const drawBoundary = (): void => {
+        if (boundaryDrawn) return;
+        boundaryDrawn = true;
+        flushSubagents(); // buffered task boxes belong above the line
+        if (latestCompact) {
+            history.addCompactionSummary(latestCompact.summary, latestCompact.tokensBefore, latestCompact.ts);
+        }
+    };
+
     for (const e of path) {
         if (e.type === "message") {
             const currentMessageIndex = messageIndex++;
-            if (latestCompact && currentMessageIndex < latestCompact.cutAt) continue;
+            if (currentMessageIndex >= cutAt) drawBoundary();
             if (e.role === "user") {
                 flushSubagents(); // turn boundary — anything left renders first
                 history.addUser(String(e.content ?? ""), e.ts);
@@ -114,15 +133,14 @@ export function renderSessionBranch(
                 }
             }
         } else if (e.type === "subagent") {
-            if (latestCompact && messageIndex < latestCompact.cutAt) continue;
             pendingSubagents.push(e);
         } else if (e.type === "branch-summary" && e.summary) {
-            if (latestCompact && messageIndex < latestCompact.cutAt) continue;
             history.addBranchSummary(e.summary);
         } else if (e.type === "custom" && isRecapPayload(e.payload)) {
-            if (latestCompact && messageIndex < latestCompact.cutAt) continue;
             history.addRecap(e.payload.text);
         }
     }
+    // A cut past the last message (nothing survived it) still gets its marker.
+    drawBoundary();
     flushSubagents();
 }

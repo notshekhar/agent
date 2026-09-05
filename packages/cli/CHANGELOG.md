@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.19.28] - 2026-09-05
+
+### Fixed
+
+- **Resuming a compacted session shows the whole conversation again.** Replay skipped every message below the compaction's cut, so reopening a compacted thread showed the summary and nothing else — a session compacted at 21,388 tokens opened on a bare `[compaction]` line with the entire conversation missing above it. The entries were never gone: `/tree` listed them and both web surfaces rendered them, so the same session read as two different conversations depending on where it was opened. The transcript now replays in full. The compaction marker also moves to the cut itself rather than the top of the screen — the compact entry is written when compaction runs, so it sits later on the branch than the cut it records, and drawing it at its own position put the surviving messages above their own boundary.
+
 ## [0.19.27] - 2026-09-03
 
 ### Fixed
