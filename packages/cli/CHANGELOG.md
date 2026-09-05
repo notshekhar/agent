@@ -1,6 +1,10 @@
 # Changelog
 
-## [Unreleased]
+## [0.19.29] - 2026-09-05
+
+### Fixed
+
+- **Sending a message in pinned-input mode scrolls the transcript to it.** Pinned, the prompt holds the last rows and the transcript scrolls in its own window above it — so scrolling back to read something, then sending, left the transcript where it was. Typing was visible because the prompt is pinned, so the message looked sent, but it landed off-screen and so did the reply. Sending now jumps the transcript to its newest line and resumes following it, so the reply streams in without chasing it. Scrolling back and *typing* still leaves your position alone; only sending moves it.
 
 ### Added
 
