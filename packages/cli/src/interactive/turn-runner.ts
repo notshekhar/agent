@@ -172,6 +172,9 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
         const activeSession = await ensureSession();
         state.busy = true;
         history.addUser(finalInput);
+        // The message just sent is the thing to look at — and this is the one
+        // place a pinned transcript should move on its own.
+        deps.scrollTranscriptToEnd();
         showWorking("Generating");
         tui.requestRender();
 

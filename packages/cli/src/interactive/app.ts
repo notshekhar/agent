@@ -527,6 +527,24 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         if (!state.pinnedInput && !tui.isFollowingOutput) tui.scrollToBottom();
     };
 
+    /**
+     * Jump the transcript to the newest line. Submitting is not the same as
+     * typing: revealPrompt deliberately leaves a pinned reader's scroll
+     * position alone, because a keystroke is no reason to yank the page — but
+     * sending a message is an explicit "show me what happens next", and a
+     * pinned transcript that stayed where it was looked like the message had
+     * gone nowhere.
+     *
+     * Pinned, the transcript is its own ScrollView, so tui.scrollToBottom (the
+     * terminal's own scrollback) is the wrong lever. Scrolling the view to its
+     * end also re-arms follow-end, so the reply streams in without the reader
+     * having to chase it.
+     */
+    const scrollTranscriptToEnd = (): void => {
+        if (state.pinnedInput) transcriptView.scrollTo(Number.MAX_SAFE_INTEGER);
+        else if (!tui.isFollowingOutput) tui.scrollToBottom();
+    };
+
     /** Rows of the frame that sit BELOW the editor: the status line, the spacer. */
     const rowsBelowEditor = (): number => {
         const width = tui.terminal.columns;
@@ -820,6 +838,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         applyPinnedInput,
         transcriptViewport,
         revealPrompt,
+        scrollTranscriptToEnd,
     };
     syncTicker();
 

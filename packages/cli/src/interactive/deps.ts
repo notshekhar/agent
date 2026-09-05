@@ -61,4 +61,6 @@ export interface AppDeps {
      * keyboard input and when a menu opens on the prompt.
      */
     revealPrompt: () => void;
+    /** Jump the transcript to its newest line and resume following it. */
+    scrollTranscriptToEnd: () => void;
 }
