@@ -1,7 +1,7 @@
 import { Container, Markdown, Spacer, Text, truncateToWidth, visibleWidth, type TUI } from "@notshekhar/loop-tui";
 import { formatSubagentActivity, type SubagentActivityPart } from "@notshekhar/loop-core";
 import { getMarkdownTheme, theme } from "../ui/theme";
-import { uiStyle } from "../ui/ui-mode";
+import { uiRenderers, uiStyle, type ToolGroupMember } from "../ui/ui-mode";
 import { formatTaskDuration } from "../ui/tool-execution";
 import {
     AssistantMessageComponent,
@@ -361,7 +361,23 @@ export class ChatHistory extends Container {
      * muted one: a fold that hides a failure has to say so, or folding becomes
      * a way to lose bad news.
      */
-    private renderGroupHeader(header: { text: string; failed: number }, width: number, selected: boolean): string[] {
+    private renderGroupHeader(
+        header: { text: string; failed: number; run: { start: number; end: number } },
+        width: number,
+        selected: boolean,
+    ): string[] {
+        // A mode may render the group itself — naming the calls it swallowed
+        // rather than only counting them. Without one, the default single line.
+        const override = uiRenderers().toolGroup;
+        if (override) {
+            const members: ToolGroupMember[] = [];
+            for (let i = header.run.start; i <= header.run.end; i++) {
+                const c = this.foldables[i].comp;
+                if (c instanceof ToolExecutionComponent) members.push(c.groupMember());
+            }
+            const custom = override({ label: header.text, failed: header.failed, members, selected }, { width, theme });
+            if (custom) return selected ? markSelectedLines(custom) : custom;
+        }
         const hint = selected ? theme.fg("dim", ` (${uiStyle().hints.selectedExpandHint} to open)`) : "";
         const failed = header.failed > 0 ? theme.fg("toolError", ` · ${header.failed} failed`) : "";
         const row =
@@ -392,11 +408,14 @@ export class ChatHistory extends Container {
         });
         // Collapsed groups: the first member's component renders the aggregated
         // header instead of its own row, and the rest render nothing at all.
-        const groupHeader = new Map<unknown, { text: string; fIdx: number; failed: number }>();
+        const groupHeader = new Map<
+            unknown,
+            { text: string; fIdx: number; failed: number; run: { start: number; end: number } }
+        >();
         const groupHidden = new Set<unknown>();
         for (const run of this.groupRuns()) {
             if (this.isGroupOpen(run)) continue;
-            groupHeader.set(this.foldables[run.start].comp, { ...this.groupLabel(run), fIdx: run.start });
+            groupHeader.set(this.foldables[run.start].comp, { ...this.groupLabel(run), fIdx: run.start, run });
             for (let i = run.start + 1; i <= run.end; i++) groupHidden.add(this.foldables[i].comp);
         }
 

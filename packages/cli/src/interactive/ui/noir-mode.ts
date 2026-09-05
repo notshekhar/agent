@@ -26,9 +26,10 @@ import {
     type RenderCtx,
     type ThinkingBlockState,
     type ToolBlockState,
+    type ToolGroupState,
     type UiModePlugin,
 } from "./ui-mode";
-import { isPlanSurface } from "./verb-group";
+import { isPlanSurface, kindIdOf } from "./verb-group";
 
 /**
  * Noir's palettes. Unlike `loop` mode it washes the canvas, so the terminal
@@ -279,7 +280,10 @@ export function setNoirSystem(scheme: "dark" | "light", canvas?: string): boolea
  * trips the TUI's crash guard and kills the whole UI (a long bash command in
  * a tool header did exactly that). Truncate with an ellipsis, grok-style. */
 function fitRow(line: string, width: number): string {
-    return visibleWidth(line) > width ? truncateToWidth(line, Math.max(0, width - 1)) + "…" : line;
+    // `truncateToWidth` appends an ellipsis of its own ("..." by default), so
+    // it has to be told not to — otherwise every clipped row ends "...…", one
+    // ellipsis from each of us.
+    return visibleWidth(line) > width ? truncateToWidth(line, Math.max(0, width - 1), "") + "…" : line;
 }
 
 /**
@@ -416,6 +420,14 @@ export function renderTool(state: ToolBlockState, ctx: RenderCtx): string[] | nu
     const finish = (content: string[], spc: RailSpec | null = spec): string[] =>
         state.groupLead ? ["", ...withRail(content, spc, bg)] : withRail(content, spc, bg);
 
+    /**
+     * The receipt — what the call RETURNED, as opposed to what it was asked
+     * for. Only a finished call has one; a running row's status already says
+     * everything there is to know, and an interrupted one never got a result.
+     */
+    const wantsReceipt = uiStyle().tool.receipt && !state.isPartial && !state.interrupted;
+    let receipt = wantsReceipt ? state.receipt : "";
+
     let name = state.toolName;
     let detail = state.summary ? " " + th.fg("muted", state.summary) : "";
     // `read src/app.ts:120-180` — the offset/limit range rides the row the way
@@ -446,7 +458,16 @@ export function renderTool(state: ToolBlockState, ctx: RenderCtx): string[] | nu
                 ? "failed"
                 : doneParts.join(" · ");
         name = `task ${agent}`;
-        detail = " " + th.fg("muted", snippet ? `${status} · ${snippet}` : status);
+        // A finished run's outcome is a RECEIPT, not part of the call's
+        // identity: with receipts on it moves to its own row and the header
+        // keeps the agent and the prompt — which is what you scan a transcript
+        // for. Without them it stays inline, exactly as before.
+        if (wantsReceipt) {
+            receipt = status;
+            detail = snippet ? " " + th.fg("muted", snippet) : "";
+        } else {
+            detail = " " + th.fg("muted", snippet ? `${status} · ${snippet}` : status);
+        }
     }
     const status = !isTask
         ? state.isPartial
@@ -458,7 +479,39 @@ export function renderTool(state: ToolBlockState, ctx: RenderCtx): string[] | nu
     const header = fitRow(diamond + " " + th.fg(titleColor, th.bold(name)) + detail + status, width);
 
     const lines = [header];
+    // `└ 580 lines` — the gutter mark separates what came back from the call
+    // itself, so one glance reads the row and the next reads the result. A
+    // failure colours it: a red diamond with no text anywhere is precisely the
+    // state this row exists to end.
+    if (receipt) {
+        lines.push(fitRow(th.fg("dim", "└ ") + th.fg(failed ? "toolError" : "muted", receipt), width));
+    }
+
+    /**
+     * Whether the peek already told the user how to reach the rest. It ends
+     * with the same hint the header carries, and a row wearing both says the
+     * same thing twice on two adjacent lines.
+     */
+    let hintOnPeek = false;
+    // The peek: a few lines of the real output, taken from whichever end of it
+    // answers — see tool-receipt.ts. Indented under the receipt's text, past
+    // the `└`, so the gutter column reads as one mark rather than a ladder.
+    //
+    // Truncated per line, never wrapped: a 400-column log line has to cost one
+    // row like any other, or the line budget the peek was given stops meaning
+    // anything and one long line eats the whole preview.
+    if (!state.expanded && state.peek.length > 0) {
+        for (const l of state.peek) lines.push(fitRow("  " + th.fg(failed ? "toolError" : "toolOutput", l), width));
+        hintOnPeek = true;
+        if (state.peekHidden > 0) {
+            const hint = state.selected ? ` (${uiStyle().hints.selectedExpandHint} to expand)` : "";
+            const n = `${state.peekHidden} ${state.peekHidden === 1 ? "line" : "lines"}`;
+            lines.push(fitRow("  " + th.fg("dim", `… +${n}${hint}`), width));
+        }
+    }
+
     const expandHint = (): void => {
+        if (hintOnPeek) return;
         lines[0] = fitRow(lines[0] + th.fg("dim", ` (${uiStyle().hints.selectedExpandHint} to expand)`), width);
     };
 
@@ -531,6 +584,132 @@ export function renderTool(state: ToolBlockState, ctx: RenderCtx): string[] | nu
     return finish(lines);
 }
 
+/**
+ * Kinds whose one-line summary is a PATH, and so must be clipped from the left.
+ *
+ * A path's identity is its tail: clip the front of two files in the same
+ * directory and they stay distinguishable, clip the back and both collapse
+ * into the same repo prefix. Every other summary is the opposite — a command,
+ * a pattern, a query and a prompt all say what they are in their first
+ * words — so those clip from the right, the ordinary way.
+ */
+const PATHY_KINDS = new Set(["file", "edit", "dir"]);
+
+/**
+ * Fit a member's summary into `max` columns, clipping the end that matters
+ * least for that kind of summary.
+ *
+ * Styled text (an extension colouring its own summary) is always clipped from
+ * the right: slicing into a string with escape sequences in it can cut one in
+ * half, and a broken SGR bleeds its colour down the rest of the screen.
+ */
+function clipSummary(text: string, max: number, toolName: string): string {
+    if (max <= 0) return "";
+    if (visibleWidth(text) <= max) return text;
+    const clipRight = (): string => truncateToWidth(text, Math.max(0, max - 1), "") + "…";
+    if (!PATHY_KINDS.has(kindIdOf(toolName)) || text.includes("\x1b")) return clipRight();
+    const chars = [...text];
+    let width = 0;
+    let i = chars.length;
+    while (i > 0 && width + visibleWidth(chars[i - 1]) <= max - 1) {
+        i--;
+        width += visibleWidth(chars[i]);
+    }
+    return "…" + chars.slice(i).join("");
+}
+
+/**
+ * A folded run of calls, as a TABLE rather than a count.
+ *
+ * `◈ Read 3 files` alone is the fold that started all this: it hides not just
+ * the output but which files, so a scrolled-back turn says a number where it
+ * should say a record. The header keeps its aggregate — it is the honest
+ * summary of the run — and every member it swallowed gets one line under it:
+ * what was called, and what came back.
+ *
+ * Four rows for three calls, against nine for the same calls unfolded, so the
+ * fold still earns its place. What it no longer does is lose the identities.
+ */
+export function renderToolGroup(state: ToolGroupState, ctx: RenderCtx): string[] | null {
+    if (state.members.length === 0) return null;
+    const th = ctx.theme;
+    const width = ctx.width - RAIL_WIDTH;
+    const bg = canvasBg(ctx);
+    const anyFailed = state.failed > 0;
+
+    // The group settles in its outcome colour like any finished block, so a
+    // scrolled-back transcript shows at a glance which runs went wrong. Its
+    // rail is the thin one: everything in it is folded.
+    const spec = railForState({ isPartial: false, isError: anyFailed, expanded: false }, railColors(ctx), bg);
+
+    // A run of one kind is already named by the header ("Read 3 files"), so
+    // repeating the tool on every line would be three more columns saying what
+    // the header said. A MIXED run is not — "Read 2 files, Listed 1 dir" does
+    // not say WHICH member was the listing — so there the tool column earns
+    // its width.
+    const mixed = new Set(state.members.map((m) => kindIdOf(m.toolName))).size > 1;
+
+    // `◈` — a diamond containing a diamond. `◆` is what one call wears, and a
+    // group is a different KIND of row: a fold standing in for several calls,
+    // not one more call. The failure count rides the error colour, because a
+    // fold that hides a failure has to say so.
+    //
+    // The label is the verb-group's own sentence ("Listed 3 dirs, Read 1
+    // file"), mixed run or not. It was briefly cut to a bare count on mixed
+    // runs, on the grounds that the tool column below repeats it — but a count
+    // says only how MANY, and the one thing a header is for is saying what the
+    // turn did. The column and the label answer different questions.
+    const failed = anyFailed ? th.fg("toolError", ` · ${state.failed} failed`) : "";
+    const hint = state.selected ? th.fg("dim", ` (${uiStyle().hints.selectedExpandHint} to open)`) : "";
+    const label = th.fg(state.selected ? "text" : "muted", state.label);
+    const lines = [fitRow(th.fg("muted", "◈") + " " + label + failed + hint, width)];
+    const toolCol = mixed ? Math.min(12, Math.max(...state.members.map((m) => m.toolName.length))) : 0;
+    const receiptCol = Math.max(0, ...state.members.map((m) => visibleWidth(m.receipt)));
+
+    /**
+     * How wide the summaries get.
+     *
+     * The receipt column is right-aligned WITHIN THE BLOCK, not against the
+     * terminal's edge. Anchoring it to the edge is what a table wants only
+     * when the table fills the screen; a group of four short paths on a
+     * 200-column terminal became two columns separated by a hundred blanks,
+     * with nothing to read in between and no way to tell which receipt
+     * belonged to which call. Sized to its content, the block stays a block.
+     *
+     * It still SHRINKS to fit when the summaries are long — that is what the
+     * `avail` clamp is — so a narrow terminal clips paths rather than wrapping
+     * or overflowing.
+     */
+    const GAP = 2;
+    const longest = Math.max(...state.members.map((m) => visibleWidth(m.summary)));
+    const avail = width - 2 - toolCol - GAP - receiptCol;
+    const summaryCol = Math.max(8, Math.min(longest, avail));
+
+    /** `text`, padded to `w` columns — by VISIBLE width, since an extension's
+     * summary may carry escapes that `padEnd` would count as characters. */
+    const padTo = (text: string, w: number): string => text + " ".repeat(Math.max(0, w - visibleWidth(text)));
+
+    state.members.forEach((m, i) => {
+        const last = i === state.members.length - 1;
+        const color = m.isError ? "toolError" : "muted";
+        const tool = toolCol ? padTo(m.toolName, toolCol) + "  " : "";
+        const summary = clipSummary(m.summary, summaryCol, m.toolName);
+        // Receipts share one right-aligned column: the eye reads down it for
+        // the odd one out — the failure, the empty result, the huge file —
+        // which is exactly what a fold is supposed to leave you able to do.
+        const receipt = " ".repeat(Math.max(0, receiptCol - visibleWidth(m.receipt))) + m.receipt;
+        const row =
+            th.fg("dim", last ? "└ " : "├ ") +
+            (tool ? th.fg("dim", tool) : "") +
+            th.fg(color, padTo(summary, summaryCol)) +
+            " ".repeat(GAP) +
+            th.fg(m.isError ? "toolError" : "dim", receipt);
+        lines.push(fitRow(row, width));
+    });
+
+    return ["", ...withRail(lines, spec, bg)];
+}
+
 function noirMode(): UiModePlugin {
     return {
         id: "noir",
@@ -544,7 +723,7 @@ function noirMode(): UiModePlugin {
         style: {
             canvas: { wash: true },
             thinking: { display: "block", liveTailLines: 3, collapseOnFinish: true, gutter: true },
-            tool: { bullet: "◆", mutedCollapsed: true },
+            tool: { bullet: "◆", mutedCollapsed: true, receipt: true, peekLines: 3 },
             userMessage: { prefix: "❯", timestamp: true },
             turn: { summaryLine: true },
             layout: { blockGaps: true },
@@ -565,7 +744,7 @@ function noirMode(): UiModePlugin {
             // content is just the arrow — no "ctrl+e first".
             hints: { expandHint: "→", selectedExpandHint: "→" },
         },
-        render: { thinking: renderThinking, toolExecution: renderTool },
+        render: { thinking: renderThinking, toolExecution: renderTool, toolGroup: renderToolGroup },
     };
 }
 

@@ -26,27 +26,41 @@
  */
 import { animTick, accentAtBrightness, FINISH_FLASH_MS, pulseBrightness, waveBrightness } from "./anim";
 import { mix } from "./palette";
-import { fgHex } from "./theme";
+import { fgHex, verticalRule } from "./theme";
 
 /**
- * Both rail glyphs come from the BOX-DRAWING block, and that is the whole
- * requirement: box-drawing glyphs are designed to tile, so every font draws
- * them spanning the full cell and a column of them joins into one unbroken
- * line.
+ * The rail is a LEFT HALF BLOCK, and one glyph serves every state.
  *
- * grok uses `❙` (U+2759) for its collapsed rows, and that is the one thing not
- * worth copying — it is a Dingbats glyph, drawn as a SHORT bar inside the cell,
- * so a stack of consecutive collapsed rows renders as a dashed ladder with a
- * visible gap between every row rather than a rail. (Painting the column's
- * background instead is gapless, but a full-cell block is far too heavy a mark
- * for what should read as a thin rule — that treatment belongs only to bars
- * that are already solid, like the welcome banner's `█`.)
+ * It has to tile — a column of them must join into one unbroken mark, with no
+ * gap between rows. That rules out grok's `❙` (U+2759), a Dingbats glyph drawn
+ * as a short bar inside its cell, which stacks into a dashed ladder rather
+ * than a rail. Box-drawing and block-element glyphs both tile; the difference
+ * is weight, and weight is the whole point here.
  *
- * So weight, not glyph family, carries the distinction: heavy for live and
- * open blocks, light for settled and folded ones. Both tile.
+ * This used to be a pair — `┃` for live and open blocks, `│` for settled and
+ * folded ones — on the theory that weight should carry the state. In practice
+ * a finished transcript is almost entirely settled blocks, so the theory made
+ * the common case a page of thin grey hairlines and the distinction was never
+ * visible anyway: you cannot compare two weights that are never on screen
+ * together. So STATE IS COLOUR — a yellow wave while running, green or red
+ * once settled, held down toward the canvas when folded — and weight is
+ * constant.
+ *
+ * `▎` is a QUARTER block, and the quarter is deliberate. The obvious choice is
+ * the half block `▌`, but that is the SELECTION bar (markSelectedLines), which
+ * overwrites this very column when a block is selected. Sharing a glyph would
+ * reduce "this block is selected" to a colour change on a mark that was
+ * already there, when it needs to be the most obvious thing on the screen.
+ * A quarter against a half is a step you cannot miss, and the selection stays
+ * the heaviest mark in the transcript — which is the right order of priority.
+ *
+ * Being a block element it is painted through {@link verticalRule} rather than
+ * drawn directly: a terminal whose line height exceeds the font's glyph box
+ * (Terminal.app) would otherwise stack it into a dashed ladder, which is the
+ * one thing a rail must never be. That path paints a cell background instead,
+ * and is gapless everywhere.
  */
-const RAIL = "┃";
-const RAIL_COLLAPSED = "│";
+const RAIL = "▎";
 
 /** Columns the rail + its padding occupy. Content starts here. */
 export const RAIL_WIDTH = 3;
@@ -57,7 +71,11 @@ export interface RailSpec {
     /** The rail's colour at full brightness (hex). */
     color: string;
     motion: RailMotion;
-    /** Use the thin glyph — a collapsed row inside a group. */
+    /**
+     * The block is folded. No longer changes the GLYPH (there is only one) —
+     * it is kept because the caller still uses it to decide how far to hold
+     * the settled colour down toward the canvas.
+     */
     collapsed?: boolean;
 }
 
@@ -101,8 +119,13 @@ export function railForState(
     // Held down toward the canvas so a long transcript reads as a calm ladder
     // rather than a wall of saturated green — only the LIVE rail is at full
     // strength, which is what makes the running one findable.
+    //
+    // Held down, not erased. These were 0.4/0.55, tuned against the old
+    // hairline glyph where the rail's presence came mostly from its colour;
+    // against a solid quarter block the same values read as washed out rather
+    // than calm. The live rail is still the brightest thing in the column.
     return {
-        color: bg ? mix(bg, settled, state.expanded ? 0.55 : 0.4) : settled,
+        color: bg ? mix(bg, settled, state.expanded ? 0.7 : 0.55) : settled,
         motion: "static",
         collapsed: !state.expanded,
     };
@@ -120,13 +143,13 @@ export function withRail(lines: string[], spec: RailSpec | null, bg: string): st
     const pad = " ".repeat(RAIL_WIDTH);
     if (!spec) return lines.map((l) => pad + l);
 
-    const glyph = spec.collapsed ? RAIL_COLLAPSED : RAIL;
+    const glyph = RAIL;
     const tick = animTick();
     return lines.map((line, row) => {
         let color = spec.color;
         if (spec.motion === "wave") color = accentAtBrightness(bg, spec.color, waveBrightness(row, tick));
         else if (spec.motion === "pulse") color = accentAtBrightness(bg, spec.color, pulseBrightness(tick), 0.3);
-        return fgHex(color, glyph) + "  " + line;
+        return verticalRule(color, glyph) + "  " + line;
     });
 }
 

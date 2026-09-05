@@ -30,8 +30,12 @@ describe("classification", () => {
         for (const t of ["read", "ls", "grep", "webfetch", "task", "bash", "edit", "write", "artifact"]) {
             expect(foldsEagerly(t)).toBe(true);
         }
-        // A question or a plan folded into a count is one nobody answers.
-        for (const t of ["ask", "plan", "enter_plan_mode", "exit_plan_mode"]) expect(foldsEagerly(t)).toBe(false);
+        // An ANSWERED question folds like anything else — a pending one is
+        // still running, and a running call is never groupable. A plan is the
+        // one surface that keeps its rows: a document read against, not
+        // answered and done with.
+        expect(foldsEagerly("ask")).toBe(true);
+        for (const t of ["plan", "enter_plan_mode", "exit_plan_mode"]) expect(foldsEagerly(t)).toBe(false);
     });
 });
 
@@ -56,8 +60,13 @@ describe("loop's own tools are never mistaken for somebody else's", () => {
         expect(verbGroupLabel([member("artifact"), member("artifact")]).text).toBe("Created 2 artifacts");
     });
 
-    test("surfaces the user has to act on keep their rows", () => {
-        for (const t of ["ask", "plan", "enter_plan_mode", "exit_plan_mode"]) expect(foldsEagerly(t)).toBe(false);
+    test("the plan surfaces keep their rows", () => {
+        // A plan is a document the rest of the turn is judged against, so it is
+        // never reduced to a count. An `ask` is not in this set: once answered
+        // it is history like any other call, and while it is still waiting it
+        // is `isPartial`, which never groups anyway.
+        for (const t of ["plan", "enter_plan_mode", "exit_plan_mode"]) expect(foldsEagerly(t)).toBe(false);
+        expect(foldsEagerly("ask")).toBe(true);
     });
 });
 
@@ -96,9 +105,10 @@ describe("tools we did not write", () => {
         registerToolVerbGroup("github__search_issues", "search");
         expect(kindIdOf("github__search_issues")).toBe("search");
 
-        // Even when it opts a tool OUT of folding — `ask` is a kind that keeps
-        // its rows, so an extension whose tool needs answering can say so.
-        registerToolVerbGroup("dangerous_thing", "ask");
+        // Even when it opts a tool OUT of folding — `plan` is the kind that
+        // keeps its rows, so an extension whose tool renders a document the
+        // user reads against can say so.
+        registerToolVerbGroup("dangerous_thing", "plan");
         expect(foldsEagerly("dangerous_thing")).toBe(false);
     });
 });

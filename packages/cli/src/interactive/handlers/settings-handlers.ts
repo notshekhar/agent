@@ -26,7 +26,16 @@ import type { AppDeps } from "../deps";
 import type { AppState } from "../state";
 import { startMcpServers } from "../startup";
 import { initTheme, initUiModeAndTheme, theme } from "../ui/theme";
-import { activeUiMode, getUiMode, isLiveVariant, listUiModes, setLiveVariant } from "../ui/ui-mode";
+import {
+    activeUiMode,
+    getToolDetail,
+    getUiMode,
+    isLiveVariant,
+    listUiModes,
+    setLiveVariant,
+    setToolDetail,
+    type ToolDetail,
+} from "../ui/ui-mode";
 import { applyCanvasWash } from "../ui/canvas-wash";
 import { probeSystemScheme } from "../ui/system-scheme";
 import { renderSessionBranch } from "../replay";
@@ -139,6 +148,7 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                     // `theme` settings key wrong outside loop mode (it showed
                     // loop's theme while grok's was active).
                     { value: "theme", label: `theme: ${theme.name}` },
+                    { value: "toolDetail", label: `toolDetail: ${getToolDetail()}` },
                     {
                         value: "pinnedInput",
                         label: `pinned input: ${boolSetting("pinnedInput") ? "on" : "off"}`,
@@ -333,7 +343,10 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                 if (pick.value in BOOLEAN_DEFAULTS) {
                     const next = !boolSetting(pick.value);
                     settingsStore.set(pick.value, next);
-                    deps.syncTicker(); // clock toggle starts/stops the 1s status line pulse
+                    // Clock starts/stops the 1s pulse; reminders are REGISTERED
+                    // with Bun.cron rather than re-checked on it, so muting has
+                    // to reach the scheduler or they keep firing while off.
+                    deps.syncTicker();
                     history.addSystem(`${pick.value} → ${next ? "on" : "off"}`);
                     // MCP toggle connects/tears down servers live so the change
                     // takes effect this session without a /reload. startMcpServers
@@ -396,6 +409,40 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                         setLiveVariant(vPick.value === "live");
                     }
                     applyUiMode(mPick.value);
+                    continue;
+                }
+                // How much of a finished tool call the transcript shows. `d`
+                // cycles the same setting inside transcript navigation.
+                if (pick.value === "toolDetail") {
+                    const cur = getToolDetail();
+                    const here = (v: string) => (v === cur ? "(current)" : "");
+                    const dPick = await selectOnce(
+                        [
+                            {
+                                value: "compact",
+                                label: "compact",
+                                description: here("compact") || "the call and nothing else, one row each",
+                            },
+                            {
+                                value: "normal",
+                                label: "normal",
+                                description: here("normal") || "plus what it returned, and a few lines of the output",
+                            },
+                            {
+                                value: "full",
+                                label: "full",
+                                description: here("full") || "plus every call's output expanded",
+                            },
+                        ],
+                        "How much of a tool call to show?",
+                    );
+                    if (!dPick) continue;
+                    const next = dPick.value as ToolDetail;
+                    settingsStore.set("toolDetail", next);
+                    setToolDetail(next);
+                    deps.history.setToolsExpanded(next === "full");
+                    deps.history.invalidate();
+                    deps.tui.requestRender();
                     continue;
                 }
                 if (pick.value === "theme") {

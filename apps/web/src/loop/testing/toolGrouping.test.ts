@@ -50,11 +50,18 @@ describe("folding a run of tool calls", () => {
     expect(view.blocks.filter((block) => block.kind === "tool")).toHaveLength(2);
   });
 
-  it("breaks the run around a call the user has to answer", async () => {
-    // `ask` is the surface a count would hide, so it is what splits a run now
-    // that edits fold.
-    const events = [...read("a.ts", "1"), ...call("ask", {}, "2"), ...read("c.ts", "3")];
+  it("breaks the run around a plan, the one surface a count would hide", async () => {
+    // A plan is not answered and finished — it is a document the rest of the
+    // turn is judged against — so it never folds into a count.
+    const events = [...read("a.ts", "1"), ...call("enter_plan_mode", {}, "2"), ...read("c.ts", "3")];
     expect(await rowSizes(events)).toEqual([1, 1, 1]);
+  });
+
+  it("folds an answered question into the run — it is history like any call", async () => {
+    // A question still waiting on the user is a RUNNING call, and running calls
+    // never group; the old rule only ever applied to ones already answered.
+    const events = [...read("a.ts", "1"), ...call("ask", {}, "2"), ...read("c.ts", "3")];
+    expect(await rowSizes(events)).toEqual([3]);
   });
 
   it("folds commands and MCP calls into the run rather than breaking it", async () => {

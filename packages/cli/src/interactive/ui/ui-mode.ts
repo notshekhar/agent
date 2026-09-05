@@ -40,6 +40,26 @@ export interface UiStyleSpec {
         collapsedLines: number;
         /** Grey out the whole box (not just the title) while collapsed. */
         mutedCollapsed: boolean;
+        /**
+         * Show a one-line RECEIPT under a finished call — what it returned
+         * (`580 lines`, `exit 1 · 214 lines`, `+12 −4`), as opposed to the
+         * title's summary of what was asked for.
+         *
+         * Only worth its row in a mode that hides the output while folded: the
+         * default look already shows a preview, where a receipt would just be
+         * a count of lines you can see. See tool-receipt.ts.
+         */
+        receipt: boolean;
+        /**
+         * Lines of real output a FOLDED call shows under its receipt (0 = none).
+         *
+         * Distinct from `collapsedLines`, which is the default box's preview:
+         * that one previews every tool's output from the top, while a peek is
+         * chosen per tool kind — a command's last lines, a search's first, a
+         * diff's changed ones, and nothing at all for a file you named
+         * yourself. See tool-receipt.ts.
+         */
+        peekLines: number;
         /** Fold a run of consecutive finished, collapsed tool rows into one
          * aggregated header ("Read 3 files"), grok-style. The run's members
          * are hidden until the header is opened — a second fold level above
@@ -79,7 +99,7 @@ export interface UiStyleSpec {
 export const LOOP_STYLE: UiStyleSpec = {
     canvas: { wash: false },
     thinking: { display: "inline", liveTailLines: 3, collapseOnFinish: false, gutter: false },
-    tool: { bullet: "", collapsedLines: 6, mutedCollapsed: false, group: false },
+    tool: { bullet: "", collapsedLines: 6, mutedCollapsed: false, receipt: false, peekLines: 0, group: false },
     userMessage: { prefix: "", timestamp: false },
     turn: { summaryLine: false },
     hints: { expandHint: "ctrl+e then e", selectedExpandHint: "→" },
@@ -121,6 +141,21 @@ export interface ToolBlockState {
     summary: string;
     /** Flattened result text ("" while pending). */
     output: string;
+    /**
+     * One line naming what the call RETURNED — `580 lines`, `exit 1 · 214
+     * lines`, `+12 −4 · 2 blocks`. Empty while the call is still running, when
+     * it was interrupted, and whenever nothing honest could be said about the
+     * result (see tool-receipt.ts). Computed once per result, not per frame.
+     */
+    receipt: string;
+    /**
+     * A few lines of the call's real output, for a mode that folds the rest
+     * away — which end they come from is the tool's business, not the
+     * renderer's (see tool-receipt.ts). Empty while running or interrupted.
+     */
+    peek: string[];
+    /** Output lines the peek leaves behind — what expanding the row adds. */
+    peekHidden: number;
     isError: boolean;
     isPartial: boolean;
     expanded: boolean;
@@ -140,6 +175,38 @@ export interface ToolBlockState {
     finishedAt?: number;
 }
 
+/**
+ * One call inside a folded verb group — a row reduced to a single line, but
+ * not to nothing.
+ *
+ * Strictly one line, with no exception for edits or failures. A group's whole
+ * value is that every row in it has the same shape: the eye reads straight
+ * down the receipt column for the odd one out. Letting some members carry a
+ * diff or an error under them buys a little detail and costs exactly the
+ * regularity that made the fold worth reading — and the detail was never gone,
+ * only one `→` away.
+ */
+export interface ToolGroupMember {
+    toolName: string;
+    /** The call's one-line arg summary (a path, a command, a pattern). */
+    summary: string;
+    /** What it returned — see ToolBlockState.receipt. */
+    receipt: string;
+    isError: boolean;
+}
+
+/** A run of consecutive finished tool calls, folded into one block. */
+export interface ToolGroupState {
+    /** The aggregated label ("Read 2 files, Listed 1 dir"). */
+    label: string;
+    /** How many members failed. */
+    failed: number;
+    /** The run's calls, in order. */
+    members: ToolGroupMember[];
+    /** The group is the current selection (ctrl+up/down navigation). */
+    selected: boolean;
+}
+
 /** Each renderer fully replaces that block's default rendering; return null
  * to fall back to the default look for that particular block (e.g. a mode
  * that restyles bash rows but keeps the plan box). */
@@ -147,6 +214,12 @@ export interface BlockRenderers {
     userMessage?(state: UserBlockState, ctx: RenderCtx): string[] | null;
     thinking?(state: ThinkingBlockState, ctx: RenderCtx): string[] | null;
     toolExecution?(state: ToolBlockState, ctx: RenderCtx): string[] | null;
+    /**
+     * The stand-in for a folded run of calls. Without one a mode gets the
+     * default single line ("◈ Read 3 files"); with one it can name the members
+     * it swallowed, which is the difference between a fold and a disappearance.
+     */
+    toolGroup?(state: ToolGroupState, ctx: RenderCtx): string[] | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -198,6 +271,38 @@ export function setLiveVariant(on: boolean): boolean {
 
 export function isLiveVariant(): boolean {
     return liveVariant;
+}
+
+/**
+ * How much of a finished call the transcript shows. See `AppSettings.toolDetail`.
+ *
+ * This is the one layer that is the USER's rather than the mode's, and it is
+ * deliberately subtractive: `compact` removes the receipt and the peek, and
+ * the other two leave the mode's own knobs alone. A density that could ADD a
+ * receipt would be inventing a look for a mode that never designed one.
+ * (`full` is not additive either — expanding every call is the `e` flag the
+ * transcript already owns, applied by the caller.)
+ */
+export type ToolDetail = "compact" | "normal" | "full";
+
+const DETAILS: readonly ToolDetail[] = ["compact", "normal", "full"] as const;
+let toolDetail: ToolDetail = "normal";
+
+/** Set the density. Returns whether it CHANGED, so a caller can skip a repaint. */
+export function setToolDetail(detail: ToolDetail): boolean {
+    if (toolDetail === detail) return false;
+    toolDetail = detail;
+    resolvedStyle = null;
+    return true;
+}
+
+export function getToolDetail(): ToolDetail {
+    return toolDetail;
+}
+
+/** The next density in the cycle — what `d` moves to. */
+export function nextToolDetail(): ToolDetail {
+    return DETAILS[(DETAILS.indexOf(toolDetail) + 1) % DETAILS.length];
 }
 
 function mergeSpec(base: UiStyleSpec, partial: DeepPartial<UiStyleSpec> | undefined): UiStyleSpec {
@@ -291,7 +396,11 @@ export function uiStyle(): UiStyleSpec {
         // variant on top. Live can only ever ADD to the mode you are in, so a
         // mode's two states can never drift into looking unrelated.
         const base = mergeSpec(LOOP_STYLE, mode.style);
-        resolvedStyle = liveVariant ? mergeSpec(base, mode.live) : base;
+        const withLive = liveVariant ? mergeSpec(base, mode.live) : base;
+        // The user's density sits on top of the mode's own look, and only ever
+        // takes away — see ToolDetail.
+        resolvedStyle =
+            toolDetail === "compact" ? mergeSpec(withLive, { tool: { receipt: false, peekLines: 0 } }) : withLive;
     }
     return resolvedStyle;
 }

@@ -8,7 +8,8 @@ import { Box, Container, Markdown, Spacer, Text, type TUI } from "@notshekhar/lo
 import { artifactResultSummary, normalizePlanText } from "@notshekhar/loop-core";
 import { getLanguageFromPath, getMarkdownTheme, highlightCode, theme } from "./theme";
 import { formatToolArgs, readGutterPrefixes, readLineRangeText } from "./tool-summary";
-import { uiRenderers, uiStyle } from "./ui-mode";
+import { formatToolReceipt, toolPeek, type ToolPeek } from "./tool-receipt";
+import { uiRenderers, uiStyle, type ToolGroupMember } from "./ui-mode";
 import { markSelectedLines } from "./messages";
 import { foldsEagerly, isPlanSurface } from "./verb-group";
 /** Live-streaming preview cap in EXPANDED mode. Highlighting runs on every
@@ -62,6 +63,13 @@ export class ToolExecutionComponent extends Container {
      * the brief full-colour rail a block wears as it settles. Stays unset on
      * replayed transcripts, whose calls were never seen running. */
     private finishedAt?: number;
+    /** The one-line receipt for the current result, or "" for none. Undefined
+     * = not computed yet. Derived from the RESULT, so unlike the box it must
+     * not be invalidated by mere display changes (expanding, selecting). */
+    private receipt?: string;
+    /** The peek for the current result, cached with the receipt and for the
+     * same reason — both are derived by re-reading the whole output. */
+    private peek?: ToolPeek;
     /** State changed since the box was last built. The box is rebuilt lazily
      * at render time: a mode's toolExecution renderer replaces the box
      * entirely, and building it anyway (highlighting, diff coloring) on every
@@ -80,6 +88,8 @@ export class ToolExecutionComponent extends Container {
         this.interrupted = true;
         this.statusText = "";
         this.finishedAt = Date.now();
+        this.receipt = undefined;
+        this.peek = undefined;
         this.boxDirty = true;
     }
 
@@ -143,6 +153,27 @@ export class ToolExecutionComponent extends Container {
         return !this.isPartial && !this.expanded && !isPlanSurface(this.toolName) && foldsEagerly(this.toolName);
     }
 
+    /**
+     * This call as one line of a folded verb group.
+     *
+     * The group renders members itself rather than calling back into each
+     * row's renderer: a member is a DIFFERENT shape from a row — one line, a
+     * shared receipt column, no peek — and reusing the row renderer would mean
+     * teaching it a second layout it only ever uses here.
+     *
+     * Note what is NOT here: no output, not even for an edit or a failure. The
+     * receipt is the whole of a member, by design — see ToolGroupMember.
+     */
+    groupMember(): ToolGroupMember {
+        const output = this.outputText();
+        return {
+            toolName: this.toolName,
+            summary: this.argsSummary(),
+            receipt: this.receiptText(output),
+            isError: this.result?.isError ?? false,
+        };
+    }
+
     /** Selection highlight for the ctrl+up/down block navigation. */
     setSelected(selected: boolean): void {
         this.selected = selected;
@@ -159,6 +190,8 @@ export class ToolExecutionComponent extends Container {
             // on an already-finished call must not re-flash it.
             if (wasRunning) this.finishedAt = Date.now();
         }
+        this.receipt = undefined;
+        this.peek = undefined;
         this.boxDirty = true;
         this.tui.requestRender();
     }
@@ -191,12 +224,16 @@ export class ToolExecutionComponent extends Container {
      * created as a pending stub on `tool-input-start` with no args yet). */
     updateArgs(args: Record<string, unknown>): void {
         this.args = args;
+        this.receipt = undefined;
+        this.peek = undefined;
         this.boxDirty = true;
         this.tui.requestRender();
     }
 
     override invalidate(): void {
         super.invalidate();
+        this.receipt = undefined;
+        this.peek = undefined;
         this.boxDirty = true;
     }
 
@@ -215,12 +252,17 @@ export class ToolExecutionComponent extends Container {
     private renderInner(width: number): string[] {
         const override = uiRenderers().toolExecution;
         if (override) {
+            const output = this.outputText();
+            const peek = this.peekLines(output);
             const lines = override(
                 {
                     toolName: this.toolName,
                     args: this.args,
                     summary: this.argsSummary(),
-                    output: this.outputText(),
+                    output,
+                    receipt: this.receiptText(output),
+                    peek: peek.lines,
+                    peekHidden: peek.hidden,
                     isError: this.result?.isError ?? false,
                     isPartial: this.isPartial,
                     expanded: this.expanded,
@@ -363,6 +405,52 @@ export class ToolExecutionComponent extends Container {
         if (s.durationMs !== undefined) parts.push(formatTaskDuration(s.durationMs));
         if (s.usd !== undefined) parts.push(`$${s.usd.toFixed(4)}`);
         return parts;
+    }
+
+    /**
+     * The call's one-line receipt, computed once per result rather than once
+     * per frame.
+     *
+     * The caching is not premature: a render walks every row in the transcript
+     * and bash caps its output at 2000 lines, so deriving this inline would
+     * re-split every one of them on every repaint — sixty times a second while
+     * a rail animates.
+     *
+     * A running call has no result to report and an interrupted one never got
+     * its own; both get "" and let the title's own status carry the state.
+     */
+    private receiptText(output: string): string {
+        if (this.receipt === undefined) {
+            this.receipt =
+                this.isPartial || this.interrupted
+                    ? ""
+                    : formatToolReceipt(this.toolName, this.args, output, this.result?.isError ?? false);
+        }
+        return this.receipt;
+    }
+
+    /**
+     * The few output lines a folded row shows, cached like the receipt and for
+     * the same reason — both re-read the whole result.
+     *
+     * A running call is excluded because it already has a live tail of its own
+     * (streaming content, a subagent's activity), and an interrupted one never
+     * produced a result to preview.
+     */
+    private peekLines(output: string): ToolPeek {
+        if (this.peek === undefined) {
+            this.peek =
+                this.isPartial || this.interrupted
+                    ? { lines: [], hidden: 0 }
+                    : toolPeek(
+                          this.toolName,
+                          output,
+                          this.result?.isError ?? false,
+                          uiStyle().tool.peekLines,
+                          this.args,
+                      );
+        }
+        return this.peek;
     }
 
     private argsSummary(): string {

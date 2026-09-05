@@ -12,7 +12,7 @@ import type { MarkdownTheme, SelectListTheme } from "@notshekhar/loop-tui";
 import chalk from "chalk";
 import { luminance, mix } from "./palette";
 import { DARK_THEME, type ThemeColors, type ThemeJson } from "./themes";
-import { activeUiMode, setActiveUiMode, setLiveVariant } from "./ui-mode";
+import { activeUiMode, setActiveUiMode, setLiveVariant, setToolDetail } from "./ui-mode";
 
 export type ThemeColor = keyof ThemeColors & string;
 export type ThemeBg =
@@ -370,6 +370,10 @@ export function initUiModeAndTheme(): void {
     // defines one, so a saved preference can't strand a mode in a state it
     // has no look for.
     setLiveVariant(Boolean(settingsStore.get("uiLive")) && Boolean(activeUiMode().live));
+    // How much of a finished call to show. Unknown values (a hand-edited
+    // settings file) fall back rather than resolving to a style nobody defined.
+    const detail = settingsStore.get("toolDetail");
+    setToolDetail(detail === "compact" || detail === "full" ? detail : "normal");
 }
 
 // ---------------------------------------------------------------------------

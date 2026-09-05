@@ -125,15 +125,23 @@ const KIND = {
 
   edit: { past: "Edited", present: "Editing", nounOne: "file", nounMany: "files", folds: true },
 
-  // The only kinds that keep their rows: surfaces the user has to ACT on. A
-  // question or a plan folded into a count is one nobody answers.
+  // An ask folds only once it has been ANSWERED, which costs nothing to
+  // arrange: a question still waiting on the user is `isPartial`, and a
+  // running call is never groupable. So `folds: true` here never hides a live
+  // question — it only lets a settled one join the run behind it, the way
+  // every other finished call does, carrying the answer in its receipt.
   ask: {
     past: "Asked",
     present: "Asking",
     nounOne: "question",
     nounMany: "questions",
-    folds: false,
+    folds: true,
   },
+
+  // A plan is the exception that stays: unlike a question it is not answered
+  // and done with — it is a document the user goes back and re-reads while the
+  // work proceeds against it. Folding it into a count would hide the one thing
+  // on screen that the rest of the turn is judged against.
   plan: { past: "Planned", present: "Planning", nounOne: "plan", nounMany: "plans", folds: false },
 } as const satisfies Record<string, VerbGroupKind>;
 

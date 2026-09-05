@@ -7,6 +7,7 @@ const APP_KEYBINDINGS = {
         description: "Toggle transcript navigation",
     },
     "app.tools.expand": { defaultKeys: "e", description: "Expand/collapse all (in navigation mode)" },
+    "app.tools.detail": { defaultKeys: "d", description: "Cycle tool detail: compact/normal/full (in navigation mode)" },
     "app.interrupt": { defaultKeys: "escape", description: "Interrupt agent" },
     "app.clear": { defaultKeys: "ctrl+c", description: "Clear / exit" },
     "app.continue": { defaultKeys: "ctrl+g", description: 'Send "continue"' },

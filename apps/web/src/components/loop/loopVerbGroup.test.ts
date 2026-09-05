@@ -64,12 +64,14 @@ describe("what may be folded away", () => {
     }
   });
 
-  it("keeps the surfaces the user has to act on visible", () => {
-    // A question folded into a count is one nobody answers.
-    expect(isGroupableTool({ name: "ask", isError: false, isPartial: false })).toBe(false);
+  it("keeps the plan surfaces visible", () => {
+    // A plan is a document the rest of the turn is judged against, so it is
+    // never reduced to a count. An answered `ask` is not in that set: it is
+    // history like any other call, and a pending one is isPartial anyway.
     expect(isGroupableTool({ name: "enter_plan_mode", isError: false, isPartial: false })).toBe(
       false,
     );
+    expect(isGroupableTool({ name: "ask", isError: false, isPartial: false })).toBe(true);
   });
 
   it("never folds a running call — it is the one worth watching", () => {
@@ -140,10 +142,16 @@ describe("folding a work log", () => {
   });
 
   it("breaks the run around a call that keeps its own row", () => {
+    expect(drawn([item("a", "read"), item("b", "enter_plan_mode"), item("c", "read")])).toEqual([
+      "Read 1 file",
+      "enter_plan_mode",
+      "Read 1 file",
+    ]);
+  });
+
+  it("an answered question folds into the run like any other call", () => {
     expect(drawn([item("a", "read"), item("b", "ask"), item("c", "read")])).toEqual([
-      "Read 1 file",
-      "ask",
-      "Read 1 file",
+      "Read 2 files, Asked 1 question",
     ]);
   });
 

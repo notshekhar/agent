@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.20.0] - 2026-09-06
+
+### Added
+
+- **A finished tool call says what it returned.** In noir a folded call was one line naming what was *asked for* — `read src/app.ts` — and nothing about what came back, so a scrolled-back turn was a list of attempts rather than a record of what happened. Every finished call now carries a receipt: `580 lines`, `exit 1 · 214 lines`, `+12 −4 · 2 blocks`, `4 matches · 3 files`, `background sh_3`. Under it sits a short peek of the real output, taken from whichever end answers — a command's last lines, where its verdict is; a search's first, where its ranking is; a diff's changed lines with the context skipped; and nothing at all for a file you named yourself, whose receipt already sized it. A failure always peeks, whatever the tool, because an error reachable only by expanding the row is the whole of the problem this fixes.
+- **A folded run of calls lists what it swallowed.** Live mode collapsed a run into `Read 3 files`, which hid not just the output but which files — a fold that loses the identities. The header keeps its count and every member now gets a line under it: what was called, and what came back, right-aligned in a shared column so the eye finds the odd one out. A mixed run gains a tool column, since the header cannot say which member was the listing. Members stay strictly one line each — an edit shows `+12 −4`, not its hunk — because the fold's value is that every row in it has the same shape, and the detail is one `→` away rather than gone.
+- **`toolDetail`, and `d` to cycle it.** `compact` is the old one-line-per-call density, `normal` adds the receipt and the peek, `full` opens every call's output. Set it in `/settings` or press `d` inside transcript navigation, where the key hint shows the current level.
+- **`!<command>` runs a shell command from the prompt.** For the things faster done than described — an interactive login, a `git status`, a one-off script. It runs in the session's cwd, its output lands in the transcript, and the model reads it on the next turn rather than being made to answer this one. Deliberately not routed through the bash tool: that tool's permission rules and deny list exist to gate what the *model* may run, and here the author is the person typing.
+
+### Changed
+
+- **Reminders fire on Bun's cron instead of a one-second poll.** A reminder used to depend on the shared status-line pulse running at all, and could only be as precise as that pulse. Each is now registered with `Bun.cron` and arrives on its own. The built-in takes five fields, so sub-minute expressions — which loop has always stored — stay on the old path rather than being dropped, and one-shots are timers, which keeps the rule that a deadline lapsed while loop was closed never fires.
+- **The transcript rail is a solid mark.** A settled block wore a thin `│` held 40% off the canvas, on the theory that weight should carry state; since a finished transcript is almost entirely settled blocks, that made the common case a page of grey hairlines, and the distinction was never visible anyway because the two weights are never on screen together. State is carried by colour, and the rail is now one solid glyph at a readable strength. The selection bar stays heavier still, so a selected block is a change of weight and not only of colour.
+- **An answered question folds like any other call.** `ask` was held out of grouping so a question could never be reduced to a count — but a question still waiting on you is a running call, and running calls never group. The rule only ever applied to questions already answered, which are history. An answered `ask` now joins the run behind it, carrying the answer in its receipt. Plans still keep their own row: a plan is not answered and finished, it is a document the rest of the turn is judged against.
+
+### Fixed
+
+- **A truncated row ended in two ellipses.** Every clipped line in noir — a long bash command in a header, a wide path — rendered as `…` appended to a truncation that had already added `...` of its own.
+- **The update check compared versions by splitting on dots.** It read only `major.minor.patch` and dropped any suffix, so a release did not count as newer than its own prerelease and `beta.10` sorted below `beta.2`. Not reachable with the tags loop publishes today, which are always plain `x.y.z`; the comparison is now `Bun.semver`, and an unreadable tag reports "no update" instead of throwing during the startup check.
+
+### Internal
+
+- CI and release workflows build on Bun 1.4.2.
+
 ## [0.19.29] - 2026-09-05
 
 ### Fixed

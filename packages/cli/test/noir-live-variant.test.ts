@@ -5,7 +5,7 @@ process.env.COLORTERM = "truecolor";
 
 import { registerNoirMode } from "../src/interactive/ui/noir-mode";
 import { setActiveUiMode, setLiveVariant, uiStyle } from "../src/interactive/ui/ui-mode";
-import { initTheme } from "../src/interactive/ui/theme";
+import { initTheme, theme } from "../src/interactive/ui/theme";
 import { ChatHistory } from "../src/interactive/components/chat-history";
 
 beforeAll(() => {
@@ -41,6 +41,14 @@ function withReads(n: number, tool = "read"): ChatHistory {
 
 const text = (h: ChatHistory) => h.render(W).map(strip).join("\n");
 
+/** The truecolor SGR the active theme emits for a slot — so a colour assertion
+ * says "this uses the error slot" rather than naming a hex. */
+const sgr = (slot: Parameters<typeof theme.fg>[0]) => {
+    const hex = theme.raw(slot) as string;
+    const rgb = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+    return `\x1b[38;2;${rgb.join(";")}m`;
+};
+
 describe("noir's live variant", () => {
     test("live layers over the mode you are already in", () => {
         liveOn();
@@ -71,11 +79,17 @@ describe("noir's live variant", () => {
 });
 
 describe("live verb groups", () => {
-    test("a run of finished tool rows folds into one aggregated header", () => {
+    test("a run of finished tool rows folds into a header over its members", () => {
         liveOn();
         const out = text(withReads(3));
         expect(out).toContain("◈ Read 3 files");
-        expect(out).not.toContain("f0.ts");
+        // The fold hides the OUTPUT, never which calls were made — a group
+        // that swallowed the identities is a turn you cannot read back.
+        expect(out).toContain("f0.ts");
+        expect(out).toContain("f2.ts");
+        expect(out).not.toContain("body");
+        // …and each member is one line, not a row of its own
+        expect(out).not.toContain("◆");
     });
 
     test("one member is enough to fold", () => {
@@ -84,10 +98,18 @@ describe("live verb groups", () => {
         liveOn();
         const out = text(withReads(1));
         expect(out).toContain("◈ Read 1 file");
-        expect(out).not.toContain("f0.ts");
+        expect(out).toContain("f0.ts");
+        expect(out).not.toContain("body");
+    });
+
+    test("a single-kind run keeps its label — it is a sentence about the turn", () => {
+        liveOn();
+        expect(text(withReads(3))).toContain("◈ Read 3 files");
     });
 
     test("a mixed run names every kind with its own count", () => {
+        // The header says WHAT the turn did; the tool column says which member
+        // was which. A bare "3 calls" answers neither question.
         liveOn();
         const h = new ChatHistory(tui, "/repo");
         h.addToolCall("ls", "a", { path: "/repo" });
@@ -96,7 +118,140 @@ describe("live verb groups", () => {
         h.addToolResult("b", "x");
         h.addToolCall("read", "c", { path: "/repo/a.ts" });
         h.addToolResult("c", "x");
-        expect(text(h)).toContain("◈ Listed 2 dirs, Read 1 file");
+        const out = text(h);
+        expect(out).toContain("◈ Listed 2 dirs, Read 1 file");
+        expect(out).toMatch(/[├└] ls\s/);
+        expect(out).toMatch(/[├└] read\s/);
+    });
+
+    test("the receipt column sits with the block, not at the terminal's edge", () => {
+        // Anchored to the edge, four short paths on a wide terminal became two
+        // columns separated by a hundred blanks, with no way to tell which
+        // receipt belonged to which call.
+        liveOn();
+        const h = new ChatHistory(tui, "/repo");
+        h.addToolCall("ls", "a", { path: "/repo/src" });
+        h.addToolResult("a", "one\ntwo");
+        h.addToolCall("ls", "b", { path: "/repo/lib" });
+        h.addToolResult("b", "x");
+        const rows = h
+            .render(200)
+            .map(strip)
+            .filter((l) => /[├└]/.test(l));
+        expect(rows).toHaveLength(2);
+        for (const r of rows) expect(r.trimEnd().length).toBeLessThan(60);
+        // …and the receipts still line up as a column. Right-aligned, so it is
+        // the ENDS that share a column — "2 entries" and "1 entry" differ in
+        // width and only agree on where they finish.
+        const ends = rows.map((r) => r.trimEnd().length);
+        expect(ends[0]).toBe(ends[1]);
+    });
+
+    test("members hang off a tree, closed by the last one", () => {
+        liveOn();
+        const rows = text(withReads(3))
+            .split("\n")
+            .filter((l) => /[├└]/.test(l));
+        expect(rows).toHaveLength(3);
+        expect(rows.slice(0, 2).every((l) => l.includes("├"))).toBe(true);
+        expect(rows[2]).toContain("└");
+    });
+
+    test("a member carries its receipt, so the fold keeps the outcomes", () => {
+        liveOn();
+        const h = new ChatHistory(tui, "/repo");
+        h.addToolCall("bash", "a", { command: "git status" });
+        h.addToolResult("a", "one\ntwo\nthree");
+        h.addToolCall("bash", "b", { command: "true" });
+        h.addToolResult("b", "");
+        const out = text(h);
+        expect(out).toContain("ok · 3 lines");
+        expect(out).toContain("ok · no output");
+    });
+
+    test("a single-kind run drops the tool column the header already named", () => {
+        liveOn();
+        // "Read 3 files" says the tool once; repeating it per member would be
+        // three columns saying what the header said.
+        expect(text(withReads(3))).not.toMatch(/[├└] read /);
+    });
+
+    test("a mixed run earns the tool column back", () => {
+        liveOn();
+        const h = new ChatHistory(tui, "/repo");
+        h.addToolCall("read", "a", { path: "/repo/a.ts" });
+        h.addToolResult("a", "x");
+        h.addToolCall("ls", "b", { path: "/repo/src" });
+        h.addToolResult("b", "x");
+        const out = text(h);
+        // the header cannot say WHICH member was the listing; the column can
+        expect(out).toMatch(/[├└] read\s+a\.ts/);
+        expect(out).toMatch(/[├└] ls\s+src/);
+    });
+
+    test("a failure is visible without breaking the one-line rule", () => {
+        liveOn();
+        const h = new ChatHistory(tui, "/repo");
+        h.addToolCall("bash", "a", { command: "true" });
+        h.addToolResult("a", "fine");
+        h.addToolCall("bash", "b", { command: "bun test" });
+        h.addToolResult("b", "running\nat frame 1\nboom: it failed\n\nCommand exited with code 1", true);
+        const out = text(h);
+        // Three signals, none of them an extra row: the header's count, the
+        // member's receipt, and the row in the error colour.
+        expect(out).toContain("· 1 failed");
+        expect(out).toContain("exit 1 · 3 lines");
+        expect(h.render(W).join("\n")).toContain(sgr("toolError"));
+        expect(out).not.toContain("boom: it failed");
+    });
+
+    test("every member is one line — an edit shows its stat, never its hunk", () => {
+        // A group's value is that every row in it has the same shape. Letting
+        // an edit carry a diff under it buys detail and costs the regularity
+        // that made the fold readable; the diff is one → away, not gone.
+        liveOn();
+        const h = new ChatHistory(tui, "/repo");
+        h.addToolCall("read", "r", { path: "/repo/a.ts" });
+        h.addToolResult("r", "one\ntwo\nthree");
+        h.addToolCall("edit", "e", { path: "/repo/b.ts", edits: [{}] });
+        h.addToolResult("e", "Successfully replaced 1 block(s).\n\n 40 ctx line\n-42 const a = 1\n+42 const a = 2");
+        const out = text(h);
+        expect(out).toContain("+1 −1");
+        expect(out).not.toContain("const a = 1");
+        // one row per member, plus the header — nothing hangs below them
+        expect(out.split("\n").filter((l) => /[├└]/.test(l))).toHaveLength(2);
+    });
+
+    test("a member's path is clipped from the LEFT, so the basename survives", () => {
+        liveOn();
+        const h = new ChatHistory(tui, "/repo");
+        for (const [i, p] of ["a/very/deep/nested/path/to/alpha.ts", "a/very/deep/nested/path/to/beta.ts"].entries()) {
+            h.addToolCall("read", `c${i}`, { path: `/repo/${p}` });
+            h.addToolResult(`c${i}`, "x");
+        }
+        const out = h
+            .render(38)
+            .map(strip)
+            .join("\n");
+        // clipped at all, but the two files are still told apart
+        expect(out).toContain("…");
+        expect(out).toContain("alpha.ts");
+        expect(out).toContain("beta.ts");
+    });
+
+    test("a command is clipped from the RIGHT — its identity is its start", () => {
+        liveOn();
+        const h = new ChatHistory(tui, "/repo");
+        h.addToolCall("bash", "a", { command: "bun test --coverage packages/cli packages/core" });
+        h.addToolResult("a", "x");
+        h.addToolCall("bash", "b", { command: "bun run typecheck --project packages/cli" });
+        h.addToolResult("b", "x");
+        const out = h
+            .render(38)
+            .map(strip)
+            .join("\n");
+        expect(out).toContain("bun test");
+        expect(out).toContain("bun run typecheck");
     });
 
     test("a hidden failure is still reported on the header", () => {
@@ -110,16 +265,19 @@ describe("live verb groups", () => {
         expect(text(h)).toContain("· 1 failed");
     });
 
-    test("commands fold too — the run is one line, the detail is one key away", () => {
+    test("commands fold too — each keeps its line, the output is one key away", () => {
         liveOn();
         const h = new ChatHistory(tui, "/repo");
         h.addToolCall("bash", "a", { command: "npm run build" });
-        h.addToolResult("a", "x");
+        h.addToolResult("a", "BUILD-OUTPUT");
         h.addToolCall("bash", "b", { command: "npm test" });
-        h.addToolResult("b", "x");
+        h.addToolResult("b", "TEST-OUTPUT");
         const out = text(h);
         expect(out).toContain("◈ Ran 2 commands");
-        expect(out).not.toContain("npm run build");
+        expect(out).toContain("npm run build");
+        expect(out).toContain("npm test");
+        expect(out).not.toContain("BUILD-OUTPUT");
+        expect(out).not.toContain("TEST-OUTPUT");
     });
 
     test("edits fold too — the run is one line", () => {
@@ -149,9 +307,9 @@ describe("live verb groups", () => {
         const h = new ChatHistory(tui, "/repo");
         h.addToolCall("read", "a", { path: "/repo/a.ts" });
         h.addToolResult("a", "x");
-        // `ask` is a surface the user answers, so it never folds — which makes
-        // it the thing that splits a run in two.
-        h.addToolCall("ask", "b", {});
+        // `plan` is the surface that never folds — a document the user reads
+        // the rest of the turn against — which makes it what splits a run.
+        h.addToolCall("plan", "b", { plan: "# Do it" });
         h.addToolResult("b", "x");
         h.addToolCall("read", "c", { path: "/repo/c.ts" });
         h.addToolResult("c", "x");
@@ -178,7 +336,9 @@ describe("live verb groups", () => {
         h.addToolResult("live", "body");
         const out = text(h);
         expect(out).toContain("◈ Read 3 files");
-        expect(out).not.toContain("slow.ts");
+        // it joins as a MEMBER — named, but no longer a row of its own
+        expect(out).toContain("slow.ts");
+        expect(out).not.toContain("◆ read");
     });
 
     test("only the running call sits outside the header", () => {
@@ -271,7 +431,7 @@ describe("live hierarchical navigation", () => {
         const out = text(h);
         expect(out).toContain("◈ Read 3 files"); // grouped again
         expect(out).not.toContain("body"); // output folded again
-        expect(out).not.toContain("f0.ts");
+        expect(out).toContain("f0.ts"); // …but the members stay named
     });
 
     test("expand-all does not survive the trip back to the prompt either", () => {

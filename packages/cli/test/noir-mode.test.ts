@@ -14,7 +14,13 @@ import {
     NIGHT_THEME,
 } from "../src/interactive/ui/noir-mode";
 import { contrastRatio } from "../src/interactive/ui/palette";
-import { activeUiMode, setActiveUiMode, uiStyle } from "../src/interactive/ui/ui-mode";
+import {
+    activeUiMode,
+    nextToolDetail,
+    setActiveUiMode,
+    setToolDetail,
+    uiStyle,
+} from "../src/interactive/ui/ui-mode";
 import {
     resumeSystemSchemeProbesForTest,
     stopSystemSchemeProbes,
@@ -154,7 +160,7 @@ describe("noir mode rendering", () => {
         const lines = c.render(W).map(strip);
         // The rail now runs the full block, header included — the tail is the
         // railed lines that aren't the header.
-        const body = lines.filter((l) => l.includes("┃") && !l.includes("Thinking…"));
+        const body = lines.filter((l) => l.includes("▎") && !l.includes("Thinking…"));
         expect(body).toHaveLength(3);
         expect(body[0]).toContain("l3");
         expect(body[2]).toContain("l5");
@@ -196,31 +202,47 @@ describe("noir mode rendering", () => {
     test("individual selection expands one tool call only", () => {
         noirOn();
         const h = new ChatHistory(tui, "/repo");
+        // Long enough that the folded peek cannot show all of it — otherwise
+        // "expanded" and "folded" look the same and the test proves nothing.
+        const five = (tag: string) => Array.from({ length: 5 }, (_, i) => `${tag}-${i + 1}`).join("\n");
         h.addToolCall("bash", "c1", { command: "echo one" });
-        h.addToolResult("c1", "OUT-ONE");
+        h.addToolResult("c1", five("OUT-ONE"));
         h.addToolCall("bash", "c2", { command: "echo two" });
-        h.addToolResult("c2", "OUT-TWO");
+        h.addToolResult("c2", five("OUT-TWO"));
         h.moveSelection(-1); // selects c2 (most recent)
         h.moveSelection(-1); // walk up to c1
         h.toggleSelected();
         const text = h.render(W).map(strip).join("\n");
-        expect(text).toContain("OUT-ONE");
-        expect(text).not.toContain("OUT-TWO");
+        // the opened call shows its whole output
+        expect(text).toContain("OUT-ONE-1");
+        expect(text).toContain("OUT-ONE-5");
+        // the folded one shows only its peek — bash's tail — and says so
+        expect(text).not.toContain("OUT-TWO-1");
+        expect(text).toContain("OUT-TWO-5");
+        expect(text).toContain("… +2 lines");
     });
 
     test("noir tool row is flat: one muted line folded, gutter output expanded", () => {
         noirOn();
-        const c = new ToolExecutionComponent("bash", { command: "seq 3" }, tui, "/repo");
-        c.updateResult({ content: [{ type: "text", text: "1\n2\n3" }], isError: false }, false);
+        const c = new ToolExecutionComponent("bash", { command: "seq 10" }, tui, "/repo");
+        const ten = Array.from({ length: 10 }, (_, i) => String(i + 1)).join("\n");
+        c.updateResult({ content: [{ type: "text", text: ten }], isError: false }, false);
         const folded = c.render(W).map(strip);
-        // lead blank (groupLead) + the single row
-        expect(folded).toHaveLength(2);
+        // lead blank (groupLead) + row + receipt + a 3-line peek + its hint
+        expect(folded).toHaveLength(7);
         expect(folded[0]).toBe("");
-        expect(folded[1]).toContain("◆ bash seq 3");
+        expect(folded[1]).toContain("◆ bash seq 10");
+        expect(folded[2]).toContain("└ ok · 10 lines");
+        // a command's peek is its TAIL — the verdict, not the preamble
+        expect(folded.slice(3, 6).map((l) => l.replace(/^▎\s*/, ""))).toEqual(["8", "9", "10"]);
+        expect(folded[6]).toContain("… +7 lines");
+        expect(folded.join("\n")).not.toContain("1\n");
         c.setExpanded(true);
         const open = c.render(W).map(strip).join("\n");
-        expect(open).toContain("┃  1");
-        expect(open).toContain("┃  3");
+        // expanded: the whole output, at the gutter rather than indented
+        expect(open).toContain("▎  1");
+        expect(open).toContain("▎  10");
+        expect(open).not.toContain("… +7 lines");
     });
 
     test("tool groups: lead gap after text, tight rows inside the group", () => {
@@ -236,17 +258,27 @@ describe("noir mode rendering", () => {
         const t2 = plain.findIndex((l) => l.includes("◆ bash echo b"));
         // blank line between the text and the first tool row
         expect(plain[t1 - 1].trim()).toBe("");
-        // consecutive tool rows stay adjacent
-        expect(t2).toBe(t1 + 1);
+        // consecutive tool rows stay adjacent — each call is now its row, its
+        // receipt and its peek, and no blank opens up between the two calls
+        expect(t2).toBe(t1 + 3);
+        expect(plain[t1 + 1]).toContain("└ ok · 1 line");
+        expect(plain[t1 + 2]).toContain("a");
     });
 
-    test("failed tool rows fold like the rest; expanding shows the error", () => {
+    test("a failed row shows its error folded — the tail, where errors end", () => {
         noirOn();
         const c = new ToolExecutionComponent("bash", { command: "false" }, tui, "/repo");
-        c.updateResult({ content: [{ type: "text", text: "boom" }], isError: true }, false);
-        expect(c.render(W).map(strip).join("\n")).not.toContain("boom");
+        const trace = ["running suite", "at frame 1", "at frame 2", "boom: it failed"].join("\n");
+        c.updateResult({ content: [{ type: "text", text: trace }], isError: true }, false);
+        const folded = c.render(W).map(strip).join("\n");
+        // the whole point: a red diamond with no text anywhere is the bug
+        expect(folded).toContain("failed · 4 lines");
+        expect(folded).toContain("boom: it failed");
+        // an error peeks its END, so the preamble is what gets left behind
+        expect(folded).not.toContain("running suite");
+        expect(folded).toContain("… +1 line");
         c.setExpanded(true);
-        expect(c.render(W).map(strip).join("\n")).toContain("boom");
+        expect(c.render(W).map(strip).join("\n")).toContain("running suite");
     });
 
     test("tool diamond carries the state color: done green, failed red", () => {
@@ -272,7 +304,7 @@ describe("noir mode rendering", () => {
         // frames must not paint identically or nothing is actually animating.
         expect(at(0)).not.toBe(at(Math.round(Math.PI / 2 / (0.15 * 1.5))));
         expect(at(0)).toContain("◆");
-        expect(at(0)).toContain("┃");
+        expect(at(0)).toContain("▎");
         setAnimTickForTest(0);
     });
 
@@ -450,7 +482,7 @@ describe("noir mode rendering", () => {
         // wears "▌" where its rail would be, so nothing shifts sideways.
         expect(h.render(W).map(strip).join("\n")).toContain("▌  1");
         expect(h.setSelectedExpanded(false)).toBe(true);
-        expect(h.render(W).map(strip).join("\n")).not.toContain("┃ 1");
+        expect(h.render(W).map(strip).join("\n")).not.toContain("▎ 1");
         // y copies the call + output
         expect(h.getSelectedText()).toBe("bash seq 2\n1\n2");
         // user entry copy
@@ -584,10 +616,13 @@ describe("noir mode rendering", () => {
         h.setViewport(true);
         h.selectLast();
         const win = h.render(W).map(strip);
-        const winRow = win.findIndex((l) => l.includes("echo 15"));
+        // Whichever call the window happens to hold — how many fit depends on
+        // how tall a row is, and that is not what this test is about.
+        const winRow = win.findLastIndex((l) => /◆ bash echo \d+/.test(l));
         expect(winRow).toBeGreaterThan(0);
+        const n = /echo (\d+)/.exec(win[winRow])![1];
         expect(h.clickAtLocalLine(winRow)).toBe(true);
-        expect(h.getSelectedText()).toBe("bash echo 15\n15");
+        expect(h.getSelectedText()).toBe(`bash echo ${n}\n${n}`);
         // indicator rows are not clickable
         expect(h.clickAtLocalLine(0)).toBe(false);
     });
@@ -619,7 +654,8 @@ describe("noir mode rendering", () => {
         // tools tight within the group, one blank before the group
         const t1 = plain.findIndex((l) => l.includes("◆ bash echo a"));
         const t2 = plain.findIndex((l) => l.includes("◆ bash echo b"));
-        expect(t2).toBe(t1 + 1);
+        // row + receipt + peek per call, and still no blank between the calls
+        expect(t2).toBe(t1 + 3);
         expect(plain[t1 - 1]).toBe("");
     });
 
@@ -752,7 +788,7 @@ describe("noir mode rendering", () => {
         expect(live[1]).toContain("read src/auth.ts · step 3 · 12s");
         expect(live[1]).toContain("find the auth code");
         // last-3 tail under the gutter while running
-        expect(live.filter((l) => l.includes("┃") && !l.includes("◆"))).toHaveLength(3);
+        expect(live.filter((l) => l.includes("▎") && !l.includes("◆"))).toHaveLength(3);
         // done: stats in the title, log hidden until expanded
         c.setTaskStats({ steps: 3, durationMs: 41000, usd: 0.043 });
         c.updateResult(
@@ -760,12 +796,19 @@ describe("noir mode rendering", () => {
             false,
         );
         const folded = c.render(W).map(strip);
-        expect(folded).toHaveLength(2);
-        expect(folded[1]).toContain("done · 3 steps · 41s · $0.0430");
+        // lead blank + row + receipt + the 3-line log tail (nothing hidden)
+        expect(folded).toHaveLength(6);
+        // the run's outcome moves to the receipt; the header keeps the agent
+        // and the prompt, which is what a scan of the transcript is looking for
+        expect(folded[1]).toContain("◆ task explore");
+        expect(folded[1]).toContain("find the auth code");
+        expect(folded[1]).not.toContain("done · 3 steps");
+        expect(folded[2]).toContain("└ done · 3 steps · 41s · $0.0430");
+        expect(folded[5]).toContain("report line");
         c.setExpanded(true);
         const open = c.render(W).map(strip).join("\n");
-        expect(open).toContain("┃  > ls .");
-        expect(open).toContain("┃  report line");
+        expect(open).toContain("▎  > ls .");
+        expect(open).toContain("▎  report line");
     });
 
     test("tool title gets the diamond and greys out when folded-done", () => {
@@ -795,7 +838,7 @@ describe("noir mode rendering", () => {
         });
         const text = c.render(W).map(strip).join("\n");
         expect(text).toContain("inline italic thinking");
-        expect(text).not.toContain("┃");
+        expect(text).not.toContain("▌");
         expect(text).not.toContain("Thinking…");
     });
 });
@@ -1108,8 +1151,8 @@ describe("noir read rows", () => {
         c.updateResult({ content: [{ type: "text", text: "const x = 1;\nexport default x;" }], isError: false }, false);
         c.setExpanded(true);
         const open = c.render(W).map(strip).join("\n");
-        expect(open).toContain("┃   9  const x = 1;");
-        expect(open).toContain("┃  10  export default x;");
+        expect(open).toContain("▎   9  const x = 1;");
+        expect(open).toContain("▎  10  export default x;");
     });
 
     test("other tools' output is never numbered", () => {
@@ -1118,7 +1161,63 @@ describe("noir read rows", () => {
         c.updateResult({ content: [{ type: "text", text: "1\n2" }], isError: false }, false);
         c.setExpanded(true);
         const open = c.render(W).map(strip).join("\n");
-        expect(open).toContain("┃  1");
-        expect(open).not.toContain("┃  1  1");
+        expect(open).toContain("▎  1");
+        expect(open).not.toContain("▎  1  1");
+    });
+});
+
+describe("tool detail density", () => {
+    afterEach(() => setToolDetail("normal"));
+
+    const bashRow = () => {
+        const c = new ToolExecutionComponent("bash", { command: "seq 10" }, tui, "/repo");
+        const ten = Array.from({ length: 10 }, (_, i) => String(i + 1)).join("\n");
+        c.updateResult({ content: [{ type: "text", text: ten }], isError: false }, false);
+        return c;
+    };
+
+    test("compact takes the receipt and the peek away", () => {
+        noirOn();
+        setToolDetail("compact");
+        const out = bashRow().render(W).map(strip);
+        // lead blank + the call row, and nothing else — today's one-line noir
+        expect(out).toHaveLength(2);
+        expect(out[1]).toContain("◆ bash seq 10");
+        expect(out.join("\n")).not.toContain("ok · 10 lines");
+    });
+
+    test("normal is the mode's own look", () => {
+        noirOn();
+        setToolDetail("normal");
+        const out = bashRow().render(W).map(strip).join("\n");
+        expect(out).toContain("└ ok · 10 lines");
+        expect(out).toContain("… +7 lines");
+    });
+
+    test("density can only ever take away — it never invents a receipt", () => {
+        // loop mode shows no receipt at any density: `compact` has nothing to
+        // remove and the others have nothing to add.
+        setActiveUiMode("loop");
+        initTheme("dark");
+        for (const d of ["compact", "normal", "full"] as const) {
+            setToolDetail(d);
+            expect(uiStyle().tool.receipt).toBe(false);
+            expect(uiStyle().tool.peekLines).toBe(0);
+        }
+    });
+
+    test("the cycle wraps compact → normal → full → compact", () => {
+        setToolDetail("compact");
+        expect(nextToolDetail()).toBe("normal");
+        setToolDetail("normal");
+        expect(nextToolDetail()).toBe("full");
+        setToolDetail("full");
+        expect(nextToolDetail()).toBe("compact");
+    });
+
+    test("setToolDetail reports whether it changed, so callers can skip a repaint", () => {
+        setToolDetail("normal");
+        expect(setToolDetail("normal")).toBe(false);
+        expect(setToolDetail("compact")).toBe(true);
     });
 });

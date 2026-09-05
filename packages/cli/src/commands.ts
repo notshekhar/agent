@@ -45,17 +45,31 @@ function detectInstallMethod(): InstallMethod {
     return "binary";
 }
 
-function semverGt(a: string, b: string): boolean {
-    const norm = (v: string) =>
-        v
-            .replace(/^v/, "")
-            .split(".")
-            .map((n) => Number.parseInt(n, 10) || 0);
-    const [a1, a2, a3] = norm(a);
-    const [b1, b2, b3] = norm(b);
-    if (a1 !== b1) return a1 > b1;
-    if (a2 !== b2) return a2 > b2;
-    return a3 > b3;
+/**
+ * Is release `a` newer than `b`? Either may carry a leading `v`, as git tags do.
+ *
+ * `Bun.semver` knows the rules a split-on-dots comparison cannot: a release
+ * outranks its own prerelease (`1.0.0` > `1.0.0-beta.1`), prerelease numbers
+ * compare numerically rather than as text (`beta.10` > `beta.2`), and build
+ * metadata never affects precedence. None of that is reachable today —
+ * bump-version only emits `x.y.z` and GitHub's "latest release" skips
+ * prereleases — so this is insurance for the first tag that isn't, not a fix
+ * for anything currently observable.
+ *
+ * The catch is load-bearing. `Bun.semver.order` THROWS on anything it cannot
+ * parse, where the old hand-rolled comparison quietly read it as `0.0.0`, and
+ * `a` is a tag name straight out of the GitHub API — a repo tagged `nightly`
+ * would hand us one. The startup check calls this without awaiting
+ * (`startup.ts`), so a throw would surface as an unhandled rejection at launch
+ * instead of the honest answer, which is that an unreadable tag is not a newer
+ * version.
+ */
+export function semverGt(a: string, b: string): boolean {
+    try {
+        return Bun.semver.order(a, b) === 1;
+    } catch {
+        return false;
+    }
 }
 
 async function fetchLatestTag(): Promise<string | null> {

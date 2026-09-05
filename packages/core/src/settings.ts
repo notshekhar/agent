@@ -27,6 +27,20 @@ export interface AppSettings {
      */
     uiLive?: boolean;
     /**
+     * How much of a finished tool call the transcript shows, for modes that
+     * fold their output away (noir does; loop shows a preview regardless).
+     *
+     * - `compact` — the call and nothing else, one row each.
+     * - `normal` (default) — plus a receipt saying what came back, and a few
+     *   lines of the output itself.
+     * - `full` — plus every call's output expanded.
+     *
+     * `d` cycles it inside transcript navigation. It is a density preference,
+     * not a mode: it can only ever take away what the active mode already
+     * offers, so a mode that shows no receipt is unaffected by `compact`.
+     */
+    toolDetail?: "compact" | "normal" | "full";
+    /**
      * Pin the prompt to the last rows of the screen. The transcript then
      * scrolls in its own window above it, and the wheel moves only that
      * window — the prompt, the status line and the panels stay put.

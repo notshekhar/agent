@@ -22,6 +22,7 @@ import { uiStyle } from "./ui/ui-mode";
 import { goalModeEngine } from "./goal-mode";
 import { maybeTitleSession } from "./session-title";
 import { dim, warn } from "./ui/text";
+import { formatBangContext, parseBangCommand, runBangCommand } from "./bang-command";
 
 /**
  * Whether the leading /token of an input maps to a registered slash command.
@@ -120,6 +121,35 @@ export function createTurnRunner(state: AppState, deps: AppDeps, ctx: CommandCon
             traceEvent("queue", `"${text}" (depth=${queuedMessages.length})`);
             renderPending();
             tui.requestRender();
+            return;
+        }
+
+        // `!<cmd>` runs a shell command here and now, and its output joins the
+        // conversation. Handled BEFORE slash commands and before the model,
+        // because `!` is a prefix on the line rather than a name to look up:
+        // there is no "unknown !command" to fall through to chat as prose.
+        const bang = parseBangCommand(text);
+        if (bang !== null) {
+            history.addCommand(`! ${bang}`);
+            tui.requestRender();
+            // No shellPath override: the setting shell.ts advertises is not
+            // wired to anything yet, and /shells resolves the shell the same
+            // bare way. One behaviour for both, until that key is real.
+            const result = await runBangCommand(bang, state.cwd, { signal: state.abort.signal });
+            if (result.spawnError) history.addError(result.spawnError);
+            else if (result.output.trim()) history.addSystem(result.output.trimEnd());
+            if (result.truncated) history.addSystem(`[output truncated]`);
+            if (!result.spawnError && result.exitCode !== null && result.exitCode !== 0) {
+                history.addSystem(`exited with code ${result.exitCode}`);
+            }
+            // The model sees it on the NEXT turn rather than now: `!` is the
+            // user doing something themselves, not asking for a reply, so it
+            // must not spend a turn. Appended, so several `!` lines in a row
+            // all survive to the message that finally follows them.
+            const ctxText = formatBangContext(bang, result);
+            state.pendingInjection = state.pendingInjection ? `${state.pendingInjection}\n\n${ctxText}` : ctxText;
+            tui.requestRender();
+            drainNext();
             return;
         }
 

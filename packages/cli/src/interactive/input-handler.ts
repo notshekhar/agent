@@ -34,7 +34,7 @@ import {
     isUp,
 } from "./keys";
 import { isKeyRelease } from "@notshekhar/loop-tui";
-import { activeUiMode, setLiveVariant } from "./ui/ui-mode";
+import { activeUiMode, getToolDetail, nextToolDetail, setLiveVariant, setToolDetail } from "./ui/ui-mode";
 import { copyToClipboard, readClipboardText } from "./clipboard";
 import { traceEvent } from "./debug-log";
 import { pickImageFile, readClipboardImageToFile } from "./clipboard-image";
@@ -97,8 +97,10 @@ function droppedAttachments(
     return { allowed: allowed.map((i) => i.path), rejected: rejected.map((i) => i.path) };
 }
 
-const SCROLLBACK_HINT =
-    "live · ↑/↓ select · shift+←/→ turn · →/← open/fold · Enter toggle · e all · wheel/PgUp scroll · y copy · ctrl+e/Esc exit";
+/** The navigation key hint. Carries the current density, since `d` cycles it
+ * and a cycle with no visible state is a key nobody trusts. */
+const scrollbackHint = (): string =>
+    `live · ↑/↓ select · shift+←/→ turn · →/← open/fold · Enter toggle · e all · d detail:${getToolDetail()} · wheel/PgUp scroll · y copy · ctrl+e/Esc exit`;
 
 export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandContext): InputListener {
     const { tui, history, queuedMessages, renderPending, hideWorking, cleanExit, editor, statusLine } = deps;
@@ -142,7 +144,7 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
         state.scrollbackFocus = true;
         setLive(true);
         history.setViewport(true);
-        statusLine.setHint(SCROLLBACK_HINT);
+        statusLine.setHint(scrollbackHint());
         // SGR mouse reporting, live-scoped: the wheel scrolls the window here;
         // outside it the terminal keeps native selection/copy behavior.
         tui.terminal.write("\x1b[?1006h\x1b[?1000h");
@@ -188,6 +190,26 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
                 tui.requestRender();
             }
         }, WHEEL_COALESCE_MS);
+    };
+
+    /**
+     * Move to the next density and persist it.
+     *
+     * `full` is not a style knob — it is the expand-all flag the transcript
+     * already owns, the same one `e` toggles — so it is applied here rather
+     * than resolved in the style spec. That keeps ONE mechanism for "everything
+     * is open" instead of two that can disagree; the cost is that pressing `e`
+     * afterwards can leave the two out of step, which is why leaving `full`
+     * closes everything again rather than trying to remember what `e` did.
+     */
+    const cycleToolDetail = (): void => {
+        const next = nextToolDetail();
+        setToolDetail(next);
+        settingsStore.set("toolDetail", next);
+        history.setToolsExpanded(next === "full");
+        history.invalidate();
+        statusLine.setHint(scrollbackHint());
+        tui.requestRender();
     };
 
     const copySelected = (): void => {
@@ -278,6 +300,13 @@ export function createInputHandler(state: AppState, deps: AppDeps, ctx: CommandC
         if (data === "e") {
             history.toggleToolsExpanded();
             tui.requestRender();
+            return { consume: true };
+        }
+        // d: cycle how much of a finished call the transcript shows. The
+        // density is the escape hatch for the rows receipts and peeks add —
+        // `compact` is the one-line-per-call look, `full` opens everything.
+        if (data === "d") {
+            cycleToolDetail();
             return { consume: true };
         }
         if (data === "y") {
