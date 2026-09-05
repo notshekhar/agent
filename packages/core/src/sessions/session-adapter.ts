@@ -139,6 +139,13 @@ export function adaptSessionEntry(raw: unknown): Entry | null {
                 tokensAfter: typeof obj.tokensAfter === "number" ? obj.tokensAfter : 0,
                 usage: obj.usage as UsageBlock | undefined,
                 ...(typeof obj.model === "string" ? { model: obj.model } : {}),
+                // handoff/rollover: a no-summary rollover keeps its whole recovery
+                // record here, so dropping them would rebuild the entry as an
+                // EMPTY summary — the fresh window would open on "compacted into
+                // the following summary:" and nothing. It also has to survive
+                // replaceEntries(), which rewrites every row from these objects.
+                ...(typeof obj.handoff === "string" ? { handoff: obj.handoff } : {}),
+                ...(obj.rollover === true ? { rollover: true as const } : {}),
                 ...tree,
             };
         case "branch-summary":

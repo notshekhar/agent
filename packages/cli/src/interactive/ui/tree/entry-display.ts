@@ -151,7 +151,8 @@ export function getEntryDisplayText(node: SessionTreeNode, isSelected: boolean, 
             break;
         case "compact": {
             const tokens = Math.round(entry.tokensBefore / 1000);
-            result = theme.fg("borderAccent", `[compaction: ${tokens}k tokens]`);
+            const label = entry.rollover || entry.handoff ? "fresh context" : "compaction";
+            result = theme.fg("borderAccent", `[${label}: ${tokens}k tokens]`);
             break;
         }
         case "branch-summary":

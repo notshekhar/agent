@@ -96,3 +96,22 @@ export async function runAfterTurn(ctx: TurnContext): Promise<void> {
         }
     }
 }
+
+/**
+ * Collect model-bound-only context from extensions. Joined with the hook
+ * layer's `additionalContext` and appended to the last user message of THIS
+ * turn's message array — never the transcript, so it cannot accumulate.
+ */
+export async function applyAdditionalContext(ctx: TurnContext): Promise<string> {
+    const out: string[] = [];
+    for (const m of middlewares()) {
+        if (!m.onAdditionalContext) continue;
+        try {
+            const text = await m.onAdditionalContext(ctx);
+            if (typeof text === "string" && text.trim()) out.push(text.trim());
+        } catch {
+            // Extra context is never worth failing a turn over.
+        }
+    }
+    return out.join("\n\n");
+}

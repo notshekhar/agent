@@ -48,6 +48,14 @@ import { formatSkillsForPrompt, loadProjectSkills, type Skill } from "./skills";
 import { extractImagesFromInput, filterAttachmentsByModalities } from "./images";
 import { CostTracker, stampUsageCost } from "./cost";
 import { runCompact } from "./compact";
+import {
+    clearContextBoundary,
+    decideContextAction,
+    setActiveBranch,
+    setContextBudget,
+    takeContextBoundary,
+} from "./context-policy";
+import { buildRolloverHandoff, MAX_HANDOFF_CHARS as MAX_EXPLICIT_HANDOFF_CHARS, MIN_USABLE_TOKENS } from "./rollover";
 import { runRecap, turnDeservesRecap } from "./recap";
 import { cancelRecap, scheduleRecap } from "./recap-schedule";
 import { runHooks, type HookOutcome } from "./hooks";
@@ -68,7 +76,9 @@ import {
 import { debugLog } from "../debug";
 import { getMcpManager, isMcpEnabled } from "../mcp";
 import { getExtensionHost } from "../extensions";
+import type { TurnContext } from "../extensions/api";
 import {
+    applyAdditionalContext,
     applyAssembleTools,
     applyProviderOptions,
     applySystemPrompt,
@@ -406,6 +416,8 @@ async function assembleTurnTools(
         model: extra.modelShortId,
         tools: Object.keys(toolsForTurn),
         isSubagent: false,
+        // Filled in once the context estimate runs; see TurnContext.contextUsed.
+        contextWindow: 0,
     };
     // Extension turn middleware may add/remove/wrap tools before the prompt is
     // built (so the tool list the model sees reflects any changes). No-op when no
@@ -487,6 +499,10 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
     // recap would end up sorting after, so the window has to be shut first.
     cancelRecap(session.id);
 
+    // Recovery tools (history) read conversation the model can no longer see,
+    // so they need the branch itself, not the model-bound context.
+    setActiveBranch(() => session.getBranch());
+
     // Persist user message verbatim (paths intact for reference in transcripts)
     await session.append({ type: "message", ts: Date.now(), role: "user", content: userInput });
 
@@ -505,7 +521,7 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
     const skillsEnabled = getSetting("skills") !== false && isTrusted(cwd);
     const skills = skillsEnabled ? await loadProjectSkills(cwd) : { skills: [], diagnostics: [], promptBlock: "" };
 
-    const { toolsForTurn, fullToolSet, turnContext, agentPrompt } = await assembleTurnTools(opts, {
+    const assembled = await assembleTurnTools(opts, {
         provider,
         modelShortId,
         workspaceContext: workspaceContext.text,
@@ -514,6 +530,9 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
         skillsPrompt: skills.promptBlock,
         skills: skills.skills,
     });
+    const { toolsForTurn, fullToolSet, agentPrompt } = assembled;
+    // Reassigned once the context estimate exists (see the threshold block).
+    let turnContext: TurnContext = assembled.turnContext;
     // System prompt is built AFTER the task tool decision so the model's tool
     // list matches reality, plus explicit delegation guidance when present.
     const subagentNote = "task" in toolsForTurn ? buildSubagentNote(listAgents().map((a) => a.name)) : "";
@@ -564,7 +583,59 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
     const threshold = getSetting("autoCompactThreshold") ?? 0.8;
     if (modelInfo) {
         const tokens = estimateContextTokens(session, contextOverheadTokens);
+        // Usage is only knowable here — the estimate needs the overhead of the
+        // final system prompt, which onSystemPrompt middleware just produced.
+        // Anything reading it earlier undercounts by the whole system block.
+        turnContext = { ...turnContext, contextUsed: tokens, contextWindow: modelInfo.contextWindow };
+        const rolloverAt = Math.floor(modelInfo.contextWindow * threshold);
+        setContextBudget({
+            used: tokens,
+            window: modelInfo.contextWindow,
+            rolloverAt,
+            supported: rolloverAt - contextOverheadTokens >= MIN_USABLE_TOKENS,
+        });
         if (tokens > modelInfo.contextWindow * threshold) {
+            const decision = await decideContextAction({
+                session,
+                modelId,
+                cwd,
+                usedTokens: tokens,
+                contextWindow: modelInfo.contextWindow,
+                overheadTokens: contextOverheadTokens,
+                thresholdTokens: Math.floor(modelInfo.contextWindow * threshold),
+                reason: "threshold",
+            });
+            if (decision.kind === "rollover") {
+                // No model call, so no spend and nothing to abort — the entry is
+                // the whole operation. Emitted through the same events as a
+                // compaction so every surface keeps one code path.
+                emitter.emit("compact-start", { reason: "auto", mode: "rollover" });
+                await runHooks(
+                    "PreCompact",
+                    "auto",
+                    { session_id: session.id, transcript_path: session.path, trigger: "rollover" },
+                    cwd,
+                );
+                const before = tokens;
+                await session.append({
+                    type: "compact",
+                    ts: Date.now(),
+                    summary: "",
+                    handoff: decision.handoff,
+                    rollover: true,
+                    cutAt: decision.cutAt,
+                    tokensBefore: before,
+                    tokensAfter: Math.ceil(decision.handoff.length / 4),
+                });
+                emitter.emit("compact-end", {
+                    summary: "",
+                    handoff: decision.handoff,
+                    mode: "rollover",
+                    cutAt: decision.cutAt,
+                    tokensBefore: before,
+                    tokensAfter: Math.ceil(decision.handoff.length / 4),
+                });
+            } else if (decision.kind === "summarize") {
             emitter.emit("compact-start", { reason: "auto" });
             // PreCompact is informational for watchers — block is ignored.
             await runHooks(
@@ -592,8 +663,13 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
                 }
                 throw err;
             }
+            }
         }
     }
+
+    // After the boundary decision, so a reminder reads the budget the fresh
+    // window actually has rather than the one that triggered the rollover.
+    const extensionContext = await applyAdditionalContext(turnContext);
 
     /**
      * The model-bound message array: the session's transcript plus the two
@@ -629,8 +705,13 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
         // Must target the *last* user message even when image extraction already
         // turned it into a parts array — falling through to an earlier message would
         // rewrite history and bust the prompt-cache prefix.
-        if (promptHooks.additionalContext) {
-            const ctxBlock = `<hook-context>\n${promptHooks.additionalContext}\n</hook-context>`;
+        // Extension-contributed context rides the same path: model-bound copy
+        // only, on the last user message. Computed once above (async), so a
+        // stream resume rebuilding messages reuses it rather than re-running
+        // middleware mid-turn.
+        const injected = [promptHooks.additionalContext, extensionContext].filter(Boolean).join("\n\n");
+        if (injected) {
+            const ctxBlock = `<hook-context>\n${injected}\n</hook-context>`;
             for (let i = messages.length - 1; i >= 0; i--) {
                 const m = messages[i];
                 if (m.role !== "user") continue;
@@ -1168,6 +1249,47 @@ export async function runTurn(opts: RunTurnOptions): Promise<void> {
             usage: edgeUsage ? stampUsageCost(modelId, edgeUsage) : undefined,
             model: modelId,
         });
+    }
+
+    // An explicit new_context lands HERE, not at persistChain: the interrupt
+    // and stream-edge entries above still append after that point, and a
+    // boundary committed before them would compute cutAt against an incomplete
+    // message list — leaving this turn's own final assistant message stranded
+    // above its own boundary. An aborted turn drops the request instead: the
+    // user pressed Ctrl+C, and throwing away their context is not what they
+    // asked for. The model can ask again next turn.
+    const boundary = takeContextBoundary();
+    if (boundary) {
+        if (abortSignal?.aborted) {
+            clearContextBoundary();
+        } else {
+            const messageCount = session.messages().length;
+            const handoff =
+                boundary.handoff?.trim() ||
+                buildRolloverHandoff(session.getBranch(), { limit: MAX_EXPLICIT_HANDOFF_CHARS }) ||
+                "";
+            if (handoff) {
+                emitter.emit("compact-start", { reason: "manual", mode: "rollover" });
+                await session.append({
+                    type: "compact",
+                    ts: Date.now(),
+                    summary: "",
+                    handoff,
+                    rollover: true,
+                    cutAt: messageCount,
+                    tokensBefore: estimateContextTokens(session, contextOverheadTokens),
+                    tokensAfter: Math.ceil(handoff.length / 4),
+                });
+                emitter.emit("compact-end", {
+                    summary: "",
+                    handoff,
+                    mode: "rollover",
+                    cutAt: messageCount,
+                    tokensBefore: estimateContextTokens(session, contextOverheadTokens),
+                    tokensAfter: Math.ceil(handoff.length / 4),
+                });
+            }
+        }
     }
 
     // Post-turn recap: only for turns that wrote/edited files, detached so the

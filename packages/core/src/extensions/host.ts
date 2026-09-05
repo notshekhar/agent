@@ -37,6 +37,14 @@ import { isCompatible, resolveEntry, resolvePkgDir } from "./manifest";
 import { collectProviderModelInfos } from "./providers";
 import { getBuiltinEnabled, listRecords, type ExtensionRecord } from "./store";
 import { BUILTIN_EXTENSIONS, getBuiltin, type BuiltinExtension } from "./builtin";
+import {
+    clearContextPolicy,
+    getContextPolicy,
+    readActiveBranch,
+    readContextBudget,
+    registerContextPolicy,
+    requestContextBoundary,
+} from "../agent/context-policy";
 
 type Tool = unknown; // ai-sdk Tool; kept loose here to avoid a hard ai import in the host
 type SlashCommand = import("../commands").SlashCommand;
@@ -87,6 +95,8 @@ interface Contributions {
     agents: AgentPlugin[];
     skillDirs: string[];
     turnMws: TurnMiddleware[];
+    /** Names of policies this extension registered — so unload can release them. */
+    contextPolicies: string[];
     statusContributors: StatusLineContributor[];
     statusTransforms: StatusLineTransform[];
 }
@@ -127,6 +137,7 @@ function emptyContributions(): Contributions {
         agents: [],
         skillDirs: [],
         turnMws: [],
+        contextPolicies: [],
         statusContributors: [],
         statusTransforms: [],
     };
@@ -355,6 +366,15 @@ export class ExtensionHost {
             agents: { register: (agent) => c.agents.push(agent) },
             skills: { addDir: (dir) => c.skillDirs.push(dir) },
             turn: { use: (mw) => c.turnMws.push(mw) },
+            context: {
+                registerPolicy: (policy) => {
+                    c.contextPolicies.push(policy.name);
+                    registerContextPolicy(policy);
+                },
+                requestBoundary: (handoff) => requestContextBoundary(handoff),
+                read: () => readContextBudget(),
+                branch: () => readActiveBranch(),
+            },
             statusLine: {
                 add: (fn) => c.statusContributors.push(fn),
                 transform: (fn) => c.statusTransforms.push(fn),
@@ -372,6 +392,10 @@ export class ExtensionHost {
         } catch (err) {
             this.warn(name, `extension "${name}" deactivate threw: ${(err as Error).message}`);
         }
+        // A context policy is global singleton state, not a list the host
+        // filters on read — so unloading its owner has to release it explicitly
+        // or a disabled extension keeps owning the context boundary.
+        if (l.contributions.contextPolicies.includes(getContextPolicy()?.name ?? "")) clearContextPolicy();
         this.loaded.delete(name);
         this.statusFns.delete(name);
     }

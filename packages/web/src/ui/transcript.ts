@@ -326,7 +326,7 @@ export function renderEntry(entry: any): void {
             "</pre>";
     } else if (entry.type === "compact") {
         addNote(
-            "compacted: " +
+            (entry.rollover || entry.handoff ? "fresh context: " : "compacted: ") +
                 Math.round(entry.tokensBefore / 1000) +
                 "k to " +
                 Math.round(entry.tokensAfter / 1000) +

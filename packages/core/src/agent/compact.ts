@@ -14,6 +14,34 @@ export const COMPACTION_SUMMARY_PREFIX = `The conversation history before this p
 export const COMPACTION_SUMMARY_SUFFIX = `
 </summary>`;
 
+/**
+ * Opens a rollover's replacement block. A rollover starts a fresh window with
+ * no summary at all, so the model is told three things it cannot infer: the
+ * earlier conversation is recoverable rather than lost, the record below is
+ * inputs and not progress, and live state must be re-checked before acting on
+ * it. Kept next to the summary constants because both are read by
+ * compactedContextEntries and measured by estimateContextTokens.
+ */
+export const ROLLOVER_PREAMBLE = `A fresh context window starts here. The conversation before this point left your active context WITHOUT a summary. It is intact in this session and recoverable with the history tool.
+
+What follows is a recovery record of inputs and state — NOT a record of progress. The previous window may already have finished some or all of its work. Restore the todo list, read the notes it names, and verify live state before continuing any stateful or external work.
+
+<handoff>`;
+export const ROLLOVER_SUFFIX = `
+</handoff>`;
+
+/** The replacement block a compaction or rollover puts at the head of the window. */
+export function compactionBlockText(entry: { summary: string; handoff?: string }): string {
+    return entry.handoff
+        ? `${ROLLOVER_PREAMBLE}\n${entry.handoff}${ROLLOVER_SUFFIX}`
+        : `${COMPACTION_SUMMARY_PREFIX}${entry.summary}${COMPACTION_SUMMARY_SUFFIX}`;
+}
+
+/** Body text for display surfaces — the handoff on a rollover, else the summary. */
+export function compactionBodyText(entry: { summary: string; handoff?: string }): string {
+    return entry.handoff ?? entry.summary;
+}
+
 const COMPACT_PROMPT = `You are summarizing a developer's coding session. Produce a dense factual summary that preserves:
 - User intent across the segment.
 - Files touched (paths + nature of edits).
@@ -41,7 +69,9 @@ export function latestCompactEntry(session: Session) {
 function latestCompact(session: Session) {
     // Path-based: a compaction on an abandoned branch must not apply after
     // /tree navigation moved the leaf elsewhere.
-    let latest: { summary: string; cutAt: number; ts: number; tokensBefore: number; tokensAfter: number } | undefined;
+    let latest:
+        | { summary: string; cutAt: number; ts: number; tokensBefore: number; tokensAfter: number; handoff?: string; rollover?: true }
+        | undefined;
     for (const entry of session.getBranch()) {
         if (entry.type === "compact") latest = entry;
     }
@@ -59,8 +89,7 @@ export function compactedContextMessages(
     const compact = latestCompact(session);
     if (!compact) return messages;
 
-    const summary = `${COMPACTION_SUMMARY_PREFIX}${compact.summary}${COMPACTION_SUMMARY_SUFFIX}`;
-    return [{ role: "user", content: summary }, ...messages.slice(compact.cutAt)];
+    return [{ role: "user", content: compactionBlockText(compact) }, ...messages.slice(compact.cutAt)];
 }
 
 export type ContextEntry =
@@ -104,17 +133,19 @@ export function compactedContextEntries(session: Session): ContextEntry[] {
     }
     if (compact) {
         if (preCutTodos && hasActiveTodos(preCutTodos)) {
+            // Load-bearing under a rollover: with no summary to carry state, the
+            // checklist is the main thing that survives the boundary.
+            const where = compact.handoff ? "the context rollover above" : "the compaction above";
             out.unshift({
                 kind: "message",
                 role: "user",
                 content:
-                    "Your todo checklist was active before the compaction above. Current list:\n" +
+                    `Your todo checklist was active before ${where}. Current list:\n` +
                     `${formatTodoList(preCutTodos)}\n` +
                     "Keep maintaining it with the todo tool — resend the full list, updated, as you make progress.",
             });
         }
-        const summary = `${COMPACTION_SUMMARY_PREFIX}${compact.summary}${COMPACTION_SUMMARY_SUFFIX}`;
-        out.unshift({ kind: "message", role: "user", content: summary });
+        out.unshift({ kind: "message", role: "user", content: compactionBlockText(compact) });
     }
     return out;
 }

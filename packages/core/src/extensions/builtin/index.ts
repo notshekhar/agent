@@ -13,6 +13,7 @@ import caveman from "./caveman/index";
 import wayfinder from "./wayfinder/index";
 import rtk from "./rtk/index";
 import statuslineThemes from "./statusline-themes/index";
+import relay from "./relay/index";
 
 export interface BuiltinExtension {
     name: string;
@@ -59,6 +60,14 @@ export const BUILTIN_EXTENSIONS: BuiltinExtension[] = [
         displayName: "RTK Token Optimizer",
         description: "Rewrites bash commands to compress output 60-90% (needs the rtk binary). /rtk",
         module: rtk,
+        defaultEnabled: false,
+    },
+    {
+        name: "relay",
+        displayName: "Relay",
+        description:
+            "Context windows without summaries — rolls over to a fresh window and carries your inputs, todos, files touched and unconsumed tool results across. Adds new_context, get_context_remaining and history. /relay",
+        module: relay,
         defaultEnabled: false,
     },
     {

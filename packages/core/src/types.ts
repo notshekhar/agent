@@ -318,6 +318,7 @@ export type Entry = EntryTreeFields &
         // real billed spend (source of the once-unbilled compact bug).
         | {
               type: "compact";
+              /** Empty on a rollover — `handoff` carries the replacement block instead. */
               summary: string;
               cutAt: number;
               ts: number;
@@ -325,6 +326,15 @@ export type Entry = EntryTreeFields &
               tokensAfter: number;
               usage?: UsageBlock;
               model?: string;
+              /** Set by a no-summary rollover: a mechanically-built recovery
+               * record (inputs, todos, files touched, unconsumed tool results)
+               * that replaces the summary block in the fresh window. Built with
+               * no model call, so a rollover entry carries no usage/cost. */
+              handoff?: string;
+              /** Discriminates a rollover from a summarizing compaction for UI
+               * and the context report. Implied by `handoff`, explicit so a
+               * reader never has to infer it from an empty summary. */
+              rollover?: true;
           }
         | { type: "branch-summary"; summary: string; ts: number; fromId?: string; usage?: UsageBlock; model?: string }
         | { type: "label"; targetId: string; label?: string; ts: number }

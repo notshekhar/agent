@@ -602,6 +602,8 @@ export interface CompactionSummaryLike {
     summary: string;
     tokensBefore: number;
     timestamp?: number;
+    /** A rollover's recovery record — shown in place of the (empty) summary. */
+    handoff?: string;
 }
 
 export class CompactionSummaryMessageComponent extends Box {
@@ -628,12 +630,19 @@ export class CompactionSummaryMessageComponent extends Box {
     private updateDisplay(): void {
         this.clear();
         const tokenStr = this.message.tokensBefore.toLocaleString();
-        this.addChild(new Text(theme.fg("customMessageLabel", "\x1b[1m[compaction]\x1b[22m"), 0, 0));
+        // A rollover has no summary at all — labelling it "compaction" and
+        // rendering its empty summary would show a blank box above a window
+        // whose history the user can still scroll to.
+        const rollover = Boolean(this.message.handoff);
+        const label = rollover ? "[fresh context]" : "[compaction]";
+        const lead = rollover ? `Fresh window from ${tokenStr} tokens` : `Compacted from ${tokenStr} tokens`;
+        const body = this.message.handoff ?? this.message.summary;
+        this.addChild(new Text(theme.fg("customMessageLabel", `\x1b[1m${label}\x1b[22m`), 0, 0));
         this.addChild(new Spacer(1));
         if (this.expanded) {
             this.addChild(
                 new Markdown(
-                    `**Compacted from ${tokenStr} tokens**\n\n${this.message.summary}`,
+                    `**${lead}**\n\n${body}`,
                     0,
                     0,
                     this.markdownTheme,
@@ -645,7 +654,7 @@ export class CompactionSummaryMessageComponent extends Box {
         } else {
             this.addChild(
                 new Text(
-                    theme.fg("customMessageText", `Compacted from ${tokenStr} tokens (`) +
+                    theme.fg("customMessageText", `${lead} (`) +
                         theme.fg("dim", expandHint()) +
                         theme.fg("customMessageText", " to expand)"),
                     0,

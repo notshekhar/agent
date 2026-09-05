@@ -84,7 +84,12 @@ export function renderSessionBranch(
         boundaryDrawn = true;
         flushSubagents(); // buffered task boxes belong above the line
         if (latestCompact) {
-            history.addCompactionSummary(latestCompact.summary, latestCompact.tokensBefore, latestCompact.ts);
+            history.addCompactionSummary(
+                latestCompact.summary,
+                latestCompact.tokensBefore,
+                latestCompact.ts,
+                latestCompact.handoff,
+            );
         }
     };
 

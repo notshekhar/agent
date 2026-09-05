@@ -87,7 +87,10 @@ function branchEntryToText(e: Entry): string | null {
         case "subagent":
             return `[subagent ${e.agent}] ${e.result}`;
         case "compact":
-            return `[compaction summary] ${e.summary}`;
+            // A rollover has no summary; its handoff is the record of the window.
+            return e.rollover || e.handoff
+                ? `[context rollover] ${e.handoff ?? ""}`
+                : `[compaction summary] ${e.summary}`;
         case "branch-summary":
             return `[branch summary] ${e.summary}`;
         default:

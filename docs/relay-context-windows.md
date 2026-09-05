@@ -1,8 +1,19 @@
 # Draft: Relay — no-summary context windows
 
-Not started. This is the pickup point: everything below was verified against
-the working tree on 2026-09-05, including the traps, so implementation can
-start from section 3 without re-deriving anything.
+**Phases 1-3 are BUILT** (2026-09-05). Relay ships as the seventh builtin
+extension, `defaultEnabled: false` — enable it in `/extensions` or with
+`/relay`. Phase 4 (mid-turn rollover) is still open; section 8 has it.
+
+Two deviations from this plan, both deliberate:
+
+- **The extension API is `0.3.1`, not `0.4.0`.** Every change is additive and
+  an extension only ever READS `TurnContext`, so nothing breaks — but while the
+  API is 0.x the minor must match, so a minor bump would have stopped every
+  installed `^0.3` extension from loading for a change that breaks none of them.
+- **`api.context.branch()` was added** and is not in the original plan. The
+  `history` tool has to read entries the model can no longer see, and there was
+  no seam for that; reaching through the AI SDK's tool-execution context was
+  the alternative and it is not a supported surface.
 
 Prior art: OpenAI Codex `0.146.0` ships `new_context` + `get_context_remaining`
 natively (`core/src/tools/handlers/new_context_window.rs`), and

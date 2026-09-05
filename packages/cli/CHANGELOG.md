@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **Relay: context windows without summaries.** A new built-in extension (off by default — turn it on in `/extensions` or with `/relay`). At the context threshold loop normally spends a full model call summarizing the conversation, at the moment context is fullest. Relay starts a fresh window instead and carries a recovery record built from the transcript: every request you made in the window, the todo list as it stands, the files it touched, the commands it ran, and any tool results that arrived too late for the model to read. No model call, so it is free, cannot invent a summary that never happened, and works when the summarizer is unreachable. The old conversation is not deleted — it stays in the session, and a `history` tool searches and reads it, pages against what context is actually left, and puts real matches ahead of its own echoes. `new_context` starts a fresh window on demand, `get_context_remaining` reports the budget, and one best-effort checkpoint reminder arrives before the line.
+- **`api.context` for extensions** (API `0.3.1`, additive): own the context boundary with `registerPolicy`, ask for a fresh window with `requestBoundary`, read the live budget with `read()`, and reach entries that have left the model's context with `branch()`. `TurnContext` gains `contextWindow` and `contextUsed`, and `onAdditionalContext` contributes text to one turn's request without it ever entering the transcript.
+
 ## [0.19.28] - 2026-09-05
 
 ### Fixed

@@ -354,6 +354,9 @@ interface TranscriptEntry {
     content?: unknown;
     agent?: string;
     summary?: string;
+    /** A rollover carries its recovery record here instead of a summary. */
+    handoff?: string;
+    rollover?: true;
 }
 
 function entryText(content: unknown): string {
@@ -402,7 +405,8 @@ export function sessionTranscriptMessages(
     const out: string[] = [header];
     for (const e of shown) {
         if (e.type === "compact") {
-            out.push(`<i>[context compacted]</i>\n${escapeHtml(truncate(e.summary?.trim() ?? "", 500))}`);
+            const label = e.rollover || e.handoff ? "fresh context window" : "context compacted";
+            out.push(`<i>[${label}]</i>\n${escapeHtml(truncate((e.handoff ?? e.summary)?.trim() ?? "", 500))}`);
             continue;
         }
         if (e.type === "subagent") {

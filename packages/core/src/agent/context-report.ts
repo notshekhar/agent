@@ -175,6 +175,7 @@ export async function buildContextReport(opts: {
         model,
         tools: toolNames,
         isSubagent: false,
+        contextWindow: 0,
     });
     const systemBaseTokens = chars4(systemBase.length);
     const systemFinalTokens = chars4(systemFinal.length);

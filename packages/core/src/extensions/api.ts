@@ -9,10 +9,32 @@ import type { Tool } from "ai";
 import type { LanguageModel } from "ai";
 import type { SlashCommand } from "../commands";
 import type { AppSettings } from "../settings";
-import type { ModelInfo } from "../types";
+import type { Entry, ModelInfo } from "../types";
+import type { ContextPolicy } from "../agent/context-policy";
 
-/** Current extension API version — bumped on breaking changes to this surface. */
-export const EXTENSION_API_VERSION = "0.3.0";
+/**
+ * Current extension API version — bumped on breaking changes to this surface.
+ *
+ * 0.3.1 added `api.context` (policy/boundary/budget/branch), `TurnContext`'s
+ * context fields and `onAdditionalContext`. All additive: an extension written
+ * against 0.3.0 only ever READS TurnContext, so it keeps working. A minor bump
+ * would have been wrong here — while the API is 0.x the minor must match, so
+ * 0.4.0 would have stopped every installed `^0.3` extension from loading for a
+ * change that breaks none of them.
+ */
+export const EXTENSION_API_VERSION = "0.3.1";
+
+/** The live context budget, as `api.context.read()` reports it. */
+export interface ContextBudget {
+    /** Estimated tokens in context, including system prompt and tool schemas. */
+    used: number;
+    /** The model's context window. */
+    window: number;
+    /** Where core's compaction/rollover line sits (window × autoCompactThreshold). */
+    rolloverAt: number;
+    /** False when the window is too small to hold a handoff plus working room. */
+    supported: boolean;
+}
 
 /** The product-named section of an extension's package.json (see EXTENSION_MANIFEST_KEYS). */
 export interface ExtensionManifestSection {
@@ -78,6 +100,19 @@ export interface TurnContext {
     tools: string[];
     /** True inside a task subagent run. */
     isSubagent: boolean;
+    /** The model's context window in tokens; 0 when the catalog doesn't know it. */
+    contextWindow: number;
+    /**
+     * Estimated tokens in context, INCLUDING the system prompt and tool schemas.
+     *
+     * Undefined for seams that run before the overhead is known — which is every
+     * seam up to and including `onSystemPrompt`, because the estimate needs the
+     * final system prompt that `onSystemPrompt` itself produces. Reading a
+     * number here earlier would undercount by the whole system block (10-20k
+     * tokens with workspace context and skills loaded). Only
+     * `onAdditionalContext` sees it populated.
+     */
+    contextUsed?: number;
 }
 
 /** TurnContext plus the live tool call, for tool-level hooks. */
@@ -249,6 +284,14 @@ export interface TurnMiddleware {
     ): Record<string, Tool> | void | Promise<Record<string, Tool> | void>;
     /** Tweak provider options (thinking/caching) before the model call. */
     onProviderOptions?(opts: unknown, ctx: TurnContext): unknown | void;
+    /**
+     * Contribute text to the model-bound copy of this turn only — it rides the
+     * last user message and never enters the transcript, the same path
+     * SessionStart hook context uses. The seam for anything that must be true
+     * *now* rather than for the whole session: a budget reminder, a live
+     * status. Runs after the context estimate, so `ctx.contextUsed` is set.
+     */
+    onAdditionalContext?(ctx: TurnContext): string | void | Promise<string | void>;
     /** Observe turn completion. */
     onAfterTurn?(ctx: TurnContext): void | Promise<void>;
 }
@@ -495,6 +538,27 @@ export interface ExtensionAPI {
     agents: { register(agent: AgentPlugin): void };
     skills: { addDir(dir: string): void };
     turn: { use(mw: TurnMiddleware): void };
+    /**
+     * Own what happens when a turn crosses the context threshold. Core
+     * summarizes when no policy is registered, so this is opt-in and
+     * single-owner: the first policy wins and later ones are ignored with a
+     * warning, because load order silently deciding the boundary is a bug you
+     * cannot see.
+     */
+    context: {
+        registerPolicy(policy: ContextPolicy): void;
+        /** Request a fresh window; committed after the turn's entries land. */
+        requestBoundary(handoff?: string): void;
+        /** The live budget, or undefined before the first estimate of a turn. */
+        read(): ContextBudget | undefined;
+        /**
+         * The running turn's session branch — including entries a rollover or
+         * compaction removed from the model's context, which is the point: it
+         * is how a recovery tool reaches conversation the model can no longer
+         * see. Empty outside a turn.
+         */
+        branch(): readonly Entry[];
+    };
     /** Customize the status line under the input box. */
     statusLine: {
         /** Append segment(s) to a row. */

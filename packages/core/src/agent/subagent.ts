@@ -480,6 +480,7 @@ async function runSubagent(
                 model: subModel,
                 tools: Object.keys(subTools),
                 isSubagent: true,
+                contextWindow: 0,
             },
         });
         const maxSteps = getSetting("subagentMaxSteps") || 50;

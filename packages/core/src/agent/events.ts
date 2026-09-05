@@ -30,8 +30,18 @@ export interface TurnEvents {
     "attached-images": string[];
     "hook-message": string;
     "hook-terminal-sequence": string;
-    "compact-start": { reason: string };
-    "compact-end": { summary: string; cutAt: number; tokensBefore: number; tokensAfter?: number; aborted?: boolean };
+    // mode: "rollover" starts a fresh window with no summary and no model
+    // call, so its end event carries a handoff and never a usage/cost.
+    "compact-start": { reason: string; mode?: "summary" | "rollover" };
+    "compact-end": {
+        summary: string;
+        cutAt: number;
+        tokensBefore: number;
+        tokensAfter?: number;
+        aborted?: boolean;
+        handoff?: string;
+        mode?: "summary" | "rollover";
+    };
     "step-usage": { usage: UsageBlock; breakdown: CostBreakdown };
     /**
      * The stream died on a transient provider failure and the turn is

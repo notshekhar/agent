@@ -61,9 +61,10 @@ export function sessionToMarkdown(session: Session): string {
             lines.push(String((e as { result?: unknown }).result ?? "").trim());
             lines.push("");
         } else if (e.type === "compact") {
-            lines.push("## [context compacted]");
+            const c = e as { summary?: string; handoff?: string; rollover?: true };
+            lines.push(c.rollover || c.handoff ? "## [fresh context window]" : "## [context compacted]");
             lines.push("");
-            lines.push((e as { summary?: string }).summary?.trim() ?? "");
+            lines.push((c.handoff ?? c.summary)?.trim() ?? "");
             lines.push("");
         }
     }
