@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.20.2] - 2026-09-06
+
+### Fixed
+
+- **The terminal panel now works beyond the first one, and on Linux.** Three faults, all in the same direction — silence rather than an error. The winsize ioctls are not the same number on every platform: BSD encodes the struct into the request, Linux uses small constants, and using the BSD pair on Linux left `resize` returning success while doing nothing, so a panel kept wrapping at its old width forever. Worse, output was read through a stream, and a read on a pty master blocks until the child writes — libuv serves those from a pool of four threads, so every terminal opened permanently consumed one and the third or fourth simply received nothing. Reading now asks `poll(2)` whether anything is waiting before reading, which blocks nothing and holds no thread, and writes go straight to the descriptor so they can no longer be reordered into `ech` + `o`.
+
 ## [0.20.1] - 2026-09-06
 
 ### Added

@@ -7,24 +7,39 @@
  * that constraint and by three further Bun facts, each marked at its site.
  */
 import { dlopen, FFIType, ptr, suffix } from "bun:ffi";
-import { createReadStream } from "node:fs";
-import { write as fsWrite, close as fsClose } from "node:fs";
 
 /** `struct winsize { unsigned short ws_row, ws_col, ws_xpixel, ws_ypixel; }` */
 function winsize(rows: number, cols: number): Uint16Array {
     return new Uint16Array([Math.max(1, rows), Math.max(1, cols), 0, 0]);
 }
 
-// _IOR('t', 104, struct winsize) / _IOW('t', 103, struct winsize). Same values
-// on macOS and Linux.
-const TIOCGWINSZ = 0x40087468n;
-const TIOCSWINSZ = 0x80087467n;
+/**
+ * The winsize ioctls, which are NOT the same number on every platform.
+ *
+ * BSD (macOS included) encodes direction and struct size into the request:
+ * _IOR('t', 104, struct winsize) and _IOW('t', 103, …). Linux uses small fixed
+ * constants instead. Getting this wrong is silent — the call still returns 0,
+ * it just acts on nothing — so a terminal keeps wrapping at its old width with
+ * no error anywhere.
+ */
+const LINUX = process.platform === "linux";
+const TIOCGWINSZ = LINUX ? 0x5413n : 0x40087468n;
+const TIOCSWINSZ = LINUX ? 0x5414n : 0x80087467n;
 
 type PtyLib = {
     openpty(amaster: unknown, aslave: unknown, name: unknown, termp: unknown, winp: unknown): number;
     ioctl(fd: number, request: bigint, arg: unknown): number;
     ioctlPadded(fd: number, request: bigint, ...rest: unknown[]): number;
+    poll(fds: unknown, nfds: bigint, timeout: number): number;
+    read(fd: number, buf: unknown, count: bigint): bigint;
+    write(fd: number, buf: unknown, count: bigint): bigint;
+    close(fd: number): number;
 };
+
+/** poll(2) readiness bit, and how often we look for output. */
+const POLLIN = 1;
+const READ_INTERVAL_MS = 8;
+const READ_BUFFER_BYTES = 65536;
 
 let lib: PtyLib | undefined;
 let libError: string | undefined;
@@ -71,12 +86,20 @@ function loadLib(): PtyLib | undefined {
                     returns: FFIType.int,
                 },
                 ioctl: { args: IOCTL_PLAIN as never, returns: FFIType.int },
+                poll: { args: [FFIType.ptr, FFIType.u64, FFIType.int], returns: FFIType.int },
+                read: { args: [FFIType.int, FFIType.ptr, FFIType.u64], returns: FFIType.i64 },
+                write: { args: [FFIType.int, FFIType.ptr, FFIType.u64], returns: FFIType.i64 },
+                close: { args: [FFIType.int], returns: FFIType.int },
             });
             const padded = dlopen(name, { ioctl: { args: IOCTL_PADDED as never, returns: FFIType.int } });
             lib = {
                 openpty: plain.symbols.openpty as PtyLib["openpty"],
                 ioctl: plain.symbols.ioctl as PtyLib["ioctl"],
                 ioctlPadded: padded.symbols.ioctl as PtyLib["ioctlPadded"],
+                poll: plain.symbols.poll as PtyLib["poll"],
+                read: plain.symbols.read as PtyLib["read"],
+                write: plain.symbols.write as PtyLib["write"],
+                close: plain.symbols.close as PtyLib["close"],
             };
             return lib;
         } catch {
@@ -119,8 +142,8 @@ function probeIoctlForm(l: PtyLib): void {
         }
         paddedIoctl = false;
     } finally {
-        fsClose(master[0], () => {});
-        fsClose(slave[0], () => {});
+        l.close(master[0]);
+        l.close(slave[0]);
     }
 }
 
@@ -183,43 +206,54 @@ export function spawnPty(options: PtyOptions): Pty {
         },
     });
 
-    // Read through node:fs (libuv's threadpool), never a synchronous FFI read in
-    // a poll loop: that starves process.stdin, and Bun silently stops delivering
-    // keystrokes to the app itself.
-    // autoClose so the stream closes the master itself, once its in-flight read
-    // has finished. Closing the fd by hand while a threadpool read is still
-    // outstanding lets the NEXT openpty be handed the same fd number — and the
-    // dead reader then steals that new terminal's output. It surfaces as a
-    // terminal that intermittently shows nothing, only after another one was
-    // closed, which is close to unfindable from the symptom.
-    const reader = createReadStream("", { fd: masterFd, autoClose: true, highWaterMark: 64 * 1024 });
-    reader.on("data", (chunk: Buffer | string) => {
-        const text = typeof chunk === "string" ? chunk : chunk.toString("utf8");
-        for (const fn of dataFns) fn(text);
-    });
-    // EIO on the master is the normal end of a pty once the child is gone.
-    reader.on("error", () => {});
+    // The parent's copy of the slave is closed as soon as the child has it.
+    // Holding it open means the master never sees EOF when the child exits.
+    l.close(slaveFd);
 
-    // Writes are queued and drained one at a time: concurrent async writes to
-    // the master reorder, which scrambles multi-chunk input ("echo" arriving as
-    // "ech" + "o").
-    let writing = false;
-    const queue: string[] = [];
-    const drain = (): void => {
-        if (writing || queue.length === 0 || exited) return;
-        writing = true;
-        const next = Buffer.from(queue.shift() ?? "", "utf8");
-        fsWrite(masterFd, next, 0, next.length, null, () => {
-            writing = false;
-            drain();
-        });
-    };
+    /**
+     * Output is polled, not streamed.
+     *
+     * The obvious implementation — a node:fs read stream on the master — works
+     * for exactly one terminal. A read on a pty master blocks until the child
+     * writes something, and libuv serves those from a fixed threadpool of four,
+     * so each open terminal permanently occupies a thread and the third or
+     * fourth one silently receives nothing. (`net.Socket` on the fd, the usual
+     * way around this, delivers no data at all under Bun.)
+     *
+     * So: ask poll(2) whether there is anything to read, and only then read,
+     * which never blocks and holds no thread. The interval yields to the event
+     * loop between passes, which is what keeps this from starving the app's own
+     * stdin the way a tight FFI read loop would.
+     */
+    const pollFd = new Int32Array(2); // struct pollfd { int fd; short events; short revents; }
+    const readBuf = Buffer.alloc(READ_BUFFER_BYTES);
+    const pump = setInterval(() => {
+        // Drain what is ready, but bounded: a chatty child must not keep the
+        // loop here indefinitely and stall rendering.
+        for (let i = 0; i < 32; i++) {
+            pollFd[0] = masterFd;
+            pollFd[1] = POLLIN;
+            if (l.poll(ptr(pollFd), 1n, 0) <= 0) break;
+            const n = Number(l.read(masterFd, ptr(readBuf), BigInt(READ_BUFFER_BYTES)));
+            if (n <= 0) break; // EOF, or EAGAIN on a spurious wakeup
+            const text = readBuf.subarray(0, n).toString("utf8");
+            for (const fn of dataFns) fn(text);
+        }
+    }, READ_INTERVAL_MS);
 
     return {
         write(data: string) {
             if (exited) return;
-            queue.push(data);
-            drain();
+            // Synchronous, so writes cannot reorder — the async fs.write path
+            // this replaces could deliver "echo" as "ech" + "o". Partial writes
+            // are looped over rather than assumed away.
+            const buf = Buffer.from(data, "utf8");
+            let off = 0;
+            while (off < buf.length) {
+                const n = Number(l.write(masterFd, ptr(buf.subarray(off)), BigInt(buf.length - off)));
+                if (n <= 0) break; // pty gone, or would block; drop the rest
+                off += n;
+            }
         },
         resize(r: number, c: number) {
             if (exited) return;
@@ -233,10 +267,11 @@ export function spawnPty(options: PtyOptions): Pty {
             } catch {
                 // already gone
             }
-            // Closes masterFd for us, safely (see the stream's construction).
-            reader.destroy();
-            // Nothing reads the slave; the child holds its own duplicates.
-            fsClose(slaveFd, () => {});
+            // Stop polling BEFORE closing the fd: reads are synchronous and
+            // only happen inside this timer, so once it is cleared nothing can
+            // touch the descriptor and closing it is safe.
+            clearInterval(pump);
+            l.close(masterFd);
         },
         get exited() {
             return exited;
