@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.20.1] - 2026-09-06
+
+### Added
+
+- **Lua scripting.** Drop a `.lua` file into `~/.loop/lua/` and it runs at startup — no package, no `npm install`, no build step, the way a Neovim or wezterm config works. It is real Lua 5.4, embedded in the binary, and it exists because the extension system asks for a package for things that should be a file: a status-line segment, a shortcut, a bit of glue nobody will publish. Enable it with `loop enable lua`; `/lua` lists what loaded and where anything failed, and `/reload` re-runs them live. Scripts get slash commands, status-line segments, timers, subprocesses, settings, and `require` for splitting a script across files. `io`, `os`, `package` and `debug` are not in the sandbox, each VM has a 32 MB ceiling and a 250 ms per-call timeout, so a runaway script raises instead of taking the session with it — guardrails against mistakes, not a security boundary, which is why only your own `~/.loop/lua` is ever loaded and nothing project-local is.
+- **Widgets, and panels docked to the bottom.** A widget is a table with `render(width)`: it draws over the chat at any of nine anchors, may take the keyboard or leave you typing underneath, and can size itself to the whole terminal. A dock instead takes rows *from* the transcript, VS Code's bottom panel, so nothing is covered. Both are on the extension API too (`api.widgets`, `api.docks`), so TypeScript extensions can open windows — which they could not do before.
+- **A terminal in a panel.** `loop.term.open{}` runs a real shell in a dock: a pty, a terminal emulator interpreting its output, and its own cursor. Everything you type goes to the shell, including `ctrl+c`, which interrupts the command rather than loop — keys you bound in Lua still come through, which is how you close it again.
+- **Mouse events, and dragging.** A widget's `on_mouse` receives presses, drags and releases with both widget-local and absolute coordinates. Dragging is about ten lines of Lua and loop ships no drag API at all: it routes the event, the script decides what it means. Declining an event leaves the terminal's own text selection working.
+- **`api.keymap` and `api.screen`.** Global key bindings that see a key before the editor, and the terminal's size in cells — `render(width)` is told how wide it may draw but never how tall, which anything filling the screen needs to know.
+
+### Fixed
+
+- **`/reload` now reloads extensions.** It re-applied their slash commands but never re-ran the extensions themselves, so an edited extension — a Lua script above all — needed a restart to take effect.
+
 ## [0.20.0] - 2026-09-06
 
 ### Added

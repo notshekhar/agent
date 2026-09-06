@@ -193,6 +193,19 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
     private readonly implicitScrollView: ScrollView;
     /** Which mouse-tracking sequence this terminal got; re-asserted after start. */
     private mouseSequence = "";
+
+    /**
+     * loop-local (keep across pi-mono syncs): first refusal on a mouse event.
+     *
+     * Extension widgets are overlays the viewport knows nothing about, so they
+     * need to claim a click before it becomes a text selection, a scrollbar
+     * drag or a link activation. Returning true consumes the event, which is
+     * also what suppresses all of the above — the same bargain
+     * handleScrollbarMouseEvent already makes when it captures a drag.
+     *
+     * Coordinates are as reported: 1-based.
+     */
+    private mouseInterceptor: ((event: SgrMouseEvent) => boolean) | undefined;
     /** Wheel-up is dropped until this instant (see WHEEL_YIELDS_TO_KEYBOARD_MS). */
     private wheelHoldUntil = 0;
     private readonly flashes: AltScreenFlashContainer;
@@ -292,6 +305,13 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
         const text = this.getActiveSelectionText();
         if (!text) return false;
         return this.copyTextToClipboard(text);
+    }
+
+    /** See {@link mouseInterceptor}. Pass undefined to remove it. */
+    setMouseInterceptor(
+        fn: ((event: { button: number; x: number; y: number; release: boolean }) => boolean) | undefined,
+    ): void {
+        this.mouseInterceptor = fn;
     }
 
     setLayoutRoot(component: Component | undefined): void {
@@ -663,6 +683,7 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
         }
         const mouseEvent = this.parseSgrMouseEvent(data);
         if (mouseEvent) {
+            if (this.mouseInterceptor?.(mouseEvent)) return { consume: true };
             if (this.handleRightClickPaste(mouseEvent)) return { consume: true };
             const handled = this.handleScrollbarMouseEvent(mouseEvent);
             if (!this.scrollbarDrag) this.updateScrollbarHover(mouseEvent.x, mouseEvent.y);

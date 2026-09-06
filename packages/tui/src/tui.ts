@@ -186,6 +186,17 @@ export interface OverlayUnfocusOptions {
 /**
  * Handle returned by showOverlay for controlling the overlay
  */
+/**
+ * Where an overlay was last painted, in screen coordinates (0-based, row 0 =
+ * the top visible row). See {@link TUIBase.hitTestOverlay}.
+ */
+export interface OverlayRect {
+    row: number;
+    col: number;
+    width: number;
+    height: number;
+}
+
 export interface OverlayHandle {
     /** Permanently remove the overlay (cannot be shown again) */
     hide(): void;
@@ -394,6 +405,17 @@ export abstract class TuiBase extends Container implements TUI {
     // Overlay stack for modal components rendered on top of base content
     private focusOrderCounter = 0;
     private overlayStack: OverlayStackEntry[] = [];
+
+    /**
+     * loop-local (keep across pi-mono syncs): where each visible overlay was
+     * painted on the last composite.
+     *
+     * Overlay geometry is computed every frame and then thrown away, so nothing
+     * downstream can answer "which overlay is under this mouse click?" without
+     * duplicating the whole layout resolution — and a duplicate would drift.
+     * Recording it here costs one map write per visible overlay per frame.
+     */
+    private overlayRects = new Map<Component, OverlayRect>();
 
     get hasOverlayEntries(): boolean {
         return this.overlayStack.length > 0;
@@ -1357,6 +1379,20 @@ export abstract class TuiBase extends Container implements TUI {
             minLinesNeeded = Math.max(minLinesNeeded, row + overlayLines.length);
         }
 
+        // Rebuilt every composite so an overlay that was hidden, moved or
+        // resized never leaves a stale rect behind for the hit test.
+        this.overlayRects.clear();
+        for (let i = 0; i < visibleEntries.length; i++) {
+            const r = rendered[i];
+            if (!r) continue;
+            this.overlayRects.set(visibleEntries[i].component, {
+                row: r.row,
+                col: r.col,
+                width: r.w,
+                height: r.overlayLines.length,
+            });
+        }
+
         // Pad to at least terminal height so overlays have screen-relative positions.
         // Excludes maxLinesRendered: the historical high-water mark caused self-reinforcing
         // inflation that pushed content into scrollback on terminal widen.
@@ -1386,6 +1422,32 @@ export abstract class TuiBase extends Container implements TUI {
         }
 
         return result;
+    }
+
+    /**
+     * The topmost visible overlay covering a screen cell, with the point
+     * translated into the overlay's own coordinates.
+     *
+     * `x`/`y` are 0-based screen coordinates — SGR mouse reports are 1-based,
+     * so subtract one before calling. Later entries in the stack are painted
+     * over earlier ones, so the search runs backwards.
+     */
+    /** Where an overlay was last painted, or undefined if it is not visible. */
+    getOverlayRect(component: Component): OverlayRect | undefined {
+        return this.overlayRects.get(component);
+    }
+
+    hitTestOverlay(
+        x: number,
+        y: number,
+    ): { component: Component; rect: OverlayRect; localX: number; localY: number } | undefined {
+        const entries = [...this.overlayRects.entries()].reverse();
+        for (const [component, rect] of entries) {
+            if (y < rect.row || y >= rect.row + rect.height) continue;
+            if (x < rect.col || x >= rect.col + rect.width) continue;
+            return { component, rect, localX: x - rect.col, localY: y - rect.row };
+        }
+        return undefined;
     }
 
     protected applyLineResets(lines: string[]): string[] {

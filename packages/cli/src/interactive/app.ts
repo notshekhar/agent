@@ -69,6 +69,7 @@ import { StatusLine } from "./components/status-line";
 import { TodoPanel } from "./components/todo-panel";
 import { ShellsPanel } from "./components/shells-panel";
 import { SelectorOverlay } from "./components/selector-overlay";
+import { closeExtensionDocks, createExtensionUiServices } from "./extension-widgets";
 import {
     selectOnce as selectOnceShared,
     searchSelectOnce as searchSelectOnceShared,
@@ -195,7 +196,10 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     // builtins.
     // Give extensions a browser opener before activate() runs. The interactive
     // `ui` bridge is injected later, once the TUI selector helpers exist.
-    getExtensionHost().setServices({ openExternal: (url) => openBrowser(url) });
+    // `interactive` goes in before init() so an extension that shows a widget or
+    // binds a key during activation is queued until the TUI exists, rather than
+    // silently getting nothing (the screen is built further down).
+    getExtensionHost().setServices({ openExternal: (url) => openBrowser(url), interactive: true });
     await getExtensionHost().init();
     // Modes an extension registers must exist before the configured mode is
     // activated, so drain them and re-resolve the mode + its theme.
@@ -358,9 +362,17 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
     // does not take is the transcript's), but the exit print renders this stack
     // WITHOUT a viewport, and there a zero basis is zero rows — the whole
     // conversation gone from the terminal on quit.
+    // Docked panels (api.docks) sit at the very bottom of the frame, under the
+    // input — where VS Code puts its panel. Empty, a VStack renders zero rows,
+    // so this costs the frame nothing until something docks.
+    const dockHost = new VStack([]);
     const pinnedFrame = new VStack([
         { component: transcriptView, grow: 1, shrink: 1 },
         { component: chrome, shrink: 0 },
+        // Left out of the layout entirely while empty. An entry that renders no
+        // rows is still an entry, and the frame's own tests notice: the prompt
+        // stops being on the last rows of the screen.
+        { component: dockHost, shrink: 0, visible: () => dockHost.children.length > 0 },
     ]);
     const applyPinnedInput = (on: boolean): void => {
         state.pinnedInput = on;
@@ -677,6 +689,24 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
         // Lets a live status line (e.g. the vitals layout's clock/CPU) repaint
         // itself between user actions.
         requestRender: () => tui.requestRender(),
+        // Widgets + global key bindings (api.widgets / api.keymap). Interactive
+        // only: print mode injects neither, so `show` returns undefined there
+        // rather than drawing into a screen that does not exist.
+        ...createExtensionUiServices(
+            tui,
+            dockHost,
+            {
+                isPinned: () => state.pinnedInput,
+                setPinned: (on: boolean) => applyPinnedInput(on),
+                // Closing or unfocusing a panel has to give the keyboard back,
+                // or the user is left typing into nothing.
+                focusEditor: () => tui.setFocus(editor),
+            },
+            (err: unknown) => {
+                history.addError(`extension UI: ${(err as Error).message ?? String(err)}`);
+                tui.requestRender();
+            },
+        ),
     });
 
     // Ask tool UI bridge — registering it is also what makes runTurn offer the
@@ -750,6 +780,17 @@ export async function runInteractive(opts: InteractiveOptions): Promise<void> {
 
     const cleanExit = (code = 0) => {
         stopTicker();
+        // BEFORE tui.stop(): the exit path renders this frame one last time,
+        // without a viewport, and that render is what lands in the user's
+        // scrollback. A dock still mounted would print its rows there — a band
+        // of dead panel under the conversation, permanently. Extensions are
+        // only deactivated further down (after tui.stop), which is too late.
+        closeExtensionDocks();
+        // Paint the dock-free frame synchronously. requestRender defers to the
+        // next tick, and tui.stop() runs before that tick ever arrives — so
+        // without this the last thing painted still contains the panel, and its
+        // rows are left on the terminal above the returning shell prompt.
+        tui.renderNow(true);
         // Clear the OSC 9;4 tab progress bar before leaving the TUI.
         hideWorking();
         // BEFORE tui.stop(): a query still in flight when the TUI lets go of

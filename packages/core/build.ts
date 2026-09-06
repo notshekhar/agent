@@ -17,6 +17,9 @@ const externals = [
     "node:*",
     // `bun` builtin (Bun.SQL for datasources) — resolved at runtime under Bun.
     "bun",
+    // The pty uses openpty(3) through bun:ffi. Bundling a Bun builtin would
+    // break the module graph; it resolves at runtime like `bun` above.
+    "bun:ffi",
 ];
 
 // Bake the web UI into dist so npm installs and compiled binaries serve the

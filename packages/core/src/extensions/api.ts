@@ -458,6 +458,140 @@ export interface ExtensionUiMode {
     style?: Record<string, unknown>;
 }
 
+/**
+ * A thing that can draw itself into a region of the screen.
+ *
+ * Deliberately structural rather than the TUI's `Component` type: core cannot
+ * import the TUI package, and this is the whole contract anyway — given a
+ * width, return lines. Anything satisfying it can be shown, which is what lets
+ * a table coming out of a Lua VM be a widget.
+ */
+/**
+ * A mouse event delivered to a widget.
+ *
+ * `x`/`y` are relative to the widget's own top-left corner; `screenX`/`screenY`
+ * are absolute, which is what a drag needs in order to move the widget by the
+ * distance the pointer travelled. Both are 0-based.
+ *
+ * "drag" is motion with a button held, which is the only motion reported unless
+ * the terminal is tracking all movement — so a widget can implement dragging
+ * from press/drag/release alone.
+ */
+export interface WidgetMouseEvent {
+    type: "press" | "release" | "drag" | "move";
+    /** 0 = left, 1 = middle, 2 = right. */
+    button: number;
+    x: number;
+    y: number;
+    screenX: number;
+    screenY: number;
+    shift: boolean;
+    alt: boolean;
+    ctrl: boolean;
+}
+
+export interface WidgetRenderer {
+    render(width: number): string[];
+    /** Return true to consume the key. Only called while the widget has focus. */
+    handleInput?(data: string): boolean;
+    /**
+     * Return true to consume the event. A widget that declines lets the click
+     * through to the terminal's own text selection, so returning false for the
+     * events you do not use keeps select-and-copy working over the widget.
+     */
+    handleMouse?(event: WidgetMouseEvent): boolean;
+}
+
+/**
+ * Placement for a widget. Sizes and positions take a column/row count or a
+ * percentage string like "50%"; `anchor` is one of "center", "top-left",
+ * "top-right", "bottom-left", "bottom-right", "top-center", "bottom-center",
+ * "left-center", "right-center".
+ */
+export interface WidgetOptions {
+    anchor?: string;
+    width?: number | string;
+    minWidth?: number;
+    maxHeight?: number | string;
+    offsetX?: number;
+    offsetY?: number;
+    row?: number | string;
+    col?: number | string;
+    /** Don't take keyboard focus — the user keeps typing while it is shown. */
+    nonCapturing?: boolean;
+}
+
+export interface WidgetHandle {
+    hide(): void;
+    /**
+     * Move the widget to an absolute screen position (0-based row/column).
+     * This is what makes a widget draggable: the script updates the position
+     * from its own mouse handler.
+     */
+    setPosition(row: number, col: number): void;
+    /** Where it currently is, or undefined before its first paint. */
+    getPosition(): { row: number; col: number } | undefined;
+    setHidden(hidden: boolean): void;
+    isHidden(): boolean;
+    focus(): void;
+    unfocus(): void;
+}
+
+/**
+ * A docked panel — VS Code's bottom panel rather than a floating box.
+ *
+ * The difference from a widget is what it does to the frame: a widget is drawn
+ * *over* the chat, while a dock takes rows *from* it, so the transcript gets
+ * shorter and nothing is covered up. That also makes it the more dangerous of
+ * the two, which is why the host closes every dock before the TUI paints its
+ * final frame — see the exit note in the interactive app.
+ */
+export interface DockOptions {
+    /** Only "bottom" today: between the transcript and the input box. */
+    side?: "bottom";
+    /** Height in rows. The renderer's output is padded or clipped to fit. */
+    size?: number;
+}
+
+export interface DockHandle {
+    close(): void;
+    /** Change the height. Takes effect on the next frame. */
+    setSize(rows: number): void;
+    isOpen(): boolean;
+    /** Take keyboard focus, so `handleInput` starts receiving keys. */
+    focus(): void;
+    unfocus(): void;
+    isFocused(): boolean;
+}
+
+/** A live terminal: a shell (or any command) with an emulator interpreting it. */
+export interface TerminalSpawnOptions {
+    /** Defaults to the user's $SHELL. */
+    cmd?: string;
+    args?: string[];
+    cwd?: string;
+    rows?: number;
+    cols?: number;
+    onExit?: (code: number) => void;
+    /** The screen changed; repaint. */
+    onUpdate?: () => void;
+    /** Whether the panel has the keyboard — the cursor is drawn only if so. */
+    isFocused?: () => boolean;
+}
+
+/**
+ * A terminal session. It satisfies {@link WidgetRenderer}, so it can be handed
+ * straight to `docks.open` or `widgets.show` and drawn like anything else.
+ */
+export interface TerminalHandle extends WidgetRenderer {
+    /** Always present here: a terminal consumes every key it is given. */
+    handleInput(data: string): boolean;
+    write(data: string): void;
+    resize(rows: number, cols: number): void;
+    kill(): void;
+    readonly exited: boolean;
+}
+
 export interface ExtensionInfo {
     /** The extension's own directory (~/.loop/extensions/<name>). */
     readonly dir: string;
@@ -559,6 +693,59 @@ export interface ExtensionAPI {
          */
         branch(): readonly Entry[];
     };
+    /**
+     * The terminal's size in character cells.
+     *
+     * `render(width)` is told how wide it may draw but never how tall, because
+     * for most widgets the height is simply however many lines they return.
+     * Anything that fills the screen — a full-height panel, a game — has to
+     * know the row count to lay itself out at all. Returns undefined outside
+     * interactive mode.
+     */
+    screen(): { rows: number; cols: number } | undefined;
+
+    /**
+     * Floating widgets — a box drawn over the chat at a chosen anchor, which
+     * may take keyboard focus or leave the user typing underneath.
+     *
+     * Interactive only: `show` returns undefined in print mode, so a caller
+     * that wants a widget must cope with not getting one.
+     */
+    widgets: {
+        show(renderer: WidgetRenderer, options?: WidgetOptions): WidgetHandle | undefined;
+    };
+
+    /**
+     * Real terminals — a pty running a shell, with an emulator interpreting its
+     * output, ready to be shown in a dock or a widget.
+     *
+     * `spawn` is async because the pty and emulator are loaded on first use:
+     * they are a few megabytes of machinery that a session which never opens a
+     * terminal should not pay for at startup.
+     */
+    terminal: {
+        /** False where the platform has no pty support (notably Windows). */
+        available(): Promise<boolean>;
+        spawn(options?: TerminalSpawnOptions): Promise<TerminalHandle>;
+    };
+
+    /**
+     * Docked panels — rows taken from the transcript rather than drawn over it,
+     * the way VS Code's bottom panel works. Interactive only, like widgets.
+     */
+    docks: {
+        open(renderer: WidgetRenderer, options?: DockOptions): DockHandle | undefined;
+    };
+
+    /**
+     * Global key bindings, checked before the editor sees the key. `key` is a
+     * TUI key id ("ctrl+g", "alt+w"). Returns a disposer; the binding is also
+     * dropped automatically when the extension unloads.
+     */
+    keymap: {
+        set(key: string, handler: () => boolean | void): () => void;
+    };
+
     /** Customize the status line under the input box. */
     statusLine: {
         /** Append segment(s) to a row. */

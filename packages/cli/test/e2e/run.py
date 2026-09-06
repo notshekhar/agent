@@ -24,6 +24,8 @@ Run: python3 packages/cli/test/e2e/run.py [name ...]
 
 import sys
 import os
+import tempfile
+import subprocess
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -508,6 +510,464 @@ def test_pinned_input():
         check(any("Welcome back" in r for r in left), "quitting prints the whole transcript, masthead included")
 
 
+def test_lua_widget():
+    """A Lua script draws a widget and a Lua keymap summons it.
+
+    This is the only test that proves the whole chain in a real terminal: the
+    embedded wasm boots, ~/.loop/lua auto-loads with no install step, a Lua
+    table satisfies the TUI's component contract, and a Lua-registered key
+    binding reaches the input listener ahead of the editor.
+    """
+    with Session(settings=NOIR) as s:
+        # Written after Session() built HOME, before loop has read anything.
+        os.makedirs(f"{s.home}/.loop/lua", exist_ok=True)
+        with open(f"{s.home}/.loop/extensions.json", "w") as fh:
+            fh.write('{"builtins": {"lua": true}}')
+        with open(f"{s.home}/.loop/lua/init.lua", "w") as fh:
+            fh.write(
+                """
+local W = { ticks = 0 }
+
+function W:render(width)
+  local bar = string.rep("=", self.ticks % 10)
+  return {
+    "+" .. string.rep("-", width - 2) .. "+",
+    string.format("| LUAWIDGET %-" .. (width - 13) .. "s |", bar),
+    "+" .. string.rep("-", width - 2) .. "+",
+  }
+end
+
+function W:on_key(data)
+  if data == "j" then self.ticks = self.ticks + 1 return true end
+  return false
+end
+
+-- Placement lives on the widget table itself, so `self` inside render is W.
+W.anchor, W.width, W.offset_y = "center", 40, -2
+
+HANDLE = nil
+loop.keymap.set("ctrl+g", function()
+  if HANDLE then HANDLE:hide(); HANDLE = nil
+  else HANDLE = loop.widget.show(W) end
+end)
+"""
+            )
+        s.pump(8)
+        rows = s.screen_rows()
+        check(not any("LUAWIDGET" in r for r in rows), "no widget before the key is pressed")
+
+        committed_before = len(s.screen.history.top)
+        s.send("\x07")  # ctrl+g
+        s.pump(2)
+        rows = s.screen_rows()
+        check(any("LUAWIDGET" in r for r in rows), "the Lua widget is on screen after ctrl+g", rows)
+
+        # A widget is transient UI: showing it must not scroll the transcript,
+        # because rows pushed off cannot come back when it closes.
+        check(
+            len(s.screen.history.top) == committed_before,
+            "showing a widget scrolled nothing off",
+        )
+
+        # It is centred, not simply appended at the bottom.
+        widget_rows = [i for i, r in enumerate(rows) if "LUAWIDGET" in r]
+        check(
+            widget_rows and 2 <= widget_rows[0] <= len(rows) - 3,
+            "the widget is placed away from the screen edges",
+            widget_rows,
+        )
+
+        s.send("\x07")  # toggle it back off
+        s.pump(2)
+        check(not any("LUAWIDGET" in r for r in s.screen_rows()), "ctrl+g hides it again")
+
+        # Kitty protocol reports press, repeat AND release for one keypress.
+        # A binding that fires on all three toggles twice, so whatever it opens
+        # is visible only while the key is held down. Press + release must
+        # leave the widget shown. ('g' = 103, modifier 5 = ctrl, ":3" = release)
+        s.send("\x1b[103;5u", settle=0.5)
+        s.send("\x1b[103;5:3u", settle=0.8)
+        check(
+            any("LUAWIDGET" in r for r in s.screen_rows()),
+            "a press+release pair toggles once, not twice",
+            s.screen_rows(),
+        )
+        s.send("\x1b[103;5u", settle=0.8)
+        check(
+            len(s.screen.history.top) == committed_before,
+            "hiding the widget left the transcript where it was",
+        )
+
+
+def test_lua_dock():
+    """A Lua dock takes rows from the transcript, and leaves nothing behind on exit.
+
+    The exit half is the point. The pinned frame is rendered one last time
+    WITHOUT a viewport on the way out, and that render is what lands in the
+    user's scrollback — a panel still mounted would print a band of dead rows
+    under the conversation, permanently.
+    """
+    repo = tempfile.mkdtemp(prefix="loop-gitrepo-")
+    subprocess.run(
+        "git init -q && git config user.email t@t && git config user.name t && "
+        "echo one > a.txt && git add . && git commit -qm init && echo two >> a.txt",
+        shell=True,
+        cwd=repo,
+    )
+    with Session(settings=NOIR, cwd=repo) as s:
+        os.makedirs(f"{s.home}/.loop/lua", exist_ok=True)
+        with open(f"{s.home}/.loop/extensions.json", "w") as fh:
+            fh.write('{"builtins": {"lua": true}}')
+        with open(f"{s.home}/.loop/lua/git.lua", "w") as fh:
+            fh.write(
+                """
+local P = { size = 6, lines = {} }
+
+function P:refresh()
+  local _, status = loop.run("git", { args = { "status", "--short" } })
+  local out = {}
+  for line in status:gmatch("[^%c]+") do out[#out + 1] = line end
+  self.lines = out
+  loop.redraw()
+end
+
+function P:render(width)
+  local rows = { "DOCKMARK git " .. string.rep("-", math.max(0, width - 14)) }
+  for i = 1, #self.lines do rows[#rows + 1] = "  " .. self.lines[i] end
+  return rows
+end
+
+DOCK = nil
+loop.keymap.set("ctrl+g", function()
+  if DOCK then DOCK:close(); DOCK = nil
+  else P:refresh(); DOCK = loop.dock.open(P) end
+end)
+"""
+            )
+        s.pump(8)
+        committed_before = len(s.screen.history.top)
+        s.send("\x07")
+        s.pump(2)
+        rows = s.screen_rows()
+        check(any("DOCKMARK" in r for r in rows), "the Lua dock is on screen", rows)
+        check(any("a.txt" in r for r in rows), "the dock shows real git output", rows)
+
+        # A dock reflows the frame; it must not push the transcript off the top.
+        check(
+            len(s.screen.history.top) == committed_before,
+            "opening a dock scrolled nothing off",
+        )
+
+        # It sits below the input, where VS Code puts its panel.
+        dock_row = next(i for i, r in enumerate(rows) if "DOCKMARK" in r)
+        rule_rows = [i for i, r in enumerate(rows) if r.strip().startswith("─")]
+        check(
+            any(i < dock_row for i in rule_rows),
+            "the dock is below the input box",
+            (dock_row, rule_rows),
+        )
+
+        # Quit with the dock still open — the failure this test exists for.
+        s.send("\x03")
+        s.send("\x03")
+        s.pump(3)
+        after = s.history_rows() + s.screen_rows()
+        check(
+            not any("DOCKMARK" in r for r in after),
+            "quitting with a dock open leaves no dead rows in the scrollback",
+            [r for r in after if "DOCKMARK" in r],
+        )
+
+
+def test_lua_drag():
+    """A Lua widget implements its own dragging from raw mouse events.
+
+    loop routes the event and nothing more: the grab offset, the new position
+    and the decision to consume are all script-side. The last check is the one
+    that keeps the terminal usable — a widget that declines an event must leave
+    the transcript's own text selection working.
+    """
+
+    def sgr(button, col, row, press=True):
+        return f"\x1b[<{button};{col};{row}{'M' if press else 'm'}"
+
+    with Session(settings=NOIR, cols=88, rows=24) as s:
+        os.makedirs(f"{s.home}/.loop/lua", exist_ok=True)
+        with open(f"{s.home}/.loop/extensions.json", "w") as fh:
+            fh.write('{"builtins": {"lua": true}}')
+        with open(f"{s.home}/.loop/lua/drag.lua", "w") as fh:
+            fh.write(
+                """
+local W = { row = 6, col = 8, width = 26, grab = nil }
+
+function W:render(width)
+  return {
+    "+" .. string.rep("-", width - 2) .. "+",
+    "|  DRAGME  drag me around  |",
+    "+" .. string.rep("-", width - 2) .. "+",
+  }
+end
+
+function W:on_mouse(ev)
+  if ev.type == "press" then
+    self.grab = { x = ev.x, y = ev.y }
+    return true
+  elseif ev.type == "drag" and self.grab then
+    self.handle:set_pos(ev.screen_y - self.grab.y, ev.screen_x - self.grab.x)
+    return true
+  elseif ev.type == "release" then
+    self.grab = nil
+    return true
+  end
+  return false
+end
+
+loop.keymap.set("ctrl+g", function()
+  if HANDLE then HANDLE:hide(); HANDLE = nil else HANDLE = loop.widget.show(W) end
+end)
+"""
+            )
+        s.pump(8)
+        check(s.mouse_tracking_enabled(), "the terminal is reporting mouse events")
+        s.send("\x07")
+        s.pump(1.2)
+
+        def find():
+            for i, r in enumerate(s.screen_rows()):
+                if "DRAGME" in r:
+                    return i, r.index("DRAGME")
+            return None
+
+        start = find()
+        check(start is not None, "the draggable widget is on screen")
+        row, col = start
+
+        # Press inside the box, move the pointer, release. SGR is 1-based.
+        s.send(sgr(0, col + 2, row + 1), settle=0.4)
+        s.send(sgr(32, col + 2 + 20, row + 1 + 5), settle=0.4)
+        s.send(sgr(0, col + 2 + 20, row + 1 + 5, press=False), settle=0.6)
+
+        moved = find()
+        check(moved is not None, "the widget is still on screen after the drag")
+        delta = (moved[0] - start[0], moved[1] - start[1])
+        # The script moves the box by the pointer's travel, so the widget must
+        # land exactly where the pointer went — not merely somewhere else.
+        check(delta == (5, 20), "the widget followed the pointer exactly", delta)
+
+        # A click nowhere near the widget is declined, so the transcript's own
+        # selection still runs — losing that would make the terminal feel broken.
+        s.send(sgr(0, 3, 2), settle=0.3)
+        s.send(sgr(32, 30, 2), settle=0.3)
+        s.send(sgr(0, 30, 2, press=False), settle=0.5)
+        check(find()[0] == moved[0], "a click outside the widget does not move it", find())
+
+
+def test_lua_terminal():
+    """A real shell in a docked panel, and the ways out of it.
+
+    The escape route is the point. A panel that takes the keyboard must still
+    let its own toggle through, or the only way out is quitting loop — and
+    ctrl+c has to interrupt the command in the panel rather than ask loop to
+    exit.
+    """
+    with Session(settings=NOIR, cols=92, rows=26) as s:
+        os.makedirs(f"{s.home}/.loop/lua", exist_ok=True)
+        with open(f"{s.home}/.loop/extensions.json", "w") as fh:
+            fh.write('{"builtins": {"lua": true}}')
+        with open(f"{s.home}/.loop/lua/term.lua", "w") as fh:
+            fh.write(
+                """
+local t = nil
+local function toggle()
+  if t and t:is_open() then t:close(); t = nil
+  else t = loop.term.open({ size = 12, cmd = "/bin/sh" }) end
+end
+loop.keymap.set("ctrl+/", toggle)
+loop.keymap.set("ctrl+-", toggle)
+"""
+            )
+        s.pump(8)
+        check(not any("TERMMARK" in r for r in s.screen_rows()), "no shell before the panel is opened")
+
+        s.send("\x1b[47;5u", settle=3.0)  # ctrl+/ (kitty encoding)
+        rows = s.screen_rows()
+        check(any("terminal —" in r for r in rows), "the terminal panel opened", rows)
+
+        # Below the input box, where VS Code puts its panel.
+        header = next(i for i, r in enumerate(rows) if "terminal —" in r)
+        rules = [i for i, r in enumerate(rows) if r.strip().startswith("─────")]
+        check(any(i < header for i in rules), "the panel is below the input", (header, rules))
+
+        s.send("echo TERMMARK\n", settle=2.0)
+        check(any("TERMMARK" in r for r in s.screen_rows()), "the shell ran a command", s.screen_rows())
+
+        # A terminal with no visible cursor is unusable: the panel draws its own
+        # block, because loop's hardware cursor is opt-in. It must sit inside the
+        # panel, on the line being typed.
+        s.send("partial-line", settle=1.5)
+        rows = s.screen_rows()
+        header_row = next(i for i, r in enumerate(rows) if "terminal \u2014" in r)
+        cursors = [
+            (y, x)
+            for y in range(s.screen.lines)
+            for x in range(s.screen.columns)
+            if s.screen.buffer[y][x].reverse
+        ]
+        in_panel = [c for c in cursors if c[0] > header_row]
+        check(len(in_panel) == 1, "exactly one block cursor is drawn inside the panel", cursors)
+        typed = next((i for i, r in enumerate(rows) if "partial-line" in r), None)
+        check(
+            typed is not None and in_panel and in_panel[0][0] == typed,
+            "the cursor sits on the line being typed",
+            (typed, in_panel),
+        )
+
+        # ctrl+c must interrupt the child, not start loop's quit ritual.
+        s.send("sleep 30\n", settle=1.0)
+        s.send("\x03", settle=1.5)
+        s.send("echo AFTERINT\n", settle=2.0)
+        rows = s.screen_rows()
+        check(not any("Ctrl+C again" in r for r in rows), "ctrl+c did not ask loop to quit", rows)
+        check(any("AFTERINT" in r for r in rows), "the shell survived ctrl+c", rows)
+
+        # The toggle still works while the panel holds the keyboard: the way out.
+        s.send("\x1b[47;5u", settle=2.0)
+        check(not any("terminal —" in r for r in s.screen_rows()), "ctrl+/ closed it again")
+        s.send("back in the editor", settle=1.0)
+        check(
+            any("back in the editor" in r for r in s.screen_rows()),
+            "the prompt has the keyboard back",
+            s.screen_rows(),
+        )
+
+
+def test_lua_command():
+    """A slash command written in Lua: listed, completed, and actually run.
+
+    Unit tests mock the extension API, and a mock accepts any event name — so
+    the handler emitting an event the CLI does not implement looked fine
+    everywhere except a real session, where the command ran and printed nothing.
+    Only a real terminal catches that, hence this.
+    """
+    with Session(settings=NOIR, cols=92, rows=26) as s:
+        os.makedirs(f"{s.home}/.loop/lua", exist_ok=True)
+        with open(f"{s.home}/.loop/extensions.json", "w") as fh:
+            fh.write('{"builtins": {"lua": true}}')
+        with open(f"{s.home}/.loop/lua/cmds.lua", "w") as fh:
+            fh.write(
+                """
+loop.cmd.register({
+  name = "greet",
+  description = "say hello to someone",
+  handler = function(args)
+    if args == "" then return "usage: /greet <name>" end
+    return "hello, " .. args .. "!"
+  end,
+})
+"""
+            )
+        s.pump(8)
+
+        # Registered at startup — no /reload needed for the command to exist.
+        s.send("/gre", settle=1.2)
+        check(
+            any("say hello to someone" in r for r in s.screen_rows()),
+            "the Lua command is in the completion list at startup",
+            s.screen_rows(),
+        )
+        for _ in range(4):
+            s.send("\x7f", settle=0.15)
+
+        # And it RUNS, with its argument, printing into the chat.
+        s.send("/greet shekhar", settle=0.8)
+        s.send("\r", settle=2.0)
+        check(
+            any("hello, shekhar!" in r for r in s.screen_rows()),
+            "the Lua command ran and printed its result",
+            s.screen_rows(),
+        )
+
+        # An empty argument reaches the handler as "", not nil.
+        s.send("/greet", settle=0.8)
+        s.send("\r", settle=2.0)
+        check(
+            any("usage: /greet <name>" in r for r in s.screen_rows()),
+            "the handler sees an empty argument string",
+            s.screen_rows(),
+        )
+
+
+def test_lua_fullscreen():
+    """A full-screen, keyboard-capturing widget — the shape a game needs.
+
+    Three things have to hold together: the widget can size itself to the whole
+    terminal (render is told its width but never its height, so it asks), it
+    receives raw keys rather than the prompt, and a key it handles itself can
+    close it and hand the keyboard back.
+    """
+    with Session(settings=NOIR, cols=80, rows=24) as s:
+        os.makedirs(f"{s.home}/.loop/lua", exist_ok=True)
+        with open(f"{s.home}/.loop/extensions.json", "w") as fh:
+            fh.write('{"builtins": {"lua": true}}')
+        with open(f"{s.home}/.loop/lua/full.lua", "w") as fh:
+            fh.write(
+                """
+local G = { non_capturing = false, width = "100%", max_height = "100%", row = 0, col = 0, n = 0 }
+local handle = nil
+
+function G:render(width)
+  local scr = loop.screen()
+  local out = {}
+  for y = 1, scr.rows do
+    if y == 1 then out[y] = "FULLSCREEN " .. scr.rows .. "x" .. width .. string.rep(".", width - 20)
+    elseif y == 2 then out[y] = "PRESSED " .. self.n .. string.rep(".", width - 12)
+    else out[y] = string.rep(".", width) end
+  end
+  return out
+end
+
+function G:on_key(data)
+  if data == "\\27" then handle:hide(); handle = nil; return true end
+  self.n = self.n + 1
+  loop.redraw()
+  return true
+end
+
+loop.cmd.register({ name = "full", description = "full screen test",
+  handler = function() handle = loop.widget.show(G); handle:focus(); return "opened" end })
+"""
+            )
+        s.pump(8)
+        s.send("/full", settle=0.8)
+        s.send("\r", settle=2.0)
+        rows = s.screen_rows()
+        banner = next((r for r in rows if "FULLSCREEN" in r), None)
+        check(banner is not None, "the full-screen widget opened", rows)
+
+        # It sized itself to the real terminal, and covered it.
+        check("24x80" in (banner or ""), "the widget knows the terminal size", banner)
+        filled = [r for r in rows if r.strip().strip(".") == "" and r.strip() != ""]
+        check(len(filled) >= 20, "it covers the screen", len(filled))
+
+        # Keys reach the widget, not the prompt.
+        s.send("wasd", settle=1.2)
+        check(
+            any("PRESSED 4" in r for r in s.screen_rows()),
+            "raw keys reach the widget instead of the editor",
+            s.screen_rows(),
+        )
+
+        # Esc is the widget's own key: it closes and returns the keyboard.
+        s.send("\x1b", settle=1.5)
+        check(not any("FULLSCREEN" in r for r in s.screen_rows()), "esc closed it")
+        s.send("back at the prompt", settle=1.0)
+        check(
+            any("back at the prompt" in r for r in s.screen_rows()),
+            "the prompt has the keyboard back",
+            s.screen_rows(),
+        )
+
+
 SCENARIOS = {
     "boot": test_boot,
     "growth": test_no_duplicates_while_growing,
@@ -524,6 +984,12 @@ SCENARIOS = {
     "alt-screen": test_alt_screen_keeps_scrollback_clean,
     "shells": test_shells_panel,
     "shells-esc": test_shells_survive_esc,
+    "lua-widget": test_lua_widget,
+    "lua-dock": test_lua_dock,
+    "lua-drag": test_lua_drag,
+    "lua-terminal": test_lua_terminal,
+    "lua-command": test_lua_command,
+    "lua-fullscreen": test_lua_fullscreen,
 }
 
 

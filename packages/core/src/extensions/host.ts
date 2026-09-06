@@ -31,6 +31,13 @@ import type {
     ToolSummaryContext,
     ToolSummaryRenderer,
     TurnMiddleware,
+    TerminalHandle,
+    TerminalSpawnOptions,
+    DockOptions,
+    DockHandle,
+    WidgetRenderer,
+    WidgetOptions,
+    WidgetHandle,
 } from "./api";
 import { EXTENSION_API_VERSION, requiredApiRange } from "./api";
 import { isCompatible, resolveEntry, resolvePkgDir } from "./manifest";
@@ -61,6 +68,57 @@ export interface HostServices {
     openExternal?: (url: string) => void;
     /** Ask the interactive UI to repaint (e.g. a live status line). No-op in print mode. */
     requestRender?: () => void;
+    /** Floating widgets. Absent outside interactive mode. */
+    widgets?: { show(renderer: WidgetRenderer, options?: WidgetOptions): WidgetHandle };
+    /** Terminal size in cells. Absent outside interactive mode. */
+    screen?: () => { rows: number; cols: number };
+    /** Docked panels. Absent outside interactive mode. */
+    docks?: { open(renderer: WidgetRenderer, options?: DockOptions): DockHandle };
+    /** Global key bindings. Absent outside interactive mode. */
+    keymap?: { set(key: string, handler: () => boolean | void): () => void };
+    /**
+     * Set by the interactive app before `init()`, while the TUI does not exist
+     * yet. It is what tells the host that a widget or key binding requested
+     * during activation is worth queueing rather than discarding.
+     */
+    interactive?: boolean;
+}
+
+/** State a script set on a widget before the screen was ready to show it. */
+interface PendingWidgetCell {
+    cancelled: boolean;
+    hidden: boolean;
+    focused: boolean;
+    position?: { row: number; col: number };
+    handle?: WidgetHandle;
+}
+
+/** A handle that stands in for a widget until the TUI can really show it. */
+function pendingWidgetHandle(cell: PendingWidgetCell): WidgetHandle {
+    return {
+        hide: () => {
+            cell.cancelled = true;
+            cell.handle?.hide();
+        },
+        setPosition: (row: number, col: number) => {
+            cell.position = { row, col };
+            cell.handle?.setPosition(row, col);
+        },
+        getPosition: () => cell.handle?.getPosition() ?? cell.position,
+        setHidden: (hidden: boolean) => {
+            cell.hidden = hidden;
+            cell.handle?.setHidden(hidden);
+        },
+        isHidden: () => cell.handle?.isHidden() ?? cell.hidden,
+        focus: () => {
+            cell.focused = true;
+            cell.handle?.focus();
+        },
+        unfocus: () => {
+            cell.focused = false;
+            cell.handle?.unfocus();
+        },
+    };
 }
 
 /**
@@ -99,6 +157,17 @@ interface Contributions {
     contextPolicies: string[];
     statusContributors: StatusLineContributor[];
     statusTransforms: StatusLineTransform[];
+    /**
+     * Live UI an extension put on screen. Unlike every other contribution these
+     * are not filtered on read — they are already painted — so unload has to
+     * take them down explicitly or a disabled extension leaves a widget stuck
+     * over the chat with nothing left to remove it.
+     */
+    widgets: WidgetHandle[];
+    docks: DockHandle[];
+    /** Live terminals — child processes, so unload must kill them. */
+    terminals: TerminalHandle[];
+    keymapDisposers: (() => void)[];
 }
 
 interface Loaded {
@@ -140,6 +209,10 @@ function emptyContributions(): Contributions {
         contextPolicies: [],
         statusContributors: [],
         statusTransforms: [],
+        widgets: [],
+        docks: [],
+        terminals: [],
+        keymapDisposers: [],
     };
 }
 
@@ -160,6 +233,27 @@ export class ExtensionHost {
     private services: HostServices = {};
 
     /**
+     * Widgets and key bindings asked for before the TUI existed.
+     *
+     * `init()` runs before the interactive app builds its TUI, so an extension
+     * that binds a key or shows a widget from `activate` — which is exactly
+     * where a Lua script's top level runs — would otherwise get a silent no-op.
+     * These queue instead, and `setServices` flushes them once the screen is
+     * real. Print mode never provides the services, so the queue is simply
+     * dropped, which is the correct outcome there.
+     */
+    private pendingKeymaps: {
+        key: string;
+        handler: () => boolean | void;
+        cell: { dispose?: () => void; cancelled: boolean };
+    }[] = [];
+    private pendingWidgets: {
+        renderer: WidgetRenderer;
+        options?: WidgetOptions;
+        cell: PendingWidgetCell;
+    }[] = [];
+
+    /**
      * Inject UI/browser capabilities from the CLI layer. Call before `init()`:
      * the interactive app passes a real `ui`; print mode passes only
      * `openExternal`, leaving `api.ui` to throw.
@@ -168,6 +262,31 @@ export class ExtensionHost {
         // Merge so the CLI can inject `openExternal` before init() and the
         // interactive `ui` later (once the TUI/deps exist) without clobbering.
         this.services = { ...this.services, ...services };
+        this.flushPendingUi();
+    }
+
+    /** Bind and show everything that was requested before the screen existed. */
+    private flushPendingUi(): void {
+        const keymap = this.services.keymap;
+        if (keymap && this.pendingKeymaps.length > 0) {
+            for (const pending of this.pendingKeymaps.splice(0)) {
+                if (pending.cell.cancelled) continue;
+                pending.cell.dispose = keymap.set(pending.key, pending.handler);
+            }
+        }
+        const widgets = this.services.widgets;
+        if (widgets && this.pendingWidgets.length > 0) {
+            for (const pending of this.pendingWidgets.splice(0)) {
+                if (pending.cell.cancelled) continue;
+                const handle = widgets.show(pending.renderer, pending.options);
+                pending.cell.handle = handle;
+                // Replay the state the script set while it was still queued.
+                if (pending.cell.hidden) handle.setHidden(true);
+                if (pending.cell.focused) handle.focus();
+                const at = pending.cell.position;
+                if (at) handle.setPosition(at.row, at.col);
+            }
+        }
     }
 
     private warn(name: string, message: string): void {
@@ -380,6 +499,74 @@ export class ExtensionHost {
                 transform: (fn) => c.statusTransforms.push(fn),
                 refresh: () => this.services.requestRender?.(),
             },
+            widgets: {
+                show: (renderer: WidgetRenderer, options?: WidgetOptions): WidgetHandle | undefined => {
+                    if (this.services.widgets) {
+                        const handle = this.services.widgets.show(renderer, options);
+                        c.widgets.push(handle);
+                        return handle;
+                    }
+                    // Interactive but not yet on screen: hand back a handle that
+                    // records what the script does and replays it at flush time.
+                    // Print mode has no interactive layer at all, so there is
+                    // nothing to wait for and nothing to return.
+                    if (!this.services.interactive) return undefined;
+                    const cell: PendingWidgetCell = { cancelled: false, hidden: false, focused: false };
+                    this.pendingWidgets.push({ renderer, options, cell });
+                    const handle = pendingWidgetHandle(cell);
+                    c.widgets.push(handle);
+                    return handle;
+                },
+            },
+            screen: () => this.services.screen?.(),
+            terminal: {
+                available: async (): Promise<boolean> => {
+                    try {
+                        const { ptyAvailable } = await import("../terminal/session");
+                        return ptyAvailable();
+                    } catch {
+                        return false;
+                    }
+                },
+                spawn: async (options?: TerminalSpawnOptions): Promise<TerminalHandle> => {
+                    // Loaded here rather than at module scope: the emulator is
+                    // megabytes a session that never opens a terminal should not
+                    // pay for.
+                    const { createTerminalSession } = await import("../terminal/session");
+                    const session = createTerminalSession(options) as TerminalHandle;
+                    c.terminals.push(session);
+                    return session;
+                },
+            },
+            docks: {
+                open: (renderer: WidgetRenderer, options?: DockOptions): DockHandle | undefined => {
+                    // No queueing here, unlike widgets: a dock changes the
+                    // frame's layout, and replaying that against a screen built
+                    // later is a worse failure than simply not having one during
+                    // activation. Scripts open docks from a key or a command.
+                    const handle = this.services.docks?.open(renderer, options);
+                    if (handle) c.docks.push(handle);
+                    return handle;
+                },
+            },
+            keymap: {
+                set: (key: string, handler: () => boolean | void): (() => void) => {
+                    if (this.services.keymap) {
+                        const dispose = this.services.keymap.set(key, handler);
+                        c.keymapDisposers.push(dispose);
+                        return dispose;
+                    }
+                    if (!this.services.interactive) return () => {};
+                    const cell = { cancelled: false } as { dispose?: () => void; cancelled: boolean };
+                    this.pendingKeymaps.push({ key, handler, cell });
+                    const dispose = (): void => {
+                        cell.cancelled = true;
+                        cell.dispose?.();
+                    };
+                    c.keymapDisposers.push(dispose);
+                    return dispose;
+                },
+            },
         };
     }
 
@@ -396,6 +583,38 @@ export class ExtensionHost {
         // filters on read — so unloading its owner has to release it explicitly
         // or a disabled extension keeps owning the context boundary.
         if (l.contributions.contextPolicies.includes(getContextPolicy()?.name ?? "")) clearContextPolicy();
+        // Painted UI and live key bindings outlive the contribution lists, so
+        // they are torn down here rather than simply dropped.
+        for (const widget of l.contributions.widgets) {
+            try {
+                widget.hide();
+            } catch {
+                // A widget the TUI already removed is still unloaded.
+            }
+        }
+        for (const dock of l.contributions.docks) {
+            try {
+                dock.close();
+            } catch {
+                // already closed
+            }
+        }
+        // Terminals are child processes: dropping the reference would leave a
+        // shell running with nothing able to reach or stop it.
+        for (const term of l.contributions.terminals) {
+            try {
+                term.kill();
+            } catch {
+                // already gone
+            }
+        }
+        for (const dispose of l.contributions.keymapDisposers) {
+            try {
+                dispose();
+            } catch {
+                // Same: a listener the TUI already dropped is fine.
+            }
+        }
         this.loaded.delete(name);
         this.statusFns.delete(name);
     }
@@ -412,6 +631,19 @@ export class ExtensionHost {
         }
         const record = listRecords().find((r) => r.name === name);
         if (record?.enabled) await this.loadOne(record);
+    }
+
+    /**
+     * Re-run every loaded extension from disk — what `/reload` needs so an
+     * edited extension (a Lua script above all, since those are files a user or
+     * an agent writes mid-session) takes effect without restarting loop.
+     *
+     * Each is unloaded and loaded again, so `deactivate` runs and long-lived
+     * resources are released: an LSP server is shut down and re-provisioned on
+     * next use, which is the intended cost of an explicit hard reload.
+     */
+    async reloadAll(): Promise<void> {
+        for (const name of [...this.loaded.keys()]) await this.reload(name);
     }
 
     /** Deactivate every loaded extension (app shutdown). Safe to re-init after. */

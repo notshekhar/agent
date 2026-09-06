@@ -532,6 +532,12 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
                     if (state.session) renderSessionBranch(state.session, history, state.modelId, deps.todoPanel);
                 }
 
+                // Extensions: re-run from disk BEFORE the command registry is
+                // rebuilt, so the commands re-registered below are the fresh
+                // ones. This is what makes an edited Lua script take effect on
+                // /reload — its file is as much a config surface as any other.
+                await getExtensionHost().reloadAll();
+
                 // Commands: prompts, skills, agents — rebuilt from disk.
                 const fresh = new CommandRegistry();
                 await registerBuiltins(fresh, { cwd: state.cwd });
@@ -565,7 +571,7 @@ export function createSettingsHandlers(state: AppState, deps: AppDeps): Settings
 
                 tui.invalidate();
                 history.addSystem(
-                    `reloaded — settings, auth, datasources, theme, commands, agents, hooks config, models (${available}/${Object.keys(cat).length} available)`,
+                    `reloaded — settings, auth, datasources, theme, commands, agents, extensions, hooks config, models (${available}/${Object.keys(cat).length} available)`,
                 );
             } catch (err) {
                 history.addError(`reload failed: ${err instanceof Error ? err.message : String(err)}`);

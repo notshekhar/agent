@@ -126,6 +126,7 @@ export {
     type OverlayHandle,
     type OverlayMargin,
     type OverlayOptions,
+    type OverlayRect,
     type OverlayUnfocusOptions,
     type SizeValue,
     type TUI,
