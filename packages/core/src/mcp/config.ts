@@ -18,7 +18,11 @@ export interface StdioServerConfig {
     enabled?: boolean;
 }
 
-/** A remote server reached over streamable HTTP (with SSE fallback). */
+/**
+ * A remote server reached over streamable HTTP or SSE. The two share a URL
+ * shape, so a connect that fails because the server speaks the other one is
+ * retried on it automatically — `type` is a starting guess, not a verdict.
+ */
 export interface HttpServerConfig {
     type: "http" | "sse";
     url: string;
@@ -84,6 +88,73 @@ export function loadMcpServers(cwd: string): Record<string, McpServerConfig> {
     const global = getSetting("mcpServers") ?? {};
     const project = loadProjectServers(cwd);
     return { ...global, ...project };
+}
+
+/**
+ * The servers this process may actually CONNECT in `cwd`, as opposed to the
+ * ones it lists.
+ *
+ * Project trust exists so a repo you just cloned can't run its own hooks and
+ * skills behind your back — so it gates the servers that ride in with the repo
+ * (`<cwd>/.loop/mcp.json`). It has no business gating the ones you declared in
+ * your own `~/.loop/settings.json`: those are yours, the repo has no say in
+ * them, and withholding them meant a user-scope server silently did nothing in
+ * any folder that had never been trusted — including every folder where the
+ * trust prompt never appears, which has no in-product way to fix.
+ */
+export function loadConnectableServers(cwd: string, trusted: boolean): Record<string, McpServerConfig> {
+    return trusted ? loadMcpServers(cwd) : getGlobalServers();
+}
+
+/**
+ * Project servers held back for lack of trust — what a UI should say so.
+ * Only the ones that would otherwise have connected: naming a server the user
+ * has explicitly disabled, as though trust were what is stopping it, sends
+ * them off to fix the wrong thing.
+ */
+export function withheldProjectServers(cwd: string, trusted: boolean): string[] {
+    if (trusted) return [];
+    return Object.entries(loadProjectServers(cwd))
+        .filter(([, cfg]) => isServerEnabled(cfg))
+        .map(([name]) => name);
+}
+
+/** Header names whose value is a credential, however the server spells it. */
+const SECRET_KEY = /authorization|auth[-_]?token|api[-_]?key|access[-_]?key|secret|password|cookie|token/i;
+
+/** A `${env:VAR}` reference is a pointer to a secret, not the secret itself. */
+function isEnvReference(value: string): boolean {
+    return /^\s*\$\{env:[A-Za-z_][A-Za-z0-9_]*\}\s*$/.test(value);
+}
+
+function redactMap(map: Record<string, string> | undefined): Record<string, string> | undefined {
+    if (!map) return undefined;
+    const out: Record<string, string> = {};
+    for (const [key, value] of Object.entries(map)) {
+        out[key] = SECRET_KEY.test(key) && !isEnvReference(value) ? "<redacted>" : value;
+    }
+    return out;
+}
+
+/**
+ * A server's config with its credentials masked, for anything that prints one.
+ *
+ * `mcp get` dumped the entry verbatim, so a bearer token pasted into `--header`
+ * or a literal `clientSecret` went straight to the terminal — into scrollback,
+ * into a screen share, into CI logs, into the paste someone makes when asking
+ * for help. `${env:VAR}` references are left legible on purpose: they name a
+ * variable rather than reveal one, and hiding them would obscure the very thing
+ * that tells the user their secret is being kept out of the file properly.
+ */
+export function redactServerConfig(cfg: McpServerConfig): McpServerConfig {
+    if (isHttpServer(cfg)) {
+        return {
+            ...cfg,
+            ...(cfg.headers ? { headers: redactMap(cfg.headers)! } : {}),
+            ...(cfg.clientSecret && !isEnvReference(cfg.clientSecret) ? { clientSecret: "<redacted>" } : {}),
+        };
+    }
+    return { ...cfg, ...(cfg.env ? { env: redactMap(cfg.env)! } : {}) };
 }
 
 /** Servers declared in global settings (the surface /mcp can edit). */

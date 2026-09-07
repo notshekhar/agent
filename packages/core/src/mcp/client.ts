@@ -3,10 +3,11 @@
  * never collide with loop's built-ins or another server's tools.
  */
 import { brandEnv } from "../brand";
-import { createMCPClient } from "@ai-sdk/mcp";
-import { isHttpServer, type McpServerConfig } from "./config";
+import { createHash } from "node:crypto";
+import { createMCPClient, UnauthorizedError } from "@ai-sdk/mcp";
+import { isHttpServer, type HttpServerConfig, type McpServerConfig } from "./config";
 import { buildTransport } from "./transport";
-import { oauthClientOptions, McpOAuthProvider } from "./oauth";
+import { hasStoredTokens, oauthClientOptions, McpOAuthProvider } from "./oauth";
 
 export type McpClient = Awaited<ReturnType<typeof createMCPClient>>;
 export type McpToolSet = Record<string, unknown>;
@@ -36,13 +37,28 @@ function sanitize(name: string): string {
  */
 const MAX_TOOL_NAME = 64;
 
+/**
+ * Characters a tool is guaranteed to get, and therefore the longest server
+ * segment a prefix may carry.
+ *
+ * Without a floor here, a server named long enough ate the entire budget and
+ * the shortener fell back to slicing the tail off the combined name — which
+ * threw the `mcp__<server>__` prefix away. Everything that finds a server's
+ * tools works by that prefix: withdrawing them when the connection drops,
+ * attributing them in `/mcp`, keeping two servers from overwriting each other.
+ * So those tools became unremovable and unattributable, and a dead server's
+ * tools stayed in every later turn's tool set. Capping the server segment keeps
+ * the prefix intact for every possible name; two servers that collide once
+ * capped are caught by the manager's prefix-clash check, same as before.
+ */
+const MIN_TOOL_CHARS = 8;
+const MAX_SERVER_CHARS = MAX_TOOL_NAME - MIN_TOOL_CHARS - "mcp____".length;
+
 function fitToolName(prefix: string, tool: string): string {
     const full = `${prefix}${tool}`;
     if (full.length <= MAX_TOOL_NAME) return full;
+    // At least MIN_TOOL_CHARS by construction — see serverPrefix.
     const budget = MAX_TOOL_NAME - prefix.length;
-    // Nothing sensible left once the prefix alone eats the budget — keep the
-    // tail of the prefixed name so at least it stays unique-ish and valid.
-    if (budget < 8) return full.slice(full.length - MAX_TOOL_NAME);
     const head = Math.ceil((budget - 1) / 2);
     const tail = budget - 1 - head;
     return `${prefix}${tool.slice(0, head)}_${tool.slice(tool.length - tail)}`;
@@ -50,12 +66,40 @@ function fitToolName(prefix: string, tool: string): string {
 
 /** Shared prefix for every tool from one server: `mcp__<server>__`. */
 export function serverPrefix(server: string): string {
-    return `mcp__${sanitize(server)}__`;
+    return `mcp__${sanitize(server).slice(0, MAX_SERVER_CHARS)}__`;
 }
 
 /** `mcp__<server>__<tool>` — the Claude Code convention, capped at 64 chars. */
 export function namespacedToolName(server: string, tool: string): string {
     return fitToolName(serverPrefix(server), sanitize(tool));
+}
+
+/**
+ * The key one tool is filed under, guaranteed not to be one already taken.
+ *
+ * `namespacedToolName` is not injective, in two ways that both occur in the
+ * wild. Sanitizing folds the charset, so a server exposing `get-issue` and
+ * `get_issue` maps both to the same key. Shortening keeps only a long name's
+ * head and tail, so two names differing only in the middle — which is what a
+ * verbose server's names look like — also land on the same key.
+ *
+ * These were being written into a plain object, so the second silently replaced
+ * the first: the tool count under-reported the server, one tool became
+ * unreachable, and the model was handed a name whose schema and behaviour
+ * belonged to a different tool. Disambiguating with a digest of the real name
+ * keeps every tool addressable and keeps the key stable across reconnects.
+ */
+function uniqueToolName(server: string, tool: string, taken: Set<string>): string {
+    const base = namespacedToolName(server, tool);
+    if (!taken.has(base)) return base;
+    const tag = createHash("sha1").update(tool).digest("hex").slice(0, 4);
+    for (let attempt = 0; ; attempt++) {
+        const suffix = attempt === 0 ? `_${tag}` : `_${tag}${attempt}`;
+        // base already starts with the prefix and the prefix is capped well
+        // short of this cut, so the server prefix always survives.
+        const candidate = `${base.slice(0, MAX_TOOL_NAME - suffix.length)}${suffix}`;
+        if (!taken.has(candidate)) return candidate;
+    }
 }
 
 /**
@@ -157,8 +201,10 @@ function withTimeout(name: string, tool: ExecutableTool, onDisconnect?: (err: un
 
 function namespaceTools(server: string, tools: McpToolSet, onDisconnect?: (err: unknown) => void): McpToolSet {
     const namespaced: McpToolSet = {};
+    const taken = new Set<string>();
     for (const [toolName, tool] of Object.entries(tools)) {
-        const key = namespacedToolName(server, toolName);
+        const key = uniqueToolName(server, toolName, taken);
+        taken.add(key);
         namespaced[key] = withTimeout(key, tool as ExecutableTool, onDisconnect);
     }
     return namespaced;
@@ -169,15 +215,92 @@ function namespaceTools(server: string, tools: McpToolSet, onDisconnect?: (err: 
  * server never takes down the rest. OAuth servers get a token-backed provider
  * (no browser opener) so the transport can refresh silently; if no tokens are
  * stored yet the provider throws McpAuthRequiredError, which the manager maps
- * to needs-auth.
+ * to needs-auth. A remote server that turns out to speak the other HTTP
+ * transport is retried once on that one rather than reported as unreachable.
  */
 export async function connectServer(
     name: string,
     cfg: McpServerConfig,
     onDisconnect?: (err: unknown) => void,
 ): Promise<ConnectResult> {
+    try {
+        return await connectOnce(name, cfg, onDisconnect);
+    } catch (err) {
+        const fallback = otherTransport(cfg, err);
+        if (!fallback) throw err;
+        return await connectOnce(name, fallback, onDisconnect);
+    }
+}
+
+/**
+ * The same server over the transport it actually speaks, or undefined when
+ * that isn't the problem.
+ *
+ * Streamable HTTP and SSE share a URL shape and nothing in it says which one a
+ * server implements, so "http" vs "sse" is a guess the user makes when they add
+ * the entry — and getting it wrong looks like the server being down. Figma's
+ * local Dev Mode server is the common case: it has served SSE for most of its
+ * life while every example anyone copies says `--transport http`. The SDK
+ * already recognises the mismatch (it says so in the error text), so take it at
+ * its word and retry rather than reporting a dead server.
+ *
+ * A 401 is excluded deliberately: an auth failure means the transport is right
+ * and the credentials are not, and retrying it would replace an actionable
+ * "sign in" with a confusing transport error.
+ */
+function otherTransport(cfg: McpServerConfig, err: unknown): HttpServerConfig | undefined {
+    if (!isHttpServer(cfg)) return undefined;
+    if (isUnauthorizedError(err)) return undefined;
+    if (!isWrongTransportError(err)) return undefined;
+    return { ...cfg, type: cfg.type === "http" ? "sse" : "http" };
+}
+
+/** The SDK's own "you picked the wrong one" signal, plus the statuses that carry it. */
+const WRONG_TRANSPORT = /does not support (?:HTTP|SSE) transport|try using `(?:sse|http)` transport/i;
+
+function isWrongTransportError(err: unknown): boolean {
+    const message = err instanceof Error ? err.message : String(err);
+    if (WRONG_TRANSPORT.test(message)) return true;
+    // Not every server is polite enough to trigger the SDK's hint: one that only
+    // speaks SSE typically answers a streamable-HTTP POST with 405 (or 404 for
+    // the endpoint that isn't there), with no explanation at all.
+    const status = statusCodeOf(err);
+    return status === 404 || status === 405;
+}
+
+function statusCodeOf(err: unknown): number | undefined {
+    const status = (err as { statusCode?: unknown } | null | undefined)?.statusCode;
+    return typeof status === "number" ? status : undefined;
+}
+
+/**
+ * The server refused us for lack of credentials, rather than failing.
+ *
+ * The SDK only raises a typed `UnauthorizedError` when a transport was given an
+ * auth provider to recover with. A remote server added as a plain URL has
+ * none — so its 401 arrives as a generic transport error whose message is
+ * `POSTing to endpoint (HTTP 401)`, and a user who has simply not signed in yet
+ * is told their server is broken. Recognising it by status too is what lets the
+ * manager offer the one action that helps.
+ */
+export function isUnauthorizedError(err: unknown): boolean {
+    if (err instanceof UnauthorizedError) return true;
+    if (statusCodeOf(err) === 401) return true;
+    return err instanceof Error && /\bHTTP 401\b|\bunauthorized\b/i.test(err.message);
+}
+
+async function connectOnce(
+    name: string,
+    cfg: McpServerConfig,
+    onDisconnect?: (err: unknown) => void,
+): Promise<ConnectResult> {
+    // A stored session is reason enough to attach the provider: `auth: "oauth"`
+    // is a flag people rarely set (a server usually reveals it wants OAuth by
+    // answering 401), and without the provider a server the user has already
+    // signed in to would connect anonymously and be refused — with its tokens
+    // sitting unused on disk.
     const authProvider =
-        isHttpServer(cfg) && cfg.auth === "oauth"
+        isHttpServer(cfg) && (cfg.auth === "oauth" || hasStoredTokens(name))
             ? new McpOAuthProvider(name, oauthRefreshRedirectUri(), undefined, oauthClientOptions(cfg))
             : undefined;
     const transport = watchTransport(buildTransport(cfg, authProvider), onDisconnect);

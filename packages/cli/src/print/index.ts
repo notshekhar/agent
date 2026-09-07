@@ -11,7 +11,6 @@ import {
     getExtensionHost,
     getProjectModel,
     isMcpEnabled,
-    isTrusted,
     killAllBashChildren,
     parseModelId,
     resolveSavedAgent,
@@ -108,7 +107,7 @@ export async function runPrint(opts: PrintOptions): Promise<void> {
 
     // Connect MCP servers before the turn (same gate as the agent loop) so
     // their tools are available headlessly. Closed after the turn finishes.
-    const mcpEnabled = isMcpEnabled() && isTrusted(cwd);
+    const mcpEnabled = isMcpEnabled();
     if (mcpEnabled) await getMcpManager().init(cwd);
 
     // Load extensions so their tools/middleware apply headlessly too. No-op

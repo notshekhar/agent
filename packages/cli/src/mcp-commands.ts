@@ -13,6 +13,7 @@ import {
     isHttpServer,
     loadMcpServers,
     projectServersPath,
+    redactServerConfig,
     removeProjectServer,
     removeServer,
     setProjectServerEnabled,
@@ -79,7 +80,8 @@ function cmdGet(args: string[]): void {
     if (!found) throw new McpUsageError(`no MCP server named "${name}"`);
     console.log(`${name}  [scope: ${found.scope}]`);
     console.log(describeTarget(found.cfg));
-    console.log(JSON.stringify(found.cfg, null, 2));
+    // Redacted: this lands in scrollback, screen shares and pasted bug reports.
+    console.log(JSON.stringify(redactServerConfig(found.cfg), null, 2));
 }
 
 function cmdRemove(args: string[]): void {

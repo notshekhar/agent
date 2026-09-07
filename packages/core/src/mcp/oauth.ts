@@ -6,6 +6,7 @@
  * authorization URL to a caller-supplied opener (the browser).
  */
 import Configstore from "configstore";
+import { randomBytes } from "node:crypto";
 import { getConfigDir, PRODUCT_NAME } from "../brand";
 import { join } from "node:path";
 import type {
@@ -233,8 +234,23 @@ export class McpOAuthProvider implements OAuthClientProvider {
         write(this.server, { state });
     }
 
+    /**
+     * Mint a fresh, unguessable `state` for each authorization request.
+     *
+     * This used to return the STORED state, defaulting to `""` — backwards on
+     * both counts. The SDK calls `state()` to CREATE the value and
+     * `saveState()` to persist it, so reading it back yielded an empty string
+     * on every first login; empty is falsy, so the SDK skipped `saveState`
+     * and left the `state` parameter off the authorization URL entirely.
+     *
+     * Two consequences, and both bit. Nothing bound the callback to the request
+     * that started it (`storedState()` stayed undefined, so the SDK's CSRF
+     * check was skipped every time), and any server that advertises
+     * `require_state_parameter` — Figma's authorization server does — rejects a
+     * request that arrives without one, so those logins could never complete.
+     */
     state(): string {
-        return read(this.server).state ?? "";
+        return randomBytes(32).toString("base64url");
     }
 
     storedState(): string | undefined {

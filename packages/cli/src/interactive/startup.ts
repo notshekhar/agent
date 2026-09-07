@@ -16,6 +16,7 @@ import {
     loadProjectSkills,
     loadWorkspaceContext,
     runHooks,
+    withheldProjectServers,
     setTrust,
     settingsStore,
     trustForSession,
@@ -195,15 +196,35 @@ export async function runStartupTrustAndHooks(state: AppState, deps: AppDeps): P
 
 /**
  * Connect MCP servers in the background so a slow server never blocks startup.
- * Gated by the master `mcp` setting + project trust, mirroring skills/hooks.
  * Renders a one-line-per-server banner once connections settle.
+ *
+ * Anything held back is SAID so. Silence was the old behaviour whenever the
+ * `mcp` setting was off or the folder untrusted, which is how a correctly
+ * configured server came to look like a broken one: no banner, no error, no
+ * tools, and no hint that the reason was a setting three levels away.
  */
 export function startMcpServers(state: AppState, deps: AppDeps): void {
     const { tui, history } = deps;
-    // MCP is on by default — only an explicit `mcp: false` (or an untrusted
-    // project) skips auto-connect.
-    if (!isMcpEnabled() || !isTrusted(state.cwd)) return;
-    if (Object.keys(loadMcpServers(state.cwd)).length === 0) return;
+    const configured = Object.keys(loadMcpServers(state.cwd));
+    if (configured.length === 0) return;
+    // MCP is on by default — only an explicit `mcp: false` turns it off.
+    if (!isMcpEnabled()) {
+        addStartupNotice(
+            history,
+            `MCP: off (mcp: false in settings) — ${configured.length} configured server(s) not connected`,
+        );
+        return;
+    }
+    // Project-scoped servers ride in with the repo, so they wait for trust the
+    // way hooks and project skills do. User-scope servers connect regardless.
+    const withheld = withheldProjectServers(state.cwd, isTrusted(state.cwd));
+    if (withheld.length > 0) {
+        addStartupNotice(
+            history,
+            `MCP: ${withheld.join(", ")} declared in ${CONFIG_DIR_NAME}/mcp.json — not connected until this project is trusted`,
+            "hook",
+        );
+    }
 
     const manager = getMcpManager();
     void manager.init(state.cwd).then(() => {

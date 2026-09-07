@@ -138,7 +138,9 @@ export async function buildContextReport(opts: {
     const todosEnabled =
         getSetting("todos") === true && (!allowedTools?.length || allowedTools.includes(TODO_TOOL_NAME));
 
-    const mcpTools = isMcpEnabled() && isTrusted(cwd) && !allowedTools?.length ? getMcpManager().getTools() : {};
+    // Trust is applied when servers connect, not when their tools are counted —
+    // see the same gate in turn.ts.
+    const mcpTools = isMcpEnabled() && !allowedTools?.length ? getMcpManager().getTools() : {};
     const mcpToolCount = Object.keys(mcpTools).length;
 
     const subagentsEnabled =

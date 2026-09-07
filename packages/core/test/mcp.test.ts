@@ -6,6 +6,7 @@ import { resolveSecrets } from "../src/mcp/config";
 import { connectServer, namespacedToolName, serverPrefix } from "../src/mcp/client";
 import { McpManager } from "../src/mcp/manager";
 import { getSetting, setSetting } from "../src/settings";
+import { trustForSession } from "../src/agent/trust";
 import type { McpServerConfig } from "../src/mcp/config";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -140,13 +141,18 @@ describe("OAuth provider", () => {
     });
 });
 
-/** Write a throwaway project dir with .loop/mcp.json so loadMcpServers picks it up. */
+/**
+ * Write a throwaway project dir with .loop/mcp.json so loadMcpServers picks it
+ * up, and trust it: project-scoped servers only connect in a trusted folder,
+ * which is the subject of its own tests in mcp-recovery.test.ts.
+ */
 function makeProjectWith(servers: Record<string, McpServerConfig>): string {
     const { mkdtempSync, mkdirSync, writeFileSync } = require("node:fs") as typeof import("node:fs");
     const { tmpdir } = require("node:os") as typeof import("node:os");
     const root = mkdtempSync(join(tmpdir(), "loop-mcp-test-"));
     mkdirSync(join(root, CONFIG_DIR_NAME), { recursive: true });
     writeFileSync(join(root, CONFIG_DIR_NAME, "mcp.json"), JSON.stringify({ mcpServers: servers }));
+    trustForSession(root);
     return root;
 }
 
@@ -242,5 +248,20 @@ describe("parseServerConfig", () => {
                 env: { TOKEN: "${env:GH_TOKEN}" },
             }),
         ).toEqual({ type: "stdio", command: "npx", env: { TOKEN: "${env:GH_TOKEN}" } });
+    });
+
+    test("an http/sse server must be an http(s) url, as `mcp add` has always required", async () => {
+        const { parseServerConfig } = await import("../src/rpc/mcp-flows");
+        // `new URL()` accepts these happily, so they were written to
+        // settings.json and only failed later, as a transport error that says
+        // nothing about the URL that caused it.
+        expect(() => parseServerConfig({ type: "http", url: "file:///etc/passwd" })).toThrow(/http:\/\/ or https:\/\//);
+        expect(() => parseServerConfig({ type: "sse", url: "ws://example.com/mcp" })).toThrow(
+            /http:\/\/ or https:\/\//,
+        );
+        expect(parseServerConfig({ type: "http", url: "http://127.0.0.1:3845/mcp" })).toEqual({
+            type: "http",
+            url: "http://127.0.0.1:3845/mcp",
+        });
     });
 });

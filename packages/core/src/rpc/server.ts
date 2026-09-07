@@ -1374,10 +1374,16 @@ export class RpcServer {
                 // No name = all of them. This is also what makes the first
                 // `mcp.list` meaningful: nothing connects until asked.
                 const name = String(params.name ?? "").trim();
+                const cwd = String(params.cwd ?? process.cwd());
                 const manager = getMcpManager();
-                await manager.init(String(params.cwd ?? process.cwd()));
+                await manager.init(cwd);
+                // `init` captures cwd once and is a no-op ever after, so a
+                // client that has moved (another workspace, a different tab)
+                // was reconnecting against the directory this process started
+                // in — wrong project file, wrong trust decision.
+                await manager.setCwd(cwd);
                 await manager.reconnect(name || undefined);
-                return listMcpServers(String(params.cwd ?? process.cwd()));
+                return listMcpServers(cwd);
             },
             "mcp.login.start": (params) => {
                 return startMcpLogin(String(params.name ?? ""), String(params.cwd ?? process.cwd()));

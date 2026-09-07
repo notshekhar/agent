@@ -18,7 +18,6 @@ import {
     getMcpManager,
     getProjectModel,
     isMcpEnabled,
-    isTrusted,
     parseModelId,
     PRODUCT_NAME,
     recordGoalRunEnd,
@@ -91,7 +90,7 @@ export async function runGoal(goal: Goal): Promise<GoalRunResult> {
     const prompt = `${GOAL_PREAMBLE}\n\nGoal: ${goal.text}`;
     const userInput = startHooks.additionalContext ? `${startHooks.additionalContext}\n\n${prompt}` : prompt;
 
-    const mcpEnabled = isMcpEnabled() && isTrusted(goal.cwd);
+    const mcpEnabled = isMcpEnabled();
     if (mcpEnabled) await getMcpManager().init(goal.cwd);
     // No browser in an unattended tick: an extension asking for one gets an
     // error (run fails with "needs attention"), never a hang.

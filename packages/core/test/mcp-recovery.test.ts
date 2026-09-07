@@ -16,7 +16,8 @@ import { tmpdir } from "node:os";
 import { connectServer, namespacedToolName } from "../src/mcp/client";
 import { McpManager } from "../src/mcp/manager";
 import { getSetting, setSetting } from "../src/settings";
-import type { McpServerConfig } from "../src/mcp/config";
+import { trustForSession } from "../src/agent/trust";
+import { withheldProjectServers, type McpServerConfig } from "../src/mcp/config";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const MOCK = join(here, "fixtures", "mock-mcp-server.mjs");
@@ -28,7 +29,18 @@ const stdio = (pidfile?: string): McpServerConfig => ({
     ...(pidfile ? { env: { MOCK_MCP_PIDFILE: pidfile } } : {}),
 });
 
+/**
+ * A project folder the user has trusted. Trust is what admits project-scoped
+ * servers at all, so every test about connection behaviour starts from there;
+ * `untrustedProject` is for the tests that are about trust itself.
+ */
 function project(servers: Record<string, McpServerConfig>): string {
+    const root = untrustedProject(servers);
+    trustForSession(root);
+    return root;
+}
+
+function untrustedProject(servers: Record<string, McpServerConfig>): string {
     const root = mkdtempSync(join(tmpdir(), "loop-mcp-recovery-"));
     writeServers(root, servers);
     return root;
@@ -192,5 +204,44 @@ describe("a re-authorization that does not complete", () => {
         const survived = hasStoredTokens(server);
         clearMcpAuth(server);
         expect(survived).toBe(true);
+    });
+});
+
+/**
+ * Project trust decides which servers may connect, not whether MCP runs at all.
+ * A user-scope server lives in the user's own settings file and no repo can
+ * influence it, so gating it on the trust of whatever folder happens to be open
+ * only ever produced a server that silently did nothing — in folders where the
+ * trust prompt never even appears, with no way to fix it from inside the app.
+ */
+describe("trust decides which servers connect", () => {
+    test("a user-scope server connects in an untrusted folder", async () => {
+        setSetting("mcpServers", { userwide: stdio() });
+        manager = new McpManager();
+        // A fresh temp dir: no trust row, no prompt ever shown, so untrusted.
+        await manager.init(untrustedProject({}));
+        expect(manager.getServer("userwide")).toMatchObject({ status: "ready", toolCount: 2 });
+        expect(Object.keys(manager.getTools())).toContain(namespacedToolName("userwide", "echo"));
+    });
+
+    test("a project-scope server does not, and is named as withheld", async () => {
+        const root = untrustedProject({ fromrepo: stdio() });
+        manager = new McpManager();
+        await manager.init(root);
+        expect(manager.getServer("fromrepo")).toBeUndefined();
+        expect(manager.getTools()).toEqual({});
+        // The panel and the startup banner both need something to print.
+        expect(withheldProjectServers(root, false)).toEqual(["fromrepo"]);
+        expect(withheldProjectServers(root, true)).toEqual([]);
+    });
+
+    test("reconnect in an untrusted folder does not connect project servers either", async () => {
+        setSetting("mcpServers", { userwide: stdio() });
+        const root = untrustedProject({ fromrepo: stdio() });
+        manager = new McpManager();
+        await manager.init(root);
+        await manager.reconnect();
+        expect(manager.getServer("userwide")?.status).toBe("ready");
+        expect(manager.getServer("fromrepo")).toBeUndefined();
     });
 });

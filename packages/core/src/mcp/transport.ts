@@ -6,7 +6,7 @@
 import { brandEnv } from "../brand";
 import { Experimental_StdioMCPTransport } from "@ai-sdk/mcp/mcp-stdio";
 import type { MCPClientConfig, OAuthClientProvider } from "@ai-sdk/mcp";
-import { isHttpServer, resolveSecretMap, type McpServerConfig } from "./config";
+import { isHttpServer, resolveSecretMap, resolveSecrets, type McpServerConfig } from "./config";
 
 // The client accepts either a transport-config object (http/sse) or a custom
 // transport instance (stdio). MCPTransportConfig isn't re-exported, so derive
@@ -21,7 +21,12 @@ export function buildTransport(cfg: McpServerConfig, authProvider?: OAuthClientP
     if (isHttpServer(cfg)) {
         return {
             type: cfg.type,
-            url: cfg.url,
+            // The URL takes `${env:VAR}` too. Some servers carry the credential
+            // in the path (a per-workspace endpoint, a signed URL), and every
+            // other place a secret can appear here resolved it — so a URL was
+            // the one field where keeping a token out of the config file
+            // silently produced a request to a literal "${env:...}" host.
+            url: resolveSecrets(cfg.url),
             headers: resolveSecretMap(cfg.headers),
             authProvider,
         };

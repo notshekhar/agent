@@ -172,10 +172,18 @@ export function parseServerConfig(input: unknown): McpServerConfig {
     if (type === "http" || type === "sse") {
         const url = String(raw.url ?? "").trim();
         if (!url) throw new Error("an http/sse server needs a url");
+        let parsed: URL;
         try {
-            new URL(url);
+            parsed = new URL(url);
         } catch {
             throw new Error(`not a valid url: ${url}`);
+        }
+        // The CLI has always required http(s) here; this path did not, so a
+        // GUI could write `file://` or `ws://` into settings.json and get a
+        // permanent row that fails at connect time with a transport error
+        // instead of the reason.
+        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+            throw new Error(`an http/sse server needs an http:// or https:// url, not ${parsed.protocol}//`);
         }
         const headers = stringMap(raw.headers, "headers");
         const scopes = Array.isArray(raw.scopes) ? raw.scopes.map(String) : undefined;

@@ -11,6 +11,7 @@ import {
     buildSteakGrid,
     filterAttachmentsByModalities,
     getCatalog,
+    getMcpManager,
     listMemoryFiles,
     loadMemoryContext,
     runRecap,
@@ -299,6 +300,16 @@ export function createMiscHandlers(state: AppState, deps: AppDeps): MiscHandlers
                 return;
             }
             state.cwd = target;
+            // MCP is project-aware — `.loop/mcp.json` and the trust decision
+            // both belong to a folder — so it has to move too, or it keeps
+            // serving the directory loop was launched in. In the background:
+            // a connect is up to 30s per server and `/cd` must stay instant.
+            void getMcpManager()
+                .setCwd(target)
+                .catch(() => {
+                    // A server that fails to connect in the new folder shows up
+                    // in /mcp with its own error; `cd` itself still succeeded.
+                });
             // Move the session's home so /resume finds it under the new
             // directory; an unsaved session just picks up the new cwd on save.
             if (state.session) {

@@ -6,15 +6,18 @@
  */
 import { brandEnv } from "../brand";
 import { UnauthorizedError } from "@ai-sdk/mcp";
-import { connectServer, serverPrefix, type McpClient, type McpToolSet } from "./client";
+import { connectServer, isUnauthorizedError, serverPrefix, type McpClient, type McpToolSet } from "./client";
 import {
     addServer,
+    isHttpServer,
     isServerEnabled,
+    loadConnectableServers,
     loadMcpServers,
     removeServer,
     setServerEnabled,
     type McpServerConfig,
 } from "./config";
+import { isTrusted } from "../agent/trust";
 import { authorizeServer } from "./authorize";
 import { clearMcpAuth, McpAuthRequiredError } from "./oauth";
 
@@ -77,7 +80,7 @@ export class McpManager {
         if (this.initialized) return;
         this.initialized = true;
         this.cwd = cwd;
-        const configs = loadMcpServers(cwd);
+        const configs = loadConnectableServers(cwd, isTrusted(cwd));
         await Promise.allSettled(Object.entries(configs).map(([name, cfg]) => this.connectOne(name, cfg)));
     }
 
@@ -177,9 +180,22 @@ export class McpManager {
         void server.client?.close().catch(() => {});
     }
 
-    /** OAuth servers that aren't logged in get a distinct, actionable status. */
+    /**
+     * OAuth servers that aren't logged in get a distinct, actionable status.
+     *
+     * A bare 401 counts. A remote server added as a plain URL has no auth
+     * provider for the SDK to recover with, so its refusal arrives as an
+     * ordinary transport error reading `POSTing to endpoint (HTTP 401)` — which
+     * used to park it at "error", where the web panel offers reconnect and
+     * nothing else, and reconnecting an unauthenticated server forever is not a
+     * plan. Only for HTTP servers: a stdio child has no login to offer, so
+     * "unauthorized" in its output means something else entirely.
+     */
     private setFailed(name: string, cfg: McpServerConfig, err: unknown): void {
-        const needsAuth = err instanceof McpAuthRequiredError || err instanceof UnauthorizedError;
+        const needsAuth =
+            err instanceof McpAuthRequiredError ||
+            err instanceof UnauthorizedError ||
+            (isHttpServer(cfg) && isUnauthorizedError(err));
         this.servers.set(name, {
             name,
             status: needsAuth ? "needs-auth" : "error",
@@ -227,8 +243,45 @@ export class McpManager {
      */
     async adopt(name: string, cfg: McpServerConfig): Promise<void> {
         const existing = this.servers.get(name);
-        if (existing) await this.closeOne(existing);
+        if (existing) {
+            // Supersede BEFORE closing. `closeOne` trips the transport's
+            // onclose, which is the same signal an unexpected drop gives, so a
+            // deliberate replacement briefly flashed the server as "error"
+            // (and, once auto-anything keys off that, would do more than flash).
+            this.supersede(name);
+            await this.closeOne(existing);
+        }
         await this.connectOne(name, cfg);
+    }
+
+    /**
+     * Follow the session into another directory.
+     *
+     * The manager captured `cwd` at `init()` and never let go, so after a `/cd`
+     * everything project-scoped was still read from the folder loop launched
+     * in: `reconnect` re-read that folder's `.loop/mcp.json`, evaluated that
+     * folder's trust, and the servers belonging to the folder the user actually
+     * moved to never connected at all. User-scope servers are untouched here —
+     * they don't belong to any directory, and tearing down a working connection
+     * on a `cd` would be its own bug.
+     */
+    async setCwd(cwd: string): Promise<void> {
+        if (cwd === this.cwd) return;
+        this.cwd = cwd;
+        if (!this.initialized) return;
+        const allowed = loadConnectableServers(cwd, isTrusted(cwd));
+        // Servers that belonged to the folder we left.
+        for (const server of [...this.servers.values()]) {
+            if (server.name in allowed) continue;
+            this.supersede(server.name);
+            await this.closeOne(server);
+            this.servers.delete(server.name);
+        }
+        // Servers this folder brings, or brings under a different definition.
+        for (const [name, cfg] of Object.entries(allowed)) {
+            if (sameConfig(this.servers.get(name)?.config, cfg)) continue;
+            await this.adopt(name, cfg);
+        }
     }
 
     /** Forget a server this process connected, without touching any config. */
@@ -254,7 +307,7 @@ export class McpManager {
      * new config, and ones deleted from disk are dropped.
      */
     async reconnect(name?: string): Promise<void> {
-        const onDisk = loadMcpServers(this.cwd);
+        const onDisk = loadConnectableServers(this.cwd, isTrusted(this.cwd));
         if (name) {
             const cfg = onDisk[name] ?? this.servers.get(name)?.config;
             if (!cfg) {
@@ -262,7 +315,10 @@ export class McpManager {
                 return;
             }
             const existing = this.servers.get(name);
-            if (existing) await this.closeOne(existing);
+            if (existing) {
+                this.supersede(name);
+                await this.closeOne(existing);
+            }
             await this.connectOne(name, cfg);
             return;
         }
@@ -343,6 +399,15 @@ export class McpManager {
             if (key.startsWith(prefix)) delete this.tools[key];
         }
     }
+}
+
+/**
+ * Whether a server's definition has actually changed. Both sides come from the
+ * same JSON files, so key order is stable and a string compare is enough; a
+ * false "changed" only costs one needless reconnect.
+ */
+function sameConfig(a: McpServerConfig | undefined, b: McpServerConfig): boolean {
+    return a !== undefined && JSON.stringify(a) === JSON.stringify(b);
 }
 
 /** An error as a line a user can read. */

@@ -297,7 +297,10 @@ async function assembleTurnTools(
     // Added BEFORE the task tool so MCP names land in `parentTools` — a subagent
     // fork then inherits the same MCP tools, while the resolver's cap still lets
     // a named subagent only narrow, never widen.
-    const mcpEnabled = isMcpEnabled() && isTrusted(cwd);
+    // Not trust-gated here: the manager already decided which servers were
+    // allowed to connect in this folder (user-scope always, project-scope only
+    // when trusted), so anything it holds tools for has passed that test.
+    const mcpEnabled = isMcpEnabled();
     if (mcpEnabled && !allowedTools?.length) {
         Object.assign(toolsForTurn, getMcpManager().getTools());
     }

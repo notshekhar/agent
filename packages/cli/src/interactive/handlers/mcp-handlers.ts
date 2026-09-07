@@ -18,6 +18,7 @@ import {
     type McpServerConfig,
     type ServerSnapshot,
     CONFIG_DIR_NAME,
+    PRODUCT_NAME,
 } from "@notshekhar/loop-core";
 import { openBrowser } from "../../open-browser";
 import { dim } from "../ui/text";
@@ -43,9 +44,9 @@ export function createMcpHandlers(state: AppState, deps: AppDeps): McpHandlers {
 
     /** Prompt for a new server's config and connect it. Esc at any field aborts. */
     async function addServerFlow(): Promise<void> {
-        // The flow ends in a connect, so it asks the same question first.
-        // `loop mcp add` still writes config here without connecting anything.
-        if (!mayConnect()) return;
+        // The flow ends in a connect, so it asks the same question first. The
+        // panel writes to user scope, so trust does not enter into it.
+        if (!mayConnect(false)) return;
         const name = (await promptOnce("MCP server name (e.g. filesystem)")).trim();
         if (!name) return;
 
@@ -146,6 +147,11 @@ export function createMcpHandlers(state: AppState, deps: AppDeps): McpHandlers {
                               config,
                               toolCount: 0,
                               status: isServerEnabled(config) ? "error" : "disabled",
+                              // A row for a server nothing has tried to connect
+                              // reads as "error", which is the only status the
+                              // shape has for it — so say WHY, or the panel
+                              // accuses a perfectly good server of failing.
+                              ...(isServerEnabled(config) ? { error: notConnectedReason(name) } : {}),
                           },
                           connected: false,
                       },
@@ -157,6 +163,15 @@ export function createMcpHandlers(state: AppState, deps: AppDeps): McpHandlers {
         return rows;
     }
 
+    /** Why a configured server has no live connection in this process. */
+    function notConnectedReason(name: string): string {
+        if (!isMcpEnabled()) return `not connected — MCP is off ("mcp": false in settings.json)`;
+        if (!isGlobalServer(name) && !isTrusted(state.cwd)) {
+            return `not connected — declared in ${CONFIG_DIR_NAME}/mcp.json, which only loads in a trusted project`;
+        }
+        return "not connected yet — choose reconnect";
+    }
+
     function detail(s: ServerSnapshot): string {
         if (s.status === "ready") return `${s.toolCount} tools`;
         if (s.status === "error" && s.error) return s.error;
@@ -164,35 +179,51 @@ export function createMcpHandlers(state: AppState, deps: AppDeps): McpHandlers {
     }
 
     /**
-     * Connecting a server runs someone else's code — a stdio server is a
-     * subprocess spawned from this project's config. The panel now lists
-     * servers it has never connected (that is the point: an untrusted project
-     * used to show an empty list), so every action that would actually bring
-     * one up has to ask the same question startup does before auto-connecting.
+     * Whether an action that actually brings a server up may proceed.
+     *
+     * Scope decides. A user-scope server is the user's own declaration, no repo
+     * has any say in it, and startup connects it in every folder — so gating
+     * the panel's reconnect/authorize on project trust only produced buttons
+     * that refuse to work on servers that are already running. A project-scoped
+     * server is code that arrived with the repo, and that is what trust is for.
+     *
+     * The old refusal also told people to "run /trust", which is not a command
+     * loop has; the way out of an untrusted folder is the startup prompt, or
+     * moving the server to user scope, so say that instead.
      */
-    function mayConnect(): boolean {
+    function mayConnect(projectScoped: boolean): boolean {
         if (!isMcpEnabled()) {
             history.addSystem('MCP is off — set "mcp": true in settings.json to use servers');
             tui.requestRender();
             return false;
         }
-        if (!isTrusted(state.cwd)) {
-            history.addError(`this project is not trusted — run /trust before connecting MCP servers here`);
+        if (projectScoped && !isTrusted(state.cwd)) {
+            history.addError(
+                `this project is not trusted, so servers in ${CONFIG_DIR_NAME}/mcp.json stay off here — ` +
+                    `loop asks about trust at startup, or move the server to user scope with ` +
+                    `\`${PRODUCT_NAME} mcp add --scope user …\``,
+            );
             tui.requestRender();
             return false;
         }
         return true;
     }
 
+    /** True for a server that has to wait for trust: anything not user-scope. */
+    function isProjectScoped(name: string): boolean {
+        return !isGlobalServer(name);
+    }
+
     async function reconnect(name: string | undefined): Promise<void> {
-        if (!mayConnect()) return;
+        // Reconnecting everything re-reads the project file too.
+        if (!mayConnect(name ? isProjectScoped(name) : true)) return;
         history.addSystem(name ? `reconnecting ${name}…` : "reconnecting all MCP servers…");
         tui.requestRender();
         await getMcpManager().reconnect(name || undefined);
     }
 
     async function authorize(name: string, config?: McpServerConfig): Promise<void> {
-        if (!mayConnect()) return;
+        if (!mayConnect(isProjectScoped(name))) return;
         history.addSystem(`Opening browser to authorize ${name}… complete the login, then return here.`);
         tui.requestRender();
         try {
@@ -246,7 +277,7 @@ export function createMcpHandlers(state: AppState, deps: AppDeps): McpHandlers {
         if (pick.value === "reconnect") return reconnect(s.name);
         if (pick.value === "enable" || pick.value === "disable") {
             const enabled = pick.value === "enable";
-            if (enabled && !mayConnect()) return;
+            if (enabled && !mayConnect(isProjectScoped(s.name))) return;
             // setEnabled only knows servers this process connected; for one it
             // has never seen, flip the setting and connect it directly.
             if (!(await manager.setEnabled(s.name, enabled))) {

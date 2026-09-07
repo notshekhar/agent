@@ -30,9 +30,15 @@ export async function authorizeServer(
     // treating the MCP URL as the issuer and rejects the real (e.g. Keycloak)
     // auth server. The transport passes this automatically on a live connect;
     // our explicit login must fetch it ourselves.
-    const resourceMetadataUrl = await discoverResourceMetadataUrl(cfg.url);
+    const { resourceMetadataUrl, scopes } = await discoverResourceHints(cfg.url);
 
     const opts = oauthClientOptions(cfg);
+    // A server that names the scopes it wants means it. Figma's 401 carries
+    // `scope="mcp:connect"` and its resource metadata lists the same, and a
+    // consent request that asks for nothing gets a token good for nothing.
+    // Configured `scopes` still win — this only fills the gap, so nobody has to
+    // read a WWW-Authenticate header to write a working server entry.
+    if (!opts.scopes?.length && scopes?.length) opts.scopes = scopes;
     const callback = await startCallbackServer();
     // Start clean: a dynamically-registered client is bound to the redirect URI
     // it was created with. Re-registering against this run's live callback URI
@@ -53,7 +59,11 @@ export async function authorizeServer(
 
         // First pass: no auth code yet → provider.redirectToAuthorization fires,
         // the browser opens, and auth() returns "REDIRECT".
-        const first = await runAuth(() => auth(provider, { serverUrl: cfg.url, resourceMetadataUrl }), !opts.clientId);
+        const first = await runAuth(
+            () => auth(provider, { serverUrl: cfg.url, resourceMetadataUrl }),
+            !opts.clientId,
+            cfg.url,
+        );
         if (first === "AUTHORIZED") {
             authorized = true;
             return; // already had a valid session
@@ -71,6 +81,7 @@ export async function authorizeServer(
                     resourceMetadataUrl,
                 }),
             !opts.clientId,
+            cfg.url,
         );
         if (result !== "AUTHORIZED") {
             throw new Error("authorization did not complete");
@@ -87,32 +98,78 @@ export async function authorizeServer(
 
 /**
  * Run one `auth()` step, translating the SDK's cryptic registration failures
- * into an actionable message. Servers that forbid anonymous dynamic client
- * registration (e.g. Figma → HTTP 403 "Forbidden", which the SDK then fails to
- * parse as JSON) need the user to register an app and set clientId/clientSecret.
+ * into an actionable message. A server that forbids anonymous dynamic client
+ * registration answers 403 with a body that isn't JSON, so the SDK's own error
+ * is a parse failure several layers from the cause.
+ *
+ * Two different things look identical here, and the difference decides whether
+ * the user has any move at all: a provider that simply wants you to register an
+ * app first (set clientId/clientSecret and you're in), and one that allow-lists
+ * which products may connect at all. Figma is the second kind — its registration
+ * endpoint matches `client_name` against the Figma MCP Catalog and 403s
+ * everything else, so no local configuration can help. Say so rather than
+ * sending someone to a developer console to make credentials that will also be
+ * refused.
  */
-async function runAuth<T>(fn: () => Promise<T>, usedDynamicRegistration: boolean): Promise<T> {
+async function runAuth<T>(fn: () => Promise<T>, usedDynamicRegistration: boolean, serverUrl: string): Promise<T> {
     try {
         return await fn();
     } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         if (usedDynamicRegistration && /\b(403|forbidden|registration|invalid oauth error response)\b/i.test(msg)) {
-            throw new Error(
-                `${msg}\n\nThis server appears to block automatic OAuth client registration. ` +
-                    `Register an OAuth app with the provider, then add "clientId" (and "clientSecret" ` +
-                    `for confidential clients) to the server entry in ~/${CONFIG_DIR_NAME}/settings.json.`,
-            );
+            throw new Error(`${msg}\n\n${registrationAdvice(serverUrl)}`);
         }
         throw err;
     }
 }
 
+/** Providers whose registration endpoint is an allow-list, not a sign-up form. */
+const ALLOWLISTED_PROVIDERS: Array<{ host: RegExp; note: string }> = [
+    {
+        host: /(^|\.)figma\.com$/i,
+        note:
+            "Figma's remote MCP server only accepts OAuth clients in the Figma MCP Catalog — its registration " +
+            "endpoint matches on client name and refuses everything else, and personal access tokens are not " +
+            "accepted either. Creating your own OAuth app will not help: the `mcp:connect` scope is not offered " +
+            "to self-serve apps. Use Figma's local Dev Mode server instead — open a design file in the Figma " +
+            "desktop app, switch to Dev Mode, enable the desktop MCP server, and add " +
+            "`http://127.0.0.1:3845/mcp` as an http server with no auth.",
+    },
+];
+
+/** Exported for tests and for any UI that wants to explain a refused login. */
+export function registrationAdvice(serverUrl: string): string {
+    let host = "";
+    try {
+        host = new URL(serverUrl).hostname;
+    } catch {
+        // A malformed URL can't match a provider; fall through to generic advice.
+    }
+    const known = ALLOWLISTED_PROVIDERS.find((p) => p.host.test(host));
+    if (known) return known.note;
+    return (
+        `This server blocks automatic OAuth client registration. Register an OAuth app with the provider, ` +
+        `then add "clientId" (and "clientSecret" for confidential clients) to the server entry in ` +
+        `~/${CONFIG_DIR_NAME}/settings.json.`
+    );
+}
+
+/** What an unauthenticated probe of the server tells us about logging in. */
+export interface ResourceHints {
+    /** RFC 9728 protected-resource metadata document, if advertised. */
+    resourceMetadataUrl?: URL;
+    /** Scopes the server says this resource needs, if it says. */
+    scopes?: string[];
+}
+
 /**
- * Reads the `resource_metadata` URL from the server's 401 WWW-Authenticate
- * header (RFC 9728). Returns undefined when the server doesn't advertise one —
- * the caller then relies on the SDK's default well-known discovery.
+ * Ask the server, unauthenticated, what it wants — reading both halves of the
+ * 401 it answers with (RFC 9728): the `resource_metadata` URL that names the
+ * real authorization server, and the `scope` the resource requires. Everything
+ * here is best-effort: a server that advertises neither leaves the caller on
+ * the SDK's default well-known discovery, which is the old behaviour.
  */
-async function discoverResourceMetadataUrl(serverUrl: string): Promise<URL | undefined> {
+async function discoverResourceHints(serverUrl: string): Promise<ResourceHints> {
     let response: Response;
     try {
         response = await fetch(serverUrl, {
@@ -121,13 +178,44 @@ async function discoverResourceMetadataUrl(serverUrl: string): Promise<URL | und
             body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }),
         });
     } catch {
+        return {};
+    }
+    const header = response.headers.get("www-authenticate") ?? "";
+    const resourceMetadataUrl = parseUrl(header.match(/resource_metadata="([^"]+)"/i)?.[1]);
+    const headerScope = splitScope(header.match(/\bscope="([^"]+)"/i)?.[1]);
+    const scopes = headerScope ?? (await fetchSupportedScopes(resourceMetadataUrl));
+    return { resourceMetadataUrl, scopes };
+}
+
+/**
+ * `scopes_supported` from the protected-resource document — the other place
+ * the spec allows a server to state its scopes, and the one Figma fills in when
+ * the header is fetched from a cache that dropped it.
+ */
+async function fetchSupportedScopes(resourceMetadataUrl: URL | undefined): Promise<string[] | undefined> {
+    if (!resourceMetadataUrl) return undefined;
+    try {
+        const response = await fetch(resourceMetadataUrl, { headers: { accept: "application/json" } });
+        if (!response.ok) return undefined;
+        const body = (await response.json()) as { scopes_supported?: unknown };
+        const scopes = body?.scopes_supported;
+        if (!Array.isArray(scopes)) return undefined;
+        const strings = scopes.filter((s): s is string => typeof s === "string" && s.length > 0);
+        return strings.length > 0 ? strings : undefined;
+    } catch {
         return undefined;
     }
-    const header = response.headers.get("www-authenticate");
-    const match = header?.match(/resource_metadata="([^"]+)"/i);
-    if (!match) return undefined;
+}
+
+function splitScope(raw: string | undefined): string[] | undefined {
+    const parts = raw?.split(/\s+/).filter(Boolean);
+    return parts?.length ? parts : undefined;
+}
+
+function parseUrl(raw: string | undefined): URL | undefined {
+    if (!raw) return undefined;
     try {
-        return new URL(match[1]);
+        return new URL(raw);
     } catch {
         return undefined;
     }
