@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.20.4] - 2026-09-08
+
+### Added
+
+- **A bash row's command is syntax-highlighted.** It is the one thing loop prints that you would have read in colour had you typed it, and it was a flat grey run — a four-stage pipeline, a quoted path with a space in it and a stray `&&` all looked alike. The program at the head of each pipeline segment now carries the function colour, with quoting, `$variables`, operators and redirections, comments and `FOO=bar` prefixes each taking the slot the code highlighter already uses, so it repaints with the palette and needs nothing per theme. Flags are dimmed rather than coloured: in a long command they are what you skim past to find the paths. Deliberately not highlight.js, which loop already bundles — its bash grammar colours shell built-ins and leaves the command name alone, so `echo` lights up and `git` does not, which is backwards for a row whose subject is which program ran. Keywords are only read as keywords at the head of a command, so `echo done` prints an argument rather than the end of a loop that was never opened.
+
+### Fixed
+
+- **Tool rows use the width of the terminal.** Every summary was cut to a fixed number of characters chosen where nothing knew how wide the window was: a bash command at 80, a subagent's prompt at 50, a SQL query at 60, a plan's heading and an MCP tool's arguments at 80. On a 200-column terminal a bash row stopped a little past 80 with a hundred columns of nothing beside it, and no setting could widen it, because the cut had already happened by the time the renderer was told how much room there was. The renderers have always fitted a row to the real width — noir's rows, the folded run's table, and the box in the default mode all clip — so the earlier cut only ever subtracted. What remains is a ceiling far past any terminal, there to keep a minified one-liner out of per-frame layout rather than to decide what you see. The subagent prompt was three copies of one line in three files disagreeing about the number; it is one now. The `/tree` rows had the same two cuts at 80 and lost them too.
+
 ## [0.20.3] - 2026-09-08
 
 ### Fixed

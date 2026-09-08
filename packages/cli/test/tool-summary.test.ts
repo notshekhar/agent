@@ -4,6 +4,7 @@ import {
     formatToolInvocation,
     readGutterPrefixes,
     readLineRangeText,
+    taskPromptSnippet,
 } from "../src/interactive/ui/tool-summary";
 
 const CWD = "/repo";
@@ -19,11 +20,14 @@ describe("formatToolArgs", () => {
         expect(formatToolArgs("read", { path: "/etc/hosts" }, CWD)).toBe("/etc/hosts");
     });
 
-    test("bash shows the first line, truncated", () => {
+    test("bash shows the first line, at whatever length it is", () => {
         expect(formatToolArgs("bash", { command: "git status" }, CWD)).toBe("git status");
         expect(formatToolArgs("bash", { command: "echo one\necho two" }, CWD)).toBe("echo one");
+        // It used to stop at 80 characters, which is a width nothing here
+        // knows — the renderer fits the row to the terminal. See
+        // shell-highlight.test.ts for the row that proves it.
         const long = "x".repeat(100);
-        expect(formatToolArgs("bash", { command: long }, CWD)).toBe(`${"x".repeat(77)}…`);
+        expect(formatToolArgs("bash", { command: long }, CWD)).toBe(long);
     });
 
     test("grep and find summarize their pattern", () => {
@@ -35,12 +39,34 @@ describe("formatToolArgs", () => {
         expect(formatToolArgs("sql", { connectionId: "prod", query: "select\n  1" }, CWD)).toBe("prod · select 1");
     });
 
-    test("unknown tools fall back to truncated JSON", () => {
+    test("a pathological argument is still bounded — a guard, not a width", () => {
+        // Nothing should carry a megabyte of one-liner through layout on every
+        // frame; the ceiling sits far past any terminal, so it never clips.
+        const huge = "y".repeat(4000);
+        const summary = formatToolArgs("bash", { command: huge }, CWD);
+        expect(summary.length).toBeLessThan(1100);
+        expect(summary.endsWith("…")).toBe(true);
+        expect(formatToolArgs("mystery", { blob: huge }, CWD).length).toBeLessThan(1100);
+    });
+
+    test("unknown tools fall back to JSON", () => {
         expect(formatToolArgs("mystery", { a: 1 }, CWD)).toBe('{"a":1}');
     });
 
     test("empty args yield an empty summary", () => {
         expect(formatToolArgs("read", {}, CWD)).toBe("");
+    });
+});
+
+describe("taskPromptSnippet", () => {
+    test("the first line, whole — the row decides where it ends", () => {
+        const prompt = "a".repeat(120);
+        expect(taskPromptSnippet({ prompt: `${prompt}\nsecond line` })).toBe(prompt);
+        expect(taskPromptSnippet({})).toBe("");
+    });
+
+    test("still bounded against a pathological prompt", () => {
+        expect(taskPromptSnippet({ prompt: "b".repeat(4000) }).length).toBeLessThan(1100);
     });
 });
 

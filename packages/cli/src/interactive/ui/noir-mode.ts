@@ -19,7 +19,7 @@ import {
 } from "./palette";
 import { bulletColor, RAIL_WIDTH, railForState, withRail, type RailSpec } from "./rail";
 import { fgHex, type ThemeBg, type ThemeColor } from "./theme";
-import { readGutterPrefixes, readLineRangeText } from "./tool-summary";
+import { highlightToolSummary, readGutterPrefixes, readLineRangeText, taskPromptSnippet } from "./tool-summary";
 import {
     registerUiMode,
     uiStyle,
@@ -429,7 +429,13 @@ export function renderTool(state: ToolBlockState, ctx: RenderCtx): string[] | nu
     let receipt = wantsReceipt ? state.receipt : "";
 
     let name = state.toolName;
-    let detail = state.summary ? " " + th.fg("muted", state.summary) : "";
+    // A bash row's summary is a shell command, so it is coloured like one —
+    // program, quoting, variables, pipeline. Anything else stays a muted run,
+    // which is what a path or a pattern wants.
+    const summaryText = state.summary
+        ? (highlightToolSummary(state.toolName, state.summary) ?? th.fg("muted", state.summary))
+        : "";
+    let detail = summaryText ? " " + summaryText : "";
     // `read src/app.ts:120-180` — the offset/limit range rides the row the way
     // the default box shows it (dim here, since noir's details are dim). Modes
     // only get `summary`, which is the path alone, so without this an offset
@@ -442,7 +448,7 @@ export function renderTool(state: ToolBlockState, ctx: RenderCtx): string[] | nu
         // `task <agent> · <live status | done · stats> · <prompt snippet>` —
         // the same identity line the default box shows, as a grok row.
         const agent = typeof state.args.agent === "string" ? state.args.agent : "default";
-        const snippet = typeof state.args.prompt === "string" ? state.args.prompt.split("\n")[0].slice(0, 50) : "";
+        const snippet = taskPromptSnippet(state.args);
         const stats = state.taskStats;
         const doneParts = [
             "done",
@@ -693,7 +699,10 @@ export function renderToolGroup(state: ToolGroupState, ctx: RenderCtx): string[]
         const last = i === state.members.length - 1;
         const color = m.isError ? "toolError" : "muted";
         const tool = toolCol ? padTo(m.toolName, toolCol) + "  " : "";
+        // Clipped BEFORE colouring: the column is measured in visible columns
+        // and clipping coloured text has to walk escapes to find them.
         const summary = clipSummary(m.summary, summaryCol, m.toolName);
+        const painted = highlightToolSummary(m.toolName, summary, color) ?? th.fg(color, summary);
         // Receipts share one right-aligned column: the eye reads down it for
         // the odd one out — the failure, the empty result, the huge file —
         // which is exactly what a fold is supposed to leave you able to do.
@@ -701,7 +710,8 @@ export function renderToolGroup(state: ToolGroupState, ctx: RenderCtx): string[]
         const row =
             th.fg("dim", last ? "└ " : "├ ") +
             (tool ? th.fg("dim", tool) : "") +
-            th.fg(color, padTo(summary, summaryCol)) +
+            painted +
+            " ".repeat(Math.max(0, summaryCol - visibleWidth(summary))) +
             " ".repeat(GAP) +
             th.fg(m.isError ? "toolError" : "dim", receipt);
         lines.push(fitRow(row, width));

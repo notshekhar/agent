@@ -7,7 +7,13 @@
 import { Box, Container, Markdown, Spacer, Text, type TUI } from "@notshekhar/loop-tui";
 import { artifactResultSummary, normalizePlanText } from "@notshekhar/loop-core";
 import { getLanguageFromPath, getMarkdownTheme, highlightCode, theme } from "./theme";
-import { formatToolArgs, readGutterPrefixes, readLineRangeText } from "./tool-summary";
+import {
+    formatToolArgs,
+    highlightToolSummary,
+    readGutterPrefixes,
+    readLineRangeText,
+    taskPromptSnippet,
+} from "./tool-summary";
 import { formatToolReceipt, toolPeek, type ToolPeek } from "./tool-receipt";
 import { uiRenderers, uiStyle, type ToolGroupMember } from "./ui-mode";
 import { markSelectedLines } from "./messages";
@@ -376,7 +382,7 @@ export class ToolExecutionComponent extends Container {
                 : this.result?.isError
                   ? "failed"
                   : ["done", ...this.taskStatsParts()].join(" · ");
-            const snippet = typeof this.args.prompt === "string" ? this.args.prompt.split("\n")[0].slice(0, 50) : "";
+            const snippet = taskPromptSnippet(this.args);
             const bullet = uiStyle().tool.bullet;
             const title =
                 (bullet ? theme.fg(this.titleColor(), `${bullet} `) : "") +
@@ -393,7 +399,10 @@ export class ToolExecutionComponent extends Container {
         // suffix; the range sits outside the muted wrap so it
         // keeps its own color.
         const range = this.toolName === "read" ? this.readLineRange() : "";
-        return `${title} ${theme.fg("muted", summary)}${range}`;
+        // bash's summary is a shell command; colour it as one. Every other
+        // tool's is a path or a pattern, which reads fine as a muted run.
+        const shown = highlightToolSummary(this.toolName, summary) ?? theme.fg("muted", summary);
+        return `${title} ${shown}${range}`;
     }
 
     /** `12 steps · 41s · $0.0430` fragments — only what the run recorded. */

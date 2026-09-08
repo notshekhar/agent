@@ -141,13 +141,17 @@ export function getEntryDisplayText(node: SessionTreeNode, isSelected: boolean, 
             } else {
                 // tool result: resolve to the original call's name + args.
                 const desc = ctx ? describeToolBlocks(entry.content, ctx) : "";
-                const fallback = normalize(extractContent(entry.content)).slice(0, 80);
+                // extractContent already applies MAX_CONTENT_LEN, and the row
+                // is truncated to the terminal's width when it is drawn — a
+                // second cut at 80 only shortened the row on a wide screen.
+                const fallback = normalize(extractContent(entry.content));
                 result = theme.fg("muted", desc || fallback || "tool");
             }
             break;
         }
         case "subagent":
-            result = theme.fg("muted", `[subagent ${entry.agent}]: `) + normalize(entry.prompt).slice(0, 80);
+            result =
+                theme.fg("muted", `[subagent ${entry.agent}]: `) + normalize(entry.prompt).slice(0, MAX_CONTENT_LEN);
             break;
         case "compact": {
             const tokens = Math.round(entry.tokensBefore / 1000);
